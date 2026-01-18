@@ -139,6 +139,15 @@ if(BUILD_PLUGIN)
         ${CMAKE_CURRENT_SOURCE_DIR}/src
     )
 
+    if(DEFINED OBS_SDK_PATH)
+        if(EXISTS "${OBS_SDK_PATH}/include/obs")
+            target_include_directories(${PROJECT_NAME} PRIVATE "${OBS_SDK_PATH}/include/obs")
+        endif()
+        if(EXISTS "${OBS_SDK_PATH}/include/obs-frontend-api")
+            target_include_directories(${PROJECT_NAME} PRIVATE "${OBS_SDK_PATH}/include/obs-frontend-api")
+        endif()
+    endif()
+
     # Link libdatachannel
     if(LibDataChannel_FOUND)
         target_link_libraries(${PROJECT_NAME} PRIVATE LibDataChannel::LibDataChannel)

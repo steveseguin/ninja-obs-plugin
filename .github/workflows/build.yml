@@ -8,16 +8,16 @@ on:
 
 env:
   PLUGIN_NAME: obs-vdoninja
-  OBS_VERSION: 32.0.4
-  OBS_SOURCE_REF: 32.0.4
-  OBS_SOURCE_TAG: 32.0.4
-  OBS_VERSION_WIN: "32.0.4"
-  OBS_VERSION_WIN_ZIP: "OBS-Studio-32.0.4-Windows-x64.zip"
+  OBS_VERSION: 31.1.2
+  OBS_SOURCE_REF: 31.1.2
+  OBS_SOURCE_TAG: 31.1.2
+  OBS_VERSION_WIN: "31.1.2"
+  OBS_VERSION_WIN_ZIP: "OBS-Studio-31.1.2-Windows-x64.zip"
 
 jobs:
   build-linux:
     name: Linux
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-22.04
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -176,6 +176,7 @@ jobs:
       - name: Install Dependencies
         run: |
           brew install cmake ninja openssl@3 qt@5
+          sudo xcode-select -s /Applications/Xcode_16.0.app
 
       - name: Build OBS SDK
         run: |
@@ -324,6 +325,7 @@ jobs:
             -DNO_TESTS=ON `
             -DUSE_GNUTLS=OFF `
             -DUSE_NICE=OFF `
+            -DCMAKE_POLICY_VERSION_MINIMUM=3.5 `
             -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT\scripts\buildsystems\vcpkg.cmake"
           cmake --build build
           cmake --install build
