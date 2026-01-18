@@ -143,11 +143,17 @@ jobs:
 
       - name: Configure Plugin
         run: |
+          echo "=== Checking OBS libraries ==="
+          ls -la ${{ github.workspace }}/obs-sdk/lib/ || echo "No lib dir"
+          find ${{ github.workspace }}/obs-sdk -name "*.so*" -o -name "*.a" | head -20
           cmake -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_INSTALL_PREFIX=/usr \
             -DCMAKE_PREFIX_PATH="/usr/local;${{ github.workspace }}/obs-sdk" \
-            -DOBS_SDK_PATH="${{ github.workspace }}/obs-sdk"
+            -DCMAKE_LIBRARY_PATH="${{ github.workspace }}/obs-sdk/lib" \
+            -DOBS_SDK_PATH="${{ github.workspace }}/obs-sdk" \
+            -DCMAKE_EXE_LINKER_FLAGS="-L${{ github.workspace }}/obs-sdk/lib" \
+            -DCMAKE_SHARED_LINKER_FLAGS="-L${{ github.workspace }}/obs-sdk/lib"
 
       - name: Build Plugin
         run: cmake --build build
@@ -195,7 +201,7 @@ jobs:
             -DENABLE_SCRIPTING=OFF \
             -DOBS_VERSION_OVERRIDE=${{ env.OBS_VERSION }}
           cmake --build build_macos --config RelWithDebInfo
-          cmake --install build_macos --prefix ${{ github.workspace }}/obs-sdk
+          cmake --install build_macos --prefix ${{ github.workspace }}/obs-sdk --config RelWithDebInfo
           echo "=== OBS SDK install tree ==="
           find ${{ github.workspace }}/obs-sdk -type f | head -100
 
