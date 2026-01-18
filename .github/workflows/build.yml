@@ -1,0 +1,290 @@
+name: Build OBS VDO.Ninja Plugin
+
+on:
+  push:
+    branches: [main, master, develop]
+    tags:
+      - 'v*'
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+env:
+  PLUGIN_NAME: obs-vdoninja
+  OBS_VERSION: 30.0.0
+
+jobs:
+  build-linux:
+    name: Linux
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Install Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            cmake \
+            ninja-build \
+            pkg-config \
+            libssl-dev \
+            libobs-dev \
+            libpthread-stubs0-dev \
+            qtbase5-dev \
+            libqt5svg5-dev \
+            libcurl4-openssl-dev \
+            libjsoncpp-dev
+
+      - name: Build libdatachannel
+        run: |
+          git clone --depth 1 --branch v0.20.2 https://github.com/paullouisageneau/libdatachannel.git
+          cd libdatachannel
+          git submodule update --init --recursive --depth 1
+          cmake -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX=/usr/local \
+            -DNO_EXAMPLES=ON \
+            -DNO_TESTS=ON \
+            -DUSE_GNUTLS=OFF \
+            -DUSE_NICE=OFF
+          cmake --build build
+          sudo cmake --install build
+
+      - name: Configure Plugin
+        run: |
+          cmake -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX=/usr \
+            -DCMAKE_PREFIX_PATH="/usr/local"
+
+      - name: Build Plugin
+        run: cmake --build build
+
+      - name: Package
+        run: |
+          cmake --install build --prefix install
+          cd install
+          tar -czvf ../${{ env.PLUGIN_NAME }}-linux-x86_64.tar.gz .
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.PLUGIN_NAME }}-linux-x86_64
+          path: ${{ env.PLUGIN_NAME }}-linux-x86_64.tar.gz
+
+  build-macos:
+    name: macOS
+    runs-on: macos-14
+    strategy:
+      matrix:
+        arch: [x86_64, arm64]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Install Dependencies
+        run: |
+          brew install cmake ninja openssl@3 qt@5
+
+      - name: Install OBS
+        run: |
+          # Download OBS SDK
+          curl -L -o obs-studio.dmg \
+            "https://github.com/obsproject/obs-studio/releases/download/${{ env.OBS_VERSION }}/OBS-Studio-${{ env.OBS_VERSION }}-macOS-Apple.dmg"
+          hdiutil attach obs-studio.dmg
+          sudo cp -R "/Volumes/OBS/OBS.app" /Applications/
+          hdiutil detach "/Volumes/OBS"
+
+      - name: Build libdatachannel
+        run: |
+          git clone --depth 1 --branch v0.20.2 https://github.com/paullouisageneau/libdatachannel.git
+          cd libdatachannel
+          git submodule update --init --recursive --depth 1
+          cmake -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_OSX_ARCHITECTURES=${{ matrix.arch }} \
+            -DCMAKE_INSTALL_PREFIX=${{ github.workspace }}/deps \
+            -DNO_EXAMPLES=ON \
+            -DNO_TESTS=ON \
+            -DUSE_GNUTLS=OFF \
+            -DUSE_NICE=OFF \
+            -DOPENSSL_ROOT_DIR=$(brew --prefix openssl@3)
+          cmake --build build
+          cmake --install build
+
+      - name: Configure Plugin
+        run: |
+          cmake -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_OSX_ARCHITECTURES=${{ matrix.arch }} \
+            -DCMAKE_PREFIX_PATH="${{ github.workspace }}/deps;$(brew --prefix qt@5);$(brew --prefix openssl@3)" \
+            -DOBS_INCLUDE_DIRS="/Applications/OBS.app/Contents/Frameworks/obs.framework/Headers" \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0
+
+      - name: Build Plugin
+        run: cmake --build build
+
+      - name: Package
+        run: |
+          cmake --install build --prefix install
+          cd install
+          zip -r ../${{ env.PLUGIN_NAME }}-macos-${{ matrix.arch }}.zip .
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.PLUGIN_NAME }}-macos-${{ matrix.arch }}
+          path: ${{ env.PLUGIN_NAME }}-macos-${{ matrix.arch }}.zip
+
+  build-macos-universal:
+    name: macOS Universal
+    needs: build-macos
+    runs-on: macos-14
+    steps:
+      - name: Download x86_64 Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ env.PLUGIN_NAME }}-macos-x86_64
+          path: x86_64
+
+      - name: Download arm64 Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ env.PLUGIN_NAME }}-macos-arm64
+          path: arm64
+
+      - name: Create Universal Binary
+        run: |
+          mkdir -p universal
+          cd x86_64 && unzip *.zip -d ../x86_64_extracted && cd ..
+          cd arm64 && unzip *.zip -d ../arm64_extracted && cd ..
+
+          # Find and lipo all dylib files
+          mkdir -p universal/lib/obs-plugins
+          for f in $(find x86_64_extracted -name "*.dylib" -o -name "*.so"); do
+            fname=$(basename "$f")
+            arm_file=$(find arm64_extracted -name "$fname" | head -1)
+            if [ -n "$arm_file" ]; then
+              lipo -create "$f" "$arm_file" -output "universal/lib/obs-plugins/$fname"
+            fi
+          done
+
+          # Copy data files from either arch (they should be identical)
+          cp -R x86_64_extracted/share universal/ 2>/dev/null || true
+
+          cd universal
+          zip -r ../${{ env.PLUGIN_NAME }}-macos-universal.zip .
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.PLUGIN_NAME }}-macos-universal
+          path: ${{ env.PLUGIN_NAME }}-macos-universal.zip
+
+  build-windows:
+    name: Windows
+    runs-on: windows-2022
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Setup MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Install Dependencies
+        run: |
+          choco install cmake ninja 7zip -y
+
+          # Download and extract OpenSSL
+          Invoke-WebRequest -Uri "https://slproweb.com/download/Win64OpenSSL-3_2_0.exe" -OutFile "openssl.exe"
+          Start-Process -FilePath "openssl.exe" -ArgumentList "/SILENT /NORESTART /DIR=C:\OpenSSL" -Wait
+
+      - name: Download OBS SDK
+        run: |
+          Invoke-WebRequest -Uri "https://github.com/obsproject/obs-studio/releases/download/${{ env.OBS_VERSION }}/OBS-Studio-${{ env.OBS_VERSION }}-Windows.zip" -OutFile "obs-sdk.zip"
+          Expand-Archive -Path "obs-sdk.zip" -DestinationPath "obs-sdk"
+
+      - name: Build libdatachannel
+        run: |
+          git clone --depth 1 --branch v0.20.2 https://github.com/paullouisageneau/libdatachannel.git
+          cd libdatachannel
+          git submodule update --init --recursive --depth 1
+          cmake -B build -G Ninja `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DCMAKE_INSTALL_PREFIX="${{ github.workspace }}\deps" `
+            -DNO_EXAMPLES=ON `
+            -DNO_TESTS=ON `
+            -DUSE_GNUTLS=OFF `
+            -DUSE_NICE=OFF `
+            -DOPENSSL_ROOT_DIR="C:\OpenSSL"
+          cmake --build build
+          cmake --install build
+
+      - name: Configure Plugin
+        run: |
+          cmake -B build -G Ninja `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DCMAKE_PREFIX_PATH="${{ github.workspace }}\deps;${{ github.workspace }}\obs-sdk" `
+            -DOPENSSL_ROOT_DIR="C:\OpenSSL" `
+            -DOBS_INCLUDE_DIRS="${{ github.workspace }}\obs-sdk\include"
+
+      - name: Build Plugin
+        run: cmake --build build
+
+      - name: Package
+        run: |
+          cmake --install build --prefix install
+          7z a ${{ env.PLUGIN_NAME }}-windows-x64.zip .\install\*
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.PLUGIN_NAME }}-windows-x64
+          path: ${{ env.PLUGIN_NAME }}-windows-x64.zip
+
+  release:
+    name: Create Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [build-linux, build-macos-universal, build-windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download All Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Generate Checksums
+        run: |
+          cd artifacts
+          find . -type f \( -name "*.zip" -o -name "*.tar.gz" \) -exec mv {} . \;
+          sha256sum *.zip *.tar.gz > checksums.txt
+          cat checksums.txt
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          draft: false
+          prerelease: ${{ contains(github.ref, '-beta') || contains(github.ref, '-alpha') || contains(github.ref, '-rc') }}
+          generate_release_notes: true
+          files: |
+            artifacts/*.zip
+            artifacts/*.tar.gz
+            artifacts/checksums.txt
