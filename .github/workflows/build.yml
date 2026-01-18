@@ -173,14 +173,11 @@ jobs:
 
   build-macos:
     name: macOS
+    runs-on: macos-14
     strategy:
       matrix:
-        include:
-          - arch: x86_64
-            runner: macos-15-intel
-          - arch: arm64
-            runner: macos-14
-    runs-on: ${{ matrix.runner }}
+        arch: [arm64]
+        # x86_64 disabled: AGL framework removed in macOS 15
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -252,50 +249,11 @@ jobs:
           name: ${{ env.PLUGIN_NAME }}-macos-${{ matrix.arch }}
           path: ${{ env.PLUGIN_NAME }}-macos-${{ matrix.arch }}.zip
 
-  build-macos-universal:
-    name: macOS Universal
-    needs: build-macos
-    runs-on: macos-14
-    steps:
-      - name: Download x86_64 Artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: ${{ env.PLUGIN_NAME }}-macos-x86_64
-          path: x86_64
-
-      - name: Download arm64 Artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: ${{ env.PLUGIN_NAME }}-macos-arm64
-          path: arm64
-
-      - name: Create Universal Binary
-        run: |
-          mkdir -p universal
-          cd x86_64 && unzip *.zip -d ../x86_64_extracted && cd ..
-          cd arm64 && unzip *.zip -d ../arm64_extracted && cd ..
-
-          # Find and lipo all dylib files
-          mkdir -p universal/lib/obs-plugins
-          for f in $(find x86_64_extracted -name "*.dylib" -o -name "*.so"); do
-            fname=$(basename "$f")
-            arm_file=$(find arm64_extracted -name "$fname" | head -1)
-            if [ -n "$arm_file" ]; then
-              lipo -create "$f" "$arm_file" -output "universal/lib/obs-plugins/$fname"
-            fi
-          done
-
-          # Copy data files from either arch (they should be identical)
-          cp -R x86_64_extracted/share universal/ 2>/dev/null || true
-
-          cd universal
-          zip -r ../${{ env.PLUGIN_NAME }}-macos-universal.zip .
-
-      - name: Upload Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ env.PLUGIN_NAME }}-macos-universal
-          path: ${{ env.PLUGIN_NAME }}-macos-universal.zip
+  # build-macos-universal disabled: x86_64 build not available due to AGL framework removal
+  # build-macos-universal:
+  #   name: macOS Universal
+  #   needs: build-macos
+  #   ...
 
   build-windows:
     name: Windows
@@ -375,7 +333,7 @@ jobs:
   release:
     name: Create Release
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [build-linux, build-macos-universal, build-windows]
+    needs: [build-linux, build-macos, build-windows]
     runs-on: ubuntu-latest
     permissions:
       contents: write
