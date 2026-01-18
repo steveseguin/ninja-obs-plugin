@@ -1,5 +1,8 @@
 # OBS VDO.Ninja Plugin
 
+[![Build](https://github.com/steveseguin/obs-vdoninja/actions/workflows/build.yml/badge.svg)](https://github.com/steveseguin/obs-vdoninja/actions/workflows/build.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 A native OBS Studio plugin for [VDO.Ninja](https://vdo.ninja) integration, enabling WebRTC streaming directly from OBS.
 
 ## Features
@@ -197,7 +200,7 @@ Contributions are welcome! Please:
 
 ## License
 
-This project is licensed under the GPL-2.0 License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
 ## Credits
 

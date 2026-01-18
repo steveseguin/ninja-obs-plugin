@@ -1,0 +1,34 @@
+---
+Language: Cpp
+BasedOnStyle: LLVM
+IndentWidth: 4
+TabWidth: 4
+UseTab: ForIndentation
+ColumnLimit: 120
+BreakBeforeBraces: Linux
+AllowShortIfStatementsOnASingleLine: false
+AllowShortLoopsOnASingleLine: false
+AllowShortFunctionsOnASingleLine: Inline
+AllowShortBlocksOnASingleLine: Empty
+IndentCaseLabels: false
+AccessModifierOffset: -4
+NamespaceIndentation: None
+PointerAlignment: Right
+SpaceAfterCStyleCast: false
+SpaceBeforeParens: ControlStatements
+SpacesInParentheses: false
+SpacesInSquareBrackets: false
+SortIncludes: true
+IncludeBlocks: Regroup
+IncludeCategories:
+  - Regex: '^<obs'
+    Priority: 1
+  - Regex: '^<rtc/'
+    Priority: 2
+  - Regex: '^<[a-z_]+>'
+    Priority: 3
+  - Regex: '^<.*\.h>'
+    Priority: 4
+  - Regex: '^".*"'
+    Priority: 5
+---
