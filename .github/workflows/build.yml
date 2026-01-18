@@ -9,7 +9,7 @@ on:
 env:
   PLUGIN_NAME: obs-vdoninja
   OBS_VERSION: 30.0.0
-  OBS_VERSION_WIN: 30.0
+  OBS_VERSION_WIN: 30
 
 jobs:
   build-linux:
@@ -108,17 +108,63 @@ jobs:
             "https://github.com/obsproject/obs-studio/releases/download/${{ env.OBS_VERSION }}/${obs_dmg}"
           hdiutil attach obs-studio.dmg
           obs_volume=$(ls /Volumes | grep -m 1 "OBS" || true)
-          sudo cp -R "/Volumes/${obs_volume}/OBS.app" /Applications/
+          obs_app=$(find "/Volumes/${obs_volume}" -maxdepth 1 -name "*.app" | head -1)
+          if [ -z "${obs_app}" ]; then
+            echo "OBS app not found in mounted DMG"
+            exit 1
+          fi
+          sudo cp -R "${obs_app}" /Applications/OBS.app
           hdiutil detach "/Volumes/${obs_volume}"
 
       - name: Prepare OBS SDK
         run: |
           OBS_APP="/Applications/OBS.app"
+          if [ ! -d "${OBS_APP}" ]; then
+            OBS_APP="/Applications/OBS Studio.app"
+          fi
+          if [ ! -d "${OBS_APP}" ]; then
+            echo "OBS.app not found in /Applications"
+            exit 1
+          fi
+          OBS_FRAMEWORK="${OBS_APP}/Contents/Frameworks/obs.framework"
+          FRONTEND_FRAMEWORK="${OBS_APP}/Contents/Frameworks/obs-frontend-api.framework"
+          OBS_HEADERS="${OBS_FRAMEWORK}/Headers"
+          FRONTEND_HEADERS="${FRONTEND_FRAMEWORK}/Headers"
+          if [ ! -d "${OBS_HEADERS}" ]; then
+            OBS_HEADERS="${OBS_FRAMEWORK}/Versions/A/Headers"
+          fi
+          if [ ! -d "${FRONTEND_HEADERS}" ]; then
+            FRONTEND_HEADERS="${FRONTEND_FRAMEWORK}/Versions/A/Headers"
+          fi
+          if [ ! -d "${OBS_HEADERS}" ]; then
+            OBS_HEADERS="${OBS_APP}/Contents/Headers"
+          fi
+          if [ ! -d "${FRONTEND_HEADERS}" ]; then
+            FRONTEND_HEADERS="${OBS_APP}/Contents/Headers"
+          fi
+          OBS_LIB="${OBS_FRAMEWORK}/obs"
+          FRONTEND_LIB="${FRONTEND_FRAMEWORK}/obs-frontend-api"
+          if [ ! -f "${OBS_LIB}" ]; then
+            OBS_LIB="${OBS_FRAMEWORK}/Versions/A/obs"
+          fi
+          if [ ! -f "${FRONTEND_LIB}" ]; then
+            FRONTEND_LIB="${FRONTEND_FRAMEWORK}/Versions/A/obs-frontend-api"
+          fi
+          if [ ! -f "${OBS_LIB}" ]; then
+            OBS_LIB=$(find "${OBS_APP}/Contents" -name "libobs.dylib" | head -1)
+          fi
+          if [ ! -f "${FRONTEND_LIB}" ]; then
+            FRONTEND_LIB=$(find "${OBS_APP}/Contents" -name "libobs-frontend-api.dylib" | head -1)
+          fi
+          if [ -z "${OBS_LIB}" ] || [ -z "${FRONTEND_LIB}" ] || [ ! -d "${OBS_HEADERS}" ]; then
+            echo "OBS SDK headers or libraries not found"
+            exit 1
+          fi
           mkdir -p obs-sdk/include obs-sdk/lib
-          cp -R "${OBS_APP}/Contents/Frameworks/obs.framework/Headers" obs-sdk/include/obs
-          cp -R "${OBS_APP}/Contents/Frameworks/obs-frontend-api.framework/Headers" obs-sdk/include/obs-frontend-api
-          cp -R "${OBS_APP}/Contents/Frameworks/obs.framework/obs" obs-sdk/lib/libobs.dylib
-          cp -R "${OBS_APP}/Contents/Frameworks/obs-frontend-api.framework/obs-frontend-api" obs-sdk/lib/libobs-frontend-api.dylib
+          cp -R "${OBS_HEADERS}" obs-sdk/include/obs
+          cp -R "${FRONTEND_HEADERS}" obs-sdk/include/obs-frontend-api
+          cp -R "${OBS_LIB}" obs-sdk/lib/libobs.dylib
+          cp -R "${FRONTEND_LIB}" obs-sdk/lib/libobs-frontend-api.dylib
 
       - name: Build libdatachannel
         run: |
@@ -228,7 +274,7 @@ jobs:
 
       - name: Download OBS SDK
         run: |
-          Invoke-WebRequest -Uri "https://github.com/obsproject/obs-studio/releases/download/${{ env.OBS_VERSION }}/OBS-Studio-${{ env.OBS_VERSION_WIN }}.zip" -OutFile "obs-sdk.zip"
+          Invoke-WebRequest -Uri "https://github.com/obsproject/obs-studio/releases/download/${{ env.OBS_VERSION }}/OBS-Studio-${{ env.OBS_VERSION_WIN }}.0.zip" -OutFile "obs-sdk.zip"
           Expand-Archive -Path "obs-sdk.zip" -DestinationPath "obs-sdk"
           Copy-Item "obs-sdk\obs-studio\sdk\*" -Destination "obs-sdk" -Recurse -Force
 
