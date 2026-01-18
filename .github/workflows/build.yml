@@ -125,12 +125,18 @@ jobs:
           echo "=== OBS SDK install tree ==="
           find ${{ github.workspace }}/obs-sdk -type f | head -100
           # Create symlinks from multiarch path to standard path
-          ln -sf ${{ github.workspace }}/obs-sdk/lib/x86_64-linux-gnu/* ${{ github.workspace }}/obs-sdk/lib/ 2>/dev/null || true
-          ln -sf ${{ github.workspace }}/obs-sdk/lib/x86_64-linux-gnu/cmake ${{ github.workspace }}/obs-sdk/lib/cmake 2>/dev/null || true
-          ln -sf ${{ github.workspace }}/obs-sdk/lib/x86_64-linux-gnu/pkgconfig ${{ github.workspace }}/obs-sdk/lib/pkgconfig 2>/dev/null || true
+          mkdir -p ${{ github.workspace }}/obs-sdk/lib
+          for f in ${{ github.workspace }}/obs-sdk/lib/x86_64-linux-gnu/*; do
+            [ -e "$f" ] && ln -sf "$f" ${{ github.workspace }}/obs-sdk/lib/$(basename "$f") 2>/dev/null || true
+          done
           # Create versioned symlinks
-          ln -sf ${{ github.workspace }}/obs-sdk/lib/libobs.so.30 ${{ github.workspace }}/obs-sdk/lib/libobs.so
-          ln -sf ${{ github.workspace }}/obs-sdk/lib/libobs-frontend-api.so.1 ${{ github.workspace }}/obs-sdk/lib/libobs-frontend-api.so || true
+          ln -sf libobs.so.30 ${{ github.workspace }}/obs-sdk/lib/libobs.so
+          ln -sf libobs-frontend-api.so.1 ${{ github.workspace }}/obs-sdk/lib/libobs-frontend-api.so 2>/dev/null || true
+          # Fix pkgconfig files to use correct libdir
+          if [ -d "${{ github.workspace }}/obs-sdk/lib/pkgconfig" ]; then
+            sed -i "s|libdir=.*|libdir=${{ github.workspace }}/obs-sdk/lib|g" ${{ github.workspace }}/obs-sdk/lib/pkgconfig/*.pc 2>/dev/null || true
+            cat ${{ github.workspace }}/obs-sdk/lib/pkgconfig/libobs.pc 2>/dev/null || echo "No libobs.pc"
+          fi
           echo "=== After symlinks ==="
           ls -la ${{ github.workspace }}/obs-sdk/lib/
 
@@ -153,17 +159,19 @@ jobs:
       - name: Configure Plugin
         run: |
           echo "=== Checking OBS libraries ==="
-          ls -la ${{ github.workspace }}/obs-sdk/lib/x86_64-linux-gnu/ || echo "No lib dir"
+          ls -la ${{ github.workspace }}/obs-sdk/lib/ || echo "No lib dir"
           find ${{ github.workspace }}/obs-sdk -name "*.so*" -o -name "*.a" | head -20
-          export OBS_LIB_DIR="${{ github.workspace }}/obs-sdk/lib/x86_64-linux-gnu"
+          # Don't set PKG_CONFIG_PATH to avoid pkg-config finding OBS with wrong paths
+          # Force CMake to use find_library which will get full paths
+          export OBS_LIB_DIR="${{ github.workspace }}/obs-sdk/lib"
           cmake -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_INSTALL_PREFIX=/usr \
             -DCMAKE_PREFIX_PATH="/usr/local;${{ github.workspace }}/obs-sdk;${OBS_LIB_DIR}/cmake/libobs;${OBS_LIB_DIR}/cmake/obs-frontend-api" \
             -DCMAKE_LIBRARY_PATH="${OBS_LIB_DIR}" \
             -DOBS_SDK_PATH="${{ github.workspace }}/obs-sdk" \
-            -DCMAKE_EXE_LINKER_FLAGS="-L${OBS_LIB_DIR}" \
-            -DCMAKE_SHARED_LINKER_FLAGS="-L${OBS_LIB_DIR}"
+            -DCMAKE_EXE_LINKER_FLAGS="-L${OBS_LIB_DIR} -Wl,-rpath,${OBS_LIB_DIR}" \
+            -DCMAKE_SHARED_LINKER_FLAGS="-L${OBS_LIB_DIR} -Wl,-rpath,${OBS_LIB_DIR}"
 
       - name: Build Plugin
         run: cmake --build build
