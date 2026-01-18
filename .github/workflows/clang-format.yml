@@ -2,7 +2,7 @@ name: Code Quality
 
 on:
   push:
-    branches: [main, master, develop]
+    branches: [main, master, develop, 'claude/**']
   pull_request:
     branches: [main, master]
 
@@ -19,7 +19,7 @@ jobs:
 
       - name: Check Formatting
         run: |
-          find src -name "*.cpp" -o -name "*.h" | xargs clang-format-14 --dry-run --Werror
+          find src tests -name "*.cpp" -o -name "*.h" | xargs clang-format-14 --dry-run --Werror
 
   cppcheck:
     name: Static Analysis
