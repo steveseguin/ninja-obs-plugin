@@ -36,39 +36,62 @@ endif()
 if(BUILD_PLUGIN)
     # When OBS_SDK_PATH is set, use find_library to get full paths (not pkg-config which returns -lobs)
     if(DEFINED OBS_SDK_PATH)
-        # Search in multiple lib subdirectories for cross-platform support
-        find_path(LIBOBS_INCLUDE_DIR obs.h
-            HINTS "${OBS_SDK_PATH}"
-            PATH_SUFFIXES include/obs include obs
-            NO_DEFAULT_PATH
-        )
-        find_library(LIBOBS_LIBRARY NAMES obs libobs
-            HINTS "${OBS_SDK_PATH}"
-            PATH_SUFFIXES lib lib64 lib/x86_64-linux-gnu bin
-            NO_DEFAULT_PATH
-        )
-        if(LIBOBS_INCLUDE_DIR AND LIBOBS_LIBRARY)
-            set(LIBOBS_FOUND TRUE)
-            set(LIBOBS_INCLUDE_DIRS "${LIBOBS_INCLUDE_DIR}")
-            set(LIBOBS_LIBRARIES "${LIBOBS_LIBRARY}")
-            message(STATUS "Found libobs via OBS_SDK_PATH: ${LIBOBS_LIBRARY}")
+        # On macOS, check for app bundle framework structure first
+        if(APPLE)
+            # macOS app bundle structure: OBS.app/Contents/Frameworks/libobs.framework
+            set(_OBS_FRAMEWORK_PATH "${OBS_SDK_PATH}/OBS.app/Contents/Frameworks")
+            if(EXISTS "${_OBS_FRAMEWORK_PATH}/libobs.framework")
+                set(LIBOBS_FOUND TRUE)
+                set(LIBOBS_LIBRARIES "${_OBS_FRAMEWORK_PATH}/libobs.framework")
+                # Headers are inside the framework
+                set(LIBOBS_INCLUDE_DIRS "${_OBS_FRAMEWORK_PATH}/libobs.framework/Headers")
+                message(STATUS "Found libobs framework: ${LIBOBS_LIBRARIES}")
+            endif()
+            if(EXISTS "${_OBS_FRAMEWORK_PATH}/libobs-frontend-api.framework")
+                set(OBS_FRONTEND_FOUND TRUE)
+                set(OBS_FRONTEND_LIBRARIES "${_OBS_FRAMEWORK_PATH}/libobs-frontend-api.framework")
+                set(OBS_FRONTEND_INCLUDE_DIRS "${_OBS_FRAMEWORK_PATH}/libobs-frontend-api.framework/Headers")
+                message(STATUS "Found obs-frontend-api framework: ${OBS_FRONTEND_LIBRARIES}")
+            endif()
         endif()
 
-        find_path(OBS_FRONTEND_INCLUDE_DIR obs-frontend-api.h
-            HINTS "${OBS_SDK_PATH}"
-            PATH_SUFFIXES include/obs include obs include/obs-frontend-api
-            NO_DEFAULT_PATH
-        )
-        find_library(OBS_FRONTEND_LIBRARY NAMES obs-frontend-api libobs-frontend-api
-            HINTS "${OBS_SDK_PATH}"
-            PATH_SUFFIXES lib lib64 lib/x86_64-linux-gnu bin
-            NO_DEFAULT_PATH
-        )
-        if(OBS_FRONTEND_INCLUDE_DIR AND OBS_FRONTEND_LIBRARY)
-            set(OBS_FRONTEND_FOUND TRUE)
-            set(OBS_FRONTEND_INCLUDE_DIRS "${OBS_FRONTEND_INCLUDE_DIR}")
-            set(OBS_FRONTEND_LIBRARIES "${OBS_FRONTEND_LIBRARY}")
-            message(STATUS "Found obs-frontend-api via OBS_SDK_PATH: ${OBS_FRONTEND_LIBRARY}")
+        # Standard lib search (Linux, Windows, and macOS fallback)
+        if(NOT LIBOBS_FOUND)
+            find_path(LIBOBS_INCLUDE_DIR obs.h
+                HINTS "${OBS_SDK_PATH}"
+                PATH_SUFFIXES include/obs include obs
+                NO_DEFAULT_PATH
+            )
+            find_library(LIBOBS_LIBRARY NAMES obs libobs
+                HINTS "${OBS_SDK_PATH}"
+                PATH_SUFFIXES lib lib64 lib/x86_64-linux-gnu bin
+                NO_DEFAULT_PATH
+            )
+            if(LIBOBS_INCLUDE_DIR AND LIBOBS_LIBRARY)
+                set(LIBOBS_FOUND TRUE)
+                set(LIBOBS_INCLUDE_DIRS "${LIBOBS_INCLUDE_DIR}")
+                set(LIBOBS_LIBRARIES "${LIBOBS_LIBRARY}")
+                message(STATUS "Found libobs via OBS_SDK_PATH: ${LIBOBS_LIBRARY}")
+            endif()
+        endif()
+
+        if(NOT OBS_FRONTEND_FOUND)
+            find_path(OBS_FRONTEND_INCLUDE_DIR obs-frontend-api.h
+                HINTS "${OBS_SDK_PATH}"
+                PATH_SUFFIXES include/obs include obs include/obs-frontend-api
+                NO_DEFAULT_PATH
+            )
+            find_library(OBS_FRONTEND_LIBRARY NAMES obs-frontend-api libobs-frontend-api
+                HINTS "${OBS_SDK_PATH}"
+                PATH_SUFFIXES lib lib64 lib/x86_64-linux-gnu bin
+                NO_DEFAULT_PATH
+            )
+            if(OBS_FRONTEND_INCLUDE_DIR AND OBS_FRONTEND_LIBRARY)
+                set(OBS_FRONTEND_FOUND TRUE)
+                set(OBS_FRONTEND_INCLUDE_DIRS "${OBS_FRONTEND_INCLUDE_DIR}")
+                set(OBS_FRONTEND_LIBRARIES "${OBS_FRONTEND_LIBRARY}")
+                message(STATUS "Found obs-frontend-api via OBS_SDK_PATH: ${OBS_FRONTEND_LIBRARY}")
+            endif()
         endif()
     endif()
 

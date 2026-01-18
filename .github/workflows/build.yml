@@ -316,6 +316,24 @@ jobs:
             "-DOBS_VERSION_OVERRIDE=${{ env.OBS_VERSION }}"
           cmake --build --preset windows-x64 --config RelWithDebInfo --parallel
           cmake --install build_x64 --prefix "${{ github.workspace }}\obs-sdk" --config RelWithDebInfo
+          # Copy headers that aren't installed by default
+          New-Item -ItemType Directory -Force -Path "${{ github.workspace }}\obs-sdk\include\obs"
+          New-Item -ItemType Directory -Force -Path "${{ github.workspace }}\obs-sdk\include\obs-frontend-api"
+          Copy-Item -Path "libobs\*.h" -Destination "${{ github.workspace }}\obs-sdk\include\obs"
+          Copy-Item -Path "libobs\util\*.h" -Destination "${{ github.workspace }}\obs-sdk\include\obs\util" -Force
+          New-Item -ItemType Directory -Force -Path "${{ github.workspace }}\obs-sdk\include\obs\util"
+          Copy-Item -Path "libobs\util\*.h" -Destination "${{ github.workspace }}\obs-sdk\include\obs\util"
+          New-Item -ItemType Directory -Force -Path "${{ github.workspace }}\obs-sdk\include\obs\graphics"
+          Copy-Item -Path "libobs\graphics\*.h" -Destination "${{ github.workspace }}\obs-sdk\include\obs\graphics"
+          New-Item -ItemType Directory -Force -Path "${{ github.workspace }}\obs-sdk\include\obs\media-io"
+          Copy-Item -Path "libobs\media-io\*.h" -Destination "${{ github.workspace }}\obs-sdk\include\obs\media-io"
+          New-Item -ItemType Directory -Force -Path "${{ github.workspace }}\obs-sdk\include\obs\callback"
+          Copy-Item -Path "libobs\callback\*.h" -Destination "${{ github.workspace }}\obs-sdk\include\obs\callback"
+          Copy-Item -Path "UI\obs-frontend-api\obs-frontend-api.h" -Destination "${{ github.workspace }}\obs-sdk\include\obs-frontend-api"
+          # Copy import libraries
+          New-Item -ItemType Directory -Force -Path "${{ github.workspace }}\obs-sdk\lib"
+          Copy-Item -Path "build_x64\libobs\RelWithDebInfo\obs.lib" -Destination "${{ github.workspace }}\obs-sdk\lib"
+          Copy-Item -Path "build_x64\UI\obs-frontend-api\RelWithDebInfo\obs-frontend-api.lib" -Destination "${{ github.workspace }}\obs-sdk\lib"
           Write-Host "=== OBS SDK install tree ==="
           Get-ChildItem -Path "${{ github.workspace }}\obs-sdk" -Recurse | Select-Object -First 100
 
