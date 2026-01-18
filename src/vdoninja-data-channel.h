@@ -12,6 +12,7 @@
 #pragma once
 
 #include "vdoninja-common.h"
+#include "vdoninja-utils.h"
 #include <functional>
 #include <map>
 #include <mutex>

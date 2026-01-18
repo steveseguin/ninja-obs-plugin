@@ -169,6 +169,11 @@ JsonBuilder &JsonBuilder::add(const std::string &key, const std::string &value)
     return *this;
 }
 
+JsonBuilder &JsonBuilder::add(const std::string &key, const char *value)
+{
+    return add(key, std::string(value));
+}
+
 JsonBuilder &JsonBuilder::add(const std::string &key, int value)
 {
     entries_.emplace_back(key, std::to_string(value));
@@ -507,6 +512,10 @@ std::string trim(const std::string &str)
 std::vector<std::string> split(const std::string &str, char delimiter)
 {
     std::vector<std::string> result;
+    if (str.empty()) {
+        result.push_back("");
+        return result;
+    }
     std::stringstream ss(str);
     std::string item;
     while (std::getline(ss, item, delimiter)) {

@@ -27,7 +27,8 @@ DataMessage VDONinjaDataChannel::parseMessage(const std::string &rawMessage)
         if (json.hasKey("chat") || json.hasKey("chatMessage")) {
             msg.type = DataMessageType::Chat;
             msg.data = json.getString("chat", json.getString("chatMessage"));
-        } else if (json.hasKey("tally") || json.hasKey("tallyOn") || json.hasKey("tallyOff")) {
+        } else if (json.hasKey("tally") || json.hasKey("tallyOn") || json.hasKey("tallyOff") ||
+                   json.hasKey("tallyPreview")) {
             msg.type = DataMessageType::Tally;
             msg.data = rawMessage;
         } else if (json.hasKey("requestKeyframe") || json.hasKey("keyframe")) {
