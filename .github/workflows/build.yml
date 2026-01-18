@@ -114,8 +114,6 @@ jobs:
           cmake -S . -B build_ubuntu \
             --preset ubuntu-ci \
             -DENABLE_BROWSER=OFF \
-            -DENABLE_UI=OFF \
-            -DENABLE_QT=OFF \
             -DENABLE_SCRIPTING=OFF \
             -DENABLE_RIST=OFF \
             -DENABLE_NEW_MPEGTS_OUTPUT=OFF \
@@ -204,7 +202,7 @@ jobs:
 
       - name: Install Dependencies
         run: |
-          brew install cmake ninja openssl@3 qt@5
+          brew install cmake ninja openssl@3 qt@6 qt@5
 
       - name: Build OBS SDK
         run: |
@@ -214,9 +212,8 @@ jobs:
           export DEVELOPER_DIR=$(ls -d /Applications/Xcode_*.app 2>/dev/null | sort -V | tail -1)/Contents/Developer
           cmake --preset macos-ci -B build_macos \
             -DCMAKE_OSX_ARCHITECTURES=${{ matrix.arch }} \
+            -DCMAKE_PREFIX_PATH="$(brew --prefix qt@6)" \
             -DENABLE_BROWSER=OFF \
-            -DENABLE_UI=OFF \
-            -DENABLE_QT=OFF \
             -DENABLE_SCRIPTING=OFF \
             -DOBS_VERSION_OVERRIDE=${{ env.OBS_VERSION }}
           cmake --build build_macos --config RelWithDebInfo
@@ -301,7 +298,7 @@ jobs:
       - name: Install Dependencies
         run: |
           choco install cmake ninja 7zip git -y
-          vcpkg install openssl:x64-windows
+          vcpkg install openssl:x64-windows qt6-base:x64-windows
 
       - name: Build OBS SDK
         run: |
@@ -310,8 +307,6 @@ jobs:
           git checkout "refs/tags/${{ env.OBS_SOURCE_TAG }}"; if ($LASTEXITCODE -ne 0) { git checkout ${{ env.OBS_SOURCE_TAG }} }
           cmake --preset windows-ci-x64 -B build_x64 `
             "-DENABLE_BROWSER=OFF" `
-            "-DENABLE_UI=OFF" `
-            "-DENABLE_QT=OFF" `
             "-DENABLE_SCRIPTING=OFF" `
             "-DOBS_VERSION_OVERRIDE=${{ env.OBS_VERSION }}"
           cmake --build --preset windows-x64 --config RelWithDebInfo --parallel
