@@ -144,16 +144,17 @@ jobs:
       - name: Configure Plugin
         run: |
           echo "=== Checking OBS libraries ==="
-          ls -la ${{ github.workspace }}/obs-sdk/lib/ || echo "No lib dir"
+          ls -la ${{ github.workspace }}/obs-sdk/lib/x86_64-linux-gnu/ || echo "No lib dir"
           find ${{ github.workspace }}/obs-sdk -name "*.so*" -o -name "*.a" | head -20
+          export OBS_LIB_DIR="${{ github.workspace }}/obs-sdk/lib/x86_64-linux-gnu"
           cmake -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_INSTALL_PREFIX=/usr \
-            -DCMAKE_PREFIX_PATH="/usr/local;${{ github.workspace }}/obs-sdk" \
-            -DCMAKE_LIBRARY_PATH="${{ github.workspace }}/obs-sdk/lib" \
+            -DCMAKE_PREFIX_PATH="/usr/local;${{ github.workspace }}/obs-sdk;${OBS_LIB_DIR}/cmake/libobs;${OBS_LIB_DIR}/cmake/obs-frontend-api" \
+            -DCMAKE_LIBRARY_PATH="${OBS_LIB_DIR}" \
             -DOBS_SDK_PATH="${{ github.workspace }}/obs-sdk" \
-            -DCMAKE_EXE_LINKER_FLAGS="-L${{ github.workspace }}/obs-sdk/lib" \
-            -DCMAKE_SHARED_LINKER_FLAGS="-L${{ github.workspace }}/obs-sdk/lib"
+            -DCMAKE_EXE_LINKER_FLAGS="-L${OBS_LIB_DIR}" \
+            -DCMAKE_SHARED_LINKER_FLAGS="-L${OBS_LIB_DIR}"
 
       - name: Build Plugin
         run: cmake --build build
@@ -172,10 +173,14 @@ jobs:
 
   build-macos:
     name: macOS
-    runs-on: macos-14
     strategy:
       matrix:
-        arch: [x86_64, arm64]
+        include:
+          - arch: x86_64
+            runner: macos-13
+          - arch: arm64
+            runner: macos-14
+    runs-on: ${{ matrix.runner }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
