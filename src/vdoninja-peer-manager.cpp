@@ -6,7 +6,8 @@
 #include "vdoninja-peer-manager.h"
 #include <random>
 
-namespace vdoninja {
+namespace vdoninja
+{
 
 VDONinjaPeerManager::VDONinjaPeerManager()
 {
@@ -40,16 +41,18 @@ void VDONinjaPeerManager::initialize(VDONinjaSignaling *signaling)
     signaling_ = signaling;
 
     // Set up signaling callbacks
-    signaling_->setOnOffer([this](const std::string &uuid, const std::string &sdp, const std::string &session) {
-        onSignalingOffer(uuid, sdp, session);
-    });
+    signaling_->setOnOffer(
+        [this](const std::string &uuid, const std::string &sdp, const std::string &session) {
+            onSignalingOffer(uuid, sdp, session);
+        });
 
-    signaling_->setOnAnswer([this](const std::string &uuid, const std::string &sdp, const std::string &session) {
-        onSignalingAnswer(uuid, sdp, session);
-    });
+    signaling_->setOnAnswer(
+        [this](const std::string &uuid, const std::string &sdp, const std::string &session) {
+            onSignalingAnswer(uuid, sdp, session);
+        });
 
     signaling_->setOnIceCandidate([this](const std::string &uuid, const std::string &candidate,
-                                          const std::string &mid, const std::string &session) {
+                                         const std::string &mid, const std::string &session) {
         onSignalingIceCandidate(uuid, candidate, mid, session);
     });
 
@@ -109,7 +112,8 @@ bool VDONinjaPeerManager::startPublishing(int maxViewers)
 
 void VDONinjaPeerManager::stopPublishing()
 {
-    if (!publishing_) return;
+    if (!publishing_)
+        return;
 
     publishing_ = false;
 
@@ -200,7 +204,8 @@ void VDONinjaPeerManager::setupPeerConnectionCallbacks(std::shared_ptr<PeerInfo>
 
     peer->pc->onStateChange([this, weakPeer, uuid](rtc::PeerConnection::State state) {
         auto peer = weakPeer.lock();
-        if (!peer) return;
+        if (!peer)
+            return;
 
         switch (state) {
         case rtc::PeerConnection::State::New:
@@ -240,7 +245,8 @@ void VDONinjaPeerManager::setupPeerConnectionCallbacks(std::shared_ptr<PeerInfo>
 
     peer->pc->onLocalCandidate([this, weakPeer, uuid](rtc::Candidate candidate) {
         auto peer = weakPeer.lock();
-        if (!peer) return;
+        if (!peer)
+            return;
 
         // Bundle candidates before sending
         std::lock_guard<std::mutex> lock(candidateMutex_);
@@ -265,7 +271,8 @@ void VDONinjaPeerManager::setupPeerConnectionCallbacks(std::shared_ptr<PeerInfo>
 
     peer->pc->onTrack([this, weakPeer, uuid](std::shared_ptr<rtc::Track> track) {
         auto peer = weakPeer.lock();
-        if (!peer) return;
+        if (!peer)
+            return;
 
         // Determine track type from description
         auto desc = track->description();
@@ -274,7 +281,8 @@ void VDONinjaPeerManager::setupPeerConnectionCallbacks(std::shared_ptr<PeerInfo>
             type = TrackType::Audio;
         }
 
-        logInfo("Received %s track from %s", type == TrackType::Audio ? "audio" : "video", uuid.c_str());
+        logInfo("Received %s track from %s", type == TrackType::Audio ? "audio" : "video",
+                uuid.c_str());
 
         if (onTrack_) {
             onTrack_(uuid, type, track);
@@ -283,7 +291,8 @@ void VDONinjaPeerManager::setupPeerConnectionCallbacks(std::shared_ptr<PeerInfo>
 
     peer->pc->onDataChannel([this, weakPeer, uuid](std::shared_ptr<rtc::DataChannel> dc) {
         auto peer = weakPeer.lock();
-        if (!peer) return;
+        if (!peer)
+            return;
 
         peer->dataChannel = dc;
         peer->hasDataChannel = true;
@@ -341,9 +350,8 @@ void VDONinjaPeerManager::setupPublisherTracks(std::shared_ptr<PeerInfo> peer)
         peer->dataChannel = dc;
         peer->hasDataChannel = true;
 
-        dc->onOpen([this, uuid = peer->uuid]() {
-            logInfo("Data channel opened for %s", uuid.c_str());
-        });
+        dc->onOpen(
+            [this, uuid = peer->uuid]() { logInfo("Data channel opened for %s", uuid.c_str()); });
 
         dc->onMessage([this, uuid = peer->uuid](auto data) {
             if (std::holds_alternative<std::string>(data)) {
@@ -357,7 +365,8 @@ void VDONinjaPeerManager::setupPublisherTracks(std::shared_ptr<PeerInfo> peer)
     logDebug("Set up publisher tracks for %s", peer->uuid.c_str());
 }
 
-void VDONinjaPeerManager::onSignalingOffer(const std::string &uuid, const std::string &sdp, const std::string &session)
+void VDONinjaPeerManager::onSignalingOffer(const std::string &uuid, const std::string &sdp,
+                                           const std::string &session)
 {
     // We received an offer - this happens when we're viewing a stream
     std::shared_ptr<PeerInfo> peer;
@@ -394,7 +403,8 @@ void VDONinjaPeerManager::onSignalingOffer(const std::string &uuid, const std::s
     }
 }
 
-void VDONinjaPeerManager::onSignalingAnswer(const std::string &uuid, const std::string &sdp, const std::string &session)
+void VDONinjaPeerManager::onSignalingAnswer(const std::string &uuid, const std::string &sdp,
+                                            const std::string &session)
 {
     // We received an answer - this happens when we're publishing and a viewer connected
     std::shared_ptr<PeerInfo> peer;
@@ -420,8 +430,10 @@ void VDONinjaPeerManager::onSignalingAnswer(const std::string &uuid, const std::
     logInfo("Set remote answer for %s", uuid.c_str());
 }
 
-void VDONinjaPeerManager::onSignalingIceCandidate(const std::string &uuid, const std::string &candidate,
-                                                   const std::string &mid, const std::string &session)
+void VDONinjaPeerManager::onSignalingIceCandidate(const std::string &uuid,
+                                                  const std::string &candidate,
+                                                  const std::string &mid,
+                                                  const std::string &session)
 {
     std::shared_ptr<PeerInfo> peer;
 
@@ -470,14 +482,14 @@ void VDONinjaPeerManager::bundleAndSendCandidates(const std::string &uuid)
 
 void VDONinjaPeerManager::sendAudioFrame(const uint8_t *data, size_t size, uint32_t timestamp)
 {
-    if (!publishing_) return;
+    if (!publishing_)
+        return;
 
     std::lock_guard<std::mutex> lock(peersMutex_);
 
     for (auto &pair : peers_) {
         auto &peer = pair.second;
-        if (peer->type != ConnectionType::Publisher ||
-            peer->state != ConnectionState::Connected) {
+        if (peer->type != ConnectionType::Publisher || peer->state != ConnectionState::Connected) {
             continue;
         }
 
@@ -517,7 +529,8 @@ void VDONinjaPeerManager::sendAudioFrame(const uint8_t *data, size_t size, uint3
                     // Payload
                     rtpPacket.insert(rtpPacket.end(), data, data + size);
 
-                    track->send(reinterpret_cast<const std::byte*>(rtpPacket.data()), rtpPacket.size());
+                    track->send(reinterpret_cast<const std::byte *>(rtpPacket.data()),
+                                rtpPacket.size());
                     break;
                 }
             }
@@ -527,16 +540,17 @@ void VDONinjaPeerManager::sendAudioFrame(const uint8_t *data, size_t size, uint3
     }
 }
 
-void VDONinjaPeerManager::sendVideoFrame(const uint8_t *data, size_t size, uint32_t timestamp, bool keyframe)
+void VDONinjaPeerManager::sendVideoFrame(const uint8_t *data, size_t size, uint32_t timestamp,
+                                         bool keyframe)
 {
-    if (!publishing_) return;
+    if (!publishing_)
+        return;
 
     std::lock_guard<std::mutex> lock(peersMutex_);
 
     for (auto &pair : peers_) {
         auto &peer = pair.second;
-        if (peer->type != ConnectionType::Publisher ||
-            peer->state != ConnectionState::Connected) {
+        if (peer->type != ConnectionType::Publisher || peer->state != ConnectionState::Connected) {
             continue;
         }
 
@@ -545,13 +559,14 @@ void VDONinjaPeerManager::sendVideoFrame(const uint8_t *data, size_t size, uint3
             for (auto &track : tracks) {
                 auto desc = track->description();
                 if (desc.find("video") != std::string::npos) {
-                    // Create RTP packet (simplified - real impl needs fragmentation for large frames)
+                    // Create RTP packet (simplified - real impl needs fragmentation for large
+                    // frames)
                     std::vector<uint8_t> rtpPacket;
                     rtpPacket.reserve(12 + size);
 
                     // RTP header
-                    rtpPacket.push_back(0x80); // V=2, P=0, X=0, CC=0
-                    rtpPacket.push_back(keyframe ? (96 | 0x80) : 96);  // PT=96, M=1 for keyframe
+                    rtpPacket.push_back(0x80);                        // V=2, P=0, X=0, CC=0
+                    rtpPacket.push_back(keyframe ? (96 | 0x80) : 96); // PT=96, M=1 for keyframe
                     rtpPacket.push_back((videoSeq_ >> 8) & 0xFF);
                     rtpPacket.push_back(videoSeq_ & 0xFF);
                     videoSeq_++;
@@ -573,7 +588,8 @@ void VDONinjaPeerManager::sendVideoFrame(const uint8_t *data, size_t size, uint3
                     // Payload
                     rtpPacket.insert(rtpPacket.end(), data, data + size);
 
-                    track->send(reinterpret_cast<const std::byte*>(rtpPacket.data()), rtpPacket.size());
+                    track->send(reinterpret_cast<const std::byte *>(rtpPacket.data()),
+                                rtpPacket.size());
                     break;
                 }
             }
@@ -597,8 +613,7 @@ void VDONinjaPeerManager::stopViewing(const std::string &streamId)
     std::lock_guard<std::mutex> lock(peersMutex_);
     auto it = peers_.begin();
     while (it != peers_.end()) {
-        if (it->second->type == ConnectionType::Viewer &&
-            it->second->streamId == streamId) {
+        if (it->second->type == ConnectionType::Viewer && it->second->streamId == streamId) {
             if (it->second->pc) {
                 it->second->pc->close();
             }
@@ -637,11 +652,26 @@ void VDONinjaPeerManager::sendDataToPeer(const std::string &uuid, const std::str
     }
 }
 
-void VDONinjaPeerManager::setOnPeerConnected(OnPeerConnectedCallback callback) { onPeerConnected_ = callback; }
-void VDONinjaPeerManager::setOnPeerDisconnected(OnPeerDisconnectedCallback callback) { onPeerDisconnected_ = callback; }
-void VDONinjaPeerManager::setOnTrack(OnTrackCallback callback) { onTrack_ = callback; }
-void VDONinjaPeerManager::setOnDataChannel(OnDataChannelCallback callback) { onDataChannel_ = callback; }
-void VDONinjaPeerManager::setOnDataChannelMessage(OnDataChannelMessageCallback callback) { onDataChannelMessage_ = callback; }
+void VDONinjaPeerManager::setOnPeerConnected(OnPeerConnectedCallback callback)
+{
+    onPeerConnected_ = callback;
+}
+void VDONinjaPeerManager::setOnPeerDisconnected(OnPeerDisconnectedCallback callback)
+{
+    onPeerDisconnected_ = callback;
+}
+void VDONinjaPeerManager::setOnTrack(OnTrackCallback callback)
+{
+    onTrack_ = callback;
+}
+void VDONinjaPeerManager::setOnDataChannel(OnDataChannelCallback callback)
+{
+    onDataChannel_ = callback;
+}
+void VDONinjaPeerManager::setOnDataChannelMessage(OnDataChannelMessageCallback callback)
+{
+    onDataChannelMessage_ = callback;
+}
 
 std::vector<std::string> VDONinjaPeerManager::getConnectedPeers() const
 {
@@ -665,9 +695,21 @@ ConnectionState VDONinjaPeerManager::getPeerState(const std::string &uuid) const
     return ConnectionState::Closed;
 }
 
-void VDONinjaPeerManager::setVideoCodec(VideoCodec codec) { videoCodec_ = codec; }
-void VDONinjaPeerManager::setAudioCodec(AudioCodec codec) { audioCodec_ = codec; }
-void VDONinjaPeerManager::setBitrate(int bitrate) { bitrate_ = bitrate; }
-void VDONinjaPeerManager::setEnableDataChannel(bool enable) { enableDataChannel_ = enable; }
+void VDONinjaPeerManager::setVideoCodec(VideoCodec codec)
+{
+    videoCodec_ = codec;
+}
+void VDONinjaPeerManager::setAudioCodec(AudioCodec codec)
+{
+    audioCodec_ = codec;
+}
+void VDONinjaPeerManager::setBitrate(int bitrate)
+{
+    bitrate_ = bitrate;
+}
+void VDONinjaPeerManager::setEnableDataChannel(bool enable)
+{
+    enableDataChannel_ = enable;
+}
 
 } // namespace vdoninja

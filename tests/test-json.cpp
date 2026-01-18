@@ -3,14 +3,15 @@
  * SPDX-License-Identifier: AGPL-3.0-only
  */
 
-#include <gtest/gtest.h>
 #include "vdoninja-utils.h"
+#include <gtest/gtest.h>
 
 using namespace vdoninja;
 
 // JsonBuilder Tests
-class JsonBuilderTest : public ::testing::Test {
-protected:
+class JsonBuilderTest : public ::testing::Test
+{
+  protected:
     JsonBuilder builder;
 };
 
@@ -51,9 +52,7 @@ TEST_F(JsonBuilderTest, BuildsBoolFalse)
 
 TEST_F(JsonBuilderTest, BuildsMultipleValues)
 {
-    builder.add("name", "test")
-           .add("count", 5)
-           .add("active", true);
+    builder.add("name", "test").add("count", 5).add("active", true);
 
     std::string result = builder.build();
 
@@ -104,11 +103,7 @@ TEST_F(JsonBuilderTest, AddsRawJson)
 
 TEST_F(JsonBuilderTest, ChainsMultipleAdds)
 {
-    std::string result = builder
-        .add("a", "1")
-        .add("b", 2)
-        .add("c", true)
-        .build();
+    std::string result = builder.add("a", "1").add("b", 2).add("c", true).build();
 
     EXPECT_NE(result.find("\"a\":\"1\""), std::string::npos);
     EXPECT_NE(result.find("\"b\":2"), std::string::npos);
@@ -116,7 +111,9 @@ TEST_F(JsonBuilderTest, ChainsMultipleAdds)
 }
 
 // JsonParser Tests
-class JsonParserTest : public ::testing::Test {};
+class JsonParserTest : public ::testing::Test
+{
+};
 
 TEST_F(JsonParserTest, ParsesEmptyObject)
 {
@@ -289,7 +286,9 @@ TEST_F(JsonParserTest, GetRawReturnsUnprocessedValue)
 }
 
 // Round-trip tests
-class JsonRoundTripTest : public ::testing::Test {};
+class JsonRoundTripTest : public ::testing::Test
+{
+};
 
 TEST_F(JsonRoundTripTest, StringRoundTrip)
 {
@@ -324,9 +323,9 @@ TEST_F(JsonRoundTripTest, MixedTypesRoundTrip)
 {
     JsonBuilder builder;
     builder.add("name", "test")
-           .add("count", 42)
-           .add("active", true)
-           .add("message", "with \"quotes\"");
+        .add("count", 42)
+        .add("active", true)
+        .add("message", "with \"quotes\"");
 
     std::string json = builder.build();
     JsonParser parser(json);
@@ -353,11 +352,14 @@ TEST_F(JsonRoundTripTest, NestedObjectRoundTrip)
 }
 
 // VDO.Ninja specific message tests
-class VDONinjaMessageTest : public ::testing::Test {};
+class VDONinjaMessageTest : public ::testing::Test
+{
+};
 
 TEST_F(VDONinjaMessageTest, ParsesOfferMessage)
 {
-    std::string offerJson = "{\"UUID\":\"abc-123\",\"sdp\":\"v=0...\",\"type\":\"offer\",\"session\":\"xyz789\"}";
+    std::string offerJson =
+        "{\"UUID\":\"abc-123\",\"sdp\":\"v=0...\",\"type\":\"offer\",\"session\":\"xyz789\"}";
 
     JsonParser parser(offerJson);
 
@@ -371,9 +373,9 @@ TEST_F(VDONinjaMessageTest, BuildsAnswerMessage)
 {
     JsonBuilder builder;
     builder.add("UUID", "peer-uuid")
-           .add("sdp", "v=0\r\no=- ...")
-           .add("type", "answer")
-           .add("session", "session123");
+        .add("sdp", "v=0\r\no=- ...")
+        .add("type", "answer")
+        .add("session", "session123");
 
     std::string json = builder.build();
 
@@ -383,8 +385,8 @@ TEST_F(VDONinjaMessageTest, BuildsAnswerMessage)
 
 TEST_F(VDONinjaMessageTest, ParsesCandidateMessage)
 {
-    std::string candidateJson =
-        "{\"UUID\":\"abc\",\"candidate\":\"candidate:1 1 UDP 2130706431 ...\",\"mid\":\"0\",\"session\":\"xyz\"}";
+    std::string candidateJson = "{\"UUID\":\"abc\",\"candidate\":\"candidate:1 1 UDP 2130706431 "
+                                "...\",\"mid\":\"0\",\"session\":\"xyz\"}";
 
     JsonParser parser(candidateJson);
 
@@ -396,9 +398,7 @@ TEST_F(VDONinjaMessageTest, ParsesCandidateMessage)
 TEST_F(VDONinjaMessageTest, BuildsJoinRoomRequest)
 {
     JsonBuilder builder;
-    builder.add("request", "joinroom")
-           .add("roomid", "hashedroomid123")
-           .add("claim", true);
+    builder.add("request", "joinroom").add("roomid", "hashedroomid123").add("claim", true);
 
     std::string json = builder.build();
 

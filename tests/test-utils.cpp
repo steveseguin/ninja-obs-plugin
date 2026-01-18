@@ -3,24 +3,25 @@
  * SPDX-License-Identifier: AGPL-3.0-only
  */
 
-#include <gtest/gtest.h>
 #include "vdoninja-utils.h"
+#include <gtest/gtest.h>
 #include <regex>
 #include <set>
 
 using namespace vdoninja;
 
 // UUID Generation Tests
-class UUIDTest : public ::testing::Test {};
+class UUIDTest : public ::testing::Test
+{
+};
 
 TEST_F(UUIDTest, GeneratesValidUUIDFormat)
 {
     std::string uuid = generateUUID();
 
     // UUID v4 format: xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx
-    std::regex uuidRegex(
-        "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
-        std::regex::icase);
+    std::regex uuidRegex("^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+                         std::regex::icase);
 
     EXPECT_TRUE(std::regex_match(uuid, uuidRegex))
         << "UUID '" << uuid << "' does not match expected format";
@@ -46,7 +47,9 @@ TEST_F(UUIDTest, UUIDHasCorrectLength)
 }
 
 // Session ID Generation Tests
-class SessionIdTest : public ::testing::Test {};
+class SessionIdTest : public ::testing::Test
+{
+};
 
 TEST_F(SessionIdTest, GeneratesCorrectLength)
 {
@@ -60,8 +63,7 @@ TEST_F(SessionIdTest, ContainsOnlyAlphanumeric)
 
     for (char c : sessionId) {
         bool isValid = (c >= '0' && c <= '9') || (c >= 'a' && c <= 'z');
-        EXPECT_TRUE(isValid)
-            << "Character '" << c << "' is not alphanumeric lowercase";
+        EXPECT_TRUE(isValid) << "Character '" << c << "' is not alphanumeric lowercase";
     }
 }
 
@@ -79,7 +81,9 @@ TEST_F(SessionIdTest, GeneratesUniqueSessionIds)
 }
 
 // SHA256 Hashing Tests
-class SHA256Test : public ::testing::Test {};
+class SHA256Test : public ::testing::Test
+{
+};
 
 TEST_F(SHA256Test, HashesEmptyString)
 {
@@ -118,7 +122,9 @@ TEST_F(SHA256Test, HashHasCorrectLength)
 }
 
 // Stream ID Sanitization Tests
-class SanitizeStreamIdTest : public ::testing::Test {};
+class SanitizeStreamIdTest : public ::testing::Test
+{
+};
 
 TEST_F(SanitizeStreamIdTest, LowercasesInput)
 {
@@ -150,7 +156,9 @@ TEST_F(SanitizeStreamIdTest, HandlesEmptyString)
 }
 
 // Stream ID Hashing Tests
-class HashStreamIdTest : public ::testing::Test {};
+class HashStreamIdTest : public ::testing::Test
+{
+};
 
 TEST_F(HashStreamIdTest, ReturnsRawIdWhenNoPassword)
 {
@@ -183,7 +191,9 @@ TEST_F(HashStreamIdTest, DifferentPasswordsProduceDifferentHashes)
 }
 
 // Room ID Hashing Tests
-class HashRoomIdTest : public ::testing::Test {};
+class HashRoomIdTest : public ::testing::Test
+{
+};
 
 TEST_F(HashRoomIdTest, ReturnsRawIdWhenNoPassword)
 {
@@ -198,7 +208,9 @@ TEST_F(HashRoomIdTest, HashesWithPassword)
 }
 
 // Base64 Encoding/Decoding Tests
-class Base64Test : public ::testing::Test {};
+class Base64Test : public ::testing::Test
+{
+};
 
 TEST_F(Base64Test, EncodesEmptyVector)
 {
@@ -269,7 +281,9 @@ TEST_F(Base64Test, RoundTripBinaryData)
 }
 
 // URL Encoding Tests
-class URLEncodeTest : public ::testing::Test {};
+class URLEncodeTest : public ::testing::Test
+{
+};
 
 TEST_F(URLEncodeTest, PreservesAlphanumeric)
 {
@@ -300,7 +314,9 @@ TEST_F(URLEncodeTest, EncodesSlashes)
 }
 
 // String Trim Tests
-class TrimTest : public ::testing::Test {};
+class TrimTest : public ::testing::Test
+{
+};
 
 TEST_F(TrimTest, TrimsLeadingSpaces)
 {
@@ -338,7 +354,9 @@ TEST_F(TrimTest, PreservesInternalSpaces)
 }
 
 // String Split Tests
-class SplitTest : public ::testing::Test {};
+class SplitTest : public ::testing::Test
+{
+};
 
 TEST_F(SplitTest, SplitsOnComma)
 {
@@ -380,7 +398,9 @@ TEST_F(SplitTest, SplitsOnDifferentDelimiters)
 }
 
 // Time Utilities Tests
-class TimeUtilsTest : public ::testing::Test {};
+class TimeUtilsTest : public ::testing::Test
+{
+};
 
 TEST_F(TimeUtilsTest, CurrentTimeMsReturnsPositive)
 {
@@ -392,7 +412,8 @@ TEST_F(TimeUtilsTest, CurrentTimeMsIncreases)
 {
     int64_t time1 = currentTimeMs();
     // Small delay
-    for (volatile int i = 0; i < 100000; i++) {}
+    for (volatile int i = 0; i < 100000; i++) {
+    }
     int64_t time2 = currentTimeMs();
 
     EXPECT_GE(time2, time1);
@@ -417,25 +438,25 @@ TEST_F(TimeUtilsTest, FormatTimestampHasCorrectFormat)
 }
 
 // SDP Manipulation Tests
-class SDPTest : public ::testing::Test {};
+class SDPTest : public ::testing::Test
+{
+};
 
 TEST_F(SDPTest, ModifySdpBitrateAddsBandwidth)
 {
     std::string sdp = "v=0\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\na=rtpmap:96 VP8/90000\r\n";
     std::string result = modifySdpBitrate(sdp, 4000000);
 
-    EXPECT_NE(result.find("b=AS:4000"), std::string::npos)
-        << "Expected b=AS line in: " << result;
+    EXPECT_NE(result.find("b=AS:4000"), std::string::npos) << "Expected b=AS line in: " << result;
 }
 
 TEST_F(SDPTest, ExtractMidFindsVideoMid)
 {
-    std::string sdp =
-        "v=0\r\n"
-        "m=audio 9 UDP/TLS/RTP/SAVPF 111\r\n"
-        "a=mid:0\r\n"
-        "m=video 9 UDP/TLS/RTP/SAVPF 96\r\n"
-        "a=mid:1\r\n";
+    std::string sdp = "v=0\r\n"
+                      "m=audio 9 UDP/TLS/RTP/SAVPF 111\r\n"
+                      "a=mid:0\r\n"
+                      "m=video 9 UDP/TLS/RTP/SAVPF 96\r\n"
+                      "a=mid:1\r\n";
 
     EXPECT_EQ(extractMid(sdp, "video"), "1");
     EXPECT_EQ(extractMid(sdp, "audio"), "0");

@@ -3,16 +3,17 @@
  * SPDX-License-Identifier: AGPL-3.0-only
  */
 
-#include <gtest/gtest.h>
-#include <gmock/gmock.h>
 #include "vdoninja-data-channel.h"
+#include <gmock/gmock.h>
+#include <gtest/gtest.h>
 
 using namespace vdoninja;
 using ::testing::_;
 
 // DataChannel Tests
-class DataChannelTest : public ::testing::Test {
-protected:
+class DataChannelTest : public ::testing::Test
+{
+  protected:
     VDONinjaDataChannel dataChannel;
 };
 
@@ -189,8 +190,9 @@ TEST_F(DataChannelTest, CreatesCustomMessage)
 }
 
 // Callback Tests
-class DataChannelCallbackTest : public ::testing::Test {
-protected:
+class DataChannelCallbackTest : public ::testing::Test
+{
+  protected:
     VDONinjaDataChannel dataChannel;
     bool chatCalled = false;
     std::string lastChatSenderId;
@@ -211,11 +213,12 @@ protected:
 
     void SetUp() override
     {
-        dataChannel.setOnChatMessage([this](const std::string &senderId, const std::string &message) {
-            chatCalled = true;
-            lastChatSenderId = senderId;
-            lastChatMessage = message;
-        });
+        dataChannel.setOnChatMessage(
+            [this](const std::string &senderId, const std::string &message) {
+                chatCalled = true;
+                lastChatSenderId = senderId;
+                lastChatMessage = message;
+            });
 
         dataChannel.setOnTallyChange([this](const std::string &streamId, const TallyState &state) {
             tallyCalled = true;
@@ -229,9 +232,7 @@ protected:
             lastVideoMuted = videoMuted;
         });
 
-        dataChannel.setOnKeyframeRequest([this](const std::string &) {
-            keyframeCalled = true;
-        });
+        dataChannel.setOnKeyframeRequest([this](const std::string &) { keyframeCalled = true; });
 
         dataChannel.setOnCustomData([this](const std::string &, const std::string &data) {
             customCalled = true;
@@ -303,8 +304,9 @@ TEST_F(DataChannelCallbackTest, TriggersOnCustomData)
 }
 
 // Tally State Management Tests
-class TallyStateTest : public ::testing::Test {
-protected:
+class TallyStateTest : public ::testing::Test
+{
+  protected:
     VDONinjaDataChannel dataChannel;
 };
 
@@ -375,8 +377,9 @@ TEST_F(TallyStateTest, UpdatesPeerTallyState)
 }
 
 // Message Round-Trip Tests
-class MessageRoundTripTest : public ::testing::Test {
-protected:
+class MessageRoundTripTest : public ::testing::Test
+{
+  protected:
     VDONinjaDataChannel dataChannel;
 };
 
@@ -433,8 +436,9 @@ TEST_F(MessageRoundTripTest, CustomMessageRoundTrip)
 }
 
 // Edge Case Tests
-class DataChannelEdgeCaseTest : public ::testing::Test {
-protected:
+class DataChannelEdgeCaseTest : public ::testing::Test
+{
+  protected:
     VDONinjaDataChannel dataChannel;
 };
 

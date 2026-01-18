@@ -9,16 +9,18 @@
 #pragma once
 
 #include "vdoninja-common.h"
-#include "vdoninja-signaling.h"
 #include "vdoninja-peer-manager.h"
+#include "vdoninja-signaling.h"
+#include <atomic>
 #include <obs-module.h>
 #include <thread>
-#include <atomic>
 
-namespace vdoninja {
+namespace vdoninja
+{
 
-class VDONinjaOutput {
-public:
+class VDONinjaOutput
+{
+  public:
     VDONinjaOutput(obs_data_t *settings, obs_output_t *output);
     ~VDONinjaOutput();
 
@@ -35,7 +37,7 @@ public:
     // Update settings
     void update(obs_data_t *settings);
 
-private:
+  private:
     // Initialize from settings
     void loadSettings(obs_data_t *settings);
 

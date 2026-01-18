@@ -12,27 +12,29 @@
 #pragma once
 
 #include "vdoninja-common.h"
+#include "vdoninja-utils.h"
 #include <functional>
 #include <map>
 #include <mutex>
 
-namespace vdoninja {
+namespace vdoninja
+{
 
 // Data channel message types (matching VDO.Ninja protocol)
 enum class DataMessageType {
     Unknown,
-    Chat,           // Chat message
-    Tally,          // Tally light state
-    RequestKeyframe,// Request keyframe from publisher
-    Mute,           // Mute state change
-    Stats,          // Connection statistics
-    Custom          // Custom application data
+    Chat,            // Chat message
+    Tally,           // Tally light state
+    RequestKeyframe, // Request keyframe from publisher
+    Mute,            // Mute state change
+    Stats,           // Connection statistics
+    Custom           // Custom application data
 };
 
 // Tally state
 struct TallyState {
-    bool program = false;  // On-air (red)
-    bool preview = false;  // Preview (green)
+    bool program = false; // On-air (red)
+    bool preview = false; // Preview (green)
 };
 
 // Data message structure
@@ -44,14 +46,19 @@ struct DataMessage {
 };
 
 // Callbacks
-using OnChatMessageCallback = std::function<void(const std::string &senderId, const std::string &message)>;
-using OnTallyChangeCallback = std::function<void(const std::string &streamId, const TallyState &state)>;
-using OnMuteChangeCallback = std::function<void(const std::string &senderId, bool audioMuted, bool videoMuted)>;
-using OnCustomDataCallback = std::function<void(const std::string &senderId, const std::string &data)>;
+using OnChatMessageCallback =
+    std::function<void(const std::string &senderId, const std::string &message)>;
+using OnTallyChangeCallback =
+    std::function<void(const std::string &streamId, const TallyState &state)>;
+using OnMuteChangeCallback =
+    std::function<void(const std::string &senderId, bool audioMuted, bool videoMuted)>;
+using OnCustomDataCallback =
+    std::function<void(const std::string &senderId, const std::string &data)>;
 using OnKeyframeRequestCallback = std::function<void(const std::string &senderId)>;
 
-class VDONinjaDataChannel {
-public:
+class VDONinjaDataChannel
+{
+  public:
     VDONinjaDataChannel();
     ~VDONinjaDataChannel();
 
@@ -80,7 +87,7 @@ public:
     TallyState getLocalTally() const;
     TallyState getPeerTally(const std::string &peerId) const;
 
-private:
+  private:
     // Parse specific message types
     void parseChatMessage(const std::string &senderId, const JsonParser &json);
     void parseTallyMessage(const std::string &senderId, const JsonParser &json);

@@ -9,15 +9,16 @@
 #pragma once
 
 #include "vdoninja-common.h"
-#include "vdoninja-signaling.h"
 #include "vdoninja-peer-manager.h"
-#include <obs-module.h>
-#include <media-io/video-scaler.h>
-#include <thread>
+#include "vdoninja-signaling.h"
 #include <atomic>
 #include <deque>
+#include <media-io/video-scaler.h>
+#include <obs-module.h>
+#include <thread>
 
-namespace vdoninja {
+namespace vdoninja
+{
 
 // Frame buffer for decoded video
 struct VideoFrame {
@@ -37,8 +38,9 @@ struct AudioBuffer {
     int64_t timestamp = 0;
 };
 
-class VDONinjaSource {
-public:
+class VDONinjaSource
+{
+  public:
     VDONinjaSource(obs_data_t *settings, obs_source_t *source);
     ~VDONinjaSource();
 
@@ -62,7 +64,7 @@ public:
     bool isConnected() const;
     std::string getStreamId() const;
 
-private:
+  private:
     // Load settings
     void loadSettings(obs_data_t *settings);
 

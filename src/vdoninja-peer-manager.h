@@ -10,18 +10,16 @@
 
 #include "vdoninja-common.h"
 #include "vdoninja-signaling.h"
-#include <rtc/rtc.hpp>
+#include <functional>
 #include <map>
 #include <mutex>
-#include <functional>
+#include <rtc/rtc.hpp>
 
-namespace vdoninja {
+namespace vdoninja
+{
 
 // Track types
-enum class TrackType {
-    Audio,
-    Video
-};
+enum class TrackType { Audio, Video };
 
 // Media track info
 struct MediaTrack {
@@ -36,12 +34,16 @@ struct MediaTrack {
 // Callbacks for peer events
 using OnPeerConnectedCallback = std::function<void(const std::string &uuid)>;
 using OnPeerDisconnectedCallback = std::function<void(const std::string &uuid)>;
-using OnTrackCallback = std::function<void(const std::string &uuid, TrackType type, std::shared_ptr<rtc::Track> track)>;
-using OnDataChannelCallback = std::function<void(const std::string &uuid, std::shared_ptr<rtc::DataChannel> dc)>;
-using OnDataChannelMessageCallback = std::function<void(const std::string &uuid, const std::string &message)>;
+using OnTrackCallback =
+    std::function<void(const std::string &uuid, TrackType type, std::shared_ptr<rtc::Track> track)>;
+using OnDataChannelCallback =
+    std::function<void(const std::string &uuid, std::shared_ptr<rtc::DataChannel> dc)>;
+using OnDataChannelMessageCallback =
+    std::function<void(const std::string &uuid, const std::string &message)>;
 
-class VDONinjaPeerManager {
-public:
+class VDONinjaPeerManager
+{
+  public:
     VDONinjaPeerManager();
     ~VDONinjaPeerManager();
 
@@ -87,7 +89,7 @@ public:
     void setBitrate(int bitrate);
     void setEnableDataChannel(bool enable);
 
-private:
+  private:
     // Create a new peer connection for a viewer (we send media to them)
     std::shared_ptr<PeerInfo> createPublisherConnection(const std::string &uuid);
 
@@ -95,10 +97,12 @@ private:
     std::shared_ptr<PeerInfo> createViewerConnection(const std::string &uuid);
 
     // Handle signaling events
-    void onSignalingOffer(const std::string &uuid, const std::string &sdp, const std::string &session);
-    void onSignalingAnswer(const std::string &uuid, const std::string &sdp, const std::string &session);
+    void onSignalingOffer(const std::string &uuid, const std::string &sdp,
+                          const std::string &session);
+    void onSignalingAnswer(const std::string &uuid, const std::string &sdp,
+                           const std::string &session);
     void onSignalingIceCandidate(const std::string &uuid, const std::string &candidate,
-                                  const std::string &mid, const std::string &session);
+                                 const std::string &mid, const std::string &session);
 
     // Setup peer connection callbacks
     void setupPeerConnectionCallbacks(std::shared_ptr<PeerInfo> peer);

@@ -4,8 +4,8 @@
  */
 
 #include "obs-module.h"
-#include <cstdio>
 #include <cstdarg>
+#include <cstdio>
 
 // Global flag to enable/disable test logging output
 static bool g_test_logging_enabled = false;
@@ -50,7 +50,8 @@ void blog(int log_level, const char *format, ...)
 } // extern "C"
 
 // Helper to enable/disable logging in tests
-namespace testing_utils {
+namespace testing_utils
+{
 void enableLogging(bool enable)
 {
     g_test_logging_enabled = enable;

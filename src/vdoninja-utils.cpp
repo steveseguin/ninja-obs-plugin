@@ -4,18 +4,19 @@
  */
 
 #include "vdoninja-utils.h"
-#include <obs-module.h>
-#include <openssl/sha.h>
-#include <openssl/evp.h>
-#include <random>
-#include <sstream>
-#include <iomanip>
-#include <cstdarg>
 #include <algorithm>
 #include <cctype>
+#include <cstdarg>
+#include <iomanip>
+#include <obs-module.h>
+#include <openssl/evp.h>
+#include <openssl/sha.h>
+#include <random>
 #include <regex>
+#include <sstream>
 
-namespace vdoninja {
+namespace vdoninja
+{
 
 // UUID Generation
 std::string generateUUID()
@@ -33,11 +34,11 @@ std::string generateUUID()
     ss << "-";
     for (int i = 0; i < 4; i++)
         ss << dis(gen);
-    ss << "-4";  // Version 4
+    ss << "-4"; // Version 4
     for (int i = 0; i < 3; i++)
         ss << dis(gen);
     ss << "-";
-    ss << dis2(gen);  // Variant
+    ss << dis2(gen); // Variant
     for (int i = 0; i < 3; i++)
         ss << dis(gen);
     ss << "-";
@@ -49,9 +50,8 @@ std::string generateUUID()
 
 std::string generateSessionId()
 {
-    static const char alphanum[] =
-        "0123456789"
-        "abcdefghijklmnopqrstuvwxyz";
+    static const char alphanum[] = "0123456789"
+                                   "abcdefghijklmnopqrstuvwxyz";
     static std::random_device rd;
     static std::mt19937 gen(rd());
     static std::uniform_int_distribution<> dis(0, sizeof(alphanum) - 2);
@@ -83,7 +83,8 @@ std::string sha256(const std::string &input)
 }
 
 // Hash stream ID matching VDO.Ninja SDK algorithm
-std::string hashStreamId(const std::string &streamId, const std::string &password, const std::string &salt)
+std::string hashStreamId(const std::string &streamId, const std::string &password,
+                         const std::string &salt)
 {
     std::string sanitized = sanitizeStreamId(streamId);
 
@@ -100,7 +101,8 @@ std::string hashStreamId(const std::string &streamId, const std::string &passwor
     return fullHash.substr(0, 16);
 }
 
-std::string hashRoomId(const std::string &roomId, const std::string &password, const std::string &salt)
+std::string hashRoomId(const std::string &roomId, const std::string &password,
+                       const std::string &salt)
 {
     std::string sanitized = sanitizeStreamId(roomId);
 
@@ -136,19 +138,40 @@ JsonBuilder &JsonBuilder::add(const std::string &key, const std::string &value)
     escaped += '"';
     for (char c : value) {
         switch (c) {
-        case '"': escaped += "\\\""; break;
-        case '\\': escaped += "\\\\"; break;
-        case '\b': escaped += "\\b"; break;
-        case '\f': escaped += "\\f"; break;
-        case '\n': escaped += "\\n"; break;
-        case '\r': escaped += "\\r"; break;
-        case '\t': escaped += "\\t"; break;
-        default: escaped += c; break;
+        case '"':
+            escaped += "\\\"";
+            break;
+        case '\\':
+            escaped += "\\\\";
+            break;
+        case '\b':
+            escaped += "\\b";
+            break;
+        case '\f':
+            escaped += "\\f";
+            break;
+        case '\n':
+            escaped += "\\n";
+            break;
+        case '\r':
+            escaped += "\\r";
+            break;
+        case '\t':
+            escaped += "\\t";
+            break;
+        default:
+            escaped += c;
+            break;
         }
     }
     escaped += '"';
     entries_.emplace_back(key, escaped);
     return *this;
+}
+
+JsonBuilder &JsonBuilder::add(const std::string &key, const char *value)
+{
+    return add(key, std::string(value));
 }
 
 JsonBuilder &JsonBuilder::add(const std::string &key, int value)
@@ -174,7 +197,8 @@ std::string JsonBuilder::build() const
     std::stringstream ss;
     ss << "{";
     for (size_t i = 0; i < entries_.size(); i++) {
-        if (i > 0) ss << ",";
+        if (i > 0)
+            ss << ",";
         ss << "\"" << entries_[i].first << "\":" << entries_[i].second;
     }
     ss << "}";
@@ -201,7 +225,8 @@ void JsonParser::parse()
         while (pos < json_.size() && std::isspace(json_[pos]))
             pos++;
 
-        if (json_[pos] != '"') break;
+        if (json_[pos] != '"')
+            break;
         pos++; // Skip opening quote
 
         // Extract key
@@ -241,12 +266,24 @@ std::string JsonParser::extractValue(size_t &pos) const
             if (json_[pos] == '\\' && pos + 1 < json_.size()) {
                 pos++;
                 switch (json_[pos]) {
-                case 'n': value += '\n'; break;
-                case 'r': value += '\r'; break;
-                case 't': value += '\t'; break;
-                case '"': value += '"'; break;
-                case '\\': value += '\\'; break;
-                default: value += json_[pos]; break;
+                case 'n':
+                    value += '\n';
+                    break;
+                case 'r':
+                    value += '\r';
+                    break;
+                case 't':
+                    value += '\t';
+                    break;
+                case '"':
+                    value += '"';
+                    break;
+                case '\\':
+                    value += '\\';
+                    break;
+                default:
+                    value += json_[pos];
+                    break;
                 }
             } else {
                 value += json_[pos];
@@ -259,8 +296,10 @@ std::string JsonParser::extractValue(size_t &pos) const
         int depth = 1;
         value += json_[pos++];
         while (pos < json_.size() && depth > 0) {
-            if (json_[pos] == '{') depth++;
-            else if (json_[pos] == '}') depth--;
+            if (json_[pos] == '{')
+                depth++;
+            else if (json_[pos] == '}')
+                depth--;
             value += json_[pos++];
         }
     } else if (json_[pos] == '[') {
@@ -268,13 +307,16 @@ std::string JsonParser::extractValue(size_t &pos) const
         int depth = 1;
         value += json_[pos++];
         while (pos < json_.size() && depth > 0) {
-            if (json_[pos] == '[') depth++;
-            else if (json_[pos] == ']') depth--;
+            if (json_[pos] == '[')
+                depth++;
+            else if (json_[pos] == ']')
+                depth--;
             value += json_[pos++];
         }
     } else {
         // Number, boolean, or null
-        while (pos < json_.size() && json_[pos] != ',' && json_[pos] != '}' && !std::isspace(json_[pos])) {
+        while (pos < json_.size() && json_[pos] != ',' && json_[pos] != '}' &&
+               !std::isspace(json_[pos])) {
             value += json_[pos++];
         }
     }
@@ -337,14 +379,16 @@ std::vector<std::string> JsonParser::getArray(const std::string &key) const
     std::vector<std::string> result;
     std::string arr = getRaw(key);
 
-    if (arr.empty() || arr[0] != '[') return result;
+    if (arr.empty() || arr[0] != '[')
+        return result;
 
     size_t pos = 1;
     while (pos < arr.size() && arr[pos] != ']') {
         while (pos < arr.size() && std::isspace(arr[pos]))
             pos++;
 
-        if (arr[pos] == ']') break;
+        if (arr[pos] == ']')
+            break;
 
         // This is a simplified extraction - real impl would need full parser
         std::string value;
@@ -358,8 +402,10 @@ std::vector<std::string> JsonParser::getArray(const std::string &key) const
             int depth = 1;
             value += arr[pos++];
             while (pos < arr.size() && depth > 0) {
-                if (arr[pos] == '{') depth++;
-                else if (arr[pos] == '}') depth--;
+                if (arr[pos] == '{')
+                    depth++;
+                else if (arr[pos] == '}')
+                    depth--;
                 value += arr[pos++];
             }
         }
@@ -378,15 +424,18 @@ std::vector<std::string> JsonParser::getArray(const std::string &key) const
 // String utilities
 std::string base64Encode(const std::vector<uint8_t> &data)
 {
-    static const char charset[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    static const char charset[] =
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
     std::string result;
     result.reserve(((data.size() + 2) / 3) * 4);
 
     for (size_t i = 0; i < data.size(); i += 3) {
         uint32_t n = data[i] << 16;
-        if (i + 1 < data.size()) n |= data[i + 1] << 8;
-        if (i + 2 < data.size()) n |= data[i + 2];
+        if (i + 1 < data.size())
+            n |= data[i + 1] << 8;
+        if (i + 2 < data.size())
+            n |= data[i + 2];
 
         result += charset[(n >> 18) & 0x3F];
         result += charset[(n >> 12) & 0x3F];
@@ -400,14 +449,12 @@ std::string base64Encode(const std::vector<uint8_t> &data)
 std::vector<uint8_t> base64Decode(const std::string &encoded)
 {
     static const uint8_t lookup[256] = {
-        64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64,
-        64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64,
-        64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 62, 64, 64, 64, 63,
-        52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 64, 64, 64, 64, 64, 64,
-        64,  0,  1,  2,  3,  4,  5,  6,  7,  8,  9, 10, 11, 12, 13, 14,
-        15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 64, 64, 64, 64, 64,
-        64, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40,
-        41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 64, 64, 64, 64, 64,
+        64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64,
+        64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 62,
+        64, 64, 64, 63, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 64, 64, 64, 64, 64, 64, 64, 0,
+        1,  2,  3,  4,  5,  6,  7,  8,  9,  10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22,
+        23, 24, 25, 64, 64, 64, 64, 64, 64, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38,
+        39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 64, 64, 64, 64, 64,
     };
 
     std::vector<uint8_t> result;
@@ -417,9 +464,11 @@ std::vector<uint8_t> base64Decode(const std::string &encoded)
     int bits = 0;
 
     for (char c : encoded) {
-        if (c == '=') break;
+        if (c == '=')
+            break;
         uint8_t val = lookup[static_cast<unsigned char>(c)];
-        if (val == 64) continue;
+        if (val == 64)
+            continue;
 
         buffer = (buffer << 6) | val;
         bits += 6;
@@ -440,7 +489,8 @@ std::string urlEncode(const std::string &value)
     escaped << std::hex;
 
     for (char c : value) {
-        if (std::isalnum(static_cast<unsigned char>(c)) || c == '-' || c == '_' || c == '.' || c == '~') {
+        if (std::isalnum(static_cast<unsigned char>(c)) || c == '-' || c == '_' || c == '.' ||
+            c == '~') {
             escaped << c;
         } else {
             escaped << '%' << std::setw(2) << int(static_cast<unsigned char>(c));
@@ -453,7 +503,8 @@ std::string urlEncode(const std::string &value)
 std::string trim(const std::string &str)
 {
     size_t start = str.find_first_not_of(" \t\r\n");
-    if (start == std::string::npos) return "";
+    if (start == std::string::npos)
+        return "";
     size_t end = str.find_last_not_of(" \t\r\n");
     return str.substr(start, end - start + 1);
 }
@@ -461,6 +512,10 @@ std::string trim(const std::string &str)
 std::vector<std::string> split(const std::string &str, char delimiter)
 {
     std::vector<std::string> result;
+    if (str.empty()) {
+        result.push_back("");
+        return result;
+    }
     std::stringstream ss(str);
     std::string item;
     while (std::getline(ss, item, delimiter)) {
@@ -521,15 +576,18 @@ std::string extractMid(const std::string &sdp, const std::string &mediaType)
 {
     std::string searchStr = "m=" + mediaType;
     size_t pos = sdp.find(searchStr);
-    if (pos == std::string::npos) return "";
+    if (pos == std::string::npos)
+        return "";
 
     // Find a=mid: line after this
     pos = sdp.find("a=mid:", pos);
-    if (pos == std::string::npos) return "";
+    if (pos == std::string::npos)
+        return "";
 
     pos += 6; // Skip "a=mid:"
     size_t end = sdp.find_first_of("\r\n", pos);
-    if (end == std::string::npos) return "";
+    if (end == std::string::npos)
+        return "";
 
     return sdp.substr(pos, end - pos);
 }

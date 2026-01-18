@@ -6,12 +6,13 @@
 #pragma once
 
 #include "vdoninja-common.h"
-#include <string>
-#include <map>
-#include <vector>
 #include <chrono>
+#include <map>
+#include <string>
+#include <vector>
 
-namespace vdoninja {
+namespace vdoninja
+{
 
 // UUID generation
 std::string generateUUID();
@@ -21,27 +22,32 @@ std::string generateSessionId();
 
 // SHA-256 based hashing for stream/room IDs (matching VDO.Ninja SDK)
 std::string sha256(const std::string &input);
-std::string hashStreamId(const std::string &streamId, const std::string &password, const std::string &salt);
-std::string hashRoomId(const std::string &roomId, const std::string &password, const std::string &salt);
+std::string hashStreamId(const std::string &streamId, const std::string &password,
+                         const std::string &salt);
+std::string hashRoomId(const std::string &roomId, const std::string &password,
+                       const std::string &salt);
 
 // Sanitize stream ID (replace non-alphanumeric with underscores)
 std::string sanitizeStreamId(const std::string &streamId);
 
 // Simple JSON utilities (avoiding external JSON library dependency)
-class JsonBuilder {
-public:
+class JsonBuilder
+{
+  public:
     JsonBuilder &add(const std::string &key, const std::string &value);
+    JsonBuilder &add(const std::string &key, const char *value);
     JsonBuilder &add(const std::string &key, int value);
     JsonBuilder &add(const std::string &key, bool value);
     JsonBuilder &addRaw(const std::string &key, const std::string &rawJson);
     std::string build() const;
 
-private:
+  private:
     std::vector<std::pair<std::string, std::string>> entries_;
 };
 
-class JsonParser {
-public:
+class JsonParser
+{
+  public:
     explicit JsonParser(const std::string &json);
 
     bool hasKey(const std::string &key) const;
@@ -56,7 +62,7 @@ public:
     // Get array elements
     std::vector<std::string> getArray(const std::string &key) const;
 
-private:
+  private:
     std::string json_;
     std::map<std::string, std::string> values_;
     void parse();

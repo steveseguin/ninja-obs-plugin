@@ -64,8 +64,9 @@ static obs_properties_t *vdoninja_service_properties(void *)
     obs_properties_add_text(props, "room_id", obs_module_text("RoomID"), OBS_TEXT_DEFAULT);
     obs_properties_add_text(props, "password", obs_module_text("Password"), OBS_TEXT_PASSWORD);
 
-    obs_property_t *codec = obs_properties_add_list(props, "video_codec", obs_module_text("VideoCodec"),
-                                                     OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_INT);
+    obs_property_t *codec =
+        obs_properties_add_list(props, "video_codec", obs_module_text("VideoCodec"),
+                                OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_INT);
     obs_property_list_add_int(codec, "H.264", 0);
     obs_property_list_add_int(codec, "VP8", 1);
     obs_property_list_add_int(codec, "VP9", 2);

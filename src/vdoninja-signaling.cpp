@@ -8,10 +8,11 @@
  */
 
 #include "vdoninja-signaling.h"
-#include <rtc/rtc.hpp>
 #include <chrono>
+#include <rtc/rtc.hpp>
 
-namespace vdoninja {
+namespace vdoninja
+{
 
 VDONinjaSignaling::VDONinjaSignaling()
 {
@@ -59,7 +60,7 @@ void VDONinjaSignaling::disconnect()
 
     // Close WebSocket
     if (wsHandle_) {
-        auto ws = static_cast<std::shared_ptr<rtc::WebSocket>*>(wsHandle_);
+        auto ws = static_cast<std::shared_ptr<rtc::WebSocket> *>(wsHandle_);
         (*ws)->close();
         delete ws;
         wsHandle_ = nullptr;
@@ -130,9 +131,8 @@ void VDONinjaSignaling::wsThreadFunc()
         // Main loop - process send queue
         while (shouldRun_) {
             std::unique_lock<std::mutex> lock(sendMutex_);
-            sendCv_.wait_for(lock, std::chrono::milliseconds(100), [this] {
-                return !sendQueue_.empty() || !shouldRun_;
-            });
+            sendCv_.wait_for(lock, std::chrono::milliseconds(100),
+                             [this] { return !sendQueue_.empty() || !shouldRun_; });
 
             while (!sendQueue_.empty() && connected_) {
                 std::string msg = sendQueue_.front();
@@ -171,13 +171,14 @@ void VDONinjaSignaling::attemptReconnect()
     reconnectAttempts_++;
     int delay = std::min(1000 * (1 << reconnectAttempts_), 30000); // Exponential backoff, max 30s
 
-    logInfo("Reconnecting in %d ms (attempt %d/%d)", delay, reconnectAttempts_, maxReconnectAttempts_);
+    logInfo("Reconnecting in %d ms (attempt %d/%d)", delay, reconnectAttempts_,
+            maxReconnectAttempts_);
     std::this_thread::sleep_for(std::chrono::milliseconds(delay));
 
     if (shouldRun_) {
         // Clean up old connection
         if (wsHandle_) {
-            auto ws = static_cast<std::shared_ptr<rtc::WebSocket>*>(wsHandle_);
+            auto ws = static_cast<std::shared_ptr<rtc::WebSocket> *>(wsHandle_);
             delete ws;
             wsHandle_ = nullptr;
         }
@@ -493,7 +494,8 @@ bool VDONinjaSignaling::stopViewing(const std::string &streamId)
     return true;
 }
 
-void VDONinjaSignaling::sendOffer(const std::string &uuid, const std::string &sdp, const std::string &session)
+void VDONinjaSignaling::sendOffer(const std::string &uuid, const std::string &sdp,
+                                  const std::string &session)
 {
     JsonBuilder msg;
     msg.add("UUID", uuid);
@@ -505,7 +507,8 @@ void VDONinjaSignaling::sendOffer(const std::string &uuid, const std::string &sd
     logDebug("Sent offer to %s", uuid.c_str());
 }
 
-void VDONinjaSignaling::sendAnswer(const std::string &uuid, const std::string &sdp, const std::string &session)
+void VDONinjaSignaling::sendAnswer(const std::string &uuid, const std::string &sdp,
+                                   const std::string &session)
 {
     JsonBuilder msg;
     msg.add("UUID", uuid);
@@ -518,7 +521,7 @@ void VDONinjaSignaling::sendAnswer(const std::string &uuid, const std::string &s
 }
 
 void VDONinjaSignaling::sendIceCandidate(const std::string &uuid, const std::string &candidate,
-                                          const std::string &mid, const std::string &session)
+                                         const std::string &mid, const std::string &session)
 {
     JsonBuilder msg;
     msg.add("UUID", uuid);
@@ -539,25 +542,64 @@ void VDONinjaSignaling::sendDataMessage(const std::string &uuid, const std::stri
     sendMessage(msg.build());
 }
 
-void VDONinjaSignaling::setOnConnected(OnConnectedCallback callback) { onConnected_ = callback; }
-void VDONinjaSignaling::setOnDisconnected(OnDisconnectedCallback callback) { onDisconnected_ = callback; }
-void VDONinjaSignaling::setOnError(OnErrorCallback callback) { onError_ = callback; }
-void VDONinjaSignaling::setOnOffer(OnOfferCallback callback) { onOffer_ = callback; }
-void VDONinjaSignaling::setOnAnswer(OnAnswerCallback callback) { onAnswer_ = callback; }
-void VDONinjaSignaling::setOnIceCandidate(OnIceCandidateCallback callback) { onIceCandidate_ = callback; }
-void VDONinjaSignaling::setOnRoomJoined(OnRoomJoinedCallback callback) { onRoomJoined_ = callback; }
-void VDONinjaSignaling::setOnStreamAdded(OnStreamAddedCallback callback) { onStreamAdded_ = callback; }
-void VDONinjaSignaling::setOnStreamRemoved(OnStreamRemovedCallback callback) { onStreamRemoved_ = callback; }
-void VDONinjaSignaling::setOnData(OnDataCallback callback) { onData_ = callback; }
+void VDONinjaSignaling::setOnConnected(OnConnectedCallback callback)
+{
+    onConnected_ = callback;
+}
+void VDONinjaSignaling::setOnDisconnected(OnDisconnectedCallback callback)
+{
+    onDisconnected_ = callback;
+}
+void VDONinjaSignaling::setOnError(OnErrorCallback callback)
+{
+    onError_ = callback;
+}
+void VDONinjaSignaling::setOnOffer(OnOfferCallback callback)
+{
+    onOffer_ = callback;
+}
+void VDONinjaSignaling::setOnAnswer(OnAnswerCallback callback)
+{
+    onAnswer_ = callback;
+}
+void VDONinjaSignaling::setOnIceCandidate(OnIceCandidateCallback callback)
+{
+    onIceCandidate_ = callback;
+}
+void VDONinjaSignaling::setOnRoomJoined(OnRoomJoinedCallback callback)
+{
+    onRoomJoined_ = callback;
+}
+void VDONinjaSignaling::setOnStreamAdded(OnStreamAddedCallback callback)
+{
+    onStreamAdded_ = callback;
+}
+void VDONinjaSignaling::setOnStreamRemoved(OnStreamRemovedCallback callback)
+{
+    onStreamRemoved_ = callback;
+}
+void VDONinjaSignaling::setOnData(OnDataCallback callback)
+{
+    onData_ = callback;
+}
 
-void VDONinjaSignaling::setSalt(const std::string &salt) { salt_ = salt; }
-void VDONinjaSignaling::setDefaultPassword(const std::string &password) { defaultPassword_ = password; }
+void VDONinjaSignaling::setSalt(const std::string &salt)
+{
+    salt_ = salt;
+}
+void VDONinjaSignaling::setDefaultPassword(const std::string &password)
+{
+    defaultPassword_ = password;
+}
 void VDONinjaSignaling::setAutoReconnect(bool enable, int maxAttempts)
 {
     autoReconnect_ = enable;
     maxReconnectAttempts_ = maxAttempts;
 }
 
-std::string VDONinjaSignaling::getLocalUUID() const { return localUUID_; }
+std::string VDONinjaSignaling::getLocalUUID() const
+{
+    return localUUID_;
+}
 
 } // namespace vdoninja

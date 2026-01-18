@@ -6,7 +6,8 @@
 #include "vdoninja-source.h"
 #include <util/threading.h>
 
-namespace vdoninja {
+namespace vdoninja
+{
 
 // OBS source callbacks
 static const char *vdoninja_source_getname(void *)
@@ -80,7 +81,8 @@ static obs_properties_t *vdoninja_source_properties(void *)
     obs_properties_add_text(props, "stream_id", obs_module_text("StreamID"), OBS_TEXT_DEFAULT);
     obs_properties_add_text(props, "room_id", obs_module_text("RoomID"), OBS_TEXT_DEFAULT);
     obs_properties_add_text(props, "password", obs_module_text("Password"), OBS_TEXT_PASSWORD);
-    obs_properties_add_text(props, "wss_host", obs_module_text("SignalingServer"), OBS_TEXT_DEFAULT);
+    obs_properties_add_text(props, "wss_host", obs_module_text("SignalingServer"),
+                            OBS_TEXT_DEFAULT);
 
     obs_properties_add_bool(props, "enable_data_channel", obs_module_text("EnableDataChannel"));
     obs_properties_add_bool(props, "auto_reconnect", obs_module_text("AutoReconnect"));
@@ -126,8 +128,7 @@ obs_source_info vdoninja_source_info = {
 
 // Implementation
 
-VDONinjaSource::VDONinjaSource(obs_data_t *settings, obs_source_t *source)
-    : source_(source)
+VDONinjaSource::VDONinjaSource(obs_data_t *settings, obs_source_t *source) : source_(source)
 {
     loadSettings(settings);
 
@@ -175,8 +176,10 @@ void VDONinjaSource::loadSettings(obs_data_t *settings)
     width_ = static_cast<uint32_t>(obs_data_get_int(settings, "width"));
     height_ = static_cast<uint32_t>(obs_data_get_int(settings, "height"));
 
-    if (width_ == 0) width_ = 1920;
-    if (height_ == 0) height_ = 1080;
+    if (width_ == 0)
+        width_ = 1920;
+    if (height_ == 0)
+        height_ = 1080;
 }
 
 void VDONinjaSource::update(obs_data_t *settings)
@@ -196,7 +199,8 @@ void VDONinjaSource::update(obs_data_t *settings)
 
 void VDONinjaSource::activate()
 {
-    if (active_) return;
+    if (active_)
+        return;
 
     active_ = true;
     connect();
@@ -206,7 +210,8 @@ void VDONinjaSource::activate()
 
 void VDONinjaSource::deactivate()
 {
-    if (!active_) return;
+    if (!active_)
+        return;
 
     active_ = false;
     disconnect();
@@ -263,13 +268,14 @@ void VDONinjaSource::connectionThread()
     peerManager_->setForceTurn(settings_.forceTurn);
 
     // Set up track callback
-    peerManager_->setOnTrack([this](const std::string &uuid, TrackType type, std::shared_ptr<rtc::Track> track) {
-        if (type == TrackType::Video) {
-            onVideoTrack(uuid, track);
-        } else {
-            onAudioTrack(uuid, track);
-        }
-    });
+    peerManager_->setOnTrack(
+        [this](const std::string &uuid, TrackType type, std::shared_ptr<rtc::Track> track) {
+            if (type == TrackType::Video) {
+                onVideoTrack(uuid, track);
+            } else {
+                onAudioTrack(uuid, track);
+            }
+        });
 
     peerManager_->setOnPeerConnected([this](const std::string &uuid) {
         logInfo("Connected to publisher: %s", uuid.c_str());
@@ -300,13 +306,13 @@ void VDONinjaSource::connectionThread()
         connected_ = false;
     });
 
-    signaling_->setOnError([this](const std::string &error) {
-        logError("Signaling error: %s", error.c_str());
-    });
+    signaling_->setOnError(
+        [this](const std::string &error) { logError("Signaling error: %s", error.c_str()); });
 
     signaling_->setOnStreamAdded([this](const std::string &streamId, const std::string &uuid) {
         // If this is our target stream, start viewing
-        if (streamId == settings_.streamId || hashStreamId(settings_.streamId, settings_.password, DEFAULT_SALT) == streamId) {
+        if (streamId == settings_.streamId ||
+            hashStreamId(settings_.streamId, settings_.password, DEFAULT_SALT) == streamId) {
             logInfo("Target stream appeared in room, connecting...");
             signaling_->viewStream(settings_.streamId, settings_.password);
         }
@@ -331,24 +337,28 @@ void VDONinjaSource::onVideoTrack(const std::string &uuid, std::shared_ptr<rtc::
 {
     logInfo("Received video track from %s", uuid.c_str());
 
-    track->onMessage([this](auto data) {
-        if (std::holds_alternative<rtc::binary>(data)) {
-            auto &binary = std::get<rtc::binary>(data);
-            processVideoData(reinterpret_cast<const uint8_t*>(binary.data()), binary.size());
-        }
-    }, nullptr);
+    track->onMessage(
+        [this](auto data) {
+            if (std::holds_alternative<rtc::binary>(data)) {
+                auto &binary = std::get<rtc::binary>(data);
+                processVideoData(reinterpret_cast<const uint8_t *>(binary.data()), binary.size());
+            }
+        },
+        nullptr);
 }
 
 void VDONinjaSource::onAudioTrack(const std::string &uuid, std::shared_ptr<rtc::Track> track)
 {
     logInfo("Received audio track from %s", uuid.c_str());
 
-    track->onMessage([this](auto data) {
-        if (std::holds_alternative<rtc::binary>(data)) {
-            auto &binary = std::get<rtc::binary>(data);
-            processAudioData(reinterpret_cast<const uint8_t*>(binary.data()), binary.size());
-        }
-    }, nullptr);
+    track->onMessage(
+        [this](auto data) {
+            if (std::holds_alternative<rtc::binary>(data)) {
+                auto &binary = std::get<rtc::binary>(data);
+                processAudioData(reinterpret_cast<const uint8_t *>(binary.data()), binary.size());
+            }
+        },
+        nullptr);
 }
 
 void VDONinjaSource::processVideoData(const uint8_t *data, size_t size)
@@ -357,7 +367,8 @@ void VDONinjaSource::processVideoData(const uint8_t *data, size_t size)
     // For now, we'll create a placeholder implementation
     // A full implementation would use libav/ffmpeg for decoding
 
-    if (size < 12) return; // Minimum RTP header
+    if (size < 12)
+        return; // Minimum RTP header
 
     // Skip RTP header (12 bytes minimum)
     const uint8_t *payload = data + 12;
@@ -379,7 +390,8 @@ void VDONinjaSource::processVideoData(const uint8_t *data, size_t size)
 void VDONinjaSource::processAudioData(const uint8_t *data, size_t size)
 {
     // Similar to video - decode RTP -> Opus -> PCM
-    if (size < 12) return;
+    if (size < 12)
+        return;
 
     const uint8_t *payload = data + 12;
     size_t payloadSize = size - 12;
@@ -427,7 +439,8 @@ void VDONinjaSource::videoTick(float seconds)
 {
     UNUSED_PARAMETER(seconds);
 
-    if (!active_ || !connected_) return;
+    if (!active_ || !connected_)
+        return;
 
     // Process any pending video frames
     VideoFrame frame;
@@ -449,7 +462,8 @@ void VDONinjaSource::videoRender(gs_effect_t *effect)
 {
     UNUSED_PARAMETER(effect);
 
-    if (!texture_) return;
+    if (!texture_)
+        return;
 
     gs_effect_t *defaultEffect = obs_get_base_effect(OBS_EFFECT_DEFAULT);
     gs_technique_t *tech = gs_effect_get_technique(defaultEffect, "Draw");
@@ -468,7 +482,8 @@ void VDONinjaSource::audioRender(obs_source_audio *audio)
 {
     UNUSED_PARAMETER(audio);
 
-    if (!active_ || !connected_) return;
+    if (!active_ || !connected_)
+        return;
 
     // Output any pending audio
     std::lock_guard<std::mutex> lock(audioMutex_);
@@ -478,7 +493,8 @@ void VDONinjaSource::audioRender(obs_source_audio *audio)
 
         obs_source_audio obsAudio = {};
         obsAudio.data[0] = buffer.data.data();
-        obsAudio.frames = static_cast<uint32_t>(buffer.data.size() / (buffer.channels * 2)); // 16-bit samples
+        obsAudio.frames =
+            static_cast<uint32_t>(buffer.data.size() / (buffer.channels * 2)); // 16-bit samples
         obsAudio.speakers = buffer.channels == 2 ? SPEAKERS_STEREO : SPEAKERS_MONO;
         obsAudio.samples_per_sec = buffer.sampleRate;
         obsAudio.format = AUDIO_FORMAT_16BIT;

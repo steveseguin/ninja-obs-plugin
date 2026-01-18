@@ -7,32 +7,34 @@
 
 #include "vdoninja-common.h"
 #include "vdoninja-utils.h"
-#include <thread>
-#include <queue>
 #include <condition_variable>
+#include <queue>
+#include <thread>
 
-namespace vdoninja {
+namespace vdoninja
+{
 
 // Message types from VDO.Ninja signaling server
 enum class SignalMessageType {
     Unknown,
-    Listing,       // Room member listing
-    Offer,         // SDP offer from peer
-    Answer,        // SDP answer from peer
-    Candidate,     // ICE candidate
-    Request,       // Request from server (e.g., sendOffer)
-    Alert,         // Alert/error message
-    Error,         // Error response
+    Listing,   // Room member listing
+    Offer,     // SDP offer from peer
+    Answer,    // SDP answer from peer
+    Candidate, // ICE candidate
+    Request,   // Request from server (e.g., sendOffer)
+    Alert,     // Alert/error message
+    Error,     // Error response
     VideoAddedToRoom,
     VideoRemovedFromRoom,
-    Transferred,   // User transferred to another room
+    Transferred, // User transferred to another room
     Ping,
     Pong
 };
 
 // Signaling client for VDO.Ninja WebSocket server
-class VDONinjaSignaling {
-public:
+class VDONinjaSignaling
+{
+  public:
     VDONinjaSignaling();
     ~VDONinjaSignaling();
 
@@ -86,7 +88,7 @@ public:
     // Get our UUID (assigned by server or generated locally)
     std::string getLocalUUID() const;
 
-private:
+  private:
     // WebSocket handling (using a simple implementation)
     void wsThreadFunc();
     void processMessage(const std::string &message);

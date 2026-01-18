@@ -13,8 +13,9 @@ set(PLUGIN_WEBSITE "https://vdo.ninja")
 set(PLUGIN_SUPPORT_URL "https://github.com/steveseguin/obs-vdoninja/issues")
 set(PLUGIN_LICENSE "AGPL-3.0")
 
-# Option to build tests
+# Options
 option(BUILD_TESTS "Build unit tests" OFF)
+option(BUILD_PLUGIN "Build the OBS plugin (requires OBS SDK)" ON)
 
 # Build configuration
 set(CMAKE_CXX_STANDARD 17)
@@ -275,7 +276,46 @@ install(DIRECTORY data/
   DESTINATION ${OBS_DATA_DIR}
 )
 
-# Testing
+    # Compiler warnings
+    if(MSVC)
+        target_compile_options(obs-vdoninja PRIVATE /W4)
+    else()
+        target_compile_options(obs-vdoninja PRIVATE -Wall -Wextra -Wpedantic)
+    endif()
+
+    # Installation
+    include(GNUInstallDirs)
+
+    if(WIN32)
+        set(OBS_PLUGIN_DESTINATION "obs-plugins/64bit")
+        set(OBS_DATA_DESTINATION "data/obs-plugins/obs-vdoninja")
+    elseif(APPLE)
+        set(OBS_PLUGIN_DESTINATION "Library/Application Support/obs-studio/plugins")
+        set(OBS_DATA_DESTINATION "Library/Application Support/obs-studio/plugins/obs-vdoninja/data")
+    else()
+        set(OBS_PLUGIN_DESTINATION "${CMAKE_INSTALL_LIBDIR}/obs-plugins")
+        set(OBS_DATA_DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/obs/obs-plugins/obs-vdoninja")
+    endif()
+
+    install(TARGETS obs-vdoninja
+        LIBRARY DESTINATION ${OBS_PLUGIN_DESTINATION}
+        RUNTIME DESTINATION ${OBS_PLUGIN_DESTINATION}
+    )
+
+    install(DIRECTORY data/locale
+        DESTINATION ${OBS_DATA_DESTINATION}
+    )
+
+    # CPack configuration for packaging
+    set(CPACK_PACKAGE_NAME "obs-vdoninja")
+    set(CPACK_PACKAGE_VERSION ${PROJECT_VERSION})
+    set(CPACK_PACKAGE_VENDOR ${PLUGIN_AUTHOR})
+    set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "VDO.Ninja integration plugin for OBS Studio")
+    set(CPACK_RESOURCE_FILE_LICENSE "${CMAKE_CURRENT_SOURCE_DIR}/LICENSE")
+    include(CPack)
+endif()
+
+# Testing (can be built without OBS SDK)
 if(BUILD_TESTS)
     enable_testing()
 

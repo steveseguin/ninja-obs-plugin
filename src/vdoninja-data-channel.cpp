@@ -5,16 +5,15 @@
 
 #include "vdoninja-data-channel.h"
 
-namespace vdoninja {
+namespace vdoninja
+{
 
 VDONinjaDataChannel::VDONinjaDataChannel()
 {
     logDebug("Data channel handler created");
 }
 
-VDONinjaDataChannel::~VDONinjaDataChannel()
-{
-}
+VDONinjaDataChannel::~VDONinjaDataChannel() {}
 
 DataMessage VDONinjaDataChannel::parseMessage(const std::string &rawMessage)
 {
@@ -28,7 +27,8 @@ DataMessage VDONinjaDataChannel::parseMessage(const std::string &rawMessage)
         if (json.hasKey("chat") || json.hasKey("chatMessage")) {
             msg.type = DataMessageType::Chat;
             msg.data = json.getString("chat", json.getString("chatMessage"));
-        } else if (json.hasKey("tally") || json.hasKey("tallyOn") || json.hasKey("tallyOff")) {
+        } else if (json.hasKey("tally") || json.hasKey("tallyOn") || json.hasKey("tallyOff") ||
+                   json.hasKey("tallyPreview")) {
             msg.type = DataMessageType::Tally;
             msg.data = rawMessage;
         } else if (json.hasKey("requestKeyframe") || json.hasKey("keyframe")) {
@@ -88,7 +88,8 @@ std::string VDONinjaDataChannel::createKeyframeRequest()
     return builder.build();
 }
 
-std::string VDONinjaDataChannel::createCustomMessage(const std::string &type, const std::string &data)
+std::string VDONinjaDataChannel::createCustomMessage(const std::string &type,
+                                                     const std::string &data)
 {
     JsonBuilder builder;
     builder.add("type", type);
@@ -164,8 +165,8 @@ void VDONinjaDataChannel::parseTallyMessage(const std::string &senderId, const J
         peerTallies_[senderId] = state;
     }
 
-    logDebug("Tally from %s: program=%d, preview=%d",
-             senderId.c_str(), state.program, state.preview);
+    logDebug("Tally from %s: program=%d, preview=%d", senderId.c_str(), state.program,
+             state.preview);
 
     if (onTallyChange_) {
         onTallyChange_(senderId, state);
@@ -177,8 +178,7 @@ void VDONinjaDataChannel::parseMuteMessage(const std::string &senderId, const Js
     bool audioMuted = json.getBool("audioMuted", json.getBool("muted"));
     bool videoMuted = json.getBool("videoMuted");
 
-    logDebug("Mute from %s: audio=%d, video=%d",
-             senderId.c_str(), audioMuted, videoMuted);
+    logDebug("Mute from %s: audio=%d, video=%d", senderId.c_str(), audioMuted, videoMuted);
 
     if (onMuteChange_) {
         onMuteChange_(senderId, audioMuted, videoMuted);
@@ -194,11 +194,26 @@ void VDONinjaDataChannel::parseCustomMessage(const std::string &senderId, const 
     }
 }
 
-void VDONinjaDataChannel::setOnChatMessage(OnChatMessageCallback callback) { onChatMessage_ = callback; }
-void VDONinjaDataChannel::setOnTallyChange(OnTallyChangeCallback callback) { onTallyChange_ = callback; }
-void VDONinjaDataChannel::setOnMuteChange(OnMuteChangeCallback callback) { onMuteChange_ = callback; }
-void VDONinjaDataChannel::setOnCustomData(OnCustomDataCallback callback) { onCustomData_ = callback; }
-void VDONinjaDataChannel::setOnKeyframeRequest(OnKeyframeRequestCallback callback) { onKeyframeRequest_ = callback; }
+void VDONinjaDataChannel::setOnChatMessage(OnChatMessageCallback callback)
+{
+    onChatMessage_ = callback;
+}
+void VDONinjaDataChannel::setOnTallyChange(OnTallyChangeCallback callback)
+{
+    onTallyChange_ = callback;
+}
+void VDONinjaDataChannel::setOnMuteChange(OnMuteChangeCallback callback)
+{
+    onMuteChange_ = callback;
+}
+void VDONinjaDataChannel::setOnCustomData(OnCustomDataCallback callback)
+{
+    onCustomData_ = callback;
+}
+void VDONinjaDataChannel::setOnKeyframeRequest(OnKeyframeRequestCallback callback)
+{
+    onKeyframeRequest_ = callback;
+}
 
 void VDONinjaDataChannel::setLocalTally(const TallyState &state)
 {

@@ -4,10 +4,11 @@
  */
 
 #include "vdoninja-output.h"
-#include <util/threading.h>
 #include <util/dstr.h>
+#include <util/threading.h>
 
-namespace vdoninja {
+namespace vdoninja
+{
 
 // OBS output callbacks
 static const char *vdoninja_output_getname(void *)
@@ -63,10 +64,12 @@ static obs_properties_t *vdoninja_output_properties(void *)
     obs_properties_add_text(props, "stream_id", obs_module_text("StreamID"), OBS_TEXT_DEFAULT);
     obs_properties_add_text(props, "room_id", obs_module_text("RoomID"), OBS_TEXT_DEFAULT);
     obs_properties_add_text(props, "password", obs_module_text("Password"), OBS_TEXT_PASSWORD);
-    obs_properties_add_text(props, "wss_host", obs_module_text("SignalingServer"), OBS_TEXT_DEFAULT);
+    obs_properties_add_text(props, "wss_host", obs_module_text("SignalingServer"),
+                            OBS_TEXT_DEFAULT);
 
-    obs_property_t *codec = obs_properties_add_list(props, "video_codec", obs_module_text("VideoCodec"),
-                                                     OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_INT);
+    obs_property_t *codec =
+        obs_properties_add_list(props, "video_codec", obs_module_text("VideoCodec"),
+                                OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_INT);
     obs_property_list_add_int(codec, "H.264", static_cast<int>(VideoCodec::H264));
     obs_property_list_add_int(codec, "VP8", static_cast<int>(VideoCodec::VP8));
     obs_property_list_add_int(codec, "VP9", static_cast<int>(VideoCodec::VP9));
@@ -128,8 +131,7 @@ obs_output_info vdoninja_output_info = {
 
 // Implementation
 
-VDONinjaOutput::VDONinjaOutput(obs_data_t *settings, obs_output_t *output)
-    : output_(output)
+VDONinjaOutput::VDONinjaOutput(obs_data_t *settings, obs_output_t *output) : output_(output)
 {
     loadSettings(settings);
 
@@ -231,16 +233,16 @@ void VDONinjaOutput::startThread()
         }
     });
 
-    signaling_->setOnError([this](const std::string &error) {
-        logError("Signaling error: %s", error.c_str());
-    });
+    signaling_->setOnError(
+        [this](const std::string &error) { logError("Signaling error: %s", error.c_str()); });
 
     peerManager_->setOnPeerConnected([this](const std::string &uuid) {
         logInfo("Viewer connected: %s (total: %d)", uuid.c_str(), peerManager_->getViewerCount());
     });
 
     peerManager_->setOnPeerDisconnected([this](const std::string &uuid) {
-        logInfo("Viewer disconnected: %s (total: %d)", uuid.c_str(), peerManager_->getViewerCount());
+        logInfo("Viewer disconnected: %s (total: %d)", uuid.c_str(),
+                peerManager_->getViewerCount());
     });
 
     // Configure reconnection
@@ -259,7 +261,8 @@ void VDONinjaOutput::startThread()
 
 void VDONinjaOutput::stop(bool signal)
 {
-    if (!running_) return;
+    if (!running_)
+        return;
 
     running_ = false;
     connected_ = false;
@@ -299,7 +302,8 @@ void VDONinjaOutput::stop(bool signal)
 
 void VDONinjaOutput::data(encoder_packet *packet)
 {
-    if (!running_ || !connected_) return;
+    if (!running_ || !connected_)
+        return;
 
     if (packet->type == OBS_ENCODER_VIDEO) {
         processVideoPacket(packet);
