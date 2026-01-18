@@ -22,6 +22,10 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 find_package(OpenSSL REQUIRED)
 find_package(Threads REQUIRED)
 
+if(DEFINED OBS_SDK_PATH)
+    list(PREPEND CMAKE_PREFIX_PATH "${OBS_SDK_PATH}")
+endif()
+
 # Build plugin only if requested
 if(BUILD_PLUGIN)
     # Try to find OBS SDK
