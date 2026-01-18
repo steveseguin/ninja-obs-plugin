@@ -1,0 +1,52 @@
+# Build directories
+build/
+cmake-build-*/
+out/
+
+# Dependencies
+deps/
+libdatachannel/
+libdatachannel-install/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Compiled objects
+*.o
+*.obj
+*.so
+*.dylib
+*.dll
+*.a
+*.lib
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+compile_commands.json
+CTestTestfile.cmake
+Testing/
+_deps/
+
+# CPack
+_CPack_Packages/
+*.deb
+*.rpm
+*.tar.gz
+*.zip
+
+# Test binaries
+vdoninja-tests
+vdoninja-tests.exe
+
+# Package files
+*.pkg
+*.dmg
+*.msi

@@ -1,5 +1,8 @@
 # OBS VDO.Ninja Plugin
 
+[![CI](https://github.com/steveseguin/ninja-plugin/actions/workflows/ci.yml/badge.svg)](https://github.com/steveseguin/ninja-plugin/actions/workflows/ci.yml)
+[![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](LICENSE)
+
 A native OBS Studio plugin for [VDO.Ninja](https://vdo.ninja) integration, enabling WebRTC streaming directly from OBS.
 
 ## Features
@@ -29,38 +32,105 @@ A native OBS Studio plugin for [VDO.Ninja](https://vdo.ninja) integration, enabl
 - libdatachannel (WebRTC library)
 - OpenSSL
 
-## Building
+## Installation
 
-### Prerequisites
+### Pre-built Releases (Recommended)
+
+Download the latest release from the [Releases page](https://github.com/steveseguin/ninja-plugin/releases).
+
+**Linux (Debian/Ubuntu):**
+```bash
+sudo dpkg -i obs-vdoninja-*.deb
+```
+
+**Windows:**
+1. Extract the ZIP file
+2. Copy `obs-vdoninja.dll` and `datachannel.dll` to:
+   - `C:\Program Files\obs-studio\obs-plugins\64bit\`
+
+**macOS:**
+1. Extract the ZIP file
+2. Copy `obs-vdoninja.plugin` to:
+   - `~/Library/Application Support/obs-studio/plugins/`
+
+### Using Installer Scripts
+
+Clone this repository and run the appropriate installer:
+
+**Linux:**
+```bash
+./scripts/install-linux.sh
+```
+
+**Windows (PowerShell as Administrator):**
+```powershell
+.\scripts\install-windows.ps1
+```
+
+**macOS:**
+```bash
+./scripts/install-macos.sh
+```
+
+### Building from Source
+
+#### Prerequisites
+
+**Ubuntu/Debian:**
+```bash
+sudo apt install cmake build-essential libobs-dev libssl-dev git
+```
+
+**Windows:**
+- Visual Studio 2022 with C++ workload
+- CMake
+- Git
+- vcpkg (for OpenSSL)
+
+**macOS:**
+```bash
+brew install cmake openssl@3 git
+```
+
+#### Build Steps
+
+1. **Build libdatachannel** (required dependency):
 
 ```bash
-# Ubuntu/Debian
-sudo apt install cmake build-essential libobs-dev libssl-dev
-
-# Install libdatachannel
-git clone https://github.com/paullouisageneau/libdatachannel.git
+git clone --depth 1 --branch v0.20.2 https://github.com/paullouisageneau/libdatachannel.git
 cd libdatachannel
-cmake -B build -DUSE_GNUTLS=0 -DUSE_NICE=0
-cmake --build build
+git submodule update --init --recursive --depth 1
+cmake -B build -DCMAKE_BUILD_TYPE=Release -DNO_EXAMPLES=ON -DNO_TESTS=ON
+cmake --build build -j$(nproc)
 sudo cmake --install build
 ```
 
-### Build Plugin
+2. **Build the plugin:**
 
 ```bash
 cd obs-vdoninja
-mkdir build && cd build
-cmake ..
-make
-sudo make install
+cmake -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build -j$(nproc)
+sudo cmake --install build
 ```
 
-### Windows Build
+#### Windows Build
 
 ```powershell
-# Requires Visual Studio 2022 and vcpkg
-vcpkg install libdatachannel:x64-windows openssl:x64-windows
-cmake -B build -G "Visual Studio 17 2022" -A x64
+# Install OpenSSL via vcpkg
+vcpkg install openssl:x64-windows
+
+# Build libdatachannel
+git clone --depth 1 --branch v0.20.2 https://github.com/paullouisageneau/libdatachannel.git
+cd libdatachannel
+git submodule update --init --recursive --depth 1
+cmake -B build -G "Visual Studio 17 2022" -A x64 -DCMAKE_BUILD_TYPE=Release -DNO_EXAMPLES=ON -DNO_TESTS=ON
+cmake --build build --config Release
+cmake --install build --prefix ../libdatachannel-install
+
+# Build plugin
+cd ../obs-vdoninja
+cmake -B build -G "Visual Studio 17 2022" -A x64 -DCMAKE_PREFIX_PATH="../libdatachannel-install"
 cmake --build build --config Release
 ```
 
@@ -158,6 +228,7 @@ This plugin implements the VDO.Ninja signaling protocol:
 ```
 obs-vdoninja/
 ├── CMakeLists.txt
+├── LICENSE                   # AGPL-3.0 License
 ├── src/
 │   ├── plugin-main.cpp        # Plugin entry point
 │   ├── vdoninja-signaling.*   # WebSocket signaling
@@ -167,6 +238,18 @@ obs-vdoninja/
 │   ├── vdoninja-data-channel.*# Data channel support
 │   ├── vdoninja-utils.*       # Utilities
 │   └── vdoninja-common.h      # Shared types
+├── tests/
+│   ├── test-utils.cpp         # Utility function tests
+│   ├── test-json.cpp          # JSON parser tests
+│   ├── test-data-channel.cpp  # Data channel tests
+│   └── stubs/                 # OBS API stubs for testing
+├── scripts/
+│   ├── install-linux.sh       # Linux installer
+│   ├── install-windows.ps1    # Windows installer
+│   └── install-macos.sh       # macOS installer
+├── .github/workflows/
+│   ├── ci.yml                 # CI workflow
+│   └── release.yml            # Release workflow
 └── data/
     └── locale/
         └── en-US.ini          # Localization
@@ -182,9 +265,28 @@ cmake --build build
 ### Running Tests
 
 ```bash
-cd build
-ctest --output-on-failure
+# Configure with tests enabled
+cmake -B build -DBUILD_TESTS=ON -DCMAKE_BUILD_TYPE=Debug
+
+# Build tests
+cmake --build build --target vdoninja-tests
+
+# Run tests
+ctest --test-dir build --output-on-failure
+
+# Or run directly
+./build/vdoninja-tests
 ```
+
+### Test Coverage
+
+The test suite covers:
+- **Utility functions**: UUID/session ID generation, SHA256 hashing, stream ID sanitization
+- **JSON handling**: Builder and parser for VDO.Ninja protocol messages
+- **Base64 encoding/decoding**: For binary data handling
+- **String utilities**: URL encoding, trimming, splitting
+- **Data channel**: Message parsing, creation, tally state management
+- **VDO.Ninja protocol**: Message format validation
 
 ## Contributing
 
@@ -193,11 +295,12 @@ Contributions are welcome! Please:
 1. Fork the repository
 2. Create a feature branch
 3. Make your changes
-4. Submit a pull request
+4. Run tests to ensure they pass
+5. Submit a pull request
 
 ## License
 
-This project is licensed under the GPL-2.0 License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the **GNU Affero General Public License v3.0** - see the [LICENSE](LICENSE) file for details.
 
 ## Credits
 

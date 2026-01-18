@@ -1,0 +1,205 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+jobs:
+  # Run tests on Linux (tests don't require OBS)
+  test:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            cmake \
+            build-essential \
+            libssl-dev
+
+      - name: Configure CMake (tests only)
+        run: cmake -B build -DBUILD_TESTS=ON -DCMAKE_BUILD_TYPE=Debug
+
+      - name: Build tests
+        run: cmake --build build --target vdoninja-tests -j$(nproc)
+
+      - name: Run tests
+        run: ctest --test-dir build --output-on-failure
+
+  # Build for Linux
+  build-linux:
+    name: Build (Linux)
+    runs-on: ubuntu-latest
+    needs: test
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install OBS Studio dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            cmake \
+            build-essential \
+            libssl-dev \
+            libobs-dev \
+            obs-studio
+
+      - name: Build and install libdatachannel
+        run: |
+          git clone --depth 1 --branch v0.20.2 https://github.com/paullouisageneau/libdatachannel.git
+          cd libdatachannel
+          git submodule update --init --recursive --depth 1
+          cmake -B build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DNO_EXAMPLES=ON \
+            -DNO_TESTS=ON \
+            -DCMAKE_INSTALL_PREFIX=/usr
+          cmake --build build -j$(nproc)
+          sudo cmake --install build
+
+      - name: Configure CMake
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build -j$(nproc)
+
+      - name: Package
+        run: |
+          cd build
+          cpack -G DEB
+          cpack -G TGZ
+
+      - name: Upload Linux artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: obs-vdoninja-linux
+          path: |
+            build/*.deb
+            build/*.tar.gz
+
+  # Build for Windows
+  build-windows:
+    name: Build (Windows)
+    runs-on: windows-latest
+    needs: test
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup MSVC
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Install vcpkg packages
+        run: |
+          vcpkg install openssl:x64-windows
+
+      - name: Download OBS Studio
+        run: |
+          curl -L -o obs-studio.zip "https://github.com/obsproject/obs-studio/releases/download/30.1.2/OBS-Studio-30.1.2-Windows.zip"
+          7z x obs-studio.zip -o"obs-studio"
+
+      - name: Download OBS Studio SDK
+        run: |
+          curl -L -o obs-deps.zip "https://github.com/obsproject/obs-deps/releases/download/2024-03-19/windows-deps-x64-2024-03-19.zip"
+          7z x obs-deps.zip -o"obs-deps"
+
+      - name: Build libdatachannel
+        run: |
+          git clone --depth 1 --branch v0.20.2 https://github.com/paullouisageneau/libdatachannel.git
+          cd libdatachannel
+          git submodule update --init --recursive --depth 1
+          cmake -B build -G "Visual Studio 17 2022" -A x64 `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DNO_EXAMPLES=ON `
+            -DNO_TESTS=ON `
+            -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake"
+          cmake --build build --config Release
+          cmake --install build --prefix "$PWD/../libdatachannel-install"
+
+      - name: Configure CMake
+        run: |
+          cmake -B build -G "Visual Studio 17 2022" -A x64 `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" `
+            -DCMAKE_PREFIX_PATH="$PWD/libdatachannel-install;$PWD/obs-deps"
+
+      - name: Build
+        run: cmake --build build --config Release
+
+      - name: Package
+        run: |
+          cd build
+          cpack -G ZIP -C Release
+
+      - name: Upload Windows artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: obs-vdoninja-windows
+          path: build/*.zip
+
+  # Build for macOS
+  build-macos:
+    name: Build (macOS)
+    runs-on: macos-latest
+    needs: test
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          brew install cmake openssl@3
+
+      - name: Download OBS Studio
+        run: |
+          curl -L -o obs-studio.dmg "https://github.com/obsproject/obs-studio/releases/download/30.1.2/OBS-Studio-30.1.2-macOS-Apple.dmg"
+          hdiutil attach obs-studio.dmg
+          cp -R "/Volumes/OBS Studio/OBS.app" ./OBS.app
+          hdiutil detach "/Volumes/OBS Studio"
+
+      - name: Build libdatachannel
+        run: |
+          git clone --depth 1 --branch v0.20.2 https://github.com/paullouisageneau/libdatachannel.git
+          cd libdatachannel
+          git submodule update --init --recursive --depth 1
+          cmake -B build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DNO_EXAMPLES=ON \
+            -DNO_TESTS=ON \
+            -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" \
+            -DOPENSSL_ROOT_DIR=$(brew --prefix openssl@3)
+          cmake --build build -j$(sysctl -n hw.ncpu)
+          cmake --install build --prefix "$PWD/../libdatachannel-install"
+
+      - name: Configure CMake
+        run: |
+          cmake -B build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_PREFIX_PATH="$PWD/libdatachannel-install" \
+            -DOPENSSL_ROOT_DIR=$(brew --prefix openssl@3) \
+            -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"
+
+      - name: Build
+        run: cmake --build build -j$(sysctl -n hw.ncpu)
+
+      - name: Package
+        run: |
+          cd build
+          cpack -G ZIP
+
+      - name: Upload macOS artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: obs-vdoninja-macos
+          path: build/*.zip

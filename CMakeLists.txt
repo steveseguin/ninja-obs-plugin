@@ -6,6 +6,10 @@ project(obs-vdoninja VERSION 1.0.0)
 set(PLUGIN_AUTHOR "VDO.Ninja Community")
 set(PLUGIN_WEBSITE "https://vdo.ninja")
 set(PLUGIN_SUPPORT_URL "https://github.com/steveseguin/obs-vdoninja/issues")
+set(PLUGIN_LICENSE "AGPL-3.0")
+
+# Option to build tests
+option(BUILD_TESTS "Build unit tests" OFF)
 
 # Build configuration
 set(CMAKE_CXX_STANDARD 17)
@@ -137,8 +141,72 @@ install(DIRECTORY data/locale
     DESTINATION ${OBS_DATA_DESTINATION}
 )
 
+# Testing
+if(BUILD_TESTS)
+    enable_testing()
+
+    # Fetch GoogleTest
+    include(FetchContent)
+    FetchContent_Declare(
+        googletest
+        GIT_REPOSITORY https://github.com/google/googletest.git
+        GIT_TAG v1.14.0
+    )
+    # For Windows: Prevent overriding the parent project's compiler/linker settings
+    set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
+    FetchContent_MakeAvailable(googletest)
+
+    # Test sources that don't depend on OBS
+    set(TESTABLE_SOURCES
+        src/vdoninja-utils.cpp
+        src/vdoninja-data-channel.cpp
+    )
+
+    # Create a static library for testable code (with OBS stubs)
+    add_library(vdoninja-testable STATIC
+        ${TESTABLE_SOURCES}
+        tests/stubs/obs-stubs.cpp
+    )
+
+    target_include_directories(vdoninja-testable PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
+        ${CMAKE_CURRENT_SOURCE_DIR}/tests/stubs
+        ${OPENSSL_INCLUDE_DIR}
+    )
+
+    target_link_libraries(vdoninja-testable PUBLIC
+        OpenSSL::SSL
+        OpenSSL::Crypto
+    )
+
+    target_compile_definitions(vdoninja-testable PRIVATE TESTING_BUILD)
+
+    # Unit tests
+    add_executable(vdoninja-tests
+        tests/test-utils.cpp
+        tests/test-json.cpp
+        tests/test-data-channel.cpp
+    )
+
+    target_include_directories(vdoninja-tests PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
+        ${CMAKE_CURRENT_SOURCE_DIR}/tests/stubs
+    )
+
+    target_link_libraries(vdoninja-tests PRIVATE
+        vdoninja-testable
+        GTest::gtest_main
+        GTest::gmock
+    )
+
+    include(GoogleTest)
+    gtest_discover_tests(vdoninja-tests)
+endif()
+
 # CPack configuration for packaging
 set(CPACK_PACKAGE_NAME "obs-vdoninja")
 set(CPACK_PACKAGE_VERSION ${PROJECT_VERSION})
 set(CPACK_PACKAGE_VENDOR ${PLUGIN_AUTHOR})
+set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "VDO.Ninja integration plugin for OBS Studio")
+set(CPACK_RESOURCE_FILE_LICENSE "${CMAKE_CURRENT_SOURCE_DIR}/LICENSE")
 include(CPack)
