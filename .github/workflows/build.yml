@@ -9,7 +9,7 @@ on:
 env:
   PLUGIN_NAME: obs-vdoninja
   OBS_VERSION: 30.0.0
-  OBS_VERSION_WIN: 30
+  OBS_VERSION_WIN: 30.0
 
 jobs:
   build-linux:
@@ -128,35 +128,11 @@ jobs:
           fi
           OBS_FRAMEWORK="${OBS_APP}/Contents/Frameworks/obs.framework"
           FRONTEND_FRAMEWORK="${OBS_APP}/Contents/Frameworks/obs-frontend-api.framework"
-          OBS_HEADERS="${OBS_FRAMEWORK}/Headers"
-          FRONTEND_HEADERS="${FRONTEND_FRAMEWORK}/Headers"
-          if [ ! -d "${OBS_HEADERS}" ]; then
-            OBS_HEADERS="${OBS_FRAMEWORK}/Versions/A/Headers"
-          fi
-          if [ ! -d "${FRONTEND_HEADERS}" ]; then
-            FRONTEND_HEADERS="${FRONTEND_FRAMEWORK}/Versions/A/Headers"
-          fi
-          if [ ! -d "${OBS_HEADERS}" ]; then
-            OBS_HEADERS="${OBS_APP}/Contents/Headers"
-          fi
-          if [ ! -d "${FRONTEND_HEADERS}" ]; then
-            FRONTEND_HEADERS="${OBS_APP}/Contents/Headers"
-          fi
-          OBS_LIB="${OBS_FRAMEWORK}/obs"
-          FRONTEND_LIB="${FRONTEND_FRAMEWORK}/obs-frontend-api"
-          if [ ! -f "${OBS_LIB}" ]; then
-            OBS_LIB="${OBS_FRAMEWORK}/Versions/A/obs"
-          fi
-          if [ ! -f "${FRONTEND_LIB}" ]; then
-            FRONTEND_LIB="${FRONTEND_FRAMEWORK}/Versions/A/obs-frontend-api"
-          fi
-          if [ ! -f "${OBS_LIB}" ]; then
-            OBS_LIB=$(find "${OBS_APP}/Contents" -name "libobs.dylib" | head -1)
-          fi
-          if [ ! -f "${FRONTEND_LIB}" ]; then
-            FRONTEND_LIB=$(find "${OBS_APP}/Contents" -name "libobs-frontend-api.dylib" | head -1)
-          fi
-          if [ -z "${OBS_LIB}" ] || [ -z "${FRONTEND_LIB}" ] || [ ! -d "${OBS_HEADERS}" ]; then
+          OBS_HEADERS="${OBS_FRAMEWORK}/Versions/A/Headers"
+          FRONTEND_HEADERS="${FRONTEND_FRAMEWORK}/Versions/A/Headers"
+          OBS_LIB="${OBS_FRAMEWORK}/Versions/A/obs"
+          FRONTEND_LIB="${FRONTEND_FRAMEWORK}/Versions/A/obs-frontend-api"
+          if [ ! -d "${OBS_HEADERS}" ] || [ ! -d "${FRONTEND_HEADERS}" ] || [ ! -f "${OBS_LIB}" ] || [ ! -f "${FRONTEND_LIB}" ]; then
             echo "OBS SDK headers or libraries not found"
             exit 1
           fi
@@ -274,9 +250,13 @@ jobs:
 
       - name: Download OBS SDK
         run: |
-          Invoke-WebRequest -Uri "https://github.com/obsproject/obs-studio/releases/download/${{ env.OBS_VERSION }}/OBS-Studio-${{ env.OBS_VERSION_WIN }}.0.zip" -OutFile "obs-sdk.zip"
+          Invoke-WebRequest -Uri "https://github.com/obsproject/obs-studio/releases/download/${{ env.OBS_VERSION }}/OBS-Studio-${{ env.OBS_VERSION_WIN }}.zip" -OutFile "obs-sdk.zip"
           Expand-Archive -Path "obs-sdk.zip" -DestinationPath "obs-sdk"
-          Copy-Item "obs-sdk\obs-studio\sdk\*" -Destination "obs-sdk" -Recurse -Force
+          if (Test-Path "obs-sdk\obs-studio\sdk") {
+            Copy-Item "obs-sdk\obs-studio\sdk\*" -Destination "obs-sdk" -Recurse -Force
+          } else {
+            Copy-Item "obs-sdk\sdk\*" -Destination "obs-sdk" -Recurse -Force
+          }
 
       - name: Build libdatachannel
         run: |
