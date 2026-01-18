@@ -118,11 +118,12 @@ jobs:
             -DENABLE_QT=OFF \
             -DENABLE_SCRIPTING=OFF \
             -DENABLE_RIST=OFF \
+            -DENABLE_NEW_MPEGTS_OUTPUT=OFF \
             -DOBS_VERSION_OVERRIDE=${{ env.OBS_VERSION }}
           cmake --build build_ubuntu --config RelWithDebInfo --parallel
-          cmake --install build_ubuntu --prefix ${{ github.workspace }}/obs-sdk --component obs-libraries
-          cmake --install build_ubuntu --prefix ${{ github.workspace }}/obs-sdk --component obs-headers
-          cmake --install build_ubuntu --prefix ${{ github.workspace }}/obs-sdk --component obs-frontend-api
+          cmake --install build_ubuntu --prefix ${{ github.workspace }}/obs-sdk
+          echo "=== OBS SDK install tree ==="
+          find ${{ github.workspace }}/obs-sdk -type f | head -100
 
       - name: Build libdatachannel
         run: |
@@ -194,9 +195,9 @@ jobs:
             -DENABLE_SCRIPTING=OFF \
             -DOBS_VERSION_OVERRIDE=${{ env.OBS_VERSION }}
           cmake --build build_macos --config RelWithDebInfo
-          cmake --install build_macos --prefix ${{ github.workspace }}/obs-sdk --component obs-libraries
-          cmake --install build_macos --prefix ${{ github.workspace }}/obs-sdk --component obs-headers
-          cmake --install build_macos --prefix ${{ github.workspace }}/obs-sdk --component obs-frontend-api
+          cmake --install build_macos --prefix ${{ github.workspace }}/obs-sdk
+          echo "=== OBS SDK install tree ==="
+          find ${{ github.workspace }}/obs-sdk -type f | head -100
 
       - name: Build libdatachannel
         run: |
@@ -317,10 +318,9 @@ jobs:
             "-DENABLE_SCRIPTING=OFF" `
             "-DOBS_VERSION_OVERRIDE=${{ env.OBS_VERSION }}"
           cmake --build --preset windows-x64 --config RelWithDebInfo --parallel
-          cmake --install build_x64 --prefix "${{ github.workspace }}\obs-sdk" --config RelWithDebInfo --component obs-libraries
-          cmake --install build_x64 --prefix "${{ github.workspace }}\obs-sdk" --config RelWithDebInfo --component obs-headers
-          cmake --install build_x64 --prefix "${{ github.workspace }}\obs-sdk" --config RelWithDebInfo --component obs-frontend-api
-          Get-ChildItem -Path "${{ github.workspace }}\obs-sdk" -Recurse | Select-Object -First 200
+          cmake --install build_x64 --prefix "${{ github.workspace }}\obs-sdk" --config RelWithDebInfo
+          Write-Host "=== OBS SDK install tree ==="
+          Get-ChildItem -Path "${{ github.workspace }}\obs-sdk" -Recurse | Select-Object -First 100
 
       - name: Build libdatachannel
         run: |
