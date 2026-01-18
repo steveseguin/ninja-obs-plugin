@@ -204,10 +204,7 @@ jobs:
       - name: Install Dependencies
         run: |
           choco install cmake ninja 7zip -y
-
-          # Download and extract OpenSSL
-          Invoke-WebRequest -Uri "https://slproweb.com/download/Win64OpenSSL-3_2_0.exe" -OutFile "openssl.exe"
-          Start-Process -FilePath "openssl.exe" -ArgumentList "/SILENT /NORESTART /DIR=C:\OpenSSL" -Wait
+          vcpkg install openssl:x64-windows
 
       - name: Download OBS SDK
         run: |
@@ -226,7 +223,7 @@ jobs:
             -DNO_TESTS=ON `
             -DUSE_GNUTLS=OFF `
             -DUSE_NICE=OFF `
-            -DOPENSSL_ROOT_DIR="C:\OpenSSL"
+            -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT\scripts\buildsystems\vcpkg.cmake"
           cmake --build build
           cmake --install build
 
@@ -235,7 +232,7 @@ jobs:
           cmake -B build -G Ninja `
             -DCMAKE_BUILD_TYPE=Release `
             -DCMAKE_PREFIX_PATH="${{ github.workspace }}\deps;${{ github.workspace }}\obs-sdk" `
-            -DOPENSSL_ROOT_DIR="C:\OpenSSL" `
+            -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT\scripts\buildsystems\vcpkg.cmake" `
             -DOBS_INCLUDE_DIRS="${{ github.workspace }}\obs-sdk\include"
 
       - name: Build Plugin
