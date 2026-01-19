@@ -13,7 +13,12 @@ option(BUILD_TESTS "Build unit tests" OFF)
 option(BUILD_PLUGIN "Build the OBS plugin (requires OBS SDK)" ON)
 
 # Build configuration
-set(CMAKE_CXX_STANDARD 17)
+# Use C++20 on Windows for designated initializers support (MSVC requires /std:c++20)
+if(MSVC)
+    set(CMAKE_CXX_STANDARD 20)
+else()
+    set(CMAKE_CXX_STANDARD 17)
+endif()
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)

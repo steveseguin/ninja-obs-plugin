@@ -323,7 +323,7 @@ jobs:
       - name: Install Dependencies
         run: |
           choco install cmake ninja 7zip git -y
-          vcpkg install openssl:x64-windows
+          vcpkg install openssl:x64-windows pthreads:x64-windows
 
       - name: Build OBS SDK
         run: |
@@ -344,11 +344,15 @@ jobs:
           New-Item -ItemType Directory -Force -Path "${{ github.workspace }}\obs-sdk\include\media-io"
           New-Item -ItemType Directory -Force -Path "${{ github.workspace }}\obs-sdk\include\callback"
           New-Item -ItemType Directory -Force -Path "${{ github.workspace }}\obs-sdk\include\obs-frontend-api"
-          Copy-Item -Path "libobs\*.h" -Destination "${{ github.workspace }}\obs-sdk\include"
-          Copy-Item -Path "libobs\util\*" -Destination "${{ github.workspace }}\obs-sdk\include\util" -Recurse -Force
-          Copy-Item -Path "libobs\graphics\*" -Destination "${{ github.workspace }}\obs-sdk\include\graphics" -Recurse -Force
-          Copy-Item -Path "libobs\media-io\*" -Destination "${{ github.workspace }}\obs-sdk\include\media-io" -Recurse -Force
-          Copy-Item -Path "libobs\callback\*" -Destination "${{ github.workspace }}\obs-sdk\include\callback" -Recurse -Force
+          # Copy only if cmake install didn't provide headers
+          if (-not (Test-Path "${{ github.workspace }}\obs-sdk\include\obs.h")) {
+            Copy-Item -Path "libobs\*.h" -Destination "${{ github.workspace }}\obs-sdk\include"
+          }
+          # Copy util headers but use -ErrorAction SilentlyContinue to not overwrite
+          Copy-Item -Path "libobs\util\*" -Destination "${{ github.workspace }}\obs-sdk\include\util" -Recurse -ErrorAction SilentlyContinue
+          Copy-Item -Path "libobs\graphics\*" -Destination "${{ github.workspace }}\obs-sdk\include\graphics" -Recurse -ErrorAction SilentlyContinue
+          Copy-Item -Path "libobs\media-io\*" -Destination "${{ github.workspace }}\obs-sdk\include\media-io" -Recurse -ErrorAction SilentlyContinue
+          Copy-Item -Path "libobs\callback\*" -Destination "${{ github.workspace }}\obs-sdk\include\callback" -Recurse -ErrorAction SilentlyContinue
           # Copy obs-frontend-api header (OBS 31+: now in frontend\api\)
           if (Test-Path "frontend\api\obs-frontend-api.h") {
             Copy-Item -Path "frontend\api\obs-frontend-api.h" -Destination "${{ github.workspace }}\obs-sdk\include\obs-frontend-api"
@@ -361,6 +365,9 @@ jobs:
           } elseif (Test-Path "build_x64\obsconfig.h") {
             Copy-Item -Path "build_x64\obsconfig.h" -Destination "${{ github.workspace }}\obs-sdk\include"
           }
+          # Verify threading-windows.h exists (required for Windows builds)
+          Write-Host "=== Checking threading headers ==="
+          Get-ChildItem "${{ github.workspace }}\obs-sdk\include\util\threading*" -ErrorAction SilentlyContinue
           # Copy import libraries
           New-Item -ItemType Directory -Force -Path "${{ github.workspace }}\obs-sdk\lib"
           Copy-Item -Path "build_x64\libobs\RelWithDebInfo\obs.lib" -Destination "${{ github.workspace }}\obs-sdk\lib"
