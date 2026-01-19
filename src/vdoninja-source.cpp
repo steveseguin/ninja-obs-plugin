@@ -336,9 +336,7 @@ void VDONinjaSource::onVideoTrack(const std::string &uuid, std::shared_ptr<rtc::
 	logInfo("Received video track from %s", uuid.c_str());
 
 	track->onMessage(
-	    [this](rtc::binary data) {
-		    processVideoData(reinterpret_cast<const uint8_t *>(data.data()), data.size());
-	    },
+	    [this](rtc::binary data) { processVideoData(reinterpret_cast<const uint8_t *>(data.data()), data.size()); },
 	    nullptr);
 }
 
@@ -347,9 +345,7 @@ void VDONinjaSource::onAudioTrack(const std::string &uuid, std::shared_ptr<rtc::
 	logInfo("Received audio track from %s", uuid.c_str());
 
 	track->onMessage(
-	    [this](rtc::binary data) {
-		    processAudioData(reinterpret_cast<const uint8_t *>(data.data()), data.size());
-	    },
+	    [this](rtc::binary data) { processAudioData(reinterpret_cast<const uint8_t *>(data.data()), data.size()); },
 	    nullptr);
 }
 
