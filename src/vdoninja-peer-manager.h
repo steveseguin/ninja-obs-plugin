@@ -98,6 +98,7 @@ private:
 	// Handle signaling events
 	void onSignalingOffer(const std::string &uuid, const std::string &sdp, const std::string &session);
 	void onSignalingAnswer(const std::string &uuid, const std::string &sdp, const std::string &session);
+	void onSignalingOfferRequest(const std::string &uuid, const std::string &session);
 	void onSignalingIceCandidate(const std::string &uuid, const std::string &candidate, const std::string &mid,
 	                             const std::string &session);
 

@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-02-20
+
+### Added
+- Normalized VDO.Ninja signaling parser for `description`, legacy SDP, offer requests, candidate bundles, listings, and WHEP URL hints
+- Auto-inbound scene management to create/update/remove OBS Browser Sources from room events and data channel hints
+- Deterministic grid layout helper for auto-managed inbound scenes
+- New unit tests for signaling protocol parsing and layout generation
+
+### Changed
+- Signaling client now supports explicit offer request handling (`offerSDP` / `sendOffer`) and richer offer/answer envelopes
+- Peer manager now responds to offer requests and supports RTP packetizer paths (H264/Opus) with RTCP helpers
+- Output lifecycle and encoder/capture start checks improved for safer start/stop behavior
+- Build now allows OpenSSL to be optional and includes an internal SHA-256 implementation for testability
+
+### Tested
+- Unit tests: `ctest --test-dir build-verify -C Debug --output-on-failure` (276 passed, 0 failed)
+- Plugin build: `cmake --build build-plugin --config RelWithDebInfo --target obs-vdoninja`
+- Endpoint reachability checks:
+  - `https://vdo.ninja/?view=CoatdevdavER`
+  - `https://vdo.ninja/?push=u8F2kVV`
+  - `https://vdo.ninja/?push=u8F2kVV&room=test123252345`
+
+## [1.0.2] - 2026-02-14
+
 ### Added
 - AGPLv3 license
 - GitHub Actions CI/CD workflows for Linux, Windows, and macOS

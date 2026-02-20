@@ -193,142 +193,81 @@ void VDONinjaSignaling::processMessage(const std::string &message)
 {
 	logDebug("Received: %s", message.c_str());
 
-	try {
-		JsonParser json(message);
+	ParsedSignalMessage parsed;
+	std::string error;
+	if (!parseSignalingMessage(message, parsed, &error)) {
+		logError("Failed to parse message: %s", error.c_str());
+		return;
+	}
 
-		// Check message type based on fields present
-		if (json.hasKey("listing")) {
-			handleListing(json);
-		} else if (json.hasKey("sdp")) {
-			std::string type = json.getString("type");
-			if (type == "offer") {
-				handleOffer(json);
-			} else if (type == "answer") {
-				handleAnswer(json);
+	switch (parsed.kind) {
+	case ParsedSignalKind::Listing:
+		logInfo("Received room listing");
+		currentRoom_.isJoined = true;
+		currentRoom_.members = parsed.listingMembers;
+		if (onRoomJoined_) {
+			onRoomJoined_(currentRoom_.members);
+		}
+		break;
+	case ParsedSignalKind::Offer:
+		logInfo("Received offer from %s", parsed.uuid.c_str());
+		if (onOffer_) {
+			onOffer_(parsed.uuid, parsed.sdp, parsed.session);
+		}
+		break;
+	case ParsedSignalKind::Answer:
+		logInfo("Received answer from %s", parsed.uuid.c_str());
+		if (onAnswer_) {
+			onAnswer_(parsed.uuid, parsed.sdp, parsed.session);
+		}
+		break;
+	case ParsedSignalKind::Candidate:
+		logDebug("Received ICE candidate from %s", parsed.uuid.c_str());
+		if (onIceCandidate_) {
+			onIceCandidate_(parsed.uuid, parsed.candidate, parsed.mid, parsed.session);
+		}
+		break;
+	case ParsedSignalKind::CandidatesBundle:
+		logDebug("Received ICE candidate bundle from %s", parsed.uuid.c_str());
+		if (onIceCandidate_) {
+			for (const auto &candidate : parsed.candidates) {
+				onIceCandidate_(parsed.uuid, candidate.candidate, candidate.mid, parsed.session);
 			}
-		} else if (json.hasKey("candidate")) {
-			handleCandidate(json);
-		} else if (json.hasKey("request")) {
-			handleRequest(json);
-		} else if (json.hasKey("alert")) {
-			handleAlert(json);
-		} else if (json.hasKey("videoAddedToRoom")) {
-			handleVideoAddedToRoom(json);
-		} else if (json.hasKey("videoRemovedFromRoom")) {
-			handleVideoRemovedFromRoom(json);
-		} else {
-			logDebug("Unknown message type");
 		}
-	} catch (const std::exception &e) {
-		logError("Failed to parse message: %s", e.what());
-	}
-}
-
-void VDONinjaSignaling::handleListing(const JsonParser &json)
-{
-	logInfo("Received room listing");
-
-	currentRoom_.isJoined = true;
-	currentRoom_.members.clear();
-
-	// Parse listing array to get room members
-	auto listing = json.getArray("listing");
-	for (const auto &member : listing) {
-		JsonParser memberJson(member);
-		std::string streamId = memberJson.getString("streamID");
-		if (!streamId.empty()) {
-			currentRoom_.members.push_back(streamId);
+		break;
+	case ParsedSignalKind::Request:
+		handleRequest(parsed);
+		break;
+	case ParsedSignalKind::Alert:
+		logWarning("Server alert: %s", parsed.alert.c_str());
+		if (onError_) {
+			onError_(parsed.alert);
 		}
-	}
-
-	if (onRoomJoined_) {
-		onRoomJoined_(currentRoom_.members);
-	}
-}
-
-void VDONinjaSignaling::handleOffer(const JsonParser &json)
-{
-	std::string uuid = json.getString("UUID");
-	std::string sdp = json.getString("sdp");
-	std::string session = json.getString("session");
-
-	logInfo("Received offer from %s", uuid.c_str());
-
-	if (onOffer_) {
-		onOffer_(uuid, sdp, session);
-	}
-}
-
-void VDONinjaSignaling::handleAnswer(const JsonParser &json)
-{
-	std::string uuid = json.getString("UUID");
-	std::string sdp = json.getString("sdp");
-	std::string session = json.getString("session");
-
-	logInfo("Received answer from %s", uuid.c_str());
-
-	if (onAnswer_) {
-		onAnswer_(uuid, sdp, session);
+		break;
+	case ParsedSignalKind::VideoAddedToRoom:
+		logInfo("Stream added to room: %s by %s", parsed.streamId.c_str(), parsed.uuid.c_str());
+		if (onStreamAdded_) {
+			onStreamAdded_(parsed.streamId, parsed.uuid);
+		}
+		break;
+	case ParsedSignalKind::VideoRemovedFromRoom:
+		logInfo("Stream removed from room: %s by %s", parsed.streamId.c_str(), parsed.uuid.c_str());
+		if (onStreamRemoved_) {
+			onStreamRemoved_(parsed.streamId, parsed.uuid);
+		}
+		break;
+	default:
+		logDebug("Unknown message type");
+		break;
 	}
 }
 
-void VDONinjaSignaling::handleCandidate(const JsonParser &json)
+void VDONinjaSignaling::handleRequest(const ParsedSignalMessage &message)
 {
-	std::string uuid = json.getString("UUID");
-	std::string candidate = json.getString("candidate");
-	std::string mid = json.getString("mid");
-	std::string session = json.getString("session");
+	logInfo("Received request: %s from %s", message.request.c_str(), message.uuid.c_str());
 
-	logDebug("Received ICE candidate from %s", uuid.c_str());
-
-	if (onIceCandidate_) {
-		onIceCandidate_(uuid, candidate, mid, session);
-	}
-}
-
-void VDONinjaSignaling::handleRequest(const JsonParser &json)
-{
-	std::string request = json.getString("request");
-	std::string uuid = json.getString("UUID");
-
-	logInfo("Received request: %s from %s", request.c_str(), uuid.c_str());
-
-	// The server sends "sendOffer" when a viewer wants to connect to our published stream
-	// We need to create a peer connection and send an offer
-	// This is handled by the peer manager through callbacks
-}
-
-void VDONinjaSignaling::handleAlert(const JsonParser &json)
-{
-	std::string alert = json.getString("alert");
-	logWarning("Server alert: %s", alert.c_str());
-
-	if (onError_) {
-		onError_(alert);
-	}
-}
-
-void VDONinjaSignaling::handleVideoAddedToRoom(const JsonParser &json)
-{
-	std::string streamId = json.getString("streamID");
-	std::string uuid = json.getString("UUID");
-
-	logInfo("Stream added to room: %s by %s", streamId.c_str(), uuid.c_str());
-
-	if (onStreamAdded_) {
-		onStreamAdded_(streamId, uuid);
-	}
-}
-
-void VDONinjaSignaling::handleVideoRemovedFromRoom(const JsonParser &json)
-{
-	std::string streamId = json.getString("streamID");
-	std::string uuid = json.getString("UUID");
-
-	logInfo("Stream removed from room: %s by %s", streamId.c_str(), uuid.c_str());
-
-	if (onStreamRemoved_) {
-		onStreamRemoved_(streamId, uuid);
+	if ((message.request == "offerSDP" || message.request == "sendOffer") && onOfferRequest_) {
+		onOfferRequest_(message.uuid, message.session);
 	}
 }
 
@@ -497,8 +436,13 @@ bool VDONinjaSignaling::stopViewing(const std::string &streamId)
 
 void VDONinjaSignaling::sendOffer(const std::string &uuid, const std::string &sdp, const std::string &session)
 {
+	JsonBuilder description;
+	description.add("type", "offer");
+	description.add("sdp", sdp);
+
 	JsonBuilder msg;
 	msg.add("UUID", uuid);
+	msg.addRaw("description", description.build());
 	msg.add("sdp", sdp);
 	msg.add("type", "offer");
 	msg.add("session", session);
@@ -509,8 +453,13 @@ void VDONinjaSignaling::sendOffer(const std::string &uuid, const std::string &sd
 
 void VDONinjaSignaling::sendAnswer(const std::string &uuid, const std::string &sdp, const std::string &session)
 {
+	JsonBuilder description;
+	description.add("type", "answer");
+	description.add("sdp", sdp);
+
 	JsonBuilder msg;
 	msg.add("UUID", uuid);
+	msg.addRaw("description", description.build());
 	msg.add("sdp", sdp);
 	msg.add("type", "answer");
 	msg.add("session", session);
@@ -560,6 +509,10 @@ void VDONinjaSignaling::setOnOffer(OnOfferCallback callback)
 void VDONinjaSignaling::setOnAnswer(OnAnswerCallback callback)
 {
 	onAnswer_ = callback;
+}
+void VDONinjaSignaling::setOnOfferRequest(OnOfferRequestCallback callback)
+{
+	onOfferRequest_ = callback;
 }
 void VDONinjaSignaling::setOnIceCandidate(OnIceCandidateCallback callback)
 {

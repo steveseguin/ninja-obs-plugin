@@ -50,6 +50,10 @@ void VDONinjaPeerManager::initialize(VDONinjaSignaling *signaling)
 		onSignalingAnswer(uuid, sdp, session);
 	});
 
+	signaling_->setOnOfferRequest([this](const std::string &uuid, const std::string &session) {
+		onSignalingOfferRequest(uuid, session);
+	});
+
 	signaling_->setOnIceCandidate(
 	    [this](const std::string &uuid, const std::string &candidate, const std::string &mid,
 	           const std::string &session) { onSignalingIceCandidate(uuid, candidate, mid, session); });
@@ -341,6 +345,40 @@ void VDONinjaPeerManager::setupPublisherTracks(std::shared_ptr<PeerInfo> peer)
 	audioDesc.addSSRC(audioSsrc_, "audio-stream");
 	peer->audioTrack = peer->pc->addTrack(audioDesc);
 
+	// Prefer libdatachannel packetizers when available, with fallback to manual RTP.
+	try {
+		auto audioConfig =
+		    std::make_shared<rtc::RtpPacketizationConfig>(audioSsrc_, "vdoninja", 111, rtc::OpusRtpPacketizer::DefaultClockRate);
+		auto audioPacketizer = std::make_shared<rtc::OpusRtpPacketizer>(audioConfig);
+		peer->audioSrReporter = std::make_shared<rtc::RtcpSrReporter>(audioConfig);
+		audioPacketizer->addToChain(peer->audioSrReporter);
+		audioPacketizer->addToChain(std::make_shared<rtc::RtcpNackResponder>());
+		peer->audioTrack->setMediaHandler(audioPacketizer);
+		peer->useAudioPacketizer = true;
+	} catch (const std::exception &ex) {
+		logWarning("Audio packetizer unavailable; using manual RTP for %s: %s", peer->uuid.c_str(), ex.what());
+		peer->useAudioPacketizer = false;
+	}
+
+	if (videoCodec_ == VideoCodec::H264) {
+		try {
+			auto videoConfig = std::make_shared<rtc::RtpPacketizationConfig>(
+			    videoSsrc_, "vdoninja", 96, rtc::H264RtpPacketizer::defaultClockRate);
+			auto videoPacketizer = std::make_shared<rtc::H264RtpPacketizer>(
+			    rtc::H264RtpPacketizer::Separator::StartSequence, videoConfig, 1200);
+			peer->videoSrReporter = std::make_shared<rtc::RtcpSrReporter>(videoConfig);
+			videoPacketizer->addToChain(peer->videoSrReporter);
+			videoPacketizer->addToChain(std::make_shared<rtc::RtcpNackResponder>(4000));
+			peer->videoTrack->setMediaHandler(videoPacketizer);
+			peer->useVideoPacketizer = true;
+		} catch (const std::exception &ex) {
+			logWarning("Video packetizer unavailable; using manual RTP for %s: %s", peer->uuid.c_str(), ex.what());
+			peer->useVideoPacketizer = false;
+		}
+	} else {
+		peer->useVideoPacketizer = false;
+	}
+
 	// Create data channel if enabled
 	if (enableDataChannel_) {
 		auto dc = peer->pc->createDataChannel("vdo-data");
@@ -424,6 +462,53 @@ void VDONinjaPeerManager::onSignalingAnswer(const std::string &uuid, const std::
 	logInfo("Set remote answer for %s", uuid.c_str());
 }
 
+void VDONinjaPeerManager::onSignalingOfferRequest(const std::string &uuid, const std::string &session)
+{
+	if (!publishing_) {
+		logDebug("Ignoring offer request from %s while not publishing", uuid.c_str());
+		return;
+	}
+
+	if (uuid.empty()) {
+		logWarning("Ignoring offer request without UUID");
+		return;
+	}
+
+	std::shared_ptr<PeerInfo> peer;
+	{
+		std::lock_guard<std::mutex> lock(peersMutex_);
+		auto it = peers_.find(uuid);
+		if (it != peers_.end()) {
+			peer = it->second;
+		}
+	}
+
+	if (!peer) {
+		if (getViewerCount() >= maxViewers_) {
+			logWarning("Rejecting offer request from %s - max viewers reached (%d)", uuid.c_str(), maxViewers_);
+			return;
+		}
+		peer = createPublisherConnection(uuid);
+	}
+
+	if (!session.empty()) {
+		peer->session = session;
+	} else if (peer->session.empty()) {
+		peer->session = generateSessionId();
+	}
+
+	peer->pc->setLocalDescription(rtc::Description::Type::Offer);
+
+	auto localDesc = peer->pc->localDescription();
+	if (!localDesc) {
+		logWarning("No local offer available yet for %s", uuid.c_str());
+		return;
+	}
+
+	signaling_->sendOffer(uuid, std::string(*localDesc), peer->session);
+	logInfo("Sent offer to %s (session %s)", uuid.c_str(), peer->session.c_str());
+}
+
 void VDONinjaPeerManager::onSignalingIceCandidate(const std::string &uuid, const std::string &candidate,
                                                   const std::string &mid, const std::string &session)
 {
@@ -494,6 +579,11 @@ void VDONinjaPeerManager::sendAudioFrame(const uint8_t *data, size_t size, uint3
 				continue;
 			}
 
+			if (peer->useAudioPacketizer) {
+				track->send(reinterpret_cast<const std::byte *>(data), size);
+				continue;
+			}
+
 			// Create RTP packet (simplified)
 			std::vector<uint8_t> rtpPacket;
 			rtpPacket.reserve(12 + size);
@@ -545,6 +635,11 @@ void VDONinjaPeerManager::sendVideoFrame(const uint8_t *data, size_t size, uint3
 		try {
 			auto track = peer->videoTrack;
 			if (!track) {
+				continue;
+			}
+
+			if (peer->useVideoPacketizer) {
+				track->send(reinterpret_cast<const std::byte *>(data), size);
 				continue;
 			}
 

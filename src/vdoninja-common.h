@@ -22,6 +22,7 @@ namespace rtc
 class PeerConnection;
 class DataChannel;
 class Track;
+class RtcpSrReporter;
 struct Configuration;
 } // namespace rtc
 
@@ -74,6 +75,10 @@ struct PeerInfo {
 	std::shared_ptr<rtc::DataChannel> dataChannel;
 	std::shared_ptr<rtc::Track> audioTrack;
 	std::shared_ptr<rtc::Track> videoTrack;
+	std::shared_ptr<rtc::RtcpSrReporter> audioSrReporter;
+	std::shared_ptr<rtc::RtcpSrReporter> videoSrReporter;
+	bool useAudioPacketizer = false;
+	bool useVideoPacketizer = false;
 };
 
 // Room information
@@ -101,6 +106,7 @@ using OnOfferCallback =
     std::function<void(const std::string &uuid, const std::string &sdp, const std::string &session)>;
 using OnAnswerCallback =
     std::function<void(const std::string &uuid, const std::string &sdp, const std::string &session)>;
+using OnOfferRequestCallback = std::function<void(const std::string &uuid, const std::string &session)>;
 using OnIceCandidateCallback = std::function<void(const std::string &uuid, const std::string &candidate,
                                                   const std::string &mid, const std::string &session)>;
 using OnRoomJoinedCallback = std::function<void(const std::vector<std::string> &members)>;
@@ -113,6 +119,24 @@ enum class VideoCodec { H264, VP8, VP9, AV1 };
 
 // Audio codec preferences
 enum class AudioCodec { Opus, PCMU, PCMA };
+
+// Auto layout mode for browser source orchestration.
+enum class AutoLayoutMode { None, Grid };
+
+// OBS scene automation settings for inbound streams.
+struct AutoInboundSettings {
+	bool enabled = false;
+	std::string roomId;
+	std::string password;
+	std::string targetScene;
+	std::string sourcePrefix = "VDO";
+	std::string baseUrl = "https://vdo.ninja";
+	bool removeOnDisconnect = true;
+	AutoLayoutMode layoutMode = AutoLayoutMode::Grid;
+	bool switchToSceneOnNewStream = false;
+	int width = 1920;
+	int height = 1080;
+};
 
 // Plugin output settings
 struct OutputSettings {
@@ -128,6 +152,7 @@ struct OutputSettings {
 	int maxViewers = 10; // Max simultaneous P2P connections
 	std::vector<IceServer> customIceServers;
 	bool forceTurn = false;
+	AutoInboundSettings autoInbound;
 };
 
 // Plugin source settings

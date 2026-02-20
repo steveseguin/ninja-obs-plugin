@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.16)
 
-project(obs-vdoninja VERSION 1.0.2 LANGUAGES C CXX)
+project(obs-vdoninja VERSION 1.1.0 LANGUAGES C CXX)
 
 # Plugin configuration
 set(PLUGIN_AUTHOR "VDO.Ninja Community")
@@ -23,8 +23,8 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-# Find OpenSSL (required for both plugin and tests)
-find_package(OpenSSL REQUIRED)
+# Find OpenSSL (optional; libdatachannel may provide transitive crypto deps)
+find_package(OpenSSL QUIET)
 find_package(Threads REQUIRED)
 
 if(DEFINED OBS_SDK_PATH)
@@ -234,6 +234,9 @@ if(BUILD_PLUGIN)
         src/vdoninja-output.cpp
         src/vdoninja-source.cpp
         src/vdoninja-signaling.cpp
+        src/vdoninja-signaling-protocol.cpp
+        src/vdoninja-auto-scene-manager.cpp
+        src/vdoninja-layout.cpp
         src/vdoninja-peer-manager.cpp
         src/vdoninja-data-channel.cpp
         src/vdoninja-utils.cpp
@@ -245,6 +248,9 @@ if(BUILD_PLUGIN)
         src/vdoninja-output.h
         src/vdoninja-source.h
         src/vdoninja-signaling.h
+        src/vdoninja-signaling-protocol.h
+        src/vdoninja-auto-scene-manager.h
+        src/vdoninja-layout.h
         src/vdoninja-peer-manager.h
         src/vdoninja-data-channel.h
         src/vdoninja-utils.h
@@ -291,11 +297,10 @@ if(BUILD_PLUGIN)
     endif()
 
     # Link other dependencies
-    target_link_libraries(${PROJECT_NAME} PRIVATE
-        OpenSSL::SSL
-        OpenSSL::Crypto
-        Threads::Threads
-    )
+    target_link_libraries(${PROJECT_NAME} PRIVATE Threads::Threads)
+    if(OpenSSL_FOUND)
+        target_link_libraries(${PROJECT_NAME} PRIVATE OpenSSL::SSL OpenSSL::Crypto)
+    endif()
 
     # Platform-specific settings
     if(WIN32)
@@ -371,6 +376,8 @@ if(BUILD_TESTS)
     set(TESTABLE_SOURCES
         src/vdoninja-utils.cpp
         src/vdoninja-data-channel.cpp
+        src/vdoninja-signaling-protocol.cpp
+        src/vdoninja-layout.cpp
     )
 
     # Create a static library for testable code (with OBS stubs)
@@ -382,13 +389,11 @@ if(BUILD_TESTS)
     target_include_directories(vdoninja-testable PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}/src
         ${CMAKE_CURRENT_SOURCE_DIR}/tests/stubs
-        ${OPENSSL_INCLUDE_DIR}
     )
 
-    target_link_libraries(vdoninja-testable PUBLIC
-        OpenSSL::SSL
-        OpenSSL::Crypto
-    )
+    if(OpenSSL_FOUND)
+        target_link_libraries(vdoninja-testable PUBLIC OpenSSL::SSL OpenSSL::Crypto)
+    endif()
 
     target_compile_definitions(vdoninja-testable PRIVATE TESTING_BUILD)
 
@@ -397,6 +402,8 @@ if(BUILD_TESTS)
         tests/test-utils.cpp
         tests/test-json.cpp
         tests/test-data-channel.cpp
+        tests/test-signaling-protocol.cpp
+        tests/test-layout.cpp
     )
 
     target_include_directories(vdoninja-tests PRIVATE

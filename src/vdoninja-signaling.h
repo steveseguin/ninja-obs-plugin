@@ -10,6 +10,7 @@
 #include <thread>
 
 #include "vdoninja-common.h"
+#include "vdoninja-signaling-protocol.h"
 #include "vdoninja-utils.h"
 
 namespace vdoninja
@@ -75,6 +76,7 @@ public:
 	void setOnError(OnErrorCallback callback);
 	void setOnOffer(OnOfferCallback callback);
 	void setOnAnswer(OnAnswerCallback callback);
+	void setOnOfferRequest(OnOfferRequestCallback callback);
 	void setOnIceCandidate(OnIceCandidateCallback callback);
 	void setOnRoomJoined(OnRoomJoinedCallback callback);
 	void setOnStreamAdded(OnStreamAddedCallback callback);
@@ -97,14 +99,7 @@ private:
 	void queueMessage(const std::string &message);
 
 	// Message handlers
-	void handleListing(const JsonParser &json);
-	void handleOffer(const JsonParser &json);
-	void handleAnswer(const JsonParser &json);
-	void handleCandidate(const JsonParser &json);
-	void handleRequest(const JsonParser &json);
-	void handleAlert(const JsonParser &json);
-	void handleVideoAddedToRoom(const JsonParser &json);
-	void handleVideoRemovedFromRoom(const JsonParser &json);
+	void handleRequest(const ParsedSignalMessage &message);
 
 	// Reconnection logic
 	void attemptReconnect();
@@ -142,6 +137,7 @@ private:
 	OnErrorCallback onError_;
 	OnOfferCallback onOffer_;
 	OnAnswerCallback onAnswer_;
+	OnOfferRequestCallback onOfferRequest_;
 	OnIceCandidateCallback onIceCandidate_;
 	OnRoomJoinedCallback onRoomJoined_;
 	OnStreamAddedCallback onStreamAdded_;

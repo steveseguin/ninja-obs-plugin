@@ -14,6 +14,7 @@
 #include <thread>
 
 #include "vdoninja-common.h"
+#include "vdoninja-auto-scene-manager.h"
 #include "vdoninja-peer-manager.h"
 #include "vdoninja-signaling.h"
 
@@ -60,10 +61,12 @@ private:
 	// Components
 	std::unique_ptr<VDONinjaSignaling> signaling_;
 	std::unique_ptr<VDONinjaPeerManager> peerManager_;
+	std::unique_ptr<VDOAutoSceneManager> autoSceneManager_;
 
 	// State
 	std::atomic<bool> running_{false};
 	std::atomic<bool> connected_{false};
+	std::atomic<bool> capturing_{false};
 	std::thread startStopThread_;
 
 	// Statistics

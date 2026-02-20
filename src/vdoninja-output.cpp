@@ -8,6 +8,8 @@
 #include <util/dstr.h>
 #include <util/threading.h>
 
+#include "vdoninja-utils.h"
+
 namespace vdoninja
 {
 
@@ -79,6 +81,26 @@ static obs_properties_t *vdoninja_output_properties(void *)
 	obs_properties_add_bool(props, "auto_reconnect", obs_module_text("AutoReconnect"));
 	obs_properties_add_bool(props, "force_turn", obs_module_text("ForceTURN"));
 
+	obs_properties_add_bool(props, "auto_inbound_enabled", obs_module_text("AutoInbound.Enabled"));
+	obs_properties_add_text(props, "auto_inbound_room_id", obs_module_text("AutoInbound.RoomID"), OBS_TEXT_DEFAULT);
+	obs_properties_add_text(props, "auto_inbound_password", obs_module_text("AutoInbound.Password"), OBS_TEXT_PASSWORD);
+	obs_properties_add_text(props, "auto_inbound_target_scene", obs_module_text("AutoInbound.TargetScene"), OBS_TEXT_DEFAULT);
+	obs_properties_add_text(props, "auto_inbound_source_prefix", obs_module_text("AutoInbound.SourcePrefix"),
+	                        OBS_TEXT_DEFAULT);
+	obs_properties_add_text(props, "auto_inbound_base_url", obs_module_text("AutoInbound.BaseUrl"), OBS_TEXT_DEFAULT);
+	obs_properties_add_bool(props, "auto_inbound_remove_on_disconnect", obs_module_text("AutoInbound.RemoveOnDisconnect"));
+	obs_properties_add_bool(props, "auto_inbound_switch_scene", obs_module_text("AutoInbound.SwitchScene"));
+	obs_properties_add_int(props, "auto_inbound_width", obs_module_text("AutoInbound.Width"), 320, 4096, 1);
+	obs_properties_add_int(props, "auto_inbound_height", obs_module_text("AutoInbound.Height"), 240, 2160, 1);
+
+	obs_property_t *layoutMode = obs_properties_add_list(props, "auto_inbound_layout_mode",
+	                                                     obs_module_text("AutoInbound.LayoutMode"), OBS_COMBO_TYPE_LIST,
+	                                                     OBS_COMBO_FORMAT_INT);
+	obs_property_list_add_int(layoutMode, obs_module_text("AutoInbound.Layout.None"),
+	                          static_cast<int>(AutoLayoutMode::None));
+	obs_property_list_add_int(layoutMode, obs_module_text("AutoInbound.Layout.Grid"),
+	                          static_cast<int>(AutoLayoutMode::Grid));
+
 	return props;
 }
 
@@ -94,6 +116,17 @@ static void vdoninja_output_defaults(obs_data_t *settings)
 	obs_data_set_default_bool(settings, "enable_data_channel", true);
 	obs_data_set_default_bool(settings, "auto_reconnect", true);
 	obs_data_set_default_bool(settings, "force_turn", false);
+	obs_data_set_default_bool(settings, "auto_inbound_enabled", false);
+	obs_data_set_default_string(settings, "auto_inbound_room_id", "");
+	obs_data_set_default_string(settings, "auto_inbound_password", "");
+	obs_data_set_default_string(settings, "auto_inbound_target_scene", "");
+	obs_data_set_default_string(settings, "auto_inbound_source_prefix", "VDO");
+	obs_data_set_default_string(settings, "auto_inbound_base_url", "https://vdo.ninja");
+	obs_data_set_default_bool(settings, "auto_inbound_remove_on_disconnect", true);
+	obs_data_set_default_bool(settings, "auto_inbound_switch_scene", false);
+	obs_data_set_default_int(settings, "auto_inbound_layout_mode", static_cast<int>(AutoLayoutMode::Grid));
+	obs_data_set_default_int(settings, "auto_inbound_width", 1920);
+	obs_data_set_default_int(settings, "auto_inbound_height", 1080);
 }
 
 static uint64_t vdoninja_output_total_bytes(void *data)
@@ -136,6 +169,7 @@ VDONinjaOutput::VDONinjaOutput(obs_data_t *settings, obs_output_t *output) : out
 
 	signaling_ = std::make_unique<VDONinjaSignaling>();
 	peerManager_ = std::make_unique<VDONinjaPeerManager>();
+	autoSceneManager_ = std::make_unique<VDOAutoSceneManager>();
 
 	logInfo("VDO.Ninja output created");
 }
@@ -163,6 +197,29 @@ void VDONinjaOutput::loadSettings(obs_data_t *settings)
 	settings_.enableDataChannel = obs_data_get_bool(settings, "enable_data_channel");
 	settings_.autoReconnect = obs_data_get_bool(settings, "auto_reconnect");
 	settings_.forceTurn = obs_data_get_bool(settings, "force_turn");
+
+	settings_.autoInbound.enabled = obs_data_get_bool(settings, "auto_inbound_enabled");
+	settings_.autoInbound.roomId = obs_data_get_string(settings, "auto_inbound_room_id");
+	settings_.autoInbound.password = obs_data_get_string(settings, "auto_inbound_password");
+	settings_.autoInbound.targetScene = obs_data_get_string(settings, "auto_inbound_target_scene");
+	settings_.autoInbound.sourcePrefix = obs_data_get_string(settings, "auto_inbound_source_prefix");
+	settings_.autoInbound.baseUrl = obs_data_get_string(settings, "auto_inbound_base_url");
+	settings_.autoInbound.removeOnDisconnect = obs_data_get_bool(settings, "auto_inbound_remove_on_disconnect");
+	settings_.autoInbound.switchToSceneOnNewStream = obs_data_get_bool(settings, "auto_inbound_switch_scene");
+	settings_.autoInbound.layoutMode =
+	    static_cast<AutoLayoutMode>(obs_data_get_int(settings, "auto_inbound_layout_mode"));
+	settings_.autoInbound.width = static_cast<int>(obs_data_get_int(settings, "auto_inbound_width"));
+	settings_.autoInbound.height = static_cast<int>(obs_data_get_int(settings, "auto_inbound_height"));
+
+	if (settings_.autoInbound.sourcePrefix.empty()) {
+		settings_.autoInbound.sourcePrefix = "VDO";
+	}
+	if (settings_.autoInbound.baseUrl.empty()) {
+		settings_.autoInbound.baseUrl = "https://vdo.ninja";
+	}
+	if (settings_.autoInbound.password.empty()) {
+		settings_.autoInbound.password = settings_.password;
+	}
 }
 
 void VDONinjaOutput::update(obs_data_t *settings)
@@ -183,8 +240,24 @@ bool VDONinjaOutput::start()
 		return false;
 	}
 
+	if (!obs_output_can_begin_data_capture(output_, 0)) {
+		logError("Output cannot begin data capture");
+		return false;
+	}
+
+	if (!obs_output_initialize_encoders(output_, 0)) {
+		logError("Failed to initialize output encoders");
+		obs_output_signal_stop(output_, OBS_OUTPUT_ERROR);
+		return false;
+	}
+
 	running_ = true;
 	startTimeMs_ = currentTimeMs();
+	capturing_ = false;
+
+	if (startStopThread_.joinable()) {
+		startStopThread_.join();
+	}
 
 	startStopThread_ = std::thread(&VDONinjaOutput::startThread, this);
 
@@ -203,13 +276,28 @@ void VDONinjaOutput::startThread()
 	peerManager_->setEnableDataChannel(settings_.enableDataChannel);
 	peerManager_->setForceTurn(settings_.forceTurn);
 
+	if (autoSceneManager_) {
+		autoSceneManager_->configure(settings_.autoInbound);
+		std::vector<std::string> ownIds = {settings_.streamId, hashStreamId(settings_.streamId, settings_.password),
+		                                   hashStreamId(settings_.streamId, DEFAULT_PASSWORD)};
+		autoSceneManager_->setOwnStreamIds(ownIds);
+		if (settings_.autoInbound.enabled) {
+			autoSceneManager_->start();
+		}
+	}
+
 	// Set up callbacks
 	signaling_->setOnConnected([this]() {
 		logInfo("Connected to signaling server");
 
-		// Join room if specified
-		if (!settings_.roomId.empty()) {
-			signaling_->joinRoom(settings_.roomId, settings_.password);
+		const std::string roomToJoin =
+		    !settings_.autoInbound.roomId.empty() ? settings_.autoInbound.roomId : settings_.roomId;
+		const std::string roomPassword =
+		    !settings_.autoInbound.password.empty() ? settings_.autoInbound.password : settings_.password;
+
+		// Join room for inbound orchestration and/or publishing presence.
+		if (!roomToJoin.empty()) {
+			signaling_->joinRoom(roomToJoin, roomPassword);
 		}
 
 		// Start publishing
@@ -219,8 +307,16 @@ void VDONinjaOutput::startThread()
 		connected_ = true;
 		connectTimeMs_ = currentTimeMs() - startTimeMs_;
 
-		// Signal OBS that we're connected
-		obs_output_begin_data_capture(output_, 0);
+		if (!capturing_) {
+			if (obs_output_begin_data_capture(output_, 0)) {
+				capturing_ = true;
+			} else {
+				logError("Failed to begin OBS data capture");
+				obs_output_signal_stop(output_, OBS_OUTPUT_ERROR);
+				running_ = false;
+				connected_ = false;
+			}
+		}
 	});
 
 	signaling_->setOnDisconnected([this]() {
@@ -234,6 +330,24 @@ void VDONinjaOutput::startThread()
 
 	signaling_->setOnError([this](const std::string &error) { logError("Signaling error: %s", error.c_str()); });
 
+	signaling_->setOnRoomJoined([this](const std::vector<std::string> &members) {
+		if (autoSceneManager_ && settings_.autoInbound.enabled) {
+			autoSceneManager_->onRoomListing(members);
+		}
+	});
+
+	signaling_->setOnStreamAdded([this](const std::string &streamId, const std::string &) {
+		if (autoSceneManager_ && settings_.autoInbound.enabled) {
+			autoSceneManager_->onStreamAdded(streamId);
+		}
+	});
+
+	signaling_->setOnStreamRemoved([this](const std::string &streamId, const std::string &) {
+		if (autoSceneManager_ && settings_.autoInbound.enabled) {
+			autoSceneManager_->onStreamRemoved(streamId);
+		}
+	});
+
 	peerManager_->setOnPeerConnected([this](const std::string &uuid) {
 		logInfo("Viewer connected: %s (total: %d)", uuid.c_str(), peerManager_->getViewerCount());
 	});
@@ -242,12 +356,34 @@ void VDONinjaOutput::startThread()
 		logInfo("Viewer disconnected: %s (total: %d)", uuid.c_str(), peerManager_->getViewerCount());
 	});
 
+	peerManager_->setOnDataChannelMessage([this](const std::string &, const std::string &message) {
+		if (!autoSceneManager_ || !settings_.autoInbound.enabled) {
+			return;
+		}
+
+		try {
+			JsonParser json(message);
+			std::string whepUrl = json.getString("whepUrl");
+			if (whepUrl.empty()) {
+				whepUrl = json.getString("whep");
+			}
+			if (!whepUrl.empty()) {
+				autoSceneManager_->onStreamAdded(whepUrl);
+			}
+		} catch (...) {
+			// Ignore non-JSON data channel payloads.
+		}
+	});
+
 	// Configure reconnection
 	signaling_->setAutoReconnect(settings_.autoReconnect, DEFAULT_RECONNECT_ATTEMPTS);
 
 	// Connect to signaling server
 	if (!signaling_->connect(settings_.wssHost)) {
 		logError("Failed to connect to signaling server");
+		if (autoSceneManager_) {
+			autoSceneManager_->stop();
+		}
 		obs_output_signal_stop(output_, OBS_OUTPUT_CONNECT_FAILED);
 		running_ = false;
 		return;
@@ -265,6 +401,10 @@ void VDONinjaOutput::stop(bool signal)
 	connected_ = false;
 
 	logInfo("Stopping VDO.Ninja output...");
+
+	if (autoSceneManager_) {
+		autoSceneManager_->stop();
+	}
 
 	// Stop publishing
 	peerManager_->stopPublishing();
@@ -288,7 +428,10 @@ void VDONinjaOutput::stop(bool signal)
 	}
 
 	// End data capture
-	obs_output_end_data_capture(output_);
+	if (capturing_) {
+		obs_output_end_data_capture(output_);
+		capturing_ = false;
+	}
 
 	if (signal) {
 		obs_output_signal_stop(output_, OBS_OUTPUT_SUCCESS);

@@ -226,6 +226,8 @@ void VDONinjaSource::connect()
 		return;
 	}
 
+	logWarning("VDO.Ninja source native decode path is experimental and not fully implemented yet");
+
 	connectionThread_ = std::thread(&VDONinjaSource::connectionThread, this);
 }
 
