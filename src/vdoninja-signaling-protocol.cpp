@@ -5,9 +5,9 @@
 
 #include "vdoninja-signaling-protocol.h"
 
-#include "vdoninja-utils.h"
-
 #include <initializer_list>
+
+#include "vdoninja-utils.h"
 
 namespace vdoninja
 {
@@ -67,7 +67,8 @@ bool parseSignalingMessage(const std::string &message, ParsedSignalMessage &pars
 			auto listing = json.getArray("listing");
 			for (const auto &member : listing) {
 				JsonParser memberJson(member);
-				std::string streamId = getAnyString(memberJson, {"streamID", "streamId", "whep", "whepUrl", "url", "URL"});
+				std::string streamId =
+				    getAnyString(memberJson, {"streamID", "streamId", "whep", "whepUrl", "url", "URL"});
 				if (!streamId.empty()) {
 					parsed.listingMembers.push_back(streamId);
 				}

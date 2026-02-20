@@ -50,9 +50,8 @@ void VDONinjaPeerManager::initialize(VDONinjaSignaling *signaling)
 		onSignalingAnswer(uuid, sdp, session);
 	});
 
-	signaling_->setOnOfferRequest([this](const std::string &uuid, const std::string &session) {
-		onSignalingOfferRequest(uuid, session);
-	});
+	signaling_->setOnOfferRequest(
+	    [this](const std::string &uuid, const std::string &session) { onSignalingOfferRequest(uuid, session); });
 
 	signaling_->setOnIceCandidate(
 	    [this](const std::string &uuid, const std::string &candidate, const std::string &mid,
@@ -347,8 +346,8 @@ void VDONinjaPeerManager::setupPublisherTracks(std::shared_ptr<PeerInfo> peer)
 
 	// Prefer libdatachannel packetizers when available, with fallback to manual RTP.
 	try {
-		auto audioConfig =
-		    std::make_shared<rtc::RtpPacketizationConfig>(audioSsrc_, "vdoninja", 111, rtc::OpusRtpPacketizer::DefaultClockRate);
+		auto audioConfig = std::make_shared<rtc::RtpPacketizationConfig>(audioSsrc_, "vdoninja", 111,
+		                                                                 rtc::OpusRtpPacketizer::DefaultClockRate);
 		auto audioPacketizer = std::make_shared<rtc::OpusRtpPacketizer>(audioConfig);
 		peer->audioSrReporter = std::make_shared<rtc::RtcpSrReporter>(audioConfig);
 		audioPacketizer->addToChain(peer->audioSrReporter);
@@ -362,8 +361,8 @@ void VDONinjaPeerManager::setupPublisherTracks(std::shared_ptr<PeerInfo> peer)
 
 	if (videoCodec_ == VideoCodec::H264) {
 		try {
-			auto videoConfig = std::make_shared<rtc::RtpPacketizationConfig>(
-			    videoSsrc_, "vdoninja", 96, rtc::H264RtpPacketizer::defaultClockRate);
+			auto videoConfig = std::make_shared<rtc::RtpPacketizationConfig>(videoSsrc_, "vdoninja", 96,
+			                                                                 rtc::H264RtpPacketizer::defaultClockRate);
 			auto videoPacketizer = std::make_shared<rtc::H264RtpPacketizer>(
 			    rtc::H264RtpPacketizer::Separator::StartSequence, videoConfig, 1200);
 			peer->videoSrReporter = std::make_shared<rtc::RtcpSrReporter>(videoConfig);

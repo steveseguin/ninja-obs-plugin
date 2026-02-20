@@ -84,18 +84,20 @@ static obs_properties_t *vdoninja_output_properties(void *)
 	obs_properties_add_bool(props, "auto_inbound_enabled", obs_module_text("AutoInbound.Enabled"));
 	obs_properties_add_text(props, "auto_inbound_room_id", obs_module_text("AutoInbound.RoomID"), OBS_TEXT_DEFAULT);
 	obs_properties_add_text(props, "auto_inbound_password", obs_module_text("AutoInbound.Password"), OBS_TEXT_PASSWORD);
-	obs_properties_add_text(props, "auto_inbound_target_scene", obs_module_text("AutoInbound.TargetScene"), OBS_TEXT_DEFAULT);
+	obs_properties_add_text(props, "auto_inbound_target_scene", obs_module_text("AutoInbound.TargetScene"),
+	                        OBS_TEXT_DEFAULT);
 	obs_properties_add_text(props, "auto_inbound_source_prefix", obs_module_text("AutoInbound.SourcePrefix"),
 	                        OBS_TEXT_DEFAULT);
 	obs_properties_add_text(props, "auto_inbound_base_url", obs_module_text("AutoInbound.BaseUrl"), OBS_TEXT_DEFAULT);
-	obs_properties_add_bool(props, "auto_inbound_remove_on_disconnect", obs_module_text("AutoInbound.RemoveOnDisconnect"));
+	obs_properties_add_bool(props, "auto_inbound_remove_on_disconnect",
+	                        obs_module_text("AutoInbound.RemoveOnDisconnect"));
 	obs_properties_add_bool(props, "auto_inbound_switch_scene", obs_module_text("AutoInbound.SwitchScene"));
 	obs_properties_add_int(props, "auto_inbound_width", obs_module_text("AutoInbound.Width"), 320, 4096, 1);
 	obs_properties_add_int(props, "auto_inbound_height", obs_module_text("AutoInbound.Height"), 240, 2160, 1);
 
-	obs_property_t *layoutMode = obs_properties_add_list(props, "auto_inbound_layout_mode",
-	                                                     obs_module_text("AutoInbound.LayoutMode"), OBS_COMBO_TYPE_LIST,
-	                                                     OBS_COMBO_FORMAT_INT);
+	obs_property_t *layoutMode =
+	    obs_properties_add_list(props, "auto_inbound_layout_mode", obs_module_text("AutoInbound.LayoutMode"),
+	                            OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_INT);
 	obs_property_list_add_int(layoutMode, obs_module_text("AutoInbound.Layout.None"),
 	                          static_cast<int>(AutoLayoutMode::None));
 	obs_property_list_add_int(layoutMode, obs_module_text("AutoInbound.Layout.Grid"),

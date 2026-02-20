@@ -5,13 +5,13 @@
 
 #pragma once
 
+#include <obs-module.h>
+
 #include <functional>
 #include <mutex>
 #include <set>
 #include <string>
 #include <vector>
-
-#include <obs-module.h>
 
 #include "vdoninja-common.h"
 

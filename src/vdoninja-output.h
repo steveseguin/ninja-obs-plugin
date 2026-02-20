@@ -13,8 +13,8 @@
 #include <atomic>
 #include <thread>
 
-#include "vdoninja-common.h"
 #include "vdoninja-auto-scene-manager.h"
+#include "vdoninja-common.h"
 #include "vdoninja-peer-manager.h"
 #include "vdoninja-signaling.h"
 
