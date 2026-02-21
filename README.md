@@ -3,349 +3,145 @@
 [![CI](https://github.com/steveseguin/ninja-plugin/actions/workflows/ci.yml/badge.svg)](https://github.com/steveseguin/ninja-plugin/actions/workflows/ci.yml)
 [![License: AGPL-3.0-only](https://img.shields.io/badge/License-AGPL--3.0--only-blue.svg)](LICENSE)
 
-A native OBS Studio plugin for [VDO.Ninja](https://vdo.ninja) integration, enabling WebRTC streaming directly from OBS.
+Native OBS Studio plugin for [VDO.Ninja](https://vdo.ninja), with WebRTC publishing and ingest paths integrated directly into OBS workflows.
 
-## Features
+## What Is VDO.Ninja?
 
-### Output (Publishing)
-- Stream directly to VDO.Ninja from OBS
-- Support for multiple simultaneous P2P viewers
-- H.264, VP8, and VP9 video codec support
-- Opus audio codec
-- Configurable bitrate and quality
-- Automatic reconnection on connection loss
-- Data channel support for tally lights, chat, and remote control
+VDO.Ninja is a low-latency WebRTC platform used for live production, remote guests, room-based contribution, and browser-based return feeds. It is commonly used with OBS, often via Browser Sources and links like:
 
-### Source (Viewing)
-- View VDO.Ninja streams as an OBS source
-- Low-latency WebRTC playback
-- Room support for multi-stream sessions
-- Password-protected streams
+- `https://vdo.ninja/?push=YourStreamID`
+- `https://vdo.ninja/?view=YourStreamID`
 
-### Virtual Camera Integration
-- Use VDO.Ninja as a destination when starting virtual camera
-- Seamless integration with OBS workflow
+## Why This Plugin Exists
+
+Using VDO.Ninja only through Browser Sources can be limiting for some production workflows. This plugin adds tighter OBS integration so users can:
+
+- Publish directly from OBS output settings to VDO.Ninja.
+- Manage inbound room/view streams with less manual setup.
+- Configure advanced signaling, salt, and ICE behavior from plugin settings.
+- Keep media workflows closer to OBS native controls.
+
+## Core Value
+
+- Faster setup for repeat production workflows.
+- Better control of stream/session behavior from OBS.
+- Multi-viewer capable publish path.
+- Optional data-channel metadata hooks (including WHEP URL hints).
+
+## Why Not Just WHIP/WHEP?
+
+WHIP/WHEP is excellent for standards-based ingest/egress, especially for server/CDN pipelines.  
+This plugin targets a different primary use case: live interactive VDO.Ninja workflows.
+
+Where this plugin + VDO.Ninja is often stronger:
+
+- **Peer-to-peer first:** very low-latency contribution paths for live production use.
+- **One publisher, many direct viewers:** practical multi-viewer room workflows.
+- **VDO.Ninja ecosystem support:** room semantics, link-based routing, data-channel metadata patterns.
+- **OBS workflow integration:** stream IDs, password/salt behavior, signaling and ICE controls in one place.
+
+Where WHIP/WHEP is often stronger:
+
+- **Simple standards-only server ingest** to a media server/CDN.
+- **Centralized distribution architectures** where every viewer goes through infrastructure.
+- **Interoperability-first deployments** with minimal platform-specific behavior.
+
+In practice, many teams use both: VDO.Ninja workflows for interactive contribution and WHIP/WHEP for specific distribution paths.
 
 ## Current Status
 
-- Publishing (OBS output -> VDO.Ninja) is the primary stable path.
+- Publishing (`OBS -> VDO.Ninja`) is the primary stable path.
 - Multi-viewer publishing is supported and tested end-to-end.
-- Auto-inbound stream management can create/update Browser Sources from room and data-channel events.
-- Native decode in `VDO.Ninja Source` remains experimental; for production ingest, prefer Browser Source / auto-inbound flows.
-- Remote OBS control over data channels is not yet implemented as a full command surface.
-- UI text falls back to built-in English strings if locale files are missing.
+- Auto-inbound management can create/update Browser Sources from room/data-channel events.
+- Native decode in `VDO.Ninja Source` is available but still being hardened.
+- Locale fallback to built-in English strings is supported if locale files are missing.
 
-## Requirements
+## Quick Start
 
-- OBS Studio 30.0 or later
-- libdatachannel (WebRTC library)
-- OpenSSL
+### 1. Install
 
-## Installation
+Download the latest package from [Releases](https://github.com/steveseguin/ninja-plugin/releases).
 
-### Pre-built Releases (Recommended)
+- Linux: `obs-vdoninja-linux-x86_64.tar.gz`
+- Windows: `obs-vdoninja-windows-x64.zip`
+- macOS: `obs-vdoninja-macos-arm64.zip`
 
-Download the latest release from the [Releases page](https://github.com/steveseguin/ninja-plugin/releases).
+Each release archive includes:
 
-**Linux (Debian/Ubuntu):**
-```bash
-sudo dpkg -i obs-vdoninja-*.deb
+- `INSTALL.md` (quick install instructions)
+- `install.ps1` on Windows or `install.sh` on Linux/macOS
+
+### 2. Publish to VDO.Ninja
+
+1. OBS -> `Settings` -> `Stream`
+2. Service: `VDO.Ninja`
+3. Set `Stream ID` and optional `Password` / `Room ID`
+4. Click `Start Streaming`
+
+Viewer URL pattern:
+
+```text
+https://vdo.ninja/?view=<StreamID>
+https://vdo.ninja/?view=<StreamID>&password=<Password>
 ```
 
-**Windows:**
-1. Extract the ZIP file
-2. Copy `obs-vdoninja.dll` and `datachannel.dll` to:
-   - `C:\Program Files\obs-studio\obs-plugins\64bit\`
+### 3. Ingest a VDO.Ninja stream in OBS
 
-**macOS:**
-1. Extract the ZIP file
-2. Copy `obs-vdoninja.plugin` to:
-   - `~/Library/Application Support/obs-studio/plugins/`
+1. Add Source -> `VDO.Ninja Source`
+2. Enter `Stream ID` (and optional room/password)
+3. For room automation, use auto-inbound options in plugin settings
 
-### Using Installer Scripts
+## Key Settings
 
-Clone this repository and run the appropriate installer:
+- `Stream ID`: Primary stream identifier.
+- `Password`: Uses VDO.Ninja-compatible hashing behavior.
+- `Salt`: Default `vdo.ninja`; change for self-hosted/domain-specific setups.
+- `Signaling Server`: Default `wss://wss.vdo.ninja`; can be customized.
+- `Custom ICE Servers`: Optional custom STUN/TURN list.
+- `Force TURN`: Use relay-only path for difficult network environments.
+- `Max Viewers`: Upper bound for simultaneous P2P viewers.
 
-**Linux:**
-```bash
-./scripts/install-linux.sh
-```
+## Testing
 
-**Windows (PowerShell as Administrator):**
-```powershell
-.\scripts\install-windows.ps1
-```
-
-**macOS:**
-```bash
-./scripts/install-macos.sh
-```
-
-### Building from Source
-
-#### Prerequisites
-
-**Ubuntu/Debian:**
-```bash
-sudo apt install cmake build-essential libobs-dev libssl-dev git
-```
-
-**Windows:**
-- Visual Studio 2022 with C++ workload
-- CMake
-- Git
-- vcpkg (for OpenSSL)
-
-**macOS:**
-```bash
-brew install cmake openssl@3 git
-```
-
-#### Build Steps
-
-1. **Build libdatachannel** (required dependency):
+### Unit tests
 
 ```bash
-git clone --depth 1 --branch v0.20.2 https://github.com/paullouisageneau/libdatachannel.git
-cd libdatachannel
-git submodule update --init --recursive --depth 1
-cmake -B build -DCMAKE_BUILD_TYPE=Release -DNO_EXAMPLES=ON -DNO_TESTS=ON
-cmake --build build -j$(nproc)
-sudo cmake --install build
-```
-
-2. **Build the plugin:**
-
-```bash
-cd obs-vdoninja
-cmake -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build -j$(nproc)
-sudo cmake --install build
-```
-
-#### Windows Build
-
-```powershell
-# Install OpenSSL via vcpkg
-vcpkg install openssl:x64-windows
-
-# Build libdatachannel
-git clone --depth 1 --branch v0.20.2 https://github.com/paullouisageneau/libdatachannel.git
-cd libdatachannel
-git submodule update --init --recursive --depth 1
-cmake -B build -G "Visual Studio 17 2022" -A x64 -DCMAKE_BUILD_TYPE=Release -DNO_EXAMPLES=ON -DNO_TESTS=ON
-cmake --build build --config Release
-cmake --install build --prefix ../libdatachannel-install
-
-# Build plugin
-cd ../obs-vdoninja
-cmake -B build -G "Visual Studio 17 2022" -A x64 -DCMAKE_PREFIX_PATH="../libdatachannel-install"
-cmake --build build --config Release
-```
-
-## Usage
-
-### Publishing to VDO.Ninja
-
-1. Go to **Settings → Stream**
-2. Select **VDO.Ninja** as the service
-3. Enter your **Stream ID** (this will be your view link: `https://vdo.ninja/?view=YourStreamID`)
-4. Optionally set a **Room ID** and **Password**
-5. Click **Start Streaming**
-
-Your stream will be available at: `https://vdo.ninja/?view=<StreamID>`
-
-### Viewing VDO.Ninja Streams
-
-1. Add a new source → **VDO.Ninja Source**
-2. Enter the **Stream ID** of the stream you want to view
-3. If the stream is in a room, enter the **Room ID**
-4. If password-protected, enter the **Password**
-
-### Settings
-
-| Setting | Description | Default |
-|---------|-------------|---------|
-| Stream ID | Unique identifier for your stream | Required |
-| Room ID | Room for multi-stream sessions | Optional |
-| Password | Encryption password | VDO.Ninja default |
-| Video Codec | H.264, VP8, or VP9 | H.264 |
-| Bitrate | Target video bitrate (kbps) | 4000 |
-| Max Viewers | Maximum P2P connections | 10 |
-| Enable Data Channel | Tally, chat support | Yes |
-| Auto Reconnect | Reconnect on failure | Yes |
-| Force TURN | Force relay mode | No |
-
-## Architecture
-
-```
-┌──────────────────────────────────────────────────────────────┐
-│                     OBS VDO.Ninja Plugin                      │
-├──────────────────────────────────────────────────────────────┤
-│                                                              │
-│  ┌─────────────────┐         ┌─────────────────────────┐    │
-│  │  VDONinja       │         │  VDONinja               │    │
-│  │  Output         │         │  Source                 │    │
-│  │  (Publisher)    │         │  (Viewer)               │    │
-│  └────────┬────────┘         └───────────┬─────────────┘    │
-│           │                              │                   │
-│           └──────────┬───────────────────┘                   │
-│                      │                                       │
-│           ┌──────────▼──────────┐                           │
-│           │  Peer Manager       │                           │
-│           │  (Multi-connection) │                           │
-│           └──────────┬──────────┘                           │
-│                      │                                       │
-│           ┌──────────▼──────────┐                           │
-│           │  Signaling Client   │                           │
-│           │  (WebSocket)        │                           │
-│           └──────────┬──────────┘                           │
-│                      │                                       │
-├──────────────────────┼───────────────────────────────────────┤
-│                      │                                       │
-│           ┌──────────▼──────────┐                           │
-│           │  libdatachannel     │                           │
-│           │  (WebRTC Stack)     │                           │
-│           └─────────────────────┘                           │
-│                                                              │
-└──────────────────────────────────────────────────────────────┘
-```
-
-## VDO.Ninja Protocol
-
-This plugin implements the VDO.Ninja signaling protocol:
-
-- **WebSocket Signaling**: Connects to `wss://wss.vdo.ninja`
-- **Room Management**: Join/leave rooms with hashed IDs
-- **Stream Publishing**: `seed` request with hashed stream ID
-- **Stream Viewing**: `play` request for specific streams
-- **ICE Candidate Bundling**: Batched candidate exchange
-- **Data Channels**: P2P messaging for tally, chat, control
-
-### Message Types
-
-- `joinroom` - Join a room
-- `seed` - Publish a stream
-- `play` - Request to view a stream
-- `offer/answer` - SDP exchange
-- `candidate` - ICE candidates
-
-## Development
-
-### Project Structure
-
-```
-obs-vdoninja/
-├── CMakeLists.txt
-├── LICENSE                   # AGPL-3.0-only License
-├── THIRD_PARTY_LICENSES.md   # Third-party license inventory
-├── RELEASE_COMPLIANCE.md     # Release compliance checklist
-├── src/
-│   ├── plugin-main.cpp        # Plugin entry point
-│   ├── vdoninja-signaling.*   # WebSocket signaling
-│   ├── vdoninja-peer-manager.*# Multi-peer WebRTC
-│   ├── vdoninja-output.*      # OBS output (publish)
-│   ├── vdoninja-source.*      # OBS source (view)
-│   ├── vdoninja-data-channel.*# Data channel support
-│   ├── vdoninja-utils.*       # Utilities
-│   └── vdoninja-common.h      # Shared types
-├── tests/
-│   ├── test-utils.cpp         # Utility function tests
-│   ├── test-json.cpp          # JSON parser tests
-│   ├── test-data-channel.cpp  # Data channel tests
-│   └── stubs/                 # OBS API stubs for testing
-├── scripts/
-│   ├── install-linux.sh       # Linux installer
-│   ├── install-windows.ps1    # Windows installer
-│   └── install-macos.sh       # macOS installer
-├── .github/workflows/
-│   ├── ci.yml                 # CI workflow
-│   └── release.yml            # Release workflow
-└── data/
-    └── locale/
-        └── en-US.ini          # Localization
-```
-
-### Building for Development
-
-```bash
-cmake -B build -DCMAKE_BUILD_TYPE=Debug
-cmake --build build
-```
-
-### Running Tests
-
-```bash
-# Configure with tests enabled
-cmake -B build -DBUILD_TESTS=ON -DCMAKE_BUILD_TYPE=Debug
-
-# Build tests
+cmake -B build -DBUILD_TESTS=ON -DBUILD_PLUGIN=OFF -DCMAKE_BUILD_TYPE=Debug
 cmake --build build --target vdoninja-tests
-
-# Run tests
 ctest --test-dir build --output-on-failure
-
-# Or run directly
-./build/vdoninja-tests
 ```
 
-### End-to-End Tests (Playwright)
+### End-to-end (Playwright)
 
 ```bash
-# Install JS test dependencies
 npm ci
-
-# Single viewer receive/playback verification
-npx playwright test tests/e2e/vdoninja-view.spec.js --reporter=line
-
-# Publish -> view -> reload stability check
-npx playwright test tests/e2e/vdoninja-publish-view-reload.spec.js --reporter=line
-
-# One publisher -> multiple concurrent viewers
-npx playwright test tests/e2e/vdoninja-multi-viewers.spec.js --reporter=line
+npm test
 ```
 
-Test stream defaults used by e2e specs:
-- View: `https://vdo.ninja/?view=Alsosuitbc&password=somepassword`
-- Push: `https://vdo.ninja/?push=Alsosuitbc&password=somepassword`
+E2E covers:
 
-### Test Coverage
+- Publish -> view playback validation
+- Viewer reload continuity
+- One publisher -> multiple concurrent viewers
 
-The test suite covers:
-- **Utility functions**: UUID/session ID generation, SHA256 hashing, stream ID sanitization
-- **JSON handling**: Builder and parser for VDO.Ninja protocol messages
-- **Base64 encoding/decoding**: For binary data handling
-- **String utilities**: URL encoding, trimming, splitting
-- **Data channel**: Message parsing, creation, tally state management
-- **VDO.Ninja protocol**: Message format validation
+## CI and Releases
 
-## Contributing
+- `main` pushes run `CI`, `Code Quality`, and `GitHub Pages`.
+- Tag pushes matching `v*` run cross-platform build/release packaging.
+- Current release workflow auto-builds Linux x86_64, Windows x64, and macOS arm64.
 
-Contributions are welcome! Please:
+## Project Layout
 
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Run tests to ensure they pass
-5. Submit a pull request
+- `src/`: plugin implementation (`vdoninja-output`, `vdoninja-source`, signaling, peer manager, data channel)
+- `tests/`: GoogleTest suites and stubs
+- `tests/e2e/`: Playwright end-to-end specs
+- `data/locale/`: localization files
+- `.github/workflows/`: CI/build/pages pipelines
 
 ## License
 
-This project is licensed under the **GNU Affero General Public License v3.0 only (AGPL-3.0-only)**.
-See [LICENSE](LICENSE) for full terms.
+Licensed under **AGPL-3.0-only**.
 
-Third-party notices: [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md)
-
-Release checklist: [RELEASE_COMPLIANCE.md](RELEASE_COMPLIANCE.md)
-
-## Credits
-
-- [VDO.Ninja](https://vdo.ninja) by Steve Seguin
-- [libdatachannel](https://github.com/paullouisageneau/libdatachannel) by Paul-Louis Ageneau
-- [OBS Studio](https://obsproject.com)
-
-## Links
-
-- [VDO.Ninja Documentation](https://docs.vdo.ninja)
-- [VDO.Ninja SDK](https://github.com/steveseguin/ninjasdk)
-- [OBS Plugin Development](https://obsproject.com/docs/plugins.html)
+- [LICENSE](LICENSE)
+- [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md)
+- [RELEASE_COMPLIANCE.md](RELEASE_COMPLIANCE.md)

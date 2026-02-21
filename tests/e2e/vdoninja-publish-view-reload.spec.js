@@ -1,5 +1,6 @@
 const fs = require("fs");
 const { test, expect } = require("@playwright/test");
+const { buildScenarioUrls } = require("./vdo-config");
 
 test.use({
   launchOptions: {
@@ -136,20 +137,8 @@ async function nudgePage(page) {
 test("vdo.ninja publish -> view -> reload keeps active media", async ({ browser }, testInfo) => {
   test.setTimeout(240000);
 
-  const streamId = process.env.VDO_STREAM_ID || "Alsosuitbc";
-  const password = process.env.VDO_PASSWORD || "somepassword";
-
-  const params = new URLSearchParams({
-    password,
-    cleanoutput: "1",
-  });
-
-  const pushParams = new URLSearchParams(params);
-  pushParams.set("autostart", "1");
-  pushParams.set("webcam", "1");
-
-  const pushUrl = `https://vdo.ninja/?push=${encodeURIComponent(streamId)}&${pushParams.toString()}`;
-  const viewUrl = `https://vdo.ninja/?view=${encodeURIComponent(streamId)}&${params.toString()}`;
+  const { streamId, noPassword, password, roomId, bitrate, includeRoomInView, includeSceneInView, pushUrl, viewUrl } =
+    buildScenarioUrls();
 
   const publisherContext = await browser.newContext({
     permissions: ["camera", "microphone"],
@@ -228,7 +217,12 @@ test("vdo.ninja publish -> view -> reload keeps active media", async ({ browser 
 
   const report = {
     streamId,
+    noPassword,
     password,
+    roomId,
+    bitrate,
+    includeRoomInView,
+    includeSceneInView,
     pushUrl,
     viewUrl,
     inboundBeforeReload,

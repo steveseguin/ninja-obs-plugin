@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.2] - 2026-02-21
+
+### Added
+- Package-level installation guide (`INSTALL.md`) included in release archives
+- Package installer helpers included in release artifacts:
+  - Windows: `install.ps1`
+  - Linux/macOS: `install.sh`
+- Additional locale files for common OBS user languages:
+  - `de-DE`, `es-ES`, `fr-FR`, `it-IT`, `ja-JP`, `ko-KR`, `nl-NL`, `pl-PL`, `pt-BR`, `ru-RU`, `tr-TR`, `zh-CN`
+- Firefox receive/playback verification script for Chromium publisher -> Firefox viewer:
+  - `scripts/playwright-vdo-firefox-view-check.cjs`
+
+### Changed
+- Release packaging workflow now bundles `INSTALL.md` and platform install helper scripts
+- E2E scenario builder now supports room/no-password/bitrate matrices with room-safe view semantics (`room + scene + view`)
+- README and GitHub Pages content rewritten for clearer product purpose, value proposition, and usage guidance
+- Version bumped to `1.1.2`
+
+### Tested
+- E2E matrix:
+  - Default password/no-room: `npm test` (3 passed)
+  - Room + password + high bitrate: reload and multi-view specs passed
+  - No-password mode: `npm test` with `VDO_NO_PASSWORD=1` (3 passed)
+  - Firefox viewer checks passed (room/password/high bitrate and no-password scenarios)
+
 ## [1.1.1] - 2026-02-21
 
 ### Added

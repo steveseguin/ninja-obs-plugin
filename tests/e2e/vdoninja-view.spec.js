@@ -1,4 +1,5 @@
 const { test, expect } = require("@playwright/test");
+const { buildScenarioUrls } = require("./vdo-config");
 
 test.use({
   launchOptions: {
@@ -110,20 +111,7 @@ async function nudgePage(page) {
 test("vdo.ninja publish -> view receives and plays remote media", async ({ browser }) => {
   test.setTimeout(180000);
 
-  const streamId = process.env.VDO_STREAM_ID || "Alsosuitbc";
-  const password = process.env.VDO_PASSWORD || "somepassword";
-
-  const params = new URLSearchParams({ password, cleanoutput: "1" });
-  const pushParams = new URLSearchParams(params);
-  pushParams.set("autostart", "1");
-  pushParams.set("webcam", "1");
-
-  const pushUrl =
-    process.env.VDO_PUSH_URL ||
-    `https://vdo.ninja/?push=${encodeURIComponent(streamId)}&${pushParams.toString()}`;
-  const viewUrl =
-    process.env.VDO_VIEW_URL ||
-    `https://vdo.ninja/?view=${encodeURIComponent(streamId)}&${params.toString()}`;
+  const { pushUrl, viewUrl } = buildScenarioUrls();
 
   const publisherContext = await browser.newContext({ permissions: ["camera", "microphone"] });
   const viewerContext = await browser.newContext();

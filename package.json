@@ -1,6 +1,6 @@
 {
   "name": "ninja-plugin",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "description": "OBS VDO.Ninja plugin",
   "main": "index.js",
   "directories": {
@@ -10,7 +10,8 @@
     "test": "playwright test tests/e2e --reporter=line --workers=1",
     "test:e2e:view": "playwright test tests/e2e/vdoninja-view.spec.js --reporter=line",
     "test:e2e:reload": "playwright test tests/e2e/vdoninja-publish-view-reload.spec.js --reporter=line",
-    "test:e2e:multi": "playwright test tests/e2e/vdoninja-multi-viewers.spec.js --reporter=line"
+    "test:e2e:multi": "playwright test tests/e2e/vdoninja-multi-viewers.spec.js --reporter=line",
+    "test:e2e:firefox-view": "node scripts/playwright-vdo-firefox-view-check.cjs"
   },
   "keywords": [],
   "author": "",
