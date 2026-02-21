@@ -38,6 +38,55 @@ const std::array<uint32_t, 64> SHA256_K = {
     0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
     0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2};
 
+std::string sanitizeIdentifier(const std::string &value, size_t maxLength)
+{
+	std::string result;
+	result.reserve(value.size());
+
+	// Match SDK behavior: trim whitespace, keep case, replace each run of non-word chars with '_'.
+	std::string trimmed = trim(value);
+	bool inInvalidRun = false;
+	for (char c : trimmed) {
+		if (std::isalnum(static_cast<unsigned char>(c)) || c == '_') {
+			result += c;
+			inInvalidRun = false;
+		} else {
+			if (!inInvalidRun) {
+				result += '_';
+				inInvalidRun = true;
+			}
+		}
+	}
+
+	if (result.size() > maxLength) {
+		result.resize(maxLength);
+	}
+
+	return result;
+}
+
+bool startsWithInsensitive(const std::string &value, const char *prefix)
+{
+	size_t idx = 0;
+	for (; prefix[idx] != '\0'; ++idx) {
+		if (idx >= value.size()) {
+			return false;
+		}
+		const char a = static_cast<char>(std::tolower(static_cast<unsigned char>(value[idx])));
+		const char b = static_cast<char>(std::tolower(static_cast<unsigned char>(prefix[idx])));
+		if (a != b) {
+			return false;
+		}
+	}
+	return true;
+}
+
+bool isIceUrl(const std::string &url)
+{
+	return startsWithInsensitive(url, "stun:") || startsWithInsensitive(url, "stuns:") ||
+	       startsWithInsensitive(url, "turn:") || startsWithInsensitive(url, "turns:");
+}
+
 } // namespace
 
 // UUID Generation
@@ -171,24 +220,21 @@ std::string sha256(const std::string &input)
 // Hash stream ID matching VDO.Ninja SDK algorithm
 std::string hashStreamId(const std::string &streamId, const std::string &password, const std::string &salt)
 {
-	std::string sanitized = sanitizeStreamId(streamId);
+	std::string sanitized = sanitizeIdentifier(streamId, 64);
 
 	// If no password, just return sanitized stream ID
 	if (password.empty()) {
 		return sanitized;
 	}
 
-	// Hash: sha256(streamId + password + salt) truncated
-	std::string combined = sanitized + password + salt;
-	std::string fullHash = sha256(combined);
-
-	// VDO.Ninja uses first 16 characters of the hash
-	return fullHash.substr(0, 16);
+	// SDK convention: streamID + first 6 hex chars of sha256(password + salt).
+	std::string passwordHash = sha256(password + salt).substr(0, 6);
+	return sanitized + passwordHash;
 }
 
 std::string hashRoomId(const std::string &roomId, const std::string &password, const std::string &salt)
 {
-	std::string sanitized = sanitizeStreamId(roomId);
+	std::string sanitized = sanitizeIdentifier(roomId, 30);
 
 	if (password.empty()) {
 		return sanitized;
@@ -201,17 +247,7 @@ std::string hashRoomId(const std::string &roomId, const std::string &password, c
 
 std::string sanitizeStreamId(const std::string &streamId)
 {
-	std::string result;
-	result.reserve(streamId.size());
-
-	for (char c : streamId) {
-		if (std::isalnum(static_cast<unsigned char>(c)) || c == '_') {
-			result += std::tolower(static_cast<unsigned char>(c));
-		} else {
-			result += '_';
-		}
-	}
-	return result;
+	return sanitizeIdentifier(streamId, 64);
 }
 
 // JSON Builder implementation
@@ -602,6 +638,106 @@ std::vector<std::string> split(const std::string &str, char delimiter)
 		result.push_back(item);
 	}
 	return result;
+}
+
+std::vector<IceServer> parseIceServers(const std::string &config)
+{
+	std::vector<IceServer> servers;
+	std::stringstream lines(config);
+	std::string line;
+
+	while (std::getline(lines, line)) {
+		line = trim(line);
+		if (line.empty() || startsWithInsensitive(line, "#") || startsWithInsensitive(line, "//")) {
+			continue;
+		}
+
+		IceServer server;
+
+		if (line.find('|') != std::string::npos) {
+			const std::vector<std::string> parts = split(line, '|');
+			if (!parts.empty()) {
+				server.urls = trim(parts[0]);
+			}
+			if (parts.size() > 1) {
+				server.username = trim(parts[1]);
+			}
+			if (parts.size() > 2) {
+				server.credential = trim(parts[2]);
+			}
+		} else if (line.find(',') != std::string::npos) {
+			const std::vector<std::string> parts = split(line, ',');
+			if (!parts.empty()) {
+				server.urls = trim(parts[0]);
+			}
+			if (parts.size() > 1) {
+				server.username = trim(parts[1]);
+			}
+			if (parts.size() > 2) {
+				server.credential = trim(parts[2]);
+			}
+		} else {
+			std::stringstream tokenStream(line);
+			std::string token;
+			std::vector<std::string> tokens;
+			while (tokenStream >> token) {
+				tokens.push_back(token);
+			}
+
+			if (!tokens.empty()) {
+				server.urls = trim(tokens[0]);
+			}
+
+			for (size_t i = 1; i < tokens.size(); ++i) {
+				std::string value = trim(tokens[i]);
+				const size_t equalsPos = value.find('=');
+				if (equalsPos != std::string::npos) {
+					std::string key = value.substr(0, equalsPos);
+					std::string mapped = value.substr(equalsPos + 1);
+					std::transform(key.begin(), key.end(), key.begin(),
+					               [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+					if (key == "username" || key == "user") {
+						server.username = mapped;
+						continue;
+					}
+					if (key == "credential" || key == "password" || key == "pass") {
+						server.credential = mapped;
+						continue;
+					}
+				}
+
+				if (server.username.empty()) {
+					server.username = value;
+				} else if (server.credential.empty()) {
+					server.credential = value;
+				}
+			}
+		}
+
+		server.urls = trim(server.urls);
+		server.username = trim(server.username);
+		server.credential = trim(server.credential);
+		if (!server.urls.empty() && isIceUrl(server.urls)) {
+			servers.push_back(std::move(server));
+		}
+	}
+
+	return servers;
+}
+
+bool countsTowardViewerLimit(ConnectionState state)
+{
+	switch (state) {
+	case ConnectionState::New:
+	case ConnectionState::Connecting:
+	case ConnectionState::Connected:
+		return true;
+	case ConnectionState::Disconnected:
+	case ConnectionState::Failed:
+	case ConnectionState::Closed:
+	default:
+		return false;
+	}
 }
 
 // Time utilities

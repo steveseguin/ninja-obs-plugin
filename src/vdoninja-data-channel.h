@@ -72,6 +72,10 @@ public:
 	// Handle incoming message (dispatches to appropriate callback)
 	void handleMessage(const std::string &senderId, const std::string &rawMessage);
 
+	// Extract a direct WHEP playback URL from known VDO.Ninja data-channel payload
+	// formats. Returns empty string if no usable URL was found.
+	std::string extractWhepPlaybackUrl(const std::string &rawMessage) const;
+
 	// Set callbacks
 	void setOnChatMessage(OnChatMessageCallback callback);
 	void setOnTallyChange(OnTallyChangeCallback callback);

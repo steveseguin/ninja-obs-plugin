@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.1] - 2026-02-21
+
+### Added
+- Data-channel WHEP URL extraction for nested payload variants (`whepSettings`, `whepScreenSettings`, `info`)
+- Initial VDO.Ninja-style `msg.info` data-channel message from publisher to viewers
+- Multi-viewer Playwright e2e spec validating one publisher feeding multiple viewers with active media
+- Licensing and release compliance docs:
+  - `THIRD_PARTY_LICENSES.md`
+  - `RELEASE_COMPLIANCE.md`
+
+### Changed
+- Viewer limit enforcement now counts pending publisher peers (`New`/`Connecting`/`Connected`), preventing burst over-admission
+- Release packaging workflow now includes `LICENSE`, `THIRD_PARTY_LICENSES.md`, and `RELEASE_COMPLIANCE.md` in artifacts
+- Metadata/license consistency updates to `AGPL-3.0-only` across build and package files
+- Version bumped to `1.1.1`
+
+### Tested
+- Unit tests: `ctest --test-dir build-verify --output-on-failure` (290 passed, 0 failed)
+- Plugin build: `cmake --build build-plugin -j 8` (Windows DLL built successfully)
+- E2E (Playwright):
+  - `vdoninja-publish-view-reload.spec.js` passed (playback survives reload with active media)
+  - `vdoninja-multi-viewers.spec.js` passed (two simultaneous viewers with active tracks/bytes)
+  - Combined run: `2 passed`
+
 ## [1.1.0] - 2026-02-20
 
 ### Added

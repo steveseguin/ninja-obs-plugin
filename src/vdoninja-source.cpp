@@ -7,13 +7,29 @@
 
 #include <util/threading.h>
 
+#include <cstring>
+
 namespace vdoninja
 {
+
+namespace
+{
+
+const char *tr(const char *key, const char *fallback)
+{
+	const char *localized = obs_module_text(key);
+	if (!localized || !*localized || std::strcmp(localized, key) == 0) {
+		return fallback;
+	}
+	return localized;
+}
+
+} // namespace
 
 // OBS source callbacks
 static const char *vdoninja_source_getname(void *)
 {
-	return obs_module_text("VDONinjaSource");
+	return tr("VDONinjaSource", "VDO.Ninja Source");
 }
 
 static void *vdoninja_source_create(obs_data_t *settings, obs_source_t *source)
@@ -79,17 +95,25 @@ static obs_properties_t *vdoninja_source_properties(void *)
 {
 	obs_properties_t *props = obs_properties_create();
 
-	obs_properties_add_text(props, "stream_id", obs_module_text("StreamID"), OBS_TEXT_DEFAULT);
-	obs_properties_add_text(props, "room_id", obs_module_text("RoomID"), OBS_TEXT_DEFAULT);
-	obs_properties_add_text(props, "password", obs_module_text("Password"), OBS_TEXT_PASSWORD);
-	obs_properties_add_text(props, "wss_host", obs_module_text("SignalingServer"), OBS_TEXT_DEFAULT);
+	obs_properties_add_text(props, "stream_id", tr("StreamID", "Stream ID"), OBS_TEXT_DEFAULT);
+	obs_properties_add_text(props, "room_id", tr("RoomID", "Room ID"), OBS_TEXT_DEFAULT);
+	obs_properties_add_text(props, "password", tr("Password", "Password"), OBS_TEXT_PASSWORD);
 
-	obs_properties_add_bool(props, "enable_data_channel", obs_module_text("EnableDataChannel"));
-	obs_properties_add_bool(props, "auto_reconnect", obs_module_text("AutoReconnect"));
-	obs_properties_add_bool(props, "force_turn", obs_module_text("ForceTURN"));
+	obs_properties_add_bool(props, "enable_data_channel", tr("EnableDataChannel", "Enable Data Channel"));
+	obs_properties_add_bool(props, "auto_reconnect", tr("AutoReconnect", "Auto Reconnect"));
 
-	obs_properties_add_int(props, "width", obs_module_text("Width"), 320, 4096, 1);
-	obs_properties_add_int(props, "height", obs_module_text("Height"), 240, 2160, 1);
+	obs_properties_add_int(props, "width", tr("Width", "Width"), 320, 4096, 1);
+	obs_properties_add_int(props, "height", tr("Height", "Height"), 240, 2160, 1);
+
+	obs_properties_t *advanced = obs_properties_create();
+	obs_properties_add_text(advanced, "wss_host", tr("SignalingServer", "Signaling Server"), OBS_TEXT_DEFAULT);
+	obs_properties_add_text(advanced, "salt", tr("Salt", "Salt"), OBS_TEXT_DEFAULT);
+	obs_property_t *iceServers = obs_properties_add_text(
+	    advanced, "custom_ice_servers", tr("CustomICEServers", "Custom STUN/TURN Servers"), OBS_TEXT_MULTILINE);
+	obs_property_text_set_monospace(iceServers, true);
+	obs_properties_add_bool(advanced, "force_turn", tr("ForceTURN", "Force TURN Relay"));
+	obs_properties_add_group(props, "advanced", tr("AdvancedSettings", "Advanced Settings"), OBS_GROUP_NORMAL,
+	                         advanced);
 
 	return props;
 }
@@ -100,6 +124,8 @@ static void vdoninja_source_defaults(obs_data_t *settings)
 	obs_data_set_default_string(settings, "room_id", "");
 	obs_data_set_default_string(settings, "password", "");
 	obs_data_set_default_string(settings, "wss_host", DEFAULT_WSS_HOST);
+	obs_data_set_default_string(settings, "salt", DEFAULT_SALT);
+	obs_data_set_default_string(settings, "custom_ice_servers", "");
 	obs_data_set_default_bool(settings, "enable_data_channel", true);
 	obs_data_set_default_bool(settings, "auto_reconnect", true);
 	obs_data_set_default_bool(settings, "force_turn", false);
@@ -164,9 +190,14 @@ void VDONinjaSource::loadSettings(obs_data_t *settings)
 	settings_.roomId = obs_data_get_string(settings, "room_id");
 	settings_.password = obs_data_get_string(settings, "password");
 	settings_.wssHost = obs_data_get_string(settings, "wss_host");
+	settings_.salt = trim(obs_data_get_string(settings, "salt"));
+	settings_.customIceServers = parseIceServers(obs_data_get_string(settings, "custom_ice_servers"));
 
 	if (settings_.wssHost.empty()) {
 		settings_.wssHost = DEFAULT_WSS_HOST;
+	}
+	if (settings_.salt.empty()) {
+		settings_.salt = DEFAULT_SALT;
 	}
 
 	settings_.enableDataChannel = obs_data_get_bool(settings, "enable_data_channel");
@@ -267,7 +298,9 @@ void VDONinjaSource::connectionThread()
 	// Initialize peer manager
 	peerManager_->initialize(signaling_.get());
 	peerManager_->setEnableDataChannel(settings_.enableDataChannel);
+	peerManager_->setIceServers(settings_.customIceServers);
 	peerManager_->setForceTurn(settings_.forceTurn);
+	signaling_->setSalt(settings_.salt);
 
 	// Set up track callback
 	peerManager_->setOnTrack([this](const std::string &uuid, TrackType type, std::shared_ptr<rtc::Track> track) {
@@ -309,10 +342,11 @@ void VDONinjaSource::connectionThread()
 
 	signaling_->setOnError([this](const std::string &error) { logError("Signaling error: %s", error.c_str()); });
 
-	signaling_->setOnStreamAdded([this](const std::string &streamId, const std::string &uuid) {
+	signaling_->setOnStreamAdded([this](const std::string &streamId, const std::string &) {
 		// If this is our target stream, start viewing
 		if (streamId == settings_.streamId ||
-		    hashStreamId(settings_.streamId, settings_.password, DEFAULT_SALT) == streamId) {
+		    hashStreamId(settings_.streamId, settings_.password, settings_.salt) == streamId ||
+		    hashStreamId(settings_.streamId, DEFAULT_PASSWORD, settings_.salt) == streamId) {
 			logInfo("Target stream appeared in room, connecting...");
 			signaling_->viewStream(settings_.streamId, settings_.password);
 		}

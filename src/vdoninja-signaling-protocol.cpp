@@ -61,16 +61,24 @@ bool parseSignalingMessage(const std::string &message, ParsedSignalMessage &pars
 
 		parsed.uuid = getAnyString(json, {"UUID", "uuid"});
 		parsed.session = getAnyString(json, {"session"});
+		parsed.request = getAnyString(json, {"request"});
 
-		if (json.hasKey("listing")) {
+		if (parsed.request == "listing" || json.hasKey("listing") || json.hasKey("list")) {
 			parsed.kind = ParsedSignalKind::Listing;
-			auto listing = json.getArray("listing");
+			auto listing = json.hasKey("list") ? json.getArray("list") : json.getArray("listing");
 			for (const auto &member : listing) {
-				JsonParser memberJson(member);
-				std::string streamId =
-				    getAnyString(memberJson, {"streamID", "streamId", "whep", "whepUrl", "url", "URL"});
-				if (!streamId.empty()) {
-					parsed.listingMembers.push_back(streamId);
+				if (member.empty()) {
+					continue;
+				}
+				if (member[0] == '{') {
+					JsonParser memberJson(member);
+					std::string streamId =
+					    getAnyString(memberJson, {"streamID", "streamId", "whep", "whepUrl", "url", "URL"});
+					if (!streamId.empty()) {
+						parsed.listingMembers.push_back(streamId);
+					}
+				} else {
+					parsed.listingMembers.push_back(member);
 				}
 			}
 			return true;
@@ -98,8 +106,15 @@ bool parseSignalingMessage(const std::string &message, ParsedSignalMessage &pars
 
 		if (json.hasKey("candidate")) {
 			parsed.kind = ParsedSignalKind::Candidate;
-			parsed.candidate = getAnyString(json, {"candidate"});
-			parsed.mid = getAnyString(json, {"mid", "sdpMid", "smid", "rmid"});
+			const std::string candidateRaw = json.getRaw("candidate");
+			if (!candidateRaw.empty() && candidateRaw[0] == '{') {
+				JsonParser candidateJson(candidateRaw);
+				parsed.candidate = getAnyString(candidateJson, {"candidate"});
+				parsed.mid = getAnyString(candidateJson, {"mid", "sdpMid", "smid", "rmid"});
+			} else {
+				parsed.candidate = getAnyString(json, {"candidate"});
+				parsed.mid = getAnyString(json, {"mid", "sdpMid", "smid", "rmid"});
+			}
 			return true;
 		}
 
@@ -109,15 +124,32 @@ bool parseSignalingMessage(const std::string &message, ParsedSignalMessage &pars
 			return true;
 		}
 
-		if (json.hasKey("request")) {
+		if (parsed.request == "alert" || parsed.request == "error") {
+			parsed.kind = ParsedSignalKind::Alert;
+			parsed.alert = getAnyString(json, {"message", "alert", "error"});
+			return true;
+		}
+
+		if (parsed.request == "videoaddedtoroom") {
+			parsed.kind = ParsedSignalKind::VideoAddedToRoom;
+			parsed.streamId = getAnyString(json, {"streamID", "streamId", "whep", "whepUrl", "url", "URL"});
+			return true;
+		}
+
+		if (parsed.request == "videoremovedfromroom") {
+			parsed.kind = ParsedSignalKind::VideoRemovedFromRoom;
+			parsed.streamId = getAnyString(json, {"streamID", "streamId", "whep", "whepUrl", "url", "URL"});
+			return true;
+		}
+
+		if (!parsed.request.empty()) {
 			parsed.kind = ParsedSignalKind::Request;
-			parsed.request = getAnyString(json, {"request"});
 			return true;
 		}
 
 		if (json.hasKey("alert")) {
 			parsed.kind = ParsedSignalKind::Alert;
-			parsed.alert = getAnyString(json, {"alert"});
+			parsed.alert = getAnyString(json, {"alert", "message"});
 			return true;
 		}
 

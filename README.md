@@ -1,7 +1,7 @@
 # OBS VDO.Ninja Plugin
 
 [![CI](https://github.com/steveseguin/ninja-plugin/actions/workflows/ci.yml/badge.svg)](https://github.com/steveseguin/ninja-plugin/actions/workflows/ci.yml)
-[![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](LICENSE)
+[![License: AGPL-3.0-only](https://img.shields.io/badge/License-AGPL--3.0--only-blue.svg)](LICENSE)
 
 A native OBS Studio plugin for [VDO.Ninja](https://vdo.ninja) integration, enabling WebRTC streaming directly from OBS.
 
@@ -25,6 +25,15 @@ A native OBS Studio plugin for [VDO.Ninja](https://vdo.ninja) integration, enabl
 ### Virtual Camera Integration
 - Use VDO.Ninja as a destination when starting virtual camera
 - Seamless integration with OBS workflow
+
+## Current Status
+
+- Publishing (OBS output -> VDO.Ninja) is the primary stable path.
+- Multi-viewer publishing is supported and tested end-to-end.
+- Auto-inbound stream management can create/update Browser Sources from room and data-channel events.
+- Native decode in `VDO.Ninja Source` remains experimental; for production ingest, prefer Browser Source / auto-inbound flows.
+- Remote OBS control over data channels is not yet implemented as a full command surface.
+- UI text falls back to built-in English strings if locale files are missing.
 
 ## Requirements
 
@@ -228,7 +237,9 @@ This plugin implements the VDO.Ninja signaling protocol:
 ```
 obs-vdoninja/
 ├── CMakeLists.txt
-├── LICENSE                   # AGPL-3.0 License
+├── LICENSE                   # AGPL-3.0-only License
+├── THIRD_PARTY_LICENSES.md   # Third-party license inventory
+├── RELEASE_COMPLIANCE.md     # Release compliance checklist
 ├── src/
 │   ├── plugin-main.cpp        # Plugin entry point
 │   ├── vdoninja-signaling.*   # WebSocket signaling
@@ -278,6 +289,26 @@ ctest --test-dir build --output-on-failure
 ./build/vdoninja-tests
 ```
 
+### End-to-End Tests (Playwright)
+
+```bash
+# Install JS test dependencies
+npm ci
+
+# Single viewer receive/playback verification
+npx playwright test tests/e2e/vdoninja-view.spec.js --reporter=line
+
+# Publish -> view -> reload stability check
+npx playwright test tests/e2e/vdoninja-publish-view-reload.spec.js --reporter=line
+
+# One publisher -> multiple concurrent viewers
+npx playwright test tests/e2e/vdoninja-multi-viewers.spec.js --reporter=line
+```
+
+Test stream defaults used by e2e specs:
+- View: `https://vdo.ninja/?view=Alsosuitbc&password=somepassword`
+- Push: `https://vdo.ninja/?push=Alsosuitbc&password=somepassword`
+
 ### Test Coverage
 
 The test suite covers:
@@ -300,7 +331,12 @@ Contributions are welcome! Please:
 
 ## License
 
-This project is licensed under the **GNU Affero General Public License v3.0** - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the **GNU Affero General Public License v3.0 only (AGPL-3.0-only)**.
+See [LICENSE](LICENSE) for full terms.
+
+Third-party notices: [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md)
+
+Release checklist: [RELEASE_COMPLIANCE.md](RELEASE_COMPLIANCE.md)
 
 ## Credits
 

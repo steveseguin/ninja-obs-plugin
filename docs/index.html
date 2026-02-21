@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>OBS VDO.Ninja Plugin</title>
+    <style>
+      :root {
+        --bg: #0c1220;
+        --fg: #e6edf7;
+        --muted: #9db0c7;
+        --accent: #4db8ff;
+        --card: #121a2b;
+      }
+      body {
+        margin: 0;
+        font: 16px/1.5 "Segoe UI", "Noto Sans", sans-serif;
+        color: var(--fg);
+        background: radial-gradient(circle at 20% 10%, #1a2440, var(--bg) 40%);
+      }
+      main {
+        max-width: 860px;
+        margin: 48px auto;
+        padding: 0 20px 60px;
+      }
+      h1 {
+        font-size: 2rem;
+        margin-bottom: 0.4rem;
+      }
+      p {
+        color: var(--muted);
+      }
+      section {
+        background: var(--card);
+        border: 1px solid #1f2a44;
+        border-radius: 12px;
+        padding: 18px 20px;
+        margin-top: 16px;
+      }
+      a {
+        color: var(--accent);
+      }
+      ul {
+        margin: 0.4rem 0 0 1.2rem;
+      }
+      code {
+        background: #0a1020;
+        border: 1px solid #22314f;
+        border-radius: 6px;
+        padding: 2px 6px;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>OBS VDO.Ninja Plugin</h1>
+      <p>
+        Native OBS plugin for VDO.Ninja publishing and ingest over WebRTC.
+      </p>
+
+      <section>
+        <h2>Capabilities</h2>
+        <ul>
+          <li>Publish OBS output to VDO.Ninja using <code>push</code> links.</li>
+          <li>Receive VDO.Ninja streams as OBS sources using <code>view</code> links.</li>
+          <li>Support multi-viewer sessions from one publisher.</li>
+          <li>Data-channel parsing for control metadata and WHEP URL hints.</li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>Install</h2>
+        <p>
+          See the repository README and Releases for binaries and platform instructions.
+        </p>
+      </section>
+
+      <section>
+        <h2>Links</h2>
+        <ul>
+          <li><a href="https://github.com/steveseguin/ninja-plugin">Repository</a></li>
+          <li><a href="https://github.com/steveseguin/ninja-plugin/issues">Issue Tracker</a></li>
+          <li><a href="https://vdo.ninja/">VDO.Ninja</a></li>
+        </ul>
+      </section>
+    </main>
+  </body>
+</html>

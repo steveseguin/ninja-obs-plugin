@@ -114,6 +114,9 @@ private:
 	// Get RTC configuration
 	rtc::Configuration getRtcConfig() const;
 
+	// Count publisher peers that should consume viewer slots.
+	int getPublisherSlotCount() const;
+
 	// Signaling client (not owned)
 	VDONinjaSignaling *signaling_ = nullptr;
 

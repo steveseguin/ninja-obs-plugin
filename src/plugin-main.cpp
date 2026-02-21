@@ -13,11 +13,27 @@
 
 #include <obs-frontend-api.h>
 
+#include <cstring>
+
 #include "vdoninja-output.h"
 #include "vdoninja-source.h"
 #include "vdoninja-utils.h"
 
 using namespace vdoninja;
+
+namespace
+{
+
+const char *tr(const char *key, const char *fallback)
+{
+	const char *localized = obs_module_text(key);
+	if (!localized || !*localized || std::strcmp(localized, key) == 0) {
+		return fallback;
+	}
+	return localized;
+}
+
+} // namespace
 
 // Plugin information
 const char *obs_module_name(void)
@@ -33,7 +49,7 @@ const char *obs_module_description(void)
 // Virtual camera output (simplified - registers as a service)
 static const char *vdoninja_service_getname(void *)
 {
-	return obs_module_text("VDONinjaService");
+	return tr("VDONinjaService", "VDO.Ninja");
 }
 
 static void *vdoninja_service_create(obs_data_t *settings, obs_service_t *service)
@@ -62,17 +78,27 @@ static obs_properties_t *vdoninja_service_properties(void *)
 {
 	obs_properties_t *props = obs_properties_create();
 
-	obs_properties_add_text(props, "stream_id", obs_module_text("StreamID"), OBS_TEXT_DEFAULT);
-	obs_properties_add_text(props, "room_id", obs_module_text("RoomID"), OBS_TEXT_DEFAULT);
-	obs_properties_add_text(props, "password", obs_module_text("Password"), OBS_TEXT_PASSWORD);
+	obs_properties_add_text(props, "stream_id", tr("StreamID", "Stream ID"), OBS_TEXT_DEFAULT);
+	obs_properties_add_text(props, "room_id", tr("RoomID", "Room ID"), OBS_TEXT_DEFAULT);
+	obs_properties_add_text(props, "password", tr("Password", "Password"), OBS_TEXT_PASSWORD);
 
-	obs_property_t *codec = obs_properties_add_list(props, "video_codec", obs_module_text("VideoCodec"),
+	obs_property_t *codec = obs_properties_add_list(props, "video_codec", tr("VideoCodec", "Video Codec"),
 	                                                OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_INT);
 	obs_property_list_add_int(codec, "H.264", 0);
 	obs_property_list_add_int(codec, "VP8", 1);
 	obs_property_list_add_int(codec, "VP9", 2);
 
-	obs_properties_add_int(props, "max_viewers", obs_module_text("MaxViewers"), 1, 50, 1);
+	obs_properties_add_int(props, "max_viewers", tr("MaxViewers", "Max Viewers"), 1, 50, 1);
+
+	obs_properties_t *advanced = obs_properties_create();
+	obs_properties_add_text(advanced, "wss_host", tr("SignalingServer", "Signaling Server"), OBS_TEXT_DEFAULT);
+	obs_properties_add_text(advanced, "salt", tr("Salt", "Salt"), OBS_TEXT_DEFAULT);
+	obs_property_t *iceServers = obs_properties_add_text(
+	    advanced, "custom_ice_servers", tr("CustomICEServers", "Custom STUN/TURN Servers"), OBS_TEXT_MULTILINE);
+	obs_property_text_set_monospace(iceServers, true);
+	obs_properties_add_bool(advanced, "force_turn", tr("ForceTURN", "Force TURN Relay"));
+	obs_properties_add_group(props, "advanced", tr("AdvancedSettings", "Advanced Settings"), OBS_GROUP_NORMAL,
+	                         advanced);
 
 	return props;
 }
@@ -82,8 +108,12 @@ static void vdoninja_service_defaults(obs_data_t *settings)
 	obs_data_set_default_string(settings, "stream_id", "");
 	obs_data_set_default_string(settings, "room_id", "");
 	obs_data_set_default_string(settings, "password", "");
+	obs_data_set_default_string(settings, "wss_host", DEFAULT_WSS_HOST);
+	obs_data_set_default_string(settings, "salt", DEFAULT_SALT);
+	obs_data_set_default_string(settings, "custom_ice_servers", "");
 	obs_data_set_default_int(settings, "video_codec", 0);
 	obs_data_set_default_int(settings, "max_viewers", 10);
+	obs_data_set_default_bool(settings, "force_turn", false);
 }
 
 static const char *vdoninja_service_url(void *data)

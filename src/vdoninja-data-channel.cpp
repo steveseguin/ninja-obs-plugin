@@ -5,8 +5,70 @@
 
 #include "vdoninja-data-channel.h"
 
+#include <initializer_list>
+
 namespace vdoninja
 {
+
+namespace
+{
+
+std::string firstNonEmptyValue(const JsonParser &json, const std::initializer_list<const char *> &keys)
+{
+	for (const char *key : keys) {
+		if (!json.hasKey(key)) {
+			continue;
+		}
+		const std::string value = trim(json.getString(key));
+		if (!value.empty()) {
+			return value;
+		}
+	}
+	return "";
+}
+
+bool looksLikeWhepUrl(const std::string &candidate)
+{
+	return candidate.rfind("https://", 0) == 0 || candidate.rfind("http://", 0) == 0 || candidate.rfind("whep:", 0) == 0;
+}
+
+std::string extractWhepUrlRecursive(const JsonParser &json, int depth)
+{
+	if (depth > 3) {
+		return "";
+	}
+
+	std::string direct = firstNonEmptyValue(json, {"whepUrl", "whep", "whepplay", "whepPlay", "whepshare", "whepShare"});
+	if (looksLikeWhepUrl(direct)) {
+		return direct;
+	}
+
+	std::string urlValue = firstNonEmptyValue(json, {"url", "URL"});
+	if (looksLikeWhepUrl(urlValue)) {
+		return urlValue;
+	}
+
+	for (const char *nestedKey : {"whepSettings", "whepScreenSettings", "info", "data"}) {
+		if (!json.hasKey(nestedKey)) {
+			continue;
+		}
+
+		const std::string nestedObject = json.getObject(nestedKey);
+		if (nestedObject.empty() || nestedObject[0] != '{') {
+			continue;
+		}
+
+		JsonParser nestedJson(nestedObject);
+		const std::string nestedUrl = extractWhepUrlRecursive(nestedJson, depth + 1);
+		if (!nestedUrl.empty()) {
+			return nestedUrl;
+		}
+	}
+
+	return "";
+}
+
+} // namespace
 
 VDONinjaDataChannel::VDONinjaDataChannel()
 {
@@ -129,6 +191,20 @@ void VDONinjaDataChannel::handleMessage(const std::string &senderId, const std::
 		}
 	} catch (const std::exception &e) {
 		logError("Error handling data message: %s", e.what());
+	}
+}
+
+std::string VDONinjaDataChannel::extractWhepPlaybackUrl(const std::string &rawMessage) const
+{
+	if (rawMessage.empty()) {
+		return "";
+	}
+
+	try {
+		JsonParser json(rawMessage);
+		return extractWhepUrlRecursive(json, 0);
+	} catch (const std::exception &) {
+		return "";
 	}
 }
 

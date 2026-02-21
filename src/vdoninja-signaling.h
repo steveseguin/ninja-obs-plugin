@@ -100,6 +100,7 @@ private:
 
 	// Message handlers
 	void handleRequest(const ParsedSignalMessage &message);
+	std::string getActiveSignalingPassword() const;
 
 	// Reconnection logic
 	void attemptReconnect();

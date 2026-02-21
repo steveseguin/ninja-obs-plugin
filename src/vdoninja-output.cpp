@@ -8,15 +8,48 @@
 #include <util/dstr.h>
 #include <util/threading.h>
 
+#include <cstring>
+
 #include "vdoninja-utils.h"
 
 namespace vdoninja
 {
 
+namespace
+{
+
+const char *tr(const char *key, const char *fallback)
+{
+	const char *localized = obs_module_text(key);
+	if (!localized || !*localized || std::strcmp(localized, key) == 0) {
+		return fallback;
+	}
+	return localized;
+}
+
+std::string codecToUrlValue(VideoCodec codec)
+{
+	switch (codec) {
+	case VideoCodec::VP8:
+		return "vp8";
+	case VideoCodec::VP9:
+		return "vp9";
+	case VideoCodec::AV1:
+		return "av1";
+	case VideoCodec::H264:
+	default:
+		return "h264";
+	}
+}
+
+constexpr const char *kPluginInfoVersion = "1.1.0";
+
+} // namespace
+
 // OBS output callbacks
 static const char *vdoninja_output_getname(void *)
 {
-	return obs_module_text("VDONinjaOutput");
+	return tr("VDONinjaOutput", "VDO.Ninja Output");
 }
 
 static void *vdoninja_output_create(obs_data_t *settings, obs_output_t *output)
@@ -64,43 +97,56 @@ static obs_properties_t *vdoninja_output_properties(void *)
 {
 	obs_properties_t *props = obs_properties_create();
 
-	obs_properties_add_text(props, "stream_id", obs_module_text("StreamID"), OBS_TEXT_DEFAULT);
-	obs_properties_add_text(props, "room_id", obs_module_text("RoomID"), OBS_TEXT_DEFAULT);
-	obs_properties_add_text(props, "password", obs_module_text("Password"), OBS_TEXT_PASSWORD);
-	obs_properties_add_text(props, "wss_host", obs_module_text("SignalingServer"), OBS_TEXT_DEFAULT);
+	obs_properties_add_text(props, "stream_id", tr("StreamID", "Stream ID"), OBS_TEXT_DEFAULT);
+	obs_properties_add_text(props, "room_id", tr("RoomID", "Room ID"), OBS_TEXT_DEFAULT);
+	obs_properties_add_text(props, "password", tr("Password", "Password"), OBS_TEXT_PASSWORD);
 
-	obs_property_t *codec = obs_properties_add_list(props, "video_codec", obs_module_text("VideoCodec"),
+	obs_property_t *codec = obs_properties_add_list(props, "video_codec", tr("VideoCodec", "Video Codec"),
 	                                                OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_INT);
 	obs_property_list_add_int(codec, "H.264", static_cast<int>(VideoCodec::H264));
 	obs_property_list_add_int(codec, "VP8", static_cast<int>(VideoCodec::VP8));
 	obs_property_list_add_int(codec, "VP9", static_cast<int>(VideoCodec::VP9));
 
-	obs_properties_add_int(props, "bitrate", obs_module_text("Bitrate"), 500, 50000, 100);
-	obs_properties_add_int(props, "max_viewers", obs_module_text("MaxViewers"), 1, 50, 1);
-	obs_properties_add_bool(props, "enable_data_channel", obs_module_text("EnableDataChannel"));
-	obs_properties_add_bool(props, "auto_reconnect", obs_module_text("AutoReconnect"));
-	obs_properties_add_bool(props, "force_turn", obs_module_text("ForceTURN"));
+	obs_properties_add_int(props, "bitrate", tr("Bitrate", "Bitrate (kbps)"), 500, 50000, 100);
+	obs_properties_add_int(props, "max_viewers", tr("MaxViewers", "Max Viewers"), 1, 50, 1);
+	obs_properties_add_bool(props, "enable_data_channel", tr("EnableDataChannel", "Enable Data Channel"));
+	obs_properties_add_bool(props, "auto_reconnect", tr("AutoReconnect", "Auto Reconnect"));
 
-	obs_properties_add_bool(props, "auto_inbound_enabled", obs_module_text("AutoInbound.Enabled"));
-	obs_properties_add_text(props, "auto_inbound_room_id", obs_module_text("AutoInbound.RoomID"), OBS_TEXT_DEFAULT);
-	obs_properties_add_text(props, "auto_inbound_password", obs_module_text("AutoInbound.Password"), OBS_TEXT_PASSWORD);
-	obs_properties_add_text(props, "auto_inbound_target_scene", obs_module_text("AutoInbound.TargetScene"),
+	obs_properties_t *advanced = obs_properties_create();
+	obs_properties_add_text(advanced, "wss_host", tr("SignalingServer", "Signaling Server"), OBS_TEXT_DEFAULT);
+	obs_properties_add_text(advanced, "salt", tr("Salt", "Salt"), OBS_TEXT_DEFAULT);
+	obs_property_t *iceServers = obs_properties_add_text(
+	    advanced, "custom_ice_servers", tr("CustomICEServers", "Custom STUN/TURN Servers"), OBS_TEXT_MULTILINE);
+	obs_property_text_set_monospace(iceServers, true);
+	obs_properties_add_bool(advanced, "force_turn", tr("ForceTURN", "Force TURN Relay"));
+	obs_properties_add_group(props, "advanced", tr("AdvancedSettings", "Advanced Settings"), OBS_GROUP_NORMAL,
+	                         advanced);
+
+	obs_properties_add_bool(props, "auto_inbound_enabled", tr("AutoInbound.Enabled", "Auto Manage Inbound Streams"));
+	obs_properties_add_text(props, "auto_inbound_room_id", tr("AutoInbound.RoomID", "Inbound Room ID"), OBS_TEXT_DEFAULT);
+	obs_properties_add_text(props, "auto_inbound_password", tr("AutoInbound.Password", "Inbound Room Password"),
+	                        OBS_TEXT_PASSWORD);
+	obs_properties_add_text(props, "auto_inbound_target_scene", tr("AutoInbound.TargetScene", "Target Scene (optional)"),
 	                        OBS_TEXT_DEFAULT);
-	obs_properties_add_text(props, "auto_inbound_source_prefix", obs_module_text("AutoInbound.SourcePrefix"),
+	obs_properties_add_text(props, "auto_inbound_source_prefix", tr("AutoInbound.SourcePrefix", "Source Prefix"),
 	                        OBS_TEXT_DEFAULT);
-	obs_properties_add_text(props, "auto_inbound_base_url", obs_module_text("AutoInbound.BaseUrl"), OBS_TEXT_DEFAULT);
+	obs_properties_add_text(props, "auto_inbound_base_url", tr("AutoInbound.BaseUrl", "Base Playback URL"),
+	                        OBS_TEXT_DEFAULT);
 	obs_properties_add_bool(props, "auto_inbound_remove_on_disconnect",
-	                        obs_module_text("AutoInbound.RemoveOnDisconnect"));
-	obs_properties_add_bool(props, "auto_inbound_switch_scene", obs_module_text("AutoInbound.SwitchScene"));
-	obs_properties_add_int(props, "auto_inbound_width", obs_module_text("AutoInbound.Width"), 320, 4096, 1);
-	obs_properties_add_int(props, "auto_inbound_height", obs_module_text("AutoInbound.Height"), 240, 2160, 1);
+	                        tr("AutoInbound.RemoveOnDisconnect", "Remove Source On Disconnect"));
+	obs_properties_add_bool(props, "auto_inbound_switch_scene",
+	                        tr("AutoInbound.SwitchScene", "Switch To Scene On New Stream"));
+	obs_properties_add_int(props, "auto_inbound_width", tr("AutoInbound.Width", "Inbound Source Width"), 320, 4096,
+	                       1);
+	obs_properties_add_int(props, "auto_inbound_height", tr("AutoInbound.Height", "Inbound Source Height"), 240, 2160,
+	                       1);
 
 	obs_property_t *layoutMode =
-	    obs_properties_add_list(props, "auto_inbound_layout_mode", obs_module_text("AutoInbound.LayoutMode"),
+	    obs_properties_add_list(props, "auto_inbound_layout_mode", tr("AutoInbound.LayoutMode", "Inbound Layout"),
 	                            OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_INT);
-	obs_property_list_add_int(layoutMode, obs_module_text("AutoInbound.Layout.None"),
+	obs_property_list_add_int(layoutMode, tr("AutoInbound.Layout.None", "None"),
 	                          static_cast<int>(AutoLayoutMode::None));
-	obs_property_list_add_int(layoutMode, obs_module_text("AutoInbound.Layout.Grid"),
+	obs_property_list_add_int(layoutMode, tr("AutoInbound.Layout.Grid", "Grid"),
 	                          static_cast<int>(AutoLayoutMode::Grid));
 
 	return props;
@@ -112,6 +158,8 @@ static void vdoninja_output_defaults(obs_data_t *settings)
 	obs_data_set_default_string(settings, "room_id", "");
 	obs_data_set_default_string(settings, "password", "");
 	obs_data_set_default_string(settings, "wss_host", DEFAULT_WSS_HOST);
+	obs_data_set_default_string(settings, "salt", DEFAULT_SALT);
+	obs_data_set_default_string(settings, "custom_ice_servers", "");
 	obs_data_set_default_int(settings, "video_codec", static_cast<int>(VideoCodec::H264));
 	obs_data_set_default_int(settings, "bitrate", 4000);
 	obs_data_set_default_int(settings, "max_viewers", 10);
@@ -184,34 +232,96 @@ VDONinjaOutput::~VDONinjaOutput()
 
 void VDONinjaOutput::loadSettings(obs_data_t *settings)
 {
-	settings_.streamId = obs_data_get_string(settings, "stream_id");
-	settings_.roomId = obs_data_get_string(settings, "room_id");
-	settings_.password = obs_data_get_string(settings, "password");
-	settings_.wssHost = obs_data_get_string(settings, "wss_host");
+	obs_data_t *serviceSettings = nullptr;
+	if (output_) {
+		obs_service_t *service = obs_output_get_service(output_);
+		if (service) {
+			serviceSettings = obs_service_get_settings(service);
+		}
+	}
+
+	auto getStringSetting = [&](const char *key) -> std::string {
+		std::string value;
+		if (settings && (obs_data_has_user_value(settings, key) || !serviceSettings)) {
+			const char *raw = obs_data_get_string(settings, key);
+			if (raw) {
+				value = raw;
+			}
+		}
+		if (value.empty() && serviceSettings) {
+			const char *raw = obs_data_get_string(serviceSettings, key);
+			if (raw) {
+				value = raw;
+			}
+		}
+		return value;
+	};
+
+	auto getIntSetting = [&](const char *key, int fallback) -> int {
+		if (settings && obs_data_has_user_value(settings, key)) {
+			return static_cast<int>(obs_data_get_int(settings, key));
+		}
+		if (serviceSettings && obs_data_has_user_value(serviceSettings, key)) {
+			return static_cast<int>(obs_data_get_int(serviceSettings, key));
+		}
+		if (settings) {
+			return static_cast<int>(obs_data_get_int(settings, key));
+		}
+		if (serviceSettings) {
+			return static_cast<int>(obs_data_get_int(serviceSettings, key));
+		}
+		return fallback;
+	};
+
+	auto getBoolSetting = [&](const char *key, bool fallback) -> bool {
+		if (settings && obs_data_has_user_value(settings, key)) {
+			return obs_data_get_bool(settings, key);
+		}
+		if (serviceSettings && obs_data_has_user_value(serviceSettings, key)) {
+			return obs_data_get_bool(serviceSettings, key);
+		}
+		if (settings) {
+			return obs_data_get_bool(settings, key);
+		}
+		if (serviceSettings) {
+			return obs_data_get_bool(serviceSettings, key);
+		}
+		return fallback;
+	};
+
+	settings_.streamId = getStringSetting("stream_id");
+	settings_.roomId = getStringSetting("room_id");
+	settings_.password = getStringSetting("password");
+	settings_.wssHost = getStringSetting("wss_host");
+	settings_.salt = trim(getStringSetting("salt"));
+	settings_.customIceServers = parseIceServers(getStringSetting("custom_ice_servers"));
 
 	if (settings_.wssHost.empty()) {
 		settings_.wssHost = DEFAULT_WSS_HOST;
 	}
+	if (settings_.salt.empty()) {
+		settings_.salt = DEFAULT_SALT;
+	}
 
-	settings_.videoCodec = static_cast<VideoCodec>(obs_data_get_int(settings, "video_codec"));
-	settings_.quality.bitrate = static_cast<int>(obs_data_get_int(settings, "bitrate")) * 1000;
-	settings_.maxViewers = static_cast<int>(obs_data_get_int(settings, "max_viewers"));
-	settings_.enableDataChannel = obs_data_get_bool(settings, "enable_data_channel");
-	settings_.autoReconnect = obs_data_get_bool(settings, "auto_reconnect");
-	settings_.forceTurn = obs_data_get_bool(settings, "force_turn");
+	settings_.videoCodec = static_cast<VideoCodec>(getIntSetting("video_codec", static_cast<int>(VideoCodec::H264)));
+	settings_.quality.bitrate = getIntSetting("bitrate", 4000) * 1000;
+	settings_.maxViewers = getIntSetting("max_viewers", 10);
+	settings_.enableDataChannel = getBoolSetting("enable_data_channel", true);
+	settings_.autoReconnect = getBoolSetting("auto_reconnect", true);
+	settings_.forceTurn = getBoolSetting("force_turn", false);
 
-	settings_.autoInbound.enabled = obs_data_get_bool(settings, "auto_inbound_enabled");
-	settings_.autoInbound.roomId = obs_data_get_string(settings, "auto_inbound_room_id");
-	settings_.autoInbound.password = obs_data_get_string(settings, "auto_inbound_password");
-	settings_.autoInbound.targetScene = obs_data_get_string(settings, "auto_inbound_target_scene");
-	settings_.autoInbound.sourcePrefix = obs_data_get_string(settings, "auto_inbound_source_prefix");
-	settings_.autoInbound.baseUrl = obs_data_get_string(settings, "auto_inbound_base_url");
-	settings_.autoInbound.removeOnDisconnect = obs_data_get_bool(settings, "auto_inbound_remove_on_disconnect");
-	settings_.autoInbound.switchToSceneOnNewStream = obs_data_get_bool(settings, "auto_inbound_switch_scene");
-	settings_.autoInbound.layoutMode =
-	    static_cast<AutoLayoutMode>(obs_data_get_int(settings, "auto_inbound_layout_mode"));
-	settings_.autoInbound.width = static_cast<int>(obs_data_get_int(settings, "auto_inbound_width"));
-	settings_.autoInbound.height = static_cast<int>(obs_data_get_int(settings, "auto_inbound_height"));
+	settings_.autoInbound.enabled = getBoolSetting("auto_inbound_enabled", false);
+	settings_.autoInbound.roomId = getStringSetting("auto_inbound_room_id");
+	settings_.autoInbound.password = getStringSetting("auto_inbound_password");
+	settings_.autoInbound.targetScene = getStringSetting("auto_inbound_target_scene");
+	settings_.autoInbound.sourcePrefix = getStringSetting("auto_inbound_source_prefix");
+	settings_.autoInbound.baseUrl = getStringSetting("auto_inbound_base_url");
+	settings_.autoInbound.removeOnDisconnect = getBoolSetting("auto_inbound_remove_on_disconnect", true);
+	settings_.autoInbound.switchToSceneOnNewStream = getBoolSetting("auto_inbound_switch_scene", false);
+	settings_.autoInbound.layoutMode = static_cast<AutoLayoutMode>(getIntSetting(
+	    "auto_inbound_layout_mode", static_cast<int>(AutoLayoutMode::Grid)));
+	settings_.autoInbound.width = getIntSetting("auto_inbound_width", 1920);
+	settings_.autoInbound.height = getIntSetting("auto_inbound_height", 1080);
 
 	if (settings_.autoInbound.sourcePrefix.empty()) {
 		settings_.autoInbound.sourcePrefix = "VDO";
@@ -222,11 +332,70 @@ void VDONinjaOutput::loadSettings(obs_data_t *settings)
 	if (settings_.autoInbound.password.empty()) {
 		settings_.autoInbound.password = settings_.password;
 	}
+
+	if (serviceSettings) {
+		obs_data_release(serviceSettings);
+	}
 }
 
 void VDONinjaOutput::update(obs_data_t *settings)
 {
 	loadSettings(settings);
+}
+
+std::string VDONinjaOutput::buildInitialInfoMessage() const
+{
+	JsonBuilder info;
+	info.add("label", settings_.streamId);
+	info.add("version", kPluginInfoVersion);
+	info.add("obs_control", false);
+	info.add("proaudio_init", false);
+	info.add("recording_audio_pipeline", true);
+	info.add("playback_audio_pipeline", true);
+	info.add("playback_audio_volume_meter", true);
+	info.add("codec_url", codecToUrlValue(settings_.videoCodec));
+	info.add("audio_codec_url", "opus");
+	info.add("vb_url", settings_.quality.bitrate / 1000);
+	info.add("maxviewers_url", settings_.maxViewers);
+
+	obs_video_info videoInfo = {};
+	if (obs_get_video_info(&videoInfo)) {
+		const int fps = videoInfo.fps_den > 0 ? static_cast<int>((videoInfo.fps_num + (videoInfo.fps_den / 2)) / videoInfo.fps_den)
+		                                      : 0;
+		const int width = static_cast<int>(videoInfo.output_width ? videoInfo.output_width : videoInfo.base_width);
+		const int height = static_cast<int>(videoInfo.output_height ? videoInfo.output_height : videoInfo.base_height);
+		if (width > 0) {
+			info.add("video_init_width", width);
+		}
+		if (height > 0) {
+			info.add("video_init_height", height);
+		}
+		if (fps > 0) {
+			info.add("video_init_frameRate", fps);
+		}
+	}
+
+	obs_audio_info audioInfo = {};
+	if (obs_get_audio_info(&audioInfo)) {
+		const uint32_t channels = get_audio_channels(audioInfo.speakers);
+		info.add("stereo_url", channels >= 2);
+		if (audioInfo.samples_per_sec > 0) {
+			info.add("playback_audio_samplerate", static_cast<int>(audioInfo.samples_per_sec));
+		}
+	}
+
+	JsonBuilder payload;
+	payload.addRaw("info", info.build());
+	return payload.build();
+}
+
+void VDONinjaOutput::sendInitialPeerInfo(const std::string &uuid)
+{
+	if (!peerManager_ || uuid.empty()) {
+		return;
+	}
+
+	peerManager_->sendDataToPeer(uuid, buildInitialInfoMessage());
 }
 
 bool VDONinjaOutput::start()
@@ -276,12 +445,15 @@ void VDONinjaOutput::startThread()
 	peerManager_->setAudioCodec(settings_.audioCodec);
 	peerManager_->setBitrate(settings_.quality.bitrate);
 	peerManager_->setEnableDataChannel(settings_.enableDataChannel);
+	peerManager_->setIceServers(settings_.customIceServers);
 	peerManager_->setForceTurn(settings_.forceTurn);
+	signaling_->setSalt(settings_.salt);
 
 	if (autoSceneManager_) {
 		autoSceneManager_->configure(settings_.autoInbound);
-		std::vector<std::string> ownIds = {settings_.streamId, hashStreamId(settings_.streamId, settings_.password),
-		                                   hashStreamId(settings_.streamId, DEFAULT_PASSWORD)};
+		std::vector<std::string> ownIds = {settings_.streamId,
+		                                   hashStreamId(settings_.streamId, settings_.password, settings_.salt),
+		                                   hashStreamId(settings_.streamId, DEFAULT_PASSWORD, settings_.salt)};
 		autoSceneManager_->setOwnStreamIds(ownIds);
 		if (settings_.autoInbound.enabled) {
 			autoSceneManager_->start();
@@ -358,22 +530,17 @@ void VDONinjaOutput::startThread()
 		logInfo("Viewer disconnected: %s (total: %d)", uuid.c_str(), peerManager_->getViewerCount());
 	});
 
-	peerManager_->setOnDataChannelMessage([this](const std::string &, const std::string &message) {
-		if (!autoSceneManager_ || !settings_.autoInbound.enabled) {
-			return;
-		}
+	peerManager_->setOnDataChannel([this](const std::string &uuid, std::shared_ptr<rtc::DataChannel>) {
+		sendInitialPeerInfo(uuid);
+	});
 
-		try {
-			JsonParser json(message);
-			std::string whepUrl = json.getString("whepUrl");
-			if (whepUrl.empty()) {
-				whepUrl = json.getString("whep");
-			}
+	peerManager_->setOnDataChannelMessage([this](const std::string &uuid, const std::string &message) {
+		if (autoSceneManager_ && settings_.autoInbound.enabled) {
+			const std::string whepUrl = dataChannel_.extractWhepPlaybackUrl(message);
 			if (!whepUrl.empty()) {
+				logInfo("Discovered WHEP playback URL from %s", uuid.c_str());
 				autoSceneManager_->onStreamAdded(whepUrl);
 			}
-		} catch (...) {
-			// Ignore non-JSON data channel payloads.
 		}
 	});
 

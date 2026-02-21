@@ -15,6 +15,7 @@
 
 #include "vdoninja-auto-scene-manager.h"
 #include "vdoninja-common.h"
+#include "vdoninja-data-channel.h"
 #include "vdoninja-peer-manager.h"
 #include "vdoninja-signaling.h"
 
@@ -51,6 +52,8 @@ private:
 	// Handle encoding
 	void processAudioPacket(encoder_packet *packet);
 	void processVideoPacket(encoder_packet *packet);
+	void sendInitialPeerInfo(const std::string &uuid);
+	std::string buildInitialInfoMessage() const;
 
 	// OBS output handle
 	obs_output_t *output_;
@@ -62,6 +65,7 @@ private:
 	std::unique_ptr<VDONinjaSignaling> signaling_;
 	std::unique_ptr<VDONinjaPeerManager> peerManager_;
 	std::unique_ptr<VDOAutoSceneManager> autoSceneManager_;
+	VDONinjaDataChannel dataChannel_;
 
 	// State
 	std::atomic<bool> running_{false};

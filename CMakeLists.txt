@@ -1,12 +1,12 @@
 cmake_minimum_required(VERSION 3.16)
 
-project(obs-vdoninja VERSION 1.1.0 LANGUAGES C CXX)
+project(obs-vdoninja VERSION 1.1.1 LANGUAGES C CXX)
 
 # Plugin configuration
 set(PLUGIN_AUTHOR "VDO.Ninja Community")
 set(PLUGIN_WEBSITE "https://vdo.ninja")
-set(PLUGIN_SUPPORT_URL "https://github.com/steveseguin/obs-vdoninja/issues")
-set(PLUGIN_LICENSE "AGPL-3.0")
+set(PLUGIN_SUPPORT_URL "https://github.com/steveseguin/ninja-plugin/issues")
+set(PLUGIN_LICENSE "AGPL-3.0-only")
 
 # Options
 option(BUILD_TESTS "Build unit tests" OFF)

@@ -50,3 +50,13 @@ vdoninja-tests.exe
 *.pkg
 *.dmg
 *.msi
+
+# Local development artifacts
+build-plugin/
+build-verify/
+local-libdatachannel/
+local-obs-sdk/
+node_modules/
+test-results/
+playwright-*.json
+playwright-*.png

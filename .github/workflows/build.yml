@@ -177,6 +177,9 @@ jobs:
       - name: Package
         run: |
           cmake --install build --prefix install
+          cp LICENSE install/
+          cp THIRD_PARTY_LICENSES.md install/
+          cp RELEASE_COMPLIANCE.md install/
           cd install
           tar -czvf ../${{ env.PLUGIN_NAME }}-linux-x86_64.tar.gz .
 
@@ -290,6 +293,9 @@ jobs:
       - name: Package
         run: |
           cmake --install build --prefix install
+          cp LICENSE install/
+          cp THIRD_PARTY_LICENSES.md install/
+          cp RELEASE_COMPLIANCE.md install/
           cd install
           zip -r ../${{ env.PLUGIN_NAME }}-macos-${{ matrix.arch }}.zip .
 
@@ -411,6 +417,9 @@ jobs:
       - name: Package
         run: |
           cmake --install build --prefix install
+          Copy-Item LICENSE install\
+          Copy-Item THIRD_PARTY_LICENSES.md install\
+          Copy-Item RELEASE_COMPLIANCE.md install\
           7z a ${{ env.PLUGIN_NAME }}-windows-x64.zip .\install\*
 
       - name: Upload Artifact

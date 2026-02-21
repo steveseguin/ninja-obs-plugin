@@ -125,10 +125,10 @@ class SanitizeStreamIdTest : public ::testing::Test
 {
 };
 
-TEST_F(SanitizeStreamIdTest, LowercasesInput)
+TEST_F(SanitizeStreamIdTest, PreservesCase)
 {
-	EXPECT_EQ(sanitizeStreamId("HELLO"), "hello");
-	EXPECT_EQ(sanitizeStreamId("HeLLo"), "hello");
+	EXPECT_EQ(sanitizeStreamId("HELLO"), "HELLO");
+	EXPECT_EQ(sanitizeStreamId("HeLLo"), "HeLLo");
 }
 
 TEST_F(SanitizeStreamIdTest, PreservesAlphanumeric)
@@ -147,6 +147,8 @@ TEST_F(SanitizeStreamIdTest, ReplacesSpecialChars)
 	EXPECT_EQ(sanitizeStreamId("test.stream"), "test_stream");
 	EXPECT_EQ(sanitizeStreamId("test stream"), "test_stream");
 	EXPECT_EQ(sanitizeStreamId("test@stream!"), "test_stream_");
+	EXPECT_EQ(sanitizeStreamId("test---stream"), "test_stream");
+	EXPECT_EQ(sanitizeStreamId("test..  stream"), "test_stream");
 }
 
 TEST_F(SanitizeStreamIdTest, HandlesEmptyString)
@@ -168,16 +170,17 @@ TEST_F(HashStreamIdTest, ReturnsRawIdWhenNoPassword)
 TEST_F(HashStreamIdTest, HashesWithPassword)
 {
 	std::string result = hashStreamId("mystream", "password", "salt");
-	// Should be first 16 chars of sha256(mystream + password + salt)
-	EXPECT_EQ(result.length(), 16u);
+	// SDK format: original streamID + 6-char hash suffix of password+salt.
+	EXPECT_EQ(result.length(), std::string("mystream").length() + 6);
+	EXPECT_EQ(result.substr(0, std::string("mystream").length()), "mystream");
 	EXPECT_NE(result, "mystream");
 }
 
 TEST_F(HashStreamIdTest, SanitizesBeforeHashing)
 {
 	std::string result = hashStreamId("My-Stream", "password", "salt");
-	// Input should be sanitized to "my_stream" before hashing
-	std::string expected = hashStreamId("my_stream", "password", "salt");
+	// Input should be sanitized to "My_Stream" (case preserved) before hashing.
+	std::string expected = hashStreamId("My_Stream", "password", "salt");
 	EXPECT_EQ(result, expected);
 }
 
@@ -187,6 +190,16 @@ TEST_F(HashStreamIdTest, DifferentPasswordsProduceDifferentHashes)
 	std::string hash2 = hashStreamId("stream", "pass2", "salt");
 
 	EXPECT_NE(hash1, hash2);
+}
+
+TEST_F(HashStreamIdTest, SuffixDependsOnPasswordAndSaltOnly)
+{
+	std::string hash1 = hashStreamId("streamA", "pass1", "salt");
+	std::string hash2 = hashStreamId("streamB", "pass1", "salt");
+
+	ASSERT_GE(hash1.length(), 6u);
+	ASSERT_GE(hash2.length(), 6u);
+	EXPECT_EQ(hash1.substr(hash1.length() - 6), hash2.substr(hash2.length() - 6));
 }
 
 // Room ID Hashing Tests
@@ -394,6 +407,58 @@ TEST_F(SplitTest, SplitsOnDifferentDelimiters)
 	auto result = split("a:b:c", ':');
 	ASSERT_EQ(result.size(), 3u);
 	EXPECT_EQ(result[0], "a");
+}
+
+// ICE Server Parser Tests
+class ParseIceServersTest : public ::testing::Test
+{
+};
+
+TEST_F(ParseIceServersTest, ParsesPipeSeparatedTurnServer)
+{
+	auto servers = parseIceServers("turn:turn.example.com:3478|alice|secret");
+	ASSERT_EQ(servers.size(), 1u);
+	EXPECT_EQ(servers[0].urls, "turn:turn.example.com:3478");
+	EXPECT_EQ(servers[0].username, "alice");
+	EXPECT_EQ(servers[0].credential, "secret");
+}
+
+TEST_F(ParseIceServersTest, ParsesWhitespaceAndKeyValueFormats)
+{
+	const std::string config = "stun:stun.example.com:3478\n"
+	                           "turns:turn.example.com:5349 username=bob credential=hunter2";
+	auto servers = parseIceServers(config);
+	ASSERT_EQ(servers.size(), 2u);
+	EXPECT_EQ(servers[0].urls, "stun:stun.example.com:3478");
+	EXPECT_TRUE(servers[0].username.empty());
+	EXPECT_TRUE(servers[0].credential.empty());
+	EXPECT_EQ(servers[1].urls, "turns:turn.example.com:5349");
+	EXPECT_EQ(servers[1].username, "bob");
+	EXPECT_EQ(servers[1].credential, "hunter2");
+}
+
+TEST_F(ParseIceServersTest, IgnoresCommentsBlankAndInvalidLines)
+{
+	const std::string config = "# comment\n"
+	                           " \n"
+	                           "// another comment\n"
+	                           "https://not-ice.example.com\n"
+	                           "turn:turn.example.com:3478,user,pass";
+	auto servers = parseIceServers(config);
+	ASSERT_EQ(servers.size(), 1u);
+	EXPECT_EQ(servers[0].urls, "turn:turn.example.com:3478");
+	EXPECT_EQ(servers[0].username, "user");
+	EXPECT_EQ(servers[0].credential, "pass");
+}
+
+TEST_F(ParseIceServersTest, CountsPendingViewerStatesTowardLimit)
+{
+	EXPECT_TRUE(countsTowardViewerLimit(ConnectionState::New));
+	EXPECT_TRUE(countsTowardViewerLimit(ConnectionState::Connecting));
+	EXPECT_TRUE(countsTowardViewerLimit(ConnectionState::Connected));
+	EXPECT_FALSE(countsTowardViewerLimit(ConnectionState::Disconnected));
+	EXPECT_FALSE(countsTowardViewerLimit(ConnectionState::Failed));
+	EXPECT_FALSE(countsTowardViewerLimit(ConnectionState::Closed));
 }
 
 // Time Utilities Tests

@@ -100,6 +100,30 @@ TEST_F(DataChannelTest, ParsesCustomMessage)
 	EXPECT_EQ(msg.type, DataMessageType::Custom);
 }
 
+TEST_F(DataChannelTest, ExtractsTopLevelWhepUrl)
+{
+	std::string raw = "{\"whepUrl\":\"https://example.com/live/whep\"}";
+	EXPECT_EQ(dataChannel.extractWhepPlaybackUrl(raw), "https://example.com/live/whep");
+}
+
+TEST_F(DataChannelTest, ExtractsWhepUrlFromSettingsObject)
+{
+	std::string raw = "{\"whepSettings\":{\"type\":\"whep\",\"url\":\"https://example.com/stream/whep\"}}";
+	EXPECT_EQ(dataChannel.extractWhepPlaybackUrl(raw), "https://example.com/stream/whep");
+}
+
+TEST_F(DataChannelTest, ExtractsWhepUrlFromNestedInfoObject)
+{
+	std::string raw = "{\"info\":{\"whepUrl\":\"https://example.com/nested/whep\"}}";
+	EXPECT_EQ(dataChannel.extractWhepPlaybackUrl(raw), "https://example.com/nested/whep");
+}
+
+TEST_F(DataChannelTest, IgnoresNonUrlWhepPayloads)
+{
+	std::string raw = "{\"whep\":\"stream-id-not-url\"}";
+	EXPECT_TRUE(dataChannel.extractWhepPlaybackUrl(raw).empty());
+}
+
 TEST_F(DataChannelTest, SetsTimestampOnParse)
 {
 	std::string raw = "{\"chat\":\"test\"}";

@@ -94,6 +94,7 @@ struct RoomInfo {
 struct StreamInfo {
 	std::string streamId;
 	std::string hashedStreamId;
+	std::string password;
 	bool isPublishing = false;
 	bool isViewing = false;
 };
@@ -144,6 +145,7 @@ struct OutputSettings {
 	std::string roomId;
 	std::string password;
 	std::string wssHost = DEFAULT_WSS_HOST;
+	std::string salt = DEFAULT_SALT;
 	VideoCodec videoCodec = VideoCodec::H264;
 	AudioCodec audioCodec = AudioCodec::Opus;
 	StreamQuality quality;
@@ -161,6 +163,7 @@ struct SourceSettings {
 	std::string roomId;
 	std::string password;
 	std::string wssHost = DEFAULT_WSS_HOST;
+	std::string salt = DEFAULT_SALT;
 	bool enableDataChannel = true;
 	bool autoReconnect = true;
 	std::vector<IceServer> customIceServers;

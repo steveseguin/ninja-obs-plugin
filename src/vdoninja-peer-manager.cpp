@@ -74,19 +74,20 @@ rtc::Configuration VDONinjaPeerManager::getRtcConfig() const
 {
 	rtc::Configuration config;
 
-	// Add STUN servers
-	for (const auto &stun : DEFAULT_STUN_SERVERS) {
-		config.iceServers.push_back({stun});
-	}
-
-	// Add custom ICE servers
-	for (const auto &server : iceServers_) {
-		rtc::IceServer iceServer(server.urls, "");
-		if (!server.username.empty()) {
-			iceServer.username = server.username;
-			iceServer.password = server.credential;
+	// If custom servers are set, use only those; otherwise use built-in defaults.
+	if (iceServers_.empty()) {
+		for (const auto &stun : DEFAULT_STUN_SERVERS) {
+			config.iceServers.push_back({stun});
 		}
-		config.iceServers.push_back(iceServer);
+	} else {
+		for (const auto &server : iceServers_) {
+			rtc::IceServer iceServer(server.urls, "");
+			if (!server.username.empty()) {
+				iceServer.username = server.username;
+				iceServer.password = server.credential;
+			}
+			config.iceServers.push_back(iceServer);
+		}
 	}
 
 	if (forceTurn_) {
@@ -145,6 +146,21 @@ int VDONinjaPeerManager::getViewerCount() const
 	int count = 0;
 	for (const auto &pair : peers_) {
 		if (pair.second->type == ConnectionType::Publisher && pair.second->state == ConnectionState::Connected) {
+			count++;
+		}
+	}
+	return count;
+}
+
+int VDONinjaPeerManager::getPublisherSlotCount() const
+{
+	std::lock_guard<std::mutex> lock(peersMutex_);
+	int count = 0;
+	for (const auto &pair : peers_) {
+		if (pair.second->type != ConnectionType::Publisher) {
+			continue;
+		}
+		if (countsTowardViewerLimit(pair.second->state)) {
 			count++;
 		}
 	}
@@ -384,7 +400,12 @@ void VDONinjaPeerManager::setupPublisherTracks(std::shared_ptr<PeerInfo> peer)
 		peer->dataChannel = dc;
 		peer->hasDataChannel = true;
 
-		dc->onOpen([this, uuid = peer->uuid]() { logInfo("Data channel opened for %s", uuid.c_str()); });
+		dc->onOpen([this, uuid = peer->uuid, dc]() {
+			logInfo("Data channel opened for %s", uuid.c_str());
+			if (onDataChannel_) {
+				onDataChannel_(uuid, dc);
+			}
+		});
 
 		dc->onMessage([this, uuid = peer->uuid](auto data) {
 			if (std::holds_alternative<std::string>(data)) {
@@ -483,7 +504,7 @@ void VDONinjaPeerManager::onSignalingOfferRequest(const std::string &uuid, const
 	}
 
 	if (!peer) {
-		if (getViewerCount() >= maxViewers_) {
+		if (getPublisherSlotCount() >= maxViewers_) {
 			logWarning("Rejecting offer request from %s - max viewers reached (%d)", uuid.c_str(), maxViewers_);
 			return;
 		}
