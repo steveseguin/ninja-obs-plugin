@@ -128,6 +128,30 @@ static const char *vdoninja_service_key(void *data)
 	return obs_data_get_string(settings, "stream_id");
 }
 
+static const char *vdoninja_service_protocol(void *data)
+{
+	UNUSED_PARAMETER(data);
+	return "VDO.Ninja";
+}
+
+static const char *vdoninja_service_connect_info(void *data, uint32_t type)
+{
+	obs_data_t *settings = static_cast<obs_data_t *>(data);
+	switch ((enum obs_service_connect_info)type) {
+	case OBS_SERVICE_CONNECT_INFO_SERVER_URL:
+		return obs_data_get_string(settings, "wss_host");
+	case OBS_SERVICE_CONNECT_INFO_STREAM_ID:
+		return obs_data_get_string(settings, "stream_id");
+	case OBS_SERVICE_CONNECT_INFO_PASSWORD:
+		return obs_data_get_string(settings, "password");
+	default:
+		return nullptr;
+	}
+}
+
+static const char *vdoninja_video_codecs[] = {"h264", "vp8", "vp9", nullptr};
+static const char *vdoninja_audio_codecs[] = {"opus", nullptr};
+
 static bool vdoninja_service_can_try_connect(void *data)
 {
 	obs_data_t *settings = static_cast<obs_data_t *>(data);
@@ -146,6 +170,10 @@ static obs_service_info vdoninja_service_info = {
     .get_url = vdoninja_service_url,
     .get_key = vdoninja_service_key,
     .get_output_type = [](void *) -> const char * { return "vdoninja_output"; },
+    .get_supported_video_codecs = [](void *) -> const char ** { return vdoninja_video_codecs; },
+    .get_protocol = vdoninja_service_protocol,
+    .get_supported_audio_codecs = [](void *) -> const char ** { return vdoninja_audio_codecs; },
+    .get_connect_info = vdoninja_service_connect_info,
     .can_try_to_connect = vdoninja_service_can_try_connect,
 };
 

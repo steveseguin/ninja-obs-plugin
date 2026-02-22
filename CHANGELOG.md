@@ -13,6 +13,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - No unreleased changes yet.
 
+## [1.1.9] - 2026-02-22
+
+### Fixed
+- OBS 31 service registration now includes the required `get_protocol` callback for `vdoninja_service`, resolving:
+  - `Required value 'get_protocol' for 'vdoninja_service' not found. obs_register_service failed.`
+- Added explicit service metadata callbacks for codec support and connect info (`get_supported_video_codecs`, `get_supported_audio_codecs`, `get_connect_info`) to improve compatibility with OBS service handling.
+
 ## [1.1.8] - 2026-02-22
 
 ### Fixed
