@@ -110,3 +110,14 @@ After install/update, restart OBS and confirm:
 
 - `Settings -> Stream` includes `VDO.Ninja`
 - `Add Source` includes `VDO.Ninja Source`
+
+## Windows troubleshooting
+
+If OBS log shows `obs-vdoninja.dll not loaded` and `Service 'vdoninja_service' not found`:
+
+1. Fully close OBS.
+2. Remove old plugin files from `C:\Program Files\obs-studio\obs-plugins\64bit\obs-vdoninja.dll`.
+3. Reinstall from the newest release ZIP with `install.cmd`.
+4. Reopen OBS and check the newest log in `%APPDATA%\obs-studio\logs\`.
+
+This plugin should not require replacing OBS core DLLs manually.

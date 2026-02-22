@@ -5,6 +5,7 @@
 
 #include "vdoninja-signaling-protocol.h"
 
+#include <cctype>
 #include <initializer_list>
 
 #include "vdoninja-utils.h"
@@ -23,6 +24,14 @@ std::string getAnyString(const JsonParser &json, const std::initializer_list<con
 		}
 	}
 	return "";
+}
+
+std::string asciiLower(std::string value)
+{
+	for (char &c : value) {
+		c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+	}
+	return value;
 }
 
 void parseCandidateBundle(const JsonParser &json, ParsedSignalMessage &parsed)
@@ -59,11 +68,12 @@ bool parseSignalingMessage(const std::string &message, ParsedSignalMessage &pars
 	try {
 		JsonParser json(message);
 
-		parsed.uuid = getAnyString(json, {"UUID", "uuid"});
-		parsed.session = getAnyString(json, {"session"});
-		parsed.request = getAnyString(json, {"request"});
+		parsed.uuid = getAnyString(json, {"UUID", "uuid", "from"});
+		parsed.session = getAnyString(json, {"session", "Session"});
+		parsed.request = getAnyString(json, {"request", "Request"});
+		const std::string requestLower = asciiLower(parsed.request);
 
-		if (parsed.request == "listing" || json.hasKey("listing") || json.hasKey("list")) {
+		if (requestLower == "listing" || json.hasKey("listing") || json.hasKey("list")) {
 			parsed.kind = ParsedSignalKind::Listing;
 			auto listing = json.hasKey("list") ? json.getArray("list") : json.getArray("listing");
 			for (const auto &member : listing) {
@@ -86,19 +96,20 @@ bool parseSignalingMessage(const std::string &message, ParsedSignalMessage &pars
 
 		if (json.hasKey("description")) {
 			JsonParser desc(json.getObject("description"));
-			parsed.type = getAnyString(desc, {"type"});
+			parsed.type = getAnyString(desc, {"type", "Type"});
 			parsed.sdp = getAnyString(desc, {"sdp"});
 		} else if (json.hasKey("sdp")) {
-			parsed.type = getAnyString(json, {"type"});
+			parsed.type = getAnyString(json, {"type", "Type"});
 			parsed.sdp = getAnyString(json, {"sdp"});
 		}
 
 		if (!parsed.sdp.empty()) {
-			if (parsed.type == "offer") {
+			const std::string typeLower = asciiLower(parsed.type);
+			if (typeLower == "offer") {
 				parsed.kind = ParsedSignalKind::Offer;
 				return true;
 			}
-			if (parsed.type == "answer") {
+			if (typeLower == "answer") {
 				parsed.kind = ParsedSignalKind::Answer;
 				return true;
 			}
@@ -124,19 +135,19 @@ bool parseSignalingMessage(const std::string &message, ParsedSignalMessage &pars
 			return true;
 		}
 
-		if (parsed.request == "alert" || parsed.request == "error") {
+		if (requestLower == "alert" || requestLower == "error") {
 			parsed.kind = ParsedSignalKind::Alert;
 			parsed.alert = getAnyString(json, {"message", "alert", "error"});
 			return true;
 		}
 
-		if (parsed.request == "videoaddedtoroom") {
+		if (requestLower == "videoaddedtoroom") {
 			parsed.kind = ParsedSignalKind::VideoAddedToRoom;
 			parsed.streamId = getAnyString(json, {"streamID", "streamId", "whep", "whepUrl", "url", "URL"});
 			return true;
 		}
 
-		if (parsed.request == "videoremovedfromroom") {
+		if (requestLower == "videoremovedfromroom") {
 			parsed.kind = ParsedSignalKind::VideoRemovedFromRoom;
 			parsed.streamId = getAnyString(json, {"streamID", "streamId", "whep", "whepUrl", "url", "URL"});
 			return true;

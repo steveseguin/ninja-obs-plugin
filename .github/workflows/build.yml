@@ -341,7 +341,7 @@ jobs:
       - name: Install Dependencies
         run: |
           choco install cmake ninja 7zip git -y
-          vcpkg install openssl:x64-windows pthreads:x64-windows
+          vcpkg install openssl:x64-windows-static-md pthreads:x64-windows-static-md
 
       - name: Build OBS SDK
         run: |
@@ -406,12 +406,14 @@ jobs:
           cmake -B build -G Ninja `
             -DCMAKE_BUILD_TYPE=Release `
             -DCMAKE_INSTALL_PREFIX="${{ github.workspace }}\deps" `
+            -DBUILD_SHARED_LIBS=OFF `
             -DNO_EXAMPLES=ON `
             -DNO_TESTS=ON `
             -DUSE_GNUTLS=OFF `
             -DUSE_NICE=OFF `
             "-DCMAKE_POLICY_VERSION_MINIMUM=3.5.0" `
-            -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT\scripts\buildsystems\vcpkg.cmake"
+            -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT\scripts\buildsystems\vcpkg.cmake" `
+            -DVCPKG_TARGET_TRIPLET=x64-windows-static-md
           cmake --build build
           cmake --install build
 
@@ -421,10 +423,36 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release `
             -DCMAKE_PREFIX_PATH="${{ github.workspace }}\deps;${{ github.workspace }}\obs-sdk" `
             -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT\scripts\buildsystems\vcpkg.cmake" `
+            -DVCPKG_TARGET_TRIPLET=x64-windows-static-md `
             -DOBS_SDK_PATH="${{ github.workspace }}\obs-sdk"
 
       - name: Build Plugin
         run: cmake --build build
+
+      - name: Verify Windows Runtime Imports
+        run: |
+          python -m pip install --quiet pefile
+          $script = @'
+          import pefile
+          from pathlib import Path
+
+          dll_path = Path("build") / "obs-vdoninja.dll"
+          if not dll_path.exists():
+              raise SystemExit(f"Missing plugin binary: {dll_path}")
+
+          pe = pefile.PE(str(dll_path))
+          imports = {entry.dll.decode(errors="ignore").lower() for entry in pe.DIRECTORY_ENTRY_IMPORT}
+          blocked = {"datachannel.dll", "libcrypto-3-x64.dll", "libssl-3-x64.dll"}
+          bad = sorted(blocked.intersection(imports))
+          if bad:
+              raise SystemExit(
+                  "Unexpected dynamic runtime imports in obs-vdoninja.dll: "
+                  + ", ".join(bad)
+                  + ". Windows release must be self-contained for libdatachannel/OpenSSL."
+              )
+          print("Import check passed:", ", ".join(sorted(imports)))
+          '@
+          $script | python -
 
       - name: Package
         run: |
@@ -436,33 +464,6 @@ jobs:
           Copy-Item RELEASE_COMPLIANCE.md install\
           $pluginDir = "install\obs-plugins\64bit"
           New-Item -ItemType Directory -Force -Path $pluginDir | Out-Null
-
-          # Bundle runtime dependencies required to load obs-vdoninja.dll on clean systems.
-          $dataChannelCandidates = @(
-            "${{ github.workspace }}\deps\bin\datachannel.dll",
-            "$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows\bin\datachannel.dll",
-            "${{ github.workspace }}\obs-sdk\bin\64bit\datachannel.dll",
-            "${{ github.workspace }}\obs-sdk\bin\datachannel.dll"
-          )
-          $copiedDataChannel = $false
-          foreach ($candidate in $dataChannelCandidates) {
-            if (Test-Path $candidate) {
-              Copy-Item $candidate (Join-Path $pluginDir "datachannel.dll") -Force
-              $copiedDataChannel = $true
-              break
-            }
-          }
-          if (-not $copiedDataChannel) {
-            Write-Error "Failed to locate datachannel.dll for packaging."
-          }
-
-          $opensslBin = Join-Path $env:VCPKG_INSTALLATION_ROOT "installed\x64-windows\bin"
-          foreach ($dll in @("libcrypto-3-x64.dll", "libssl-3-x64.dll", "zlib1.dll")) {
-            $src = Join-Path $opensslBin $dll
-            if (Test-Path $src) {
-              Copy-Item $src $pluginDir -Force
-            }
-          }
 
           Copy-Item scripts\install-package-windows.cmd install\install.cmd
           Copy-Item scripts\install-package-windows.ps1 install\install.ps1

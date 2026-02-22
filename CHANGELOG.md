@@ -13,6 +13,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - No unreleased changes yet.
 
+## [1.1.5] - 2026-02-22
+
+### Fixed
+- Windows release build now uses static libdatachannel/OpenSSL linkage (`x64-windows-static-md`) to avoid runtime dependency conflicts with OBS-bundled `datachannel.dll`.
+- Added a Windows CI import gate that fails the build if `obs-vdoninja.dll` imports `datachannel.dll`, `libcrypto-3-x64.dll`, or `libssl-3-x64.dll`.
+- This addresses OBS startup failures where logs showed:
+  - `Module '../../obs-plugins/64bit/obs-vdoninja.dll' not loaded`
+  - `Service 'vdoninja_service' not found`
+
+### Changed
+- Signaling parser now handles request/type field case variants more robustly (for example `OfferSDP`, `videoAddedToRoom`, and `type: "Offer"`).
+- Added protocol tests for mixed-case request/type variants.
+- Expanded `INSTALL.md` troubleshooting guidance for Windows module-load failures.
+
 ## [1.1.4] - 2026-02-22
 
 ### Fixed

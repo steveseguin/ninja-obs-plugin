@@ -209,6 +209,14 @@ std::string resolveEffectivePassword(const std::string &password, const std::str
 	return trimmedPassword;
 }
 
+std::string asciiLower(std::string value)
+{
+	for (char &c : value) {
+		c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+	}
+	return value;
+}
+
 } // namespace
 
 VDONinjaSignaling::VDONinjaSignaling()
@@ -556,11 +564,12 @@ void VDONinjaSignaling::processMessage(const std::string &message)
 void VDONinjaSignaling::handleRequest(const ParsedSignalMessage &message)
 {
 	logInfo("Received request: %s from %s", message.request.c_str(), message.uuid.c_str());
+	const std::string requestLower = asciiLower(message.request);
 
 	// VDO.Ninja can request publisher offers with different request labels depending
 	// on endpoint/flow.
-	if ((message.request == "offerSDP" || message.request == "sendOffer" || message.request == "play" ||
-	     message.request == "joinroom") &&
+	if ((requestLower == "offersdp" || requestLower == "sendoffer" || requestLower == "play" ||
+	     requestLower == "joinroom") &&
 	    onOfferRequest_) {
 		onOfferRequest_(message.uuid, message.session);
 	}

@@ -35,6 +35,18 @@ TEST(SignalingProtocolTest, ParsesPlayRequestAsRequestKind)
 	EXPECT_EQ(parsed.session, "sess-2");
 }
 
+TEST(SignalingProtocolTest, ParsesOfferRequestCaseInsensitive)
+{
+	const std::string raw = R"({"request":"OfferSDP","UUID":"viewer-2","session":"sess-2"})";
+	ParsedSignalMessage parsed;
+	std::string error;
+
+	EXPECT_TRUE(parseSignalingMessage(raw, parsed, &error));
+	EXPECT_EQ(parsed.kind, ParsedSignalKind::Request);
+	EXPECT_EQ(parsed.request, "OfferSDP");
+	EXPECT_EQ(parsed.uuid, "viewer-2");
+}
+
 TEST(SignalingProtocolTest, ParsesDescriptionOfferEnvelope)
 {
 	const std::string raw =
@@ -48,6 +60,18 @@ TEST(SignalingProtocolTest, ParsesDescriptionOfferEnvelope)
 	EXPECT_EQ(parsed.uuid, "peer-7");
 	EXPECT_EQ(parsed.session, "sess-1");
 	EXPECT_NE(parsed.sdp.find("a=mid:0"), std::string::npos);
+}
+
+TEST(SignalingProtocolTest, ParsesDescriptionTypeCaseInsensitive)
+{
+	const std::string raw =
+	    R"({"UUID":"peer-8","session":"sess-8","description":{"type":"Offer","sdp":"v=0\r\na=mid:0"}})";
+	ParsedSignalMessage parsed;
+	std::string error;
+
+	EXPECT_TRUE(parseSignalingMessage(raw, parsed, &error));
+	EXPECT_EQ(parsed.kind, ParsedSignalKind::Offer);
+	EXPECT_EQ(parsed.type, "Offer");
 }
 
 TEST(SignalingProtocolTest, ParsesCandidateBundle)
@@ -112,6 +136,17 @@ TEST(SignalingProtocolTest, ParsesVideoAddedToRoomRequestVariant)
 	EXPECT_TRUE(parseSignalingMessage(raw, parsed, &error));
 	EXPECT_EQ(parsed.kind, ParsedSignalKind::VideoAddedToRoom);
 	EXPECT_EQ(parsed.streamId, "cam_2");
+}
+
+TEST(SignalingProtocolTest, ParsesVideoAddedToRoomMixedCaseRequestVariant)
+{
+	const std::string raw = R"({"request":"videoAddedToRoom","UUID":"peer-a","streamID":"cam_3"})";
+	ParsedSignalMessage parsed;
+	std::string error;
+
+	EXPECT_TRUE(parseSignalingMessage(raw, parsed, &error));
+	EXPECT_EQ(parsed.kind, ParsedSignalKind::VideoAddedToRoom);
+	EXPECT_EQ(parsed.streamId, "cam_3");
 }
 
 TEST(SignalingProtocolTest, ParsesAlertRequestMessageField)
