@@ -434,7 +434,9 @@ jobs:
           Copy-Item QUICKSTART.md install\
           Copy-Item THIRD_PARTY_LICENSES.md install\
           Copy-Item RELEASE_COMPLIANCE.md install\
+          Copy-Item scripts\install-package-windows.cmd install\install.cmd
           Copy-Item scripts\install-package-windows.ps1 install\install.ps1
+          Copy-Item scripts\uninstall-package-windows.cmd install\uninstall.cmd
           Copy-Item scripts\uninstall-package-windows.ps1 install\uninstall.ps1
           7z a ${{ env.PLUGIN_NAME }}-windows-x64.zip .\install\*
 

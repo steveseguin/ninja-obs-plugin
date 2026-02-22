@@ -8,41 +8,47 @@ Every release archive includes `QUICKSTART.md` for first-run steps.
 ### Install or update
 
 1. Extract the ZIP.
-2. Open PowerShell in the extracted folder.
+2. Open PowerShell or Command Prompt in the extracted folder.
 3. Run system-wide install (admin):
 
 ```powershell
-.\install.ps1
+.\install.cmd
 ```
 
 Per-user install (no admin):
 
 ```powershell
-.\install.ps1 -CurrentUser
+.\install.cmd -CurrentUser
 ```
 
 Skip post-install quick-start popup:
 
 ```powershell
-.\install.ps1 -NoQuickStartPopup
+.\install.cmd -NoQuickStartPopup
 ```
 
 Portable OBS path:
 
 ```powershell
-.\install.ps1 -ObsRoot "D:\OBS\obs-studio"
+.\install.cmd -ObsRoot "D:\OBS\obs-studio"
+```
+
+If you need to run the PowerShell script directly:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1
 ```
 
 ### Uninstall
 
 ```powershell
-.\uninstall.ps1
+.\uninstall.cmd
 ```
 
 Remove plugin + data:
 
 ```powershell
-.\uninstall.ps1 -RemoveData
+.\uninstall.cmd -RemoveData
 ```
 
 ## Linux (`obs-vdoninja-linux-x86_64.tar.gz`)
