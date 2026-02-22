@@ -13,6 +13,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - No unreleased changes yet.
 
+## [1.1.7] - 2026-02-22
+
+### Fixed
+- Windows CI workflow now generates a local `LibDataChannelConfig.cmake` backed by `datachannel-static.lib` instead of patching upstream install exports (which broke configure on transitive export dependencies).
+- Fixed malformed YAML in the Windows build workflow that prevented GitHub Actions from parsing/running the job.
+- Added a Windows CI guard that verifies `LibDataChannel_DIR` resolves to `local-libdatachannel`, preventing silent fallback to shared `datachannel.dll` package configs.
+
 ## [1.1.6] - 2026-02-22
 
 ### Fixed

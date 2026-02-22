@@ -403,17 +403,8 @@ jobs:
           git clone --depth 1 --branch v0.20.2 https://github.com/paullouisageneau/libdatachannel.git
           cd libdatachannel
           git submodule update --init --recursive --depth 1
-          # Upstream installs only the shared LibDataChannel target by default.
-          # Patch install export to include the static target as well.
-          $cmakeTxt = Get-Content CMakeLists.txt -Raw
-          $cmakeTxt = $cmakeTxt.Replace(
-            "install(TARGETS datachannel EXPORT LibDataChannelTargets",
-            "install(TARGETS datachannel datachannel-static EXPORT LibDataChannelTargets"
-          )
-          Set-Content CMakeLists.txt -Value $cmakeTxt
           cmake -B build -G Ninja `
             -DCMAKE_BUILD_TYPE=Release `
-            -DCMAKE_INSTALL_PREFIX="${{ github.workspace }}\deps" `
             -DBUILD_SHARED_LIBS=OFF `
             -DNO_EXAMPLES=ON `
             -DNO_TESTS=ON `
@@ -422,20 +413,101 @@ jobs:
             "-DCMAKE_POLICY_VERSION_MINIMUM=3.5.0" `
             -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT\scripts\buildsystems\vcpkg.cmake" `
             -DVCPKG_TARGET_TRIPLET=x64-windows-static-md
-          cmake --build build --target datachannel datachannel-static
-          cmake --install build
-          Get-Content "${{ github.workspace }}\deps\lib\cmake\LibDataChannel\LibDataChannelTargets.cmake" | `
-            Select-String -Pattern "LibDataChannelStatic|datachannel-static|add_library"
+          cmake --build build --target datachannel-static
+
+          function Find-FirstLib([string[]]$patterns) {
+            foreach ($pattern in $patterns) {
+              $match = Get-ChildItem -Path "build" -Recurse -File -Filter $pattern | Select-Object -First 1
+              if ($match) {
+                return $match.FullName.Replace('\', '/')
+              }
+            }
+            return $null
+          }
+
+          $datachannelStatic = Find-FirstLib @("datachannel-static.lib")
+          if (-not $datachannelStatic) {
+            throw "Could not locate datachannel-static.lib in libdatachannel build output."
+          }
+
+          $linkLibs = New-Object System.Collections.Generic.List[string]
+          foreach ($lib in @(
+            (Find-FirstLib @("usrsctp.lib")),
+            (Find-FirstLib @("srtp2.lib")),
+            (Find-FirstLib @("juice-static.lib", "juice.lib")),
+            (Find-FirstLib @("ixwebsocket.lib"))
+          )) {
+            if ($lib) {
+              $linkLibs.Add($lib)
+            }
+          }
+
+          $opensslLibDir = Join-Path $env:VCPKG_INSTALLATION_ROOT "installed\x64-windows-static-md\lib"
+          foreach ($opensslLib in @("libssl.lib", "libcrypto.lib")) {
+            $opensslPath = Join-Path $opensslLibDir $opensslLib
+            if (Test-Path $opensslPath) {
+              $linkLibs.Add($opensslPath.Replace('\', '/'))
+            }
+          }
+
+          foreach ($sysLib in @("ws2_32", "crypt32", "bcrypt", "iphlpapi", "secur32", "advapi32", "user32", "shell32")) {
+            $linkLibs.Add($sysLib)
+          }
+
+          $includeDir = (Resolve-Path ".\include").Path.Replace('\', '/')
+          $configDir = "${{ github.workspace }}\local-libdatachannel"
+          New-Item -ItemType Directory -Force -Path $configDir | Out-Null
+          $configPath = Join-Path $configDir "LibDataChannelConfig.cmake"
+          $linkLibsJoined = ($linkLibs -join ";")
+
+          @"
+          set(LibDataChannel_FOUND TRUE)
+
+          if(NOT TARGET LibDataChannel::LibDataChannel)
+            add_library(LibDataChannel::LibDataChannel STATIC IMPORTED)
+
+            set_target_properties(LibDataChannel::LibDataChannel PROPERTIES
+              IMPORTED_LOCATION "$datachannelStatic"
+              IMPORTED_LOCATION_RELEASE "$datachannelStatic"
+              IMPORTED_LOCATION_RELWITHDEBINFO "$datachannelStatic"
+              IMPORTED_LOCATION_DEBUG "$datachannelStatic"
+              INTERFACE_INCLUDE_DIRECTORIES "$includeDir"
+              INTERFACE_COMPILE_DEFINITIONS "RTC_STATIC;RTC_ENABLE_WEBSOCKET=1;RTC_ENABLE_MEDIA=1"
+              INTERFACE_LINK_LIBRARIES "$linkLibsJoined"
+            )
+          endif()
+          "@ | Set-Content $configPath
+
+          Write-Host "Generated static LibDataChannel config at: $configPath"
+          Get-Content $configPath
 
       - name: Configure Plugin
         run: |
           cmake -B build -G Ninja `
             -DCMAKE_BUILD_TYPE=Release `
-            -DCMAKE_PREFIX_PATH="${{ github.workspace }}\deps;${{ github.workspace }}\obs-sdk" `
+            -DCMAKE_PREFIX_PATH="${{ github.workspace }}\local-libdatachannel;${{ github.workspace }}\deps;${{ github.workspace }}\obs-sdk" `
             -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT\scripts\buildsystems\vcpkg.cmake" `
             -DVCPKG_TARGET_TRIPLET=x64-windows-static-md `
-            -DLibDataChannel_DIR="${{ github.workspace }}\deps\lib\cmake\LibDataChannel" `
+            -DLibDataChannel_DIR="${{ github.workspace }}\local-libdatachannel" `
             -DOBS_SDK_PATH="${{ github.workspace }}\obs-sdk"
+
+      - name: Verify LibDataChannel package source
+        run: |
+          $cachePath = "build\CMakeCache.txt"
+          if (-not (Test-Path $cachePath)) {
+            throw "Missing CMake cache at $cachePath"
+          }
+
+          $line = Select-String -Path $cachePath -Pattern '^LibDataChannel_DIR:PATH=' | Select-Object -First 1
+          if (-not $line) {
+            throw "LibDataChannel_DIR was not resolved in CMake cache."
+          }
+
+          $resolvedDir = ($line.Line -split '=', 2)[1]
+          Write-Host "Resolved LibDataChannel_DIR: $resolvedDir"
+          if ($resolvedDir -notlike "*local-libdatachannel*") {
+            throw "Expected LibDataChannel_DIR to resolve to local-libdatachannel, got: $resolvedDir"
+          }
 
       - name: Build Plugin
         run: cmake --build build
