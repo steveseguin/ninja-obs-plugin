@@ -13,6 +13,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - No unreleased changes yet.
 
+## [1.1.4] - 2026-02-22
+
+### Fixed
+- Windows release packaging now bundles required runtime DLLs with the plugin:
+  - `datachannel.dll`
+  - `libcrypto-3-x64.dll` (when available from vcpkg)
+  - `libssl-3-x64.dll` and `zlib1.dll` (when available from vcpkg)
+- This addresses `Module '../../obs-plugins/64bit/obs-vdoninja.dll' not loaded` on clean installs where dependencies were not resolvable.
+
+### Changed
+- Version markers updated to `1.1.4` in plugin/build/package metadata.
+
 ## [1.1.3] - 2026-02-22
 
 ### Added
