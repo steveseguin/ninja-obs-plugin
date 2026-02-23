@@ -481,7 +481,7 @@ VDONinjaOutput::VDONinjaOutput(obs_data_t *settings, obs_output_t *output) : out
 
 VDONinjaOutput::~VDONinjaOutput()
 {
-	stop(false);
+	stop();
 	logInfo("VDO.Ninja output destroyed");
 }
 
@@ -900,12 +900,21 @@ void VDONinjaOutput::startThread()
 	logInfo("VDO.Ninja output started successfully");
 }
 
-void VDONinjaOutput::stop(bool signal)
+void VDONinjaOutput::stop()
 {
-	if (!running_)
+	bool expected = false;
+	if (!stopping_.compare_exchange_strong(expected, true)) {
+		logDebug("VDO.Ninja output stop already in progress");
 		return;
+	}
 
-	running_ = false;
+	const bool wasRunning = running_.exchange(false);
+	const bool wasCapturing = capturing_.load();
+	if (!wasRunning && !wasCapturing) {
+		stopping_ = false;
+		return;
+	}
+
 	connected_ = false;
 
 	logInfo("Stopping VDO.Ninja output...");
@@ -951,10 +960,7 @@ void VDONinjaOutput::stop(bool signal)
 		capturing_ = false;
 	}
 
-	if (signal) {
-		obs_output_signal_stop(output_, OBS_OUTPUT_SUCCESS);
-	}
-
+	stopping_ = false;
 	logInfo("VDO.Ninja output stopped");
 }
 

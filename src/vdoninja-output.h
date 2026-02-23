@@ -40,7 +40,7 @@ public:
 
 	// OBS output lifecycle
 	bool start();
-	void stop(bool signal = true);
+	void stop();
 	void data(encoder_packet *packet);
 
 	// Get statistics
@@ -87,6 +87,7 @@ private:
 	std::atomic<bool> running_{false};
 	std::atomic<bool> connected_{false};
 	std::atomic<bool> capturing_{false};
+	std::atomic<bool> stopping_{false};
 	std::thread startStopThread_;
 
 	// Statistics
