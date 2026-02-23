@@ -1783,10 +1783,10 @@ void obs_module_unload(void)
 {
 	logInfo("Unloading VDO.Ninja plugin");
 
-	if (gFrontendCallbackRegistered) {
-		obs_frontend_remove_event_callback(frontend_event_callback, nullptr);
-		gFrontendCallbackRegistered = false;
-	}
+	// During OBS shutdown, frontend callback storage may already be torn down
+	// before module unload. Avoid noisy "remove_event_callback with no callbacks"
+	// warnings by not removing here.
+	gFrontendCallbackRegistered = false;
 
 	if (gControlCenterSource) {
 		obs_source_release(gControlCenterSource);
