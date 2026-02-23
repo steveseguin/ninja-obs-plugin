@@ -53,7 +53,7 @@ Install complete.
 Next steps:
 1. Restart OBS Studio
 2. Open Settings -> Stream and select VDO.Ninja
-3. Set Stream ID (and optional password/room)
+3. Open Tools -> Configure VDO.Ninja and set Stream ID (optional password/room/salt/signaling)
 4. Start Streaming and open your view URL
 
 "@

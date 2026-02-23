@@ -2,7 +2,8 @@
 
 This guide gets you from install to first working stream quickly.
 
-If you are starting from a release ZIP on Windows, run `install.cmd` first.
+On Windows, use `obs-vdoninja-windows-x64-setup.exe` first.  
+If you are using the ZIP package instead, run `install.cmd`.
 
 ## 1) Confirm plugin loaded in OBS
 

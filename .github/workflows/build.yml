@@ -8,11 +8,11 @@ on:
 
 env:
   PLUGIN_NAME: obs-vdoninja
-  OBS_VERSION: 31.1.2
-  OBS_SOURCE_REF: 31.1.2
-  OBS_SOURCE_TAG: 31.1.2
-  OBS_VERSION_WIN: "31.1.2"
-  OBS_VERSION_WIN_ZIP: "OBS-Studio-31.1.2-Windows-x64.zip"
+  OBS_VERSION: 32.1.0-rc1
+  OBS_SOURCE_REF: 32.1.0-rc1
+  OBS_SOURCE_TAG: 32.1.0-rc1
+  OBS_VERSION_WIN: "32.1.0-rc1"
+  OBS_VERSION_WIN_ZIP: "OBS-Studio-32.1.0-rc1-Windows-x64.zip"
 
 jobs:
   build-linux:
@@ -127,9 +127,15 @@ jobs:
           for f in ${{ github.workspace }}/obs-sdk/lib/x86_64-linux-gnu/*; do
             [ -e "$f" ] && ln -sf "$f" ${{ github.workspace }}/obs-sdk/lib/$(basename "$f") 2>/dev/null || true
           done
-          # Create versioned symlinks
-          ln -sf libobs.so.30 ${{ github.workspace }}/obs-sdk/lib/libobs.so
-          ln -sf libobs-frontend-api.so.1 ${{ github.workspace }}/obs-sdk/lib/libobs-frontend-api.so 2>/dev/null || true
+          # Create soname symlinks for the current OBS build version.
+          obs_soname="$(find "${{ github.workspace }}/obs-sdk/lib" -maxdepth 1 -type f -name 'libobs.so.*' ! -name 'libobs.so' | head -1 | xargs -r basename)"
+          if [ -n "$obs_soname" ]; then
+            ln -sf "$obs_soname" ${{ github.workspace }}/obs-sdk/lib/libobs.so
+          fi
+          obs_frontend_soname="$(find "${{ github.workspace }}/obs-sdk/lib" -maxdepth 1 -type f -name 'libobs-frontend-api.so.*' ! -name 'libobs-frontend-api.so' | head -1 | xargs -r basename)"
+          if [ -n "$obs_frontend_soname" ]; then
+            ln -sf "$obs_frontend_soname" ${{ github.workspace }}/obs-sdk/lib/libobs-frontend-api.so
+          fi
           # Fix pkgconfig files to use correct libdir
           if [ -d "${{ github.workspace }}/obs-sdk/lib/pkgconfig" ]; then
             sed -i "s|libdir=.*|libdir=${{ github.workspace }}/obs-sdk/lib|g" ${{ github.workspace }}/obs-sdk/lib/pkgconfig/*.pc 2>/dev/null || true
@@ -340,7 +346,7 @@ jobs:
 
       - name: Install Dependencies
         run: |
-          choco install cmake ninja 7zip git -y
+          choco install cmake ninja 7zip git innosetup -y
           vcpkg install openssl:x64-windows-static-md pthreads:x64-windows-static-md
 
       - name: Build OBS SDK
@@ -544,6 +550,7 @@ jobs:
           Copy-Item LICENSE install\
           Copy-Item INSTALL.md install\
           Copy-Item QUICKSTART.md install\
+          Copy-Item README.md install\
           Copy-Item THIRD_PARTY_LICENSES.md install\
           Copy-Item RELEASE_COMPLIANCE.md install\
           $pluginDir = "install\obs-plugins\64bit"
@@ -554,12 +561,18 @@ jobs:
           Copy-Item scripts\uninstall-package-windows.cmd install\uninstall.cmd
           Copy-Item scripts\uninstall-package-windows.ps1 install\uninstall.ps1
           7z a ${{ env.PLUGIN_NAME }}-windows-x64.zip .\install\*
+          powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File scripts\build-installer-windows.ps1 `
+            -SourceDir "install" `
+            -OutputDir "." `
+            -OutputBaseFilename "${{ env.PLUGIN_NAME }}-windows-x64-setup"
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ env.PLUGIN_NAME }}-windows-x64
-          path: ${{ env.PLUGIN_NAME }}-windows-x64.zip
+          path: |
+            ${{ env.PLUGIN_NAME }}-windows-x64.zip
+            ${{ env.PLUGIN_NAME }}-windows-x64-setup.exe
 
   release:
     name: Create Release
@@ -580,8 +593,14 @@ jobs:
       - name: Generate Checksums
         run: |
           cd artifacts
-          find . -type f \( -name "*.zip" -o -name "*.tar.gz" \) -exec mv {} . \;
-          sha256sum *.zip *.tar.gz > checksums.txt
+          find . -type f \( -name "*.zip" -o -name "*.tar.gz" -o -name "*.exe" \) -exec mv {} . \;
+          shopt -s nullglob
+          files=( *.zip *.tar.gz *.exe )
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "No release files found for checksum generation."
+            exit 1
+          fi
+          sha256sum "${files[@]}" > checksums.txt
           cat checksums.txt
 
       - name: Create Release
@@ -589,8 +608,22 @@ jobs:
         with:
           draft: false
           prerelease: ${{ contains(github.ref, '-beta') || contains(github.ref, '-alpha') || contains(github.ref, '-rc') }}
+          body: |
+            ## Downloads
+            - Windows installer: `obs-vdoninja-windows-x64-setup.exe`
+            - Windows portable/manual package: `obs-vdoninja-windows-x64.zip`
+            - Linux package: `obs-vdoninja-linux-x86_64.tar.gz`
+            - macOS package: `obs-vdoninja-macos-arm64.zip`
+
+            ## Install
+            - Follow `INSTALL.md` in each package.
+            - First-run publishing flow: `QUICKSTART.md`.
+
+            ## Verification
+            - SHA-256 checksums are provided in `checksums.txt`.
           generate_release_notes: true
           files: |
             artifacts/*.zip
             artifacts/*.tar.gz
+            artifacts/*.exe
             artifacts/checksums.txt

@@ -1,11 +1,20 @@
 # OBS VDO.Ninja Plugin - Install / Update / Uninstall
 
-This package currently uses script-assisted file-copy install (no GUI installer yet).
+Windows now ships with a GUI installer plus script-based fallback.  
 Every release archive includes `QUICKSTART.md` for first-run steps.
 
-## Windows (`obs-vdoninja-windows-x64.zip`)
+## Windows
 
 ### Install or update
+
+Recommended (new users):
+
+1. Download `obs-vdoninja-windows-x64-setup.exe` from Releases.
+2. Run the installer.
+3. Keep the detected OBS folder (or browse to your portable OBS root).
+4. On finish, optionally launch OBS and open Quick Start.
+
+ZIP fallback (`obs-vdoninja-windows-x64.zip`):
 
 1. Extract the ZIP.
 2. Open PowerShell or Command Prompt in the extracted folder.
@@ -42,6 +51,13 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1
 ```
 
 ### Uninstall
+
+If installed via setup `.exe`, uninstall via:
+
+- Windows Settings -> Apps -> Installed apps -> `OBS VDO.Ninja Plugin`, or
+- Control Panel -> Programs and Features
+
+ZIP/script installs can be removed with:
 
 ```powershell
 .\uninstall.cmd
@@ -117,7 +133,7 @@ If OBS log shows `obs-vdoninja.dll not loaded` and `Service 'vdoninja_service' n
 
 1. Fully close OBS.
 2. Remove old plugin files from `C:\Program Files\obs-studio\obs-plugins\64bit\obs-vdoninja.dll`.
-3. Reinstall from the newest release ZIP with `install.cmd`.
+3. Reinstall from the newest setup `.exe` (preferred) or release ZIP with `install.cmd`.
 4. Reopen OBS and check the newest log in `%APPDATA%\obs-studio\logs\`.
 
 This plugin should not require replacing OBS core DLLs manually.

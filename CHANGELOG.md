@@ -8,13 +8,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- No unreleased changes yet.
+- Windows GUI installer (`obs-vdoninja-windows-x64-setup.exe`) via Inno Setup, with:
+  - OBS install path detection
+  - optional launch OBS / open Quick Start on finish
+  - Add/Remove Programs uninstall support
+- New build helper script: `scripts/build-installer-windows.ps1`.
 
 ### Changed
 - Stream destination UX now avoids the misleading `Get Stream Key` helper button for VDO.Ninja.
 - VDO.Ninja server label in OBS Stream settings now explicitly points users to `Tools -> Configure VDO.Ninja`.
 - README/QUICKSTART now clarify that OBS still shows a `Stream Key` field for compatibility.
 - Added a new `Tools -> VDO.Ninja Control Center` workflow with one-place publish config, start/stop controls, generated links, and runtime peer telemetry.
+- Windows release docs now route users to the setup `.exe` first, with ZIP install scripts as fallback.
+- Release workflow now publishes Windows ZIP + setup `.exe`, and release checksums include `.exe` artifacts.
+- Build workflow now targets OBS `32.1.0-rc1` to align with current service ABI requirements.
 
 ## [1.1.10] - 2026-02-22
 

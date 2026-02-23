@@ -18,7 +18,7 @@ VDO.Ninja is a low-latency WebRTC platform used for live production, remote gues
 - Install steps: [INSTALL.md](INSTALL.md)
 - First-run usage guide: [QUICKSTART.md](QUICKSTART.md)
 - Full docs: [README Quick Start](#quick-start)
-- New Windows users: run `install.cmd` from the extracted ZIP (not `install.ps1`).
+- New Windows users: run `obs-vdoninja-windows-x64-setup.exe` (ZIP scripts remain available for portable/manual installs).
 
 ## Why This Plugin Exists
 
@@ -75,7 +75,8 @@ In practice, many teams use both: VDO.Ninja workflows for interactive contributi
 Download the latest package from [Releases](https://github.com/steveseguin/ninja-obs-plugin/releases).
 
 - Linux: `obs-vdoninja-linux-x86_64.tar.gz`
-- Windows: `obs-vdoninja-windows-x64.zip`
+- Windows installer: `obs-vdoninja-windows-x64-setup.exe`
+- Windows portable/manual package: `obs-vdoninja-windows-x64.zip`
 - macOS: `obs-vdoninja-macos-arm64.zip`
 
 Each release archive includes:
@@ -84,6 +85,11 @@ Each release archive includes:
 - `QUICKSTART.md` (first-run workflow)
 - `install.cmd` + `install.ps1` on Windows, or `install.sh` on Linux/macOS
 - `uninstall.cmd` + `uninstall.ps1` on Windows, or `uninstall.sh` on Linux/macOS
+
+Windows recommendation:
+
+1. Use the setup `.exe` for normal installs/uninstalls.
+2. Use ZIP scripts only for portable/custom-path workflows.
 
 Portable OBS note: if launching from terminal, start `obs64.exe` from `bin\64bit` (or set `Start-Process -WorkingDirectory` to `bin\64bit`) to avoid `Failed to load theme`.
 
@@ -159,7 +165,7 @@ Manual OBS test checklist:
 
 - `main` pushes run `CI`, `Code Quality`, and `GitHub Pages`.
 - Tag pushes matching `v*` run cross-platform build/release packaging.
-- Current release workflow auto-builds Linux x86_64, Windows x64, and macOS arm64.
+- Current release workflow auto-builds Linux x86_64, Windows x64 ZIP + setup `.exe`, and macOS arm64.
 - Optional nightly live internet e2e matrix is in `.github/workflows/live-e2e.yml`.
 
 ## Trust and Security
