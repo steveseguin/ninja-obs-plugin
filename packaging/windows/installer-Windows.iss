@@ -36,6 +36,7 @@ OutputDir={#MyOutputDir}
 OutputBaseFilename={#MyOutputBaseFilename}
 LicenseFile={#MySourceDir}\LICENSE
 UninstallDisplayName=OBS VDO.Ninja Plugin
+UninstallFilesDir={app}\data\obs-plugins\obs-vdoninja\_installer
 ChangesAssociations=no
 CloseApplications=yes
 CloseApplicationsFilter=obs64.exe,obs32.exe

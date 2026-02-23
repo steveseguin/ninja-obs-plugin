@@ -22,6 +22,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Windows release docs now route users to the setup `.exe` first, with ZIP install scripts as fallback.
 - Release workflow now publishes Windows ZIP + setup `.exe`, and release checksums include `.exe` artifacts.
 - Build workflow now targets OBS `32.1.0-rc1` to align with current service ABI requirements.
+- Inno Setup uninstaller files now live under `data/obs-plugins/obs-vdoninja/_installer` instead of the OBS root.
+
+### Fixed
+- Plugin runtime version banner now correctly reports `1.1.11` (`PLUGIN_VERSION` macro alignment).
 
 ## [1.1.10] - 2026-02-22
 
