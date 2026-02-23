@@ -523,7 +523,7 @@ std::string queryValue(const std::string &url, const char *param)
 }
 
 void parseVdoStreamKey(const std::string &keyValue, std::string &streamId, std::string &password, std::string &roomId,
-                       std::string &salt, std::string &wssHost)
+                       std::string &salt, std::string &wssHost, bool allowBareStreamId = true)
 {
 	if (keyValue.empty()) {
 		return;
@@ -592,7 +592,7 @@ void parseVdoStreamKey(const std::string &keyValue, std::string &streamId, std::
 		return;
 	}
 
-	if (streamId.empty()) {
+	if (allowBareStreamId && streamId.empty()) {
 		streamId = keyValue;
 	}
 }
@@ -624,7 +624,7 @@ void seedVdoNinjaSettingsFromCurrentService(obs_service_t *currentService, obs_d
 	std::string roomId;
 	std::string salt;
 	std::string wssHost;
-	parseVdoStreamKey(keyValue, streamId, password, roomId, salt, wssHost);
+	parseVdoStreamKey(keyValue, streamId, password, roomId, salt, wssHost, false);
 	if (!streamId.empty()) {
 		obs_data_set_string(settings, "stream_id", streamId.c_str());
 	}
@@ -648,46 +648,6 @@ void seedVdoNinjaSettingsFromCurrentService(obs_service_t *currentService, obs_d
 	}
 
 	obs_data_release(currentSettings);
-}
-
-std::string buildCompatibilityStreamKey(obs_data_t *settings)
-{
-	if (!settings) {
-		return "";
-	}
-
-	const std::string streamId = obs_data_get_string(settings, "stream_id");
-	const std::string password = obs_data_get_string(settings, "password");
-	const std::string roomId = obs_data_get_string(settings, "room_id");
-	const std::string salt = obs_data_get_string(settings, "salt");
-	const std::string wssHost = obs_data_get_string(settings, "wss_host");
-
-	if (streamId.empty()) {
-		return "";
-	}
-
-	const bool nonDefaultSalt = !salt.empty() && salt != DEFAULT_SALT;
-	const bool nonDefaultWss = !wssHost.empty() && wssHost != DEFAULT_WSS_HOST;
-	const bool hasAdvanced = !password.empty() || !roomId.empty() || nonDefaultSalt || nonDefaultWss;
-	if (!hasAdvanced) {
-		return streamId;
-	}
-
-	std::string key = "https://vdo.ninja/?push=" + urlEncode(streamId);
-	if (!password.empty()) {
-		key += "&password=" + urlEncode(password);
-	}
-	if (!roomId.empty()) {
-		key += "&room=" + urlEncode(roomId);
-	}
-	if (nonDefaultSalt) {
-		key += "&salt=" + urlEncode(salt);
-	}
-	if (nonDefaultWss) {
-		key += "&wss=" + urlEncode(wssHost);
-	}
-
-	return key;
 }
 
 void syncCompatibilityServiceFields(obs_data_t *settings)
@@ -736,13 +696,6 @@ void syncCompatibilityServiceFields(obs_data_t *settings)
 	}
 	if (!wssHost.empty()) {
 		obs_data_set_string(settings, "wss_host", wssHost.c_str());
-		obs_data_set_string(settings, "server", wssHost.c_str());
-	}
-
-	const char *normalizedStreamId = obs_data_get_string(settings, "stream_id");
-	if (normalizedStreamId && *normalizedStreamId) {
-		const std::string compatibilityKey = buildCompatibilityStreamKey(settings);
-		obs_data_set_string(settings, "key", compatibilityKey.c_str());
 	}
 }
 
@@ -928,9 +881,9 @@ static void vdoninja_service_defaults(obs_data_t *settings)
 	obs_data_set_default_string(settings, "password", "");
 	obs_data_set_default_string(settings, "wss_host", "");
 	obs_data_set_default_string(settings, "service", kVdoCatalogServiceName);
-	obs_data_set_default_string(settings, "server", DEFAULT_WSS_HOST);
+	obs_data_set_default_string(settings, "server", "");
 	obs_data_set_default_string(settings, "protocol", "VDO.Ninja");
-	obs_data_set_default_string(settings, "key", defaultStreamId.c_str());
+	obs_data_set_default_string(settings, "key", "");
 	obs_data_set_default_string(settings, "salt", "");
 	obs_data_set_default_string(settings, "custom_ice_servers", "");
 	obs_data_set_default_string(
