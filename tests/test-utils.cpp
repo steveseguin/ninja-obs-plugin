@@ -451,6 +451,21 @@ TEST_F(ParseIceServersTest, IgnoresCommentsBlankAndInvalidLines)
 	EXPECT_EQ(servers[0].credential, "pass");
 }
 
+TEST_F(ParseIceServersTest, ParsesSemicolonSeparatedEntries)
+{
+	const std::string config =
+	    "stun:stun.l.google.com:19302; turn:turn.example.com:3478|alice|secret ; turns:turn.example.com:5349,bob,pass";
+	auto servers = parseIceServers(config);
+	ASSERT_EQ(servers.size(), 3u);
+	EXPECT_EQ(servers[0].urls, "stun:stun.l.google.com:19302");
+	EXPECT_EQ(servers[1].urls, "turn:turn.example.com:3478");
+	EXPECT_EQ(servers[1].username, "alice");
+	EXPECT_EQ(servers[1].credential, "secret");
+	EXPECT_EQ(servers[2].urls, "turns:turn.example.com:5349");
+	EXPECT_EQ(servers[2].username, "bob");
+	EXPECT_EQ(servers[2].credential, "pass");
+}
+
 TEST_F(ParseIceServersTest, CountsPendingViewerStatesTowardLimit)
 {
 	EXPECT_TRUE(countsTowardViewerLimit(ConnectionState::New));

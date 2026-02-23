@@ -60,3 +60,8 @@ node_modules/
 test-results/
 playwright-*.json
 playwright-*.png
+install/
+artifacts/
+obs-vdoninja-windows-x64-setup.exe
+_obs-portable/
+_tmp*/

@@ -644,12 +644,12 @@ std::vector<IceServer> parseIceServers(const std::string &config)
 {
 	std::vector<IceServer> servers;
 	std::stringstream lines(config);
-	std::string line;
+	std::string rawLine;
 
-	while (std::getline(lines, line)) {
-		line = trim(line);
+	auto parseEntry = [&](const std::string &entryValue) {
+		std::string line = trim(entryValue);
 		if (line.empty() || startsWithInsensitive(line, "#") || startsWithInsensitive(line, "//")) {
-			continue;
+			return;
 		}
 
 		IceServer server;
@@ -719,6 +719,13 @@ std::vector<IceServer> parseIceServers(const std::string &config)
 		server.credential = trim(server.credential);
 		if (!server.urls.empty() && isIceUrl(server.urls)) {
 			servers.push_back(std::move(server));
+		}
+	};
+
+	while (std::getline(lines, rawLine)) {
+		const std::vector<std::string> entries = split(rawLine, ';');
+		for (const auto &entry : entries) {
+			parseEntry(entry);
 		}
 	}
 

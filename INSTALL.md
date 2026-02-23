@@ -1,7 +1,8 @@
 # OBS VDO.Ninja Plugin - Install / Update / Uninstall
 
-Windows now ships with a GUI installer plus script-based fallback.  
-Every release archive includes `QUICKSTART.md` for first-run steps.
+Windows now ships with a GUI installer plus script-based fallback.
+Preferred first-run guide: `https://steveseguin.github.io/ninja-plugin/#quick-start`.
+Every release archive still includes `QUICKSTART.md` as an offline copy.
 
 ## Windows
 

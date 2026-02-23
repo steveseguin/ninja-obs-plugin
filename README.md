@@ -16,6 +16,7 @@ VDO.Ninja is a low-latency WebRTC platform used for live production, remote gues
 
 - Download latest build: [Releases](https://github.com/steveseguin/ninja-obs-plugin/releases)
 - Install steps: [INSTALL.md](INSTALL.md)
+- Web quick start (recommended): [GitHub Pages Quick Start](https://steveseguin.github.io/ninja-plugin/#quick-start)
 - First-run usage guide: [QUICKSTART.md](QUICKSTART.md)
 - Full docs: [README Quick Start](#quick-start)
 - New Windows users: run `obs-vdoninja-windows-x64-setup.exe` (ZIP scripts remain available for portable/manual installs).
@@ -63,8 +64,7 @@ In practice, many teams use both: VDO.Ninja workflows for interactive contributi
 - Auto-inbound management can create/update Browser Sources from room/data-channel events.
 - Native decode in `VDO.Ninja Source` is available but still being hardened.
 - Plugin injects a `VDO.Ninja` destination into OBS Stream service list via `rtmp-services` catalog compatibility.
-- Tools fallback remains available via `Tools -> Configure VDO.Ninja` to force-activate `vdoninja_service` and apply Opus profile defaults.
-- `Tools -> VDO.Ninja Control Center` provides one-place publish config, start/stop controls, generated links, and runtime peer stats.
+- `Tools -> VDO.Ninja Control Center` is the single in-app setup surface for publish config, service apply/start/stop controls, generated links, and runtime peer stats.
 - Locale fallback to built-in English strings is supported if locale files are missing.
 - Remote OBS control is not yet a fully hardened command surface.
 
@@ -82,7 +82,7 @@ Download the latest package from [Releases](https://github.com/steveseguin/ninja
 Each release archive includes:
 
 - `INSTALL.md` (quick install instructions)
-- `QUICKSTART.md` (first-run workflow)
+- `QUICKSTART.md` (offline first-run workflow copy)
 - `install.cmd` + `install.ps1` on Windows, or `install.sh` on Linux/macOS
 - `uninstall.cmd` + `uninstall.ps1` on Windows, or `uninstall.sh` on Linux/macOS
 
@@ -90,6 +90,7 @@ Windows recommendation:
 
 1. Use the setup `.exe` for normal installs/uninstalls.
 2. Use ZIP scripts only for portable/custom-path workflows.
+3. Use the web quick-start guide after install: `https://steveseguin.github.io/ninja-plugin/#quick-start`.
 
 Portable OBS note: if launching from terminal, start `obs64.exe` from `bin\64bit` (or set `Start-Process -WorkingDirectory` to `bin\64bit`) to avoid `Failed to load theme`.
 
@@ -98,11 +99,13 @@ Portable OBS note: if launching from terminal, start `obs64.exe` from `bin\64bit
 1. OBS -> `Settings` -> `Stream`
 2. Service: `VDO.Ninja`
 3. `Server` should stay at default (`wss://wss.vdo.ninja:443`) unless self-hosting.
-4. Use OBS -> `Tools` -> `Configure VDO.Ninja` for full setup (stream ID, password, room, salt, signaling).
+4. Use OBS -> `Tools` -> `VDO.Ninja Control Center` for full setup (stream ID, password, room, salt, signaling).
 5. `Stream Key` remains visible in OBS for compatibility; if you use it directly, set your stream ID or an advanced envelope:
    - URL: `https://vdo.ninja/?push=<StreamID>&password=<Password>&room=<RoomID>&salt=<Salt>&wss=<WSS_URL>`
    - Compact: `<StreamID>|<Password>|<RoomID>|<Salt>|<WSS_URL>`
 6. Click `Start Streaming`
+
+Control Center note: `Start Publishing`/`Stop Publishing` are shortcuts to OBS `Start Streaming`/`Stop Streaming` for the same active stream slot. They are not a second parallel output path.
 
 The plugin parses stream-key URLs like:
 
@@ -129,9 +132,14 @@ https://vdo.ninja/?view=<StreamID>&password=<Password>
 - `Password`: Uses VDO.Ninja-compatible hashing behavior.
 - `Salt`: Default `vdo.ninja`; change for self-hosted/domain-specific setups.
 - `Signaling Server`: Default `wss://wss.vdo.ninja`; can be customized.
-- `Custom ICE Servers`: Optional custom STUN/TURN list.
-- `Force TURN`: Use relay-only path for difficult network environments.
+- `Custom ICE Servers`: Optional custom STUN/TURN list. Use `;` to separate entries.
+  - Example: `stun:stun.l.google.com:19302; turn:turn.example.com:3478|user|pass`
+- `Force TURN`: Use relay-only path for difficult network environments. Requires at least one TURN server entry.
 - `Max Viewers`: Upper bound for simultaneous P2P viewers.
+
+Default ICE behavior:
+- If `Custom ICE Servers` is empty, plugin uses built-in STUN servers (`stun:stun.l.google.com:19302` and `stun:stun.cloudflare.com:3478`).
+- No TURN server is added automatically unless you provide one.
 
 ## Testing
 

@@ -328,8 +328,22 @@ static obs_properties_t *vdoninja_output_properties(void *)
 	obs_properties_add_text(advanced, "wss_host", tr("SignalingServer", "Signaling Server"), OBS_TEXT_DEFAULT);
 	obs_properties_add_text(advanced, "salt", tr("Salt", "Salt"), OBS_TEXT_DEFAULT);
 	obs_property_t *iceServers = obs_properties_add_text(
-	    advanced, "custom_ice_servers", tr("CustomICEServers", "Custom STUN/TURN Servers"), OBS_TEXT_MULTILINE);
+	    advanced, "custom_ice_servers", tr("CustomICEServers", "Custom STUN/TURN Servers"), OBS_TEXT_DEFAULT);
 	obs_property_text_set_monospace(iceServers, true);
+	obs_property_set_long_description(
+	    iceServers, tr("CustomICEServers.Help",
+	                   "Format: one server entry per item. Use ';' to separate multiple entries. "
+	                   "Examples: stun:stun.l.google.com:19302; turn:turn.example.com:3478|user|pass. "
+	                   "Leave empty to use built-in STUN defaults (Google + Cloudflare); no TURN is added automatically."));
+	obs_property_t *iceHelp = obs_properties_add_text(
+	    advanced, "custom_ice_servers_help",
+	    tr("CustomICEServers.Help",
+	       "Format: one server entry per item. Use ';' to separate multiple entries. "
+	       "Examples: stun:stun.l.google.com:19302; turn:turn.example.com:3478|user|pass. "
+	       "Leave empty to use built-in STUN defaults (Google + Cloudflare); no TURN is added automatically."),
+	    OBS_TEXT_INFO);
+	obs_property_text_set_info_type(iceHelp, OBS_TEXT_INFO_NORMAL);
+	obs_property_text_set_info_word_wrap(iceHelp, true);
 	obs_properties_add_bool(advanced, "force_turn", tr("ForceTURN", "Force TURN Relay"));
 	obs_properties_add_group(props, "advanced", tr("AdvancedSettings", "Advanced Settings"), OBS_GROUP_NORMAL,
 	                         advanced);
@@ -372,6 +386,11 @@ static void vdoninja_output_defaults(obs_data_t *settings)
 	obs_data_set_default_string(settings, "wss_host", DEFAULT_WSS_HOST);
 	obs_data_set_default_string(settings, "salt", DEFAULT_SALT);
 	obs_data_set_default_string(settings, "custom_ice_servers", "");
+	obs_data_set_default_string(
+	    settings, "custom_ice_servers_help",
+	    "Format: one server entry per item. Use ';' to separate multiple entries. "
+	    "Examples: stun:stun.l.google.com:19302; turn:turn.example.com:3478|user|pass. "
+	    "Leave empty to use built-in STUN defaults (Google + Cloudflare); no TURN is added automatically.");
 	obs_data_set_default_int(settings, "video_codec", static_cast<int>(VideoCodec::H264));
 	obs_data_set_default_int(settings, "bitrate", 4000);
 	obs_data_set_default_int(settings, "max_viewers", 10);
@@ -673,7 +692,7 @@ bool VDONinjaOutput::start()
 	std::string nonOpusCodec;
 	if (!validateOpusAudioEncoders(output_, nonOpusCodec)) {
 		const std::string error =
-		    "VDO.Ninja requires Opus audio. Open Tools -> Configure VDO.Ninja, then retry Start Streaming.";
+		    "VDO.Ninja requires Opus audio. Open Tools -> VDO.Ninja Control Center, then retry Start Streaming.";
 		logError("Refusing to start: active audio encoder codec is '%s' (Opus required)", nonOpusCodec.c_str());
 		obs_output_set_last_error(output_, error.c_str());
 		obs_output_signal_stop(output_, OBS_OUTPUT_ERROR);

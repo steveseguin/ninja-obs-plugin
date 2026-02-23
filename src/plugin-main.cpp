@@ -40,10 +40,10 @@ constexpr const char *kRtmpServicesModuleName = "rtmp-services";
 constexpr const char *kVdoCatalogServiceName = "VDO.Ninja";
 constexpr const char *kVdoNinjaControlCenterSourceId = "vdoninja_control_center";
 constexpr const char *kVdoNinjaControlCenterSourceName = "VDO.Ninja Control Center";
-constexpr const char *kVdoNinjaQuickStartLink =
-    "https://github.com/steveseguin/ninja-obs-plugin/blob/main/QUICKSTART.md#2-publish-your-first-stream";
+constexpr const char *kVdoNinjaDocsHomeLink = "https://steveseguin.github.io/ninja-plugin/";
+constexpr const char *kVdoNinjaQuickStartLink = "https://steveseguin.github.io/ninja-plugin/#quick-start";
 constexpr const char *kVdoNinjaServerDisplayName =
-    "wss://wss.vdo.ninja:443 (open Tools -> Configure VDO.Ninja for stream ID/password/room)";
+    "wss://wss.vdo.ninja:443 (open Tools -> VDO.Ninja Control Center for stream ID/password/room)";
 
 struct ControlCenterContext {
 	obs_source_t *source = nullptr;
@@ -58,11 +58,11 @@ constexpr const char *kVdoNinjaRtmpServiceEntry = R"VDOJSON(
             "name": "VDO.Ninja",
             "common": true,
             "protocol": "VDO.Ninja",
-            "stream_key_link": "https://github.com/steveseguin/ninja-obs-plugin/blob/main/QUICKSTART.md#2-publish-your-first-stream",
-            "more_info_link": "https://github.com/steveseguin/ninja-obs-plugin/blob/main/README.md#2-publish-to-vdoninja",
+            "stream_key_link": "https://steveseguin.github.io/ninja-plugin/#quick-start",
+            "more_info_link": "https://steveseguin.github.io/ninja-plugin/",
             "servers": [
                 {
-                    "name": "wss://wss.vdo.ninja:443 (open Tools -> Configure VDO.Ninja for stream ID/password/room)",
+                    "name": "wss://wss.vdo.ninja:443 (open Tools -> VDO.Ninja Control Center for stream ID/password/room)",
                     "url": "wss://wss.vdo.ninja:443"
                 }
             ],
@@ -376,6 +376,8 @@ void ensureRtmpCatalogHasVdoNinjaEntry(void)
 	if (hasCatalogServiceEntry(catalogJson, kVdoCatalogServiceName)) {
 		const std::string quickStartField = std::string("\"stream_key_link\": \"") + kVdoNinjaQuickStartLink + "\"";
 		const std::string quickStartFieldCompact = std::string("\"stream_key_link\":\"") + kVdoNinjaQuickStartLink + "\"";
+		const std::string moreInfoField = std::string("\"more_info_link\": \"") + kVdoNinjaDocsHomeLink + "\"";
+		const std::string moreInfoFieldCompact = std::string("\"more_info_link\":\"") + kVdoNinjaDocsHomeLink + "\"";
 		updatedExistingEntry |= replaceFirst(catalogJson, "\"stream_key_link\": \"https://vdo.ninja/\"", quickStartField);
 		updatedExistingEntry |= replaceFirst(catalogJson, "\"stream_key_link\":\"https://vdo.ninja/\"", quickStartFieldCompact);
 		updatedExistingEntry |= replaceFirst(catalogJson,
@@ -386,6 +388,15 @@ void ensureRtmpCatalogHasVdoNinjaEntry(void)
 		                                     "\"stream_key_link\":"
 		                                     "\"https://github.com/steveseguin/ninja-obs-plugin/blob/main/QUICKSTART.md#2-publish-your-first-stream\"",
 		                                     quickStartFieldCompact);
+		updatedExistingEntry |= replaceFirst(catalogJson,
+		                                     "\"more_info_link\": "
+		                                     "\"https://github.com/steveseguin/ninja-obs-plugin/blob/main/README.md#2-publish-to-vdoninja\"",
+		                                     moreInfoField);
+		updatedExistingEntry |= replaceFirst(catalogJson,
+		                                     "\"more_info_link\":\"https://github.com/steveseguin/ninja-obs-plugin/blob/main/README.md#2-publish-to-vdoninja\"",
+		                                     moreInfoFieldCompact);
+		updatedExistingEntry |= replaceFirst(catalogJson, "\"more_info_link\": \"https://vdo.ninja/\"", moreInfoField);
+		updatedExistingEntry |= replaceFirst(catalogJson, "\"more_info_link\":\"https://vdo.ninja/\"", moreInfoFieldCompact);
 
 		if (!serviceEntryContainsToken(catalogJson, kVdoCatalogServiceName, "\"stream_key_link\"")) {
 			updatedExistingEntry |= replaceFirst(
@@ -593,7 +604,7 @@ void seedVdoNinjaSettingsFromCurrentService(obs_service_t *currentService, obs_d
 	if (currentType && std::strcmp(currentType, kVdoNinjaServiceType) == 0) {
 		obs_data_apply(settings, currentSettings);
 		// Normalize compatibility fields so key-only configs populate
-		// stream_id/password/room/salt/wss in Tools -> Configure VDO.Ninja.
+		// stream_id/password/room/salt/wss in Tools -> VDO.Ninja Control Center.
 		syncCompatibilityServiceFields(settings);
 		obs_data_release(currentSettings);
 		return;
@@ -850,9 +861,11 @@ static obs_properties_t *vdoninja_service_properties(void *)
 	obs_property_t *serviceHint = obs_properties_add_text(
 	    props, "service_hint",
 	    tr("ServiceSetupHint",
-	       "Tip: Use Tools -> Configure VDO.Ninja for full setup (stream ID, password, room, salt, signaling)."),
+	       "Tip: Use Tools -> VDO.Ninja Control Center for full setup (stream ID, password, room, salt, signaling). "
+	       "VDO.Ninja publishing uses OBS Start Streaming and cannot run in parallel with another stream destination."),
 	    OBS_TEXT_INFO);
 	obs_property_text_set_info_type(serviceHint, OBS_TEXT_INFO_NORMAL);
+	obs_property_text_set_info_word_wrap(serviceHint, true);
 
 	obs_properties_add_text(props, "stream_id", tr("StreamID", "Stream ID"), OBS_TEXT_DEFAULT);
 	obs_properties_add_text(props, "room_id", tr("RoomID", "Room ID"), OBS_TEXT_DEFAULT);
@@ -868,8 +881,22 @@ static obs_properties_t *vdoninja_service_properties(void *)
 	obs_properties_add_text(advanced, "wss_host", tr("SignalingServer", "Signaling Server"), OBS_TEXT_DEFAULT);
 	obs_properties_add_text(advanced, "salt", tr("Salt", "Salt"), OBS_TEXT_DEFAULT);
 	obs_property_t *iceServers = obs_properties_add_text(
-	    advanced, "custom_ice_servers", tr("CustomICEServers", "Custom STUN/TURN Servers"), OBS_TEXT_MULTILINE);
+	    advanced, "custom_ice_servers", tr("CustomICEServers", "Custom STUN/TURN Servers"), OBS_TEXT_DEFAULT);
 	obs_property_text_set_monospace(iceServers, true);
+	obs_property_set_long_description(
+	    iceServers, tr("CustomICEServers.Help",
+	                   "Format: one server entry per item. Use ';' to separate multiple entries. "
+	                   "Examples: stun:stun.l.google.com:19302; turn:turn.example.com:3478|user|pass. "
+	                   "Leave empty to use built-in STUN defaults (Google + Cloudflare); no TURN is added automatically."));
+	obs_property_t *iceHelp = obs_properties_add_text(
+	    advanced, "custom_ice_servers_help",
+	    tr("CustomICEServers.Help",
+	       "Format: one server entry per item. Use ';' to separate multiple entries. "
+	       "Examples: stun:stun.l.google.com:19302; turn:turn.example.com:3478|user|pass. "
+	       "Leave empty to use built-in STUN defaults (Google + Cloudflare); no TURN is added automatically."),
+	    OBS_TEXT_INFO);
+	obs_property_text_set_info_type(iceHelp, OBS_TEXT_INFO_NORMAL);
+	obs_property_text_set_info_word_wrap(iceHelp, true);
 	obs_properties_add_bool(advanced, "force_turn", tr("ForceTURN", "Force TURN Relay"));
 	obs_properties_add_group(props, "advanced", tr("AdvancedSettings", "Advanced Settings"), OBS_GROUP_NORMAL,
 	                         advanced);
@@ -889,6 +916,11 @@ static void vdoninja_service_defaults(obs_data_t *settings)
 	obs_data_set_default_string(settings, "key", "");
 	obs_data_set_default_string(settings, "salt", DEFAULT_SALT);
 	obs_data_set_default_string(settings, "custom_ice_servers", "");
+	obs_data_set_default_string(
+	    settings, "custom_ice_servers_help",
+	    "Format: one server entry per item. Use ';' to separate multiple entries. "
+	    "Examples: stun:stun.l.google.com:19302; turn:turn.example.com:3478|user|pass. "
+	    "Leave empty to use built-in STUN defaults (Google + Cloudflare); no TURN is added automatically.");
 	obs_data_set_default_int(settings, "video_codec", 0);
 	obs_data_set_default_int(settings, "max_viewers", 10);
 	obs_data_set_default_bool(settings, "force_turn", false);
@@ -1384,12 +1416,35 @@ static obs_properties_t *vdoninja_control_center_properties(void *data)
 	                                                  tr("SignalingServer", "Signaling Server"), OBS_TEXT_DEFAULT);
 	obs_property_t *salt = obs_properties_add_text(advanced, "salt", tr("Salt", "Salt"), OBS_TEXT_DEFAULT);
 	obs_property_t *iceServers = obs_properties_add_text(
-	    advanced, "custom_ice_servers", tr("CustomICEServers", "Custom STUN/TURN Servers"), OBS_TEXT_MULTILINE);
+	    advanced, "custom_ice_servers", tr("CustomICEServers", "Custom STUN/TURN Servers"), OBS_TEXT_DEFAULT);
 	obs_property_text_set_monospace(iceServers, true);
+	obs_property_set_long_description(
+	    iceServers, tr("CustomICEServers.Help",
+	                   "Format: one server entry per item. Use ';' to separate multiple entries. "
+	                   "Examples: stun:stun.l.google.com:19302; turn:turn.example.com:3478|user|pass. "
+	                   "Leave empty to use built-in STUN defaults (Google + Cloudflare); no TURN is added automatically."));
+	obs_property_t *iceHelp = obs_properties_add_text(
+	    advanced, "custom_ice_servers_help",
+	    tr("CustomICEServers.Help",
+	       "Format: one server entry per item. Use ';' to separate multiple entries. "
+	       "Examples: stun:stun.l.google.com:19302; turn:turn.example.com:3478|user|pass. "
+	       "Leave empty to use built-in STUN defaults (Google + Cloudflare); no TURN is added automatically."),
+	    OBS_TEXT_INFO);
+	obs_property_text_set_info_type(iceHelp, OBS_TEXT_INFO_NORMAL);
+	obs_property_text_set_info_word_wrap(iceHelp, true);
 	obs_property_t *forceTurn =
 	    obs_properties_add_bool(advanced, "force_turn", tr("ForceTURN", "Force TURN Relay"));
 	obs_properties_add_group(props, "advanced", tr("AdvancedSettings", "Advanced Settings"), OBS_GROUP_NORMAL,
 	                         advanced);
+
+	obs_property_t *modeNote = obs_properties_add_text(
+	    props, "cc_mode_note",
+	    tr("ControlCenter.ModeNote",
+	       "Publishing uses OBS Start Streaming pipeline. Control Center Start/Stop are shortcuts for OBS Start/Stop Streaming "
+	       "and cannot run in parallel with another stream destination."),
+	    OBS_TEXT_INFO);
+	obs_property_text_set_info_type(modeNote, OBS_TEXT_INFO_NORMAL);
+	obs_property_text_set_info_word_wrap(modeNote, true);
 
 	obs_properties_add_button2(props, "cc_load_active",
 	                           tr("ControlCenter.LoadActive", "Load Active Service Settings"),
@@ -1437,12 +1492,21 @@ static void vdoninja_control_center_defaults(obs_data_t *settings)
 	obs_data_set_default_string(
 	    settings, "cc_intro",
 	    "Manage VDO.Ninja publish settings, apply them to OBS Stream Service, and control publish/stop from one place.");
+	obs_data_set_default_string(
+	    settings, "cc_mode_note",
+	    "Publishing uses OBS Start Streaming pipeline. Control Center Start/Stop are shortcuts for OBS Start/Stop Streaming "
+	    "and cannot run in parallel with another stream destination.");
 	obs_data_set_default_string(settings, "stream_id", "");
 	obs_data_set_default_string(settings, "room_id", "");
 	obs_data_set_default_string(settings, "password", "");
 	obs_data_set_default_string(settings, "wss_host", DEFAULT_WSS_HOST);
 	obs_data_set_default_string(settings, "salt", DEFAULT_SALT);
 	obs_data_set_default_string(settings, "custom_ice_servers", "");
+	obs_data_set_default_string(
+	    settings, "custom_ice_servers_help",
+	    "Format: one server entry per item. Use ';' to separate multiple entries. "
+	    "Examples: stun:stun.l.google.com:19302; turn:turn.example.com:3478|user|pass. "
+	    "Leave empty to use built-in STUN defaults (Google + Cloudflare); no TURN is added automatically.");
 	obs_data_set_default_int(settings, "max_viewers", 10);
 	obs_data_set_default_bool(settings, "force_turn", false);
 	obs_data_set_default_string(settings, "cc_push_url", "");
@@ -1500,44 +1564,6 @@ static void open_vdoninja_control_center_callback(void *)
 	}
 
 	obs_frontend_open_source_properties(source);
-}
-
-static void activate_vdoninja_service_callback(void *)
-{
-	if (obs_frontend_streaming_active()) {
-		logWarning("Cannot activate VDO.Ninja service while streaming");
-		return;
-	}
-
-	obs_data_t *settings = obs_data_create();
-	vdoninja_service_defaults(settings);
-
-	obs_service_t *currentService = obs_frontend_get_streaming_service();
-	seedVdoNinjaSettingsFromCurrentService(currentService, settings);
-
-	const char *streamId = obs_data_get_string(settings, "stream_id");
-	if (!streamId || !*streamId) {
-		const std::string generatedStreamId = generateSessionId();
-		obs_data_set_string(settings, "stream_id", generatedStreamId.c_str());
-		logInfo("No stream ID found in current service settings; generated stream ID: %s", generatedStreamId.c_str());
-	}
-
-	syncCompatibilityServiceFields(settings);
-
-	obs_service_t *newService = obs_service_create(kVdoNinjaServiceType, kVdoNinjaServiceName, settings, nullptr);
-	obs_data_release(settings);
-
-	if (!newService) {
-		logError("Failed to create VDO.Ninja streaming service");
-		return;
-	}
-
-	obs_frontend_set_streaming_service(newService);
-	obs_frontend_save_streaming_service();
-	configureProfileForVdoNinjaStreaming();
-	obs_service_release(newService);
-
-	logInfo("Activated VDO.Ninja as the active streaming service with Opus audio profile defaults");
 }
 
 // Frontend event callback for virtual camera integration
@@ -1602,11 +1628,9 @@ bool obs_module_load(void)
 	}
 	logInfo("Registered VDO.Ninja service");
 
-	obs_frontend_add_tools_menu_item(tr("Tools.ConfigureService", "Configure VDO.Ninja"),
-	                                 activate_vdoninja_service_callback, nullptr);
 	obs_frontend_add_tools_menu_item(tr("Tools.OpenControlCenter", "VDO.Ninja Control Center"),
 	                                 open_vdoninja_control_center_callback, nullptr);
-	logInfo("Registered VDO.Ninja tools menu action");
+	logInfo("Registered VDO.Ninja Control Center tools menu action");
 
 	// Register frontend callback
 	obs_frontend_add_event_callback(frontend_event_callback, nullptr);

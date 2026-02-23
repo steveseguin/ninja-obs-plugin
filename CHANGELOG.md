@@ -16,13 +16,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - Stream destination UX now avoids the misleading `Get Stream Key` helper button for VDO.Ninja.
-- VDO.Ninja server label in OBS Stream settings now explicitly points users to `Tools -> Configure VDO.Ninja`.
+- VDO.Ninja server label in OBS Stream settings now explicitly points users to `Tools -> VDO.Ninja Control Center`.
 - README/QUICKSTART now clarify that OBS still shows a `Stream Key` field for compatibility.
 - Added a new `Tools -> VDO.Ninja Control Center` workflow with one-place publish config, start/stop controls, generated links, and runtime peer telemetry.
 - Windows release docs now route users to the setup `.exe` first, with ZIP install scripts as fallback.
 - Release workflow now publishes Windows ZIP + setup `.exe`, and release checksums include `.exe` artifacts.
 - Build workflow now targets OBS `32.1.0-rc1` to align with current service ABI requirements.
 - Inno Setup uninstaller files now live under `data/obs-plugins/obs-vdoninja/_installer` instead of the OBS root.
+- Windows installer/script post-install actions now open the GitHub Pages quick-start guide instead of a local Markdown file.
+- In-app Stream Service helper links now point to the GitHub Pages guide/home docs.
+- Tools menu flow is simplified around `VDO.Ninja Control Center` to reduce duplicate publish/control paths.
+- Custom ICE server fields are now compact and consistently documented across Service/Output/Source/Control Center.
+- Custom ICE parsing now accepts semicolon-separated entries, and runtime warns when `Force TURN` is enabled without TURN servers.
+- Local build artifact hygiene improved (`install/`, setup `.exe`, `_obs-portable/`, temp dirs ignored by git).
 
 ### Fixed
 - Plugin runtime version banner now correctly reports `1.1.11` (`PLUGIN_VERSION` macro alignment).

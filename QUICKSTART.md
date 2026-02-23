@@ -2,6 +2,8 @@
 
 This guide gets you from install to first working stream quickly.
 
+Web quick start (recommended): `https://steveseguin.github.io/ninja-plugin/#quick-start`
+
 On Windows, use `obs-vdoninja-windows-x64-setup.exe` first.  
 If you are using the ZIP package instead, run `install.cmd`.
 
@@ -11,7 +13,6 @@ After installation, restart OBS and check:
 
 - `Add Source` includes: `VDO.Ninja Source`
 - `Settings -> Stream` includes service: `VDO.Ninja`
-- `Tools` menu includes: `Configure VDO.Ninja`
 - `Tools` menu includes: `VDO.Ninja Control Center`
 
 If either is missing, reinstall and confirm plugin/data paths from `INSTALL.md`.
@@ -20,12 +21,14 @@ If either is missing, reinstall and confirm plugin/data paths from `INSTALL.md`.
 
 1. In `Settings -> Stream`, set service to `VDO.Ninja`.
 2. Keep `Server` at default unless you use a custom signaling host.
-3. Use `Tools -> Configure VDO.Ninja` for normal setup.
+3. Use `Tools -> VDO.Ninja Control Center` for normal setup.
 4. The `Stream Key` box remains in OBS for compatibility; you can still use it directly with:
    - URL form: `https://vdo.ninja/?push=mytest123&password=secret&room=myroom&salt=vdo.ninja&wss=wss://wss.vdo.ninja:443`
    - Compact form: `mytest123|secret|myroom|vdo.ninja|wss://wss.vdo.ninja:443`
-5. Optional fallback: if `VDO.Ninja` is not listed, click `Tools -> Configure VDO.Ninja`.
+5. If `VDO.Ninja` is not listed yet, open `Tools -> VDO.Ninja Control Center` and click `Apply As Stream Service`.
 6. Click `Start Streaming`.
+
+`Tools -> VDO.Ninja Control Center` `Start Publishing`/`Stop Publishing` map to the same OBS `Start Streaming`/`Stop Streaming` pipeline; they do not run as a second parallel destination.
 
 The Tools action also applies Opus audio defaults for compatibility.
 
@@ -53,8 +56,12 @@ Viewer link pattern:
 
 - `Salt` (default `vdo.ninja`) for compatibility/self-hosting needs
 - Custom signaling WebSocket URL
-- Custom STUN/TURN servers
-- Force TURN for difficult NAT/network paths
+- Custom STUN/TURN servers (use `;` to separate multiple entries)
+- Force TURN for difficult NAT/network paths (requires a TURN server entry)
+
+Default ICE behavior:
+- Empty custom ICE field uses built-in STUN (`stun:stun.l.google.com:19302`, `stun:stun.cloudflare.com:3478`)
+- TURN is not auto-added; provide your own TURN server if needed
 
 ## 6) Troubleshooting basics
 

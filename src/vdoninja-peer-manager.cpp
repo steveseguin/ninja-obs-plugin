@@ -6,6 +6,8 @@
 #include "vdoninja-peer-manager.h"
 
 #include <random>
+#include <algorithm>
+#include <cctype>
 
 namespace vdoninja
 {
@@ -73,11 +75,25 @@ void VDONinjaPeerManager::setForceTurn(bool force)
 rtc::Configuration VDONinjaPeerManager::getRtcConfig() const
 {
 	rtc::Configuration config;
+	bool hasTurnServer = false;
+
+	auto hasTurnScheme = [](const std::string &url) {
+		if (url.size() < 5) {
+			return false;
+		}
+		std::string lower = url;
+		std::transform(lower.begin(), lower.end(), lower.begin(),
+		               [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+		return lower.rfind("turn:", 0) == 0 || lower.rfind("turns:", 0) == 0;
+	};
 
 	// If custom servers are set, use only those; otherwise use built-in defaults.
 	if (iceServers_.empty()) {
 		for (const auto &stun : DEFAULT_STUN_SERVERS) {
 			config.iceServers.push_back({stun});
+			if (hasTurnScheme(stun)) {
+				hasTurnServer = true;
+			}
 		}
 	} else {
 		for (const auto &server : iceServers_) {
@@ -87,11 +103,17 @@ rtc::Configuration VDONinjaPeerManager::getRtcConfig() const
 				iceServer.password = server.credential;
 			}
 			config.iceServers.push_back(iceServer);
+			if (hasTurnScheme(server.urls)) {
+				hasTurnServer = true;
+			}
 		}
 	}
 
 	if (forceTurn_) {
 		config.iceTransportPolicy = rtc::TransportPolicy::Relay;
+		if (!hasTurnServer) {
+			logWarning("Force TURN is enabled but no TURN servers are configured; connections may fail.");
+		}
 	}
 
 	return config;

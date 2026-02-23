@@ -46,6 +46,7 @@ Copy-Item (Join-Path $srcPluginDir "*") $dstPluginDir -Recurse -Force
 Copy-Item (Join-Path $srcDataDir "*") $dstDataDir -Recurse -Force
 
 $quickStartPath = Join-Path $packageRoot "QUICKSTART.md"
+$quickStartUrl = "https://steveseguin.github.io/ninja-plugin/#quick-start"
 $nextSteps = @"
 
 Install complete.
@@ -53,26 +54,33 @@ Install complete.
 Next steps:
 1. Restart OBS Studio
 2. Open Settings -> Stream and select VDO.Ninja
-3. Open Tools -> Configure VDO.Ninja and set Stream ID (optional password/room/salt/signaling)
+3. Open Tools -> VDO.Ninja Control Center and set Stream ID (optional password/room/salt/signaling)
 4. Start Streaming and open your view URL
 
 "@
 
+$nextSteps += "`nQuick guide (web): $quickStartUrl`n"
 if (Test-Path $quickStartPath) {
-    $nextSteps += "`nQuick guide: $quickStartPath`n"
+    $nextSteps += "Offline guide copy: $quickStartPath`n"
 }
 
 Write-Host ""
 Write-Host $nextSteps
 
-if ($OpenQuickStart -and (Test-Path $quickStartPath)) {
-    Start-Process $quickStartPath
+if ($OpenQuickStart) {
+    try {
+        Start-Process $quickStartUrl
+    } catch {
+        if (Test-Path $quickStartPath) {
+            Start-Process $quickStartPath
+        }
+    }
 }
 
-if ((-not $NoQuickStartPopup) -and (Test-Path $quickStartPath)) {
+if (-not $NoQuickStartPopup) {
     try {
         Add-Type -AssemblyName System.Windows.Forms -ErrorAction Stop
-        $message = "OBS VDO.Ninja plugin installed.`n`nOpen QUICKSTART.md now?"
+        $message = "OBS VDO.Ninja plugin installed.`n`nOpen web Quick Start now?"
         $result = [System.Windows.Forms.MessageBox]::Show(
             $message,
             "OBS VDO.Ninja Plugin",
@@ -80,7 +88,13 @@ if ((-not $NoQuickStartPopup) -and (Test-Path $quickStartPath)) {
             [System.Windows.Forms.MessageBoxIcon]::Information
         )
         if ($result -eq [System.Windows.Forms.DialogResult]::Yes) {
-            Start-Process $quickStartPath
+            try {
+                Start-Process $quickStartUrl
+            } catch {
+                if (Test-Path $quickStartPath) {
+                    Start-Process $quickStartPath
+                }
+            }
         }
     } catch {
         # Non-interactive/headless shells may not support popup dialogs.
