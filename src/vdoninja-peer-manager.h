@@ -40,6 +40,15 @@ using OnTrackCallback = std::function<void(const std::string &uuid, TrackType ty
 using OnDataChannelCallback = std::function<void(const std::string &uuid, std::shared_ptr<rtc::DataChannel> dc)>;
 using OnDataChannelMessageCallback = std::function<void(const std::string &uuid, const std::string &message)>;
 
+// Peer snapshot for runtime diagnostics / UI.
+struct PeerSnapshot {
+	std::string uuid;
+	std::string streamId;
+	ConnectionType type = ConnectionType::Publisher;
+	ConnectionState state = ConnectionState::New;
+	bool hasDataChannel = false;
+};
+
 class VDONinjaPeerManager
 {
 public:
@@ -62,6 +71,7 @@ public:
 	// Send media to all connected peers (viewers)
 	void sendAudioFrame(const uint8_t *data, size_t size, uint32_t timestamp);
 	void sendVideoFrame(const uint8_t *data, size_t size, uint32_t timestamp, bool keyframe);
+	bool sendVideoFrameToPeer(const std::string &uuid, const uint8_t *data, size_t size, uint32_t timestamp, bool keyframe);
 
 	// Viewing mode - receive media from publishers
 	bool startViewing(const std::string &streamId);
@@ -80,6 +90,7 @@ public:
 
 	// Get peer info
 	std::vector<std::string> getConnectedPeers() const;
+	std::vector<PeerSnapshot> getPeerSnapshots() const;
 	ConnectionState getPeerState(const std::string &uuid) const;
 
 	// Configuration
@@ -110,6 +121,8 @@ private:
 
 	// ICE candidate bundling
 	void bundleAndSendCandidates(const std::string &uuid);
+	bool sendVideoFrameToPeerLocked(const std::string &uuid, const std::shared_ptr<PeerInfo> &peer, const uint8_t *data,
+	                                size_t size, uint32_t timestamp, bool keyframe);
 
 	// Get RTC configuration
 	rtc::Configuration getRtcConfig() const;

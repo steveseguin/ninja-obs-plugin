@@ -7,7 +7,7 @@
 
 #include <obs-module.h>
 
-#define PLUGIN_VERSION "1.1.9"
+#define PLUGIN_VERSION "1.1.10"
 
 #ifdef __cplusplus
 extern "C" {
@@ -15,7 +15,7 @@ extern "C" {
 
 // Plugin module functions
 OBS_DECLARE_MODULE()
-OBS_MODULE_USE_DEFAULT_LOCALE("obs-vdoninja", "en-US")
+OBS_MODULE_USE_DEFAULT_LOCALE("obs-vdoninja", "en")
 
 const char *obs_module_name(void);
 const char *obs_module_description(void);

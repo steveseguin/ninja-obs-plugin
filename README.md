@@ -62,6 +62,9 @@ In practice, many teams use both: VDO.Ninja workflows for interactive contributi
 - Multi-viewer publishing is supported and tested end-to-end.
 - Auto-inbound management can create/update Browser Sources from room/data-channel events.
 - Native decode in `VDO.Ninja Source` is available but still being hardened.
+- Plugin injects a `VDO.Ninja` destination into OBS Stream service list via `rtmp-services` catalog compatibility.
+- Tools fallback remains available via `Tools -> Configure VDO.Ninja` to force-activate `vdoninja_service` and apply Opus profile defaults.
+- `Tools -> VDO.Ninja Control Center` provides one-place publish config, start/stop controls, generated links, and runtime peer stats.
 - Locale fallback to built-in English strings is supported if locale files are missing.
 - Remote OBS control is not yet a fully hardened command surface.
 
@@ -82,12 +85,24 @@ Each release archive includes:
 - `install.cmd` + `install.ps1` on Windows, or `install.sh` on Linux/macOS
 - `uninstall.cmd` + `uninstall.ps1` on Windows, or `uninstall.sh` on Linux/macOS
 
+Portable OBS note: if launching from terminal, start `obs64.exe` from `bin\64bit` (or set `Start-Process -WorkingDirectory` to `bin\64bit`) to avoid `Failed to load theme`.
+
 ### 2. Publish to VDO.Ninja
 
 1. OBS -> `Settings` -> `Stream`
 2. Service: `VDO.Ninja`
-3. Set `Stream ID` and optional `Password` / `Room ID`
-4. Click `Start Streaming`
+3. `Server` should stay at default (`wss://wss.vdo.ninja:443`) unless self-hosting.
+4. Use OBS -> `Tools` -> `Configure VDO.Ninja` for full setup (stream ID, password, room, salt, signaling).
+5. `Stream Key` remains visible in OBS for compatibility; if you use it directly, set your stream ID or an advanced envelope:
+   - URL: `https://vdo.ninja/?push=<StreamID>&password=<Password>&room=<RoomID>&salt=<Salt>&wss=<WSS_URL>`
+   - Compact: `<StreamID>|<Password>|<RoomID>|<Salt>|<WSS_URL>`
+6. Click `Start Streaming`
+
+The plugin parses stream-key URLs like:
+
+```text
+https://vdo.ninja/?push=<StreamID>&password=<Password>&room=<RoomID>&salt=<Salt>&wss=<WSS_URL>
+```
 
 Viewer URL pattern:
 

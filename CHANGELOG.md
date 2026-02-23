@@ -11,7 +11,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - No unreleased changes yet.
 
 ### Changed
-- No unreleased changes yet.
+- Stream destination UX now avoids the misleading `Get Stream Key` helper button for VDO.Ninja.
+- VDO.Ninja server label in OBS Stream settings now explicitly points users to `Tools -> Configure VDO.Ninja`.
+- README/QUICKSTART now clarify that OBS still shows a `Stream Key` field for compatibility.
+- Added a new `Tools -> VDO.Ninja Control Center` workflow with one-place publish config, start/stop controls, generated links, and runtime peer telemetry.
+
+## [1.1.10] - 2026-02-22
+
+### Added
+- Tools menu action: `Configure VDO.Ninja` to activate `vdoninja_service` even though OBS 32.x stream UI does not list third-party service types.
+- Activation flow now seeds VDO.Ninja settings from the current stream key (including parsing `https://vdo.ninja/?push=...&password=...&room=...`) and auto-generates a stream ID fallback.
+- Automatic `rtmp-services` catalog injection for a `VDO.Ninja` Stream destination entry in OBS settings.
+- Stream key envelope parsing for advanced settings:
+  - URL form supports `push/view`, `password` (`pasword` alias), `room`, `salt`, and `wss`/`wss_host`/`server`/`signaling`.
+  - Compact form supports `stream|password|room|salt|wss`.
+
+### Changed
+- Service/output codec declarations aligned to a WHIP-like compatibility baseline:
+  - video: `h264`
+  - audio: `opus`
+- Activation flow now applies Opus defaults to OBS profile output settings (`SimpleOutput`/`AdvOut`) for reliable startup.
+- Output settings loader now accepts stream-key URL input and maps `server` to signaling host when using stream service compatibility mode.
+- Compatibility service server label now explains custom signaling is overridden via stream-key URL.
+- Tools menu action label renamed to `Configure VDO.Ninja` for clearer user intent.
+- Stream service metadata now includes direct docs links for the Stream page helper buttons.
+
+### Fixed
+- Added `apply_encoder_settings` for VDO.Ninja service to enforce WebRTC-safe encoder options (`bf=0`, `repeat_headers=true`).
+- Removed unsupported VP8/VP9 publish selection from output/service properties to avoid mismatched SDP/packetization behavior.
 
 ## [1.1.9] - 2026-02-22
 

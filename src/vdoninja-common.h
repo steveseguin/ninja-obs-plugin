@@ -71,6 +71,7 @@ struct PeerInfo {
 	ConnectionType type;
 	ConnectionState state = ConnectionState::New;
 	bool hasDataChannel = false;
+	bool awaitingVideoKeyframe = true;
 	std::shared_ptr<rtc::PeerConnection> pc;
 	std::shared_ptr<rtc::DataChannel> dataChannel;
 	std::shared_ptr<rtc::Track> audioTrack;

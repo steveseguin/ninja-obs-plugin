@@ -25,6 +25,16 @@ namespace vdoninja
 class VDONinjaOutput
 {
 public:
+	struct ViewerRuntimeSnapshot {
+		std::string uuid;
+		std::string streamId;
+		std::string role;
+		std::string state;
+		bool hasDataChannel = false;
+		std::string lastStats;
+		int64_t lastStatsTimestampMs = 0;
+	};
+
 	VDONinjaOutput(obs_data_t *settings, obs_output_t *output);
 	~VDONinjaOutput();
 
@@ -37,6 +47,11 @@ public:
 	uint64_t getTotalBytes() const;
 	int getConnectTime() const;
 	int getViewerCount() const;
+	bool isRunning() const;
+	bool isConnected() const;
+	int64_t getUptimeMs() const;
+	OutputSettings getSettingsSnapshot() const;
+	std::vector<ViewerRuntimeSnapshot> getViewerSnapshots() const;
 
 	// Update settings
 	void update(obs_data_t *settings);
@@ -53,6 +68,7 @@ private:
 	void processAudioPacket(encoder_packet *packet);
 	void processVideoPacket(encoder_packet *packet);
 	void sendInitialPeerInfo(const std::string &uuid);
+	void primeViewerWithCachedKeyframe(const std::string &uuid);
 	std::string buildInitialInfoMessage() const;
 
 	// OBS output handle
@@ -83,6 +99,16 @@ private:
 	audio_t *audio_ = nullptr;
 	const char *videoCodecName_ = nullptr;
 	const char *audioCodecName_ = nullptr;
+
+	// Data-channel telemetry cache (per peer)
+	mutable std::mutex telemetryMutex_;
+	std::map<std::string, std::string> lastPeerStats_;
+	std::map<std::string, int64_t> lastPeerStatsTimestampMs_;
+
+	// Latest keyframe cache for fast viewer warm-up and keyframe requests.
+	mutable std::mutex keyframeCacheMutex_;
+	std::vector<uint8_t> cachedKeyframe_;
+	uint32_t cachedKeyframeTimestamp_ = 0;
 };
 
 // OBS output info registration

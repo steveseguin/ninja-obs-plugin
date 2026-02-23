@@ -121,3 +121,18 @@ If OBS log shows `obs-vdoninja.dll not loaded` and `Service 'vdoninja_service' n
 4. Reopen OBS and check the newest log in `%APPDATA%\obs-studio\logs\`.
 
 This plugin should not require replacing OBS core DLLs manually.
+
+If portable OBS shows `Failed to load theme` when launched from a terminal:
+
+1. Launch from the OBS executable directory (`bin\64bit`), not from the portable root.
+
+```powershell
+cd "D:\OBS\obs-studio\bin\64bit"
+.\obs64.exe --portable
+```
+
+Or:
+
+```powershell
+Start-Process -FilePath "D:\OBS\obs-studio\bin\64bit\obs64.exe" -WorkingDirectory "D:\OBS\obs-studio\bin\64bit" -ArgumentList "--portable"
+```
