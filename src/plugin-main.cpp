@@ -63,8 +63,16 @@ struct ControlCenterContext {
 	int64_t previousSampleTimeMs = 0;
 };
 
+struct ServiceSnapshot {
+	std::string serviceType;
+	obs_data_t *settings = nullptr;
+	obs_data_t *hotkeys = nullptr;
+};
+
 obs_source_t *gControlCenterSource = nullptr;
 bool gFrontendCallbackRegistered = false;
+ServiceSnapshot gLastNonVdoServiceSnapshot = {};
+ServiceSnapshot gTemporaryRestoreSnapshot = {};
 
 constexpr const char *kVdoNinjaRtmpServiceEntry = R"VDOJSON(
         {
@@ -795,6 +803,115 @@ void applyBackedUpCompatibilityFields(obs_data_t *settings)
 	                          config_get_string(profileConfig, kCompatBackupSection, kCompatBackupBearerToken));
 }
 
+void releaseServiceSnapshot(ServiceSnapshot &snapshot)
+{
+	if (snapshot.settings) {
+		obs_data_release(snapshot.settings);
+		snapshot.settings = nullptr;
+	}
+	if (snapshot.hotkeys) {
+		obs_data_release(snapshot.hotkeys);
+		snapshot.hotkeys = nullptr;
+	}
+	snapshot.serviceType.clear();
+}
+
+bool hasServiceSnapshot(const ServiceSnapshot &snapshot)
+{
+	return !snapshot.serviceType.empty() && snapshot.settings != nullptr;
+}
+
+void cloneServiceSnapshot(const ServiceSnapshot &src, ServiceSnapshot &dst)
+{
+	releaseServiceSnapshot(dst);
+	if (!hasServiceSnapshot(src)) {
+		return;
+	}
+
+	dst.serviceType = src.serviceType;
+	dst.settings = obs_data_create();
+	obs_data_apply(dst.settings, src.settings);
+	if (src.hotkeys) {
+		dst.hotkeys = obs_data_create();
+		obs_data_apply(dst.hotkeys, src.hotkeys);
+	}
+}
+
+bool captureServiceSnapshot(obs_service_t *service, ServiceSnapshot &snapshot)
+{
+	releaseServiceSnapshot(snapshot);
+	if (!service) {
+		return false;
+	}
+
+	const char *serviceType = obs_service_get_type(service);
+	if (!serviceType || !*serviceType) {
+		return false;
+	}
+
+	obs_data_t *settings = obs_service_get_settings(service);
+	if (!settings) {
+		return false;
+	}
+
+	snapshot.serviceType = serviceType;
+	snapshot.settings = settings;
+	snapshot.hotkeys = obs_hotkeys_save_service(service);
+	return true;
+}
+
+void captureLastNonVdoServiceSnapshot(obs_service_t *service)
+{
+	if (!service || isVdoNinjaService(service)) {
+		return;
+	}
+
+	captureServiceSnapshot(service, gLastNonVdoServiceSnapshot);
+}
+
+void clearTemporaryServiceRestoreBackup()
+{
+	releaseServiceSnapshot(gTemporaryRestoreSnapshot);
+}
+
+void backupServiceForTemporaryRestore(obs_service_t *service)
+{
+	if (service && !isVdoNinjaService(service)) {
+		captureServiceSnapshot(service, gTemporaryRestoreSnapshot);
+		captureLastNonVdoServiceSnapshot(service);
+		return;
+	}
+
+	if (hasServiceSnapshot(gLastNonVdoServiceSnapshot)) {
+		cloneServiceSnapshot(gLastNonVdoServiceSnapshot, gTemporaryRestoreSnapshot);
+		return;
+	}
+
+	clearTemporaryServiceRestoreBackup();
+}
+
+bool restoreServiceFromTemporaryBackupIfNeeded()
+{
+	if (!hasServiceSnapshot(gTemporaryRestoreSnapshot)) {
+		return false;
+	}
+
+	obs_service_t *restoredService = obs_service_create(gTemporaryRestoreSnapshot.serviceType.c_str(),
+	                                                    kVdoNinjaServiceName, gTemporaryRestoreSnapshot.settings,
+	                                                    gTemporaryRestoreSnapshot.hotkeys);
+	if (!restoredService) {
+		clearTemporaryServiceRestoreBackup();
+		return false;
+	}
+
+	obs_frontend_set_streaming_service(restoredService);
+	obs_frontend_save_streaming_service();
+	captureLastNonVdoServiceSnapshot(restoredService);
+	obs_service_release(restoredService);
+	clearTemporaryServiceRestoreBackup();
+	return true;
+}
+
 void ensureActiveVdoNinjaServiceConfigured(void)
 {
 	obs_service_t *currentService = obs_frontend_get_streaming_service();
@@ -1189,13 +1306,20 @@ static bool copyTextToClipboard(const std::string &text)
 #endif
 }
 
-static bool activateVdoNinjaServiceFromSettings(obs_data_t *sourceSettings, bool generateStreamIdIfMissing)
+static bool activateVdoNinjaServiceFromSettings(obs_data_t *sourceSettings, bool generateStreamIdIfMissing,
+                                                bool temporarySwitch = false)
 {
 	if (!sourceSettings) {
 		return false;
 	}
 
 	obs_service_t *currentService = obs_frontend_get_streaming_service();
+	if (temporarySwitch) {
+		backupServiceForTemporaryRestore(currentService);
+	} else {
+		captureLastNonVdoServiceSnapshot(currentService);
+		clearTemporaryServiceRestoreBackup();
+	}
 	backupCurrentServiceCompatibilityFields(currentService);
 
 	obs_data_t *serviceSettings = obs_data_create();
@@ -1366,7 +1490,7 @@ static bool controlCenterApplyClicked(obs_properties_t *, obs_property_t *, void
 		return true;
 	}
 
-	const bool ok = activateVdoNinjaServiceFromSettings(settings, true);
+	const bool ok = activateVdoNinjaServiceFromSettings(settings, true, false);
 	updateControlCenterStatus(settings, ctx, ok ? "VDO.Ninja stream service configured."
 	                                            : "Failed to configure VDO.Ninja stream service.");
 	obs_source_update(ctx->source, settings);
@@ -1387,7 +1511,7 @@ static bool controlCenterStartClicked(obs_properties_t *, obs_property_t *, void
 	}
 
 	if (!obs_frontend_streaming_active()) {
-		const bool applied = activateVdoNinjaServiceFromSettings(settings, true);
+		const bool applied = activateVdoNinjaServiceFromSettings(settings, true, true);
 		if (!applied) {
 			updateControlCenterStatus(settings, ctx, "Unable to activate VDO.Ninja service; start aborted.");
 			obs_source_update(ctx->source, settings);
@@ -1749,14 +1873,24 @@ static void frontend_event_callback(enum obs_frontend_event event, void *)
 		break;
 	case OBS_FRONTEND_EVENT_STREAMING_STOPPED:
 		logInfo("Streaming stopped");
+		{
+			obs_service_t *currentService = obs_frontend_get_streaming_service();
+			if (isVdoNinjaService(currentService) && restoreServiceFromTemporaryBackupIfNeeded()) {
+				logInfo("Restored previous streaming service after temporary VDO.Ninja publish run");
+			} else {
+				captureLastNonVdoServiceSnapshot(currentService);
+			}
+		}
 		break;
 	case OBS_FRONTEND_EVENT_PROFILE_CHANGED:
+		captureLastNonVdoServiceSnapshot(obs_frontend_get_streaming_service());
 		ensureStreamingServiceExists();
 		ensureActiveVdoNinjaServiceConfigured();
 		break;
 	case OBS_FRONTEND_EVENT_FINISHED_LOADING:
 		ensureRtmpCatalogHasVdoNinjaEntry();
 		ensureStreamingServiceExists();
+		captureLastNonVdoServiceSnapshot(obs_frontend_get_streaming_service());
 		ensureActiveVdoNinjaServiceConfigured();
 		break;
 	default:
@@ -1817,6 +1951,8 @@ void obs_module_unload(void)
 		obs_source_release(gControlCenterSource);
 		gControlCenterSource = nullptr;
 	}
+	releaseServiceSnapshot(gTemporaryRestoreSnapshot);
+	releaseServiceSnapshot(gLastNonVdoServiceSnapshot);
 
 	logInfo("VDO.Ninja plugin unloaded");
 }
