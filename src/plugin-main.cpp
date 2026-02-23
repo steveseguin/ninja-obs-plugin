@@ -992,8 +992,7 @@ static obs_properties_t *vdoninja_service_properties(void *)
 
 static void vdoninja_service_defaults(obs_data_t *settings)
 {
-	const std::string defaultStreamId = generateSessionId();
-	obs_data_set_default_string(settings, "stream_id", defaultStreamId.c_str());
+	obs_data_set_default_string(settings, "stream_id", "");
 	obs_data_set_default_string(settings, "room_id", "");
 	obs_data_set_default_string(settings, "password", "");
 	obs_data_set_default_string(settings, "wss_host", "");
