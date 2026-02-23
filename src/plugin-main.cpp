@@ -49,11 +49,6 @@ constexpr const char *kVdoNinjaControlCenterSourceId = "vdoninja_control_center"
 constexpr const char *kVdoNinjaControlCenterSourceName = "VDO.Ninja Control Center";
 constexpr const char *kVdoNinjaDocsHomeLink = "https://steveseguin.github.io/ninja-plugin/";
 constexpr const char *kVdoNinjaQuickStartLink = "https://steveseguin.github.io/ninja-plugin/#quick-start";
-constexpr const char *kCompatBackupSection = "VdoNinjaCompatBackup";
-constexpr const char *kCompatBackupServiceType = "service_type";
-constexpr const char *kCompatBackupServer = "server";
-constexpr const char *kCompatBackupKey = "key";
-constexpr const char *kCompatBackupBearerToken = "bearer_token";
 constexpr const char *kVdoNinjaServerDisplayName =
     "wss://wss.vdo.ninja:443 (open Tools -> VDO.Ninja Control Center for stream ID/password/room)";
 
@@ -740,69 +735,6 @@ bool isVdoNinjaService(obs_service_t *service)
 	return serviceType && std::strcmp(serviceType, kVdoNinjaServiceType) == 0;
 }
 
-void setSettingStringIfMissing(obs_data_t *settings, const char *key, const char *value)
-{
-	if (!settings || !key || !*key || !value || !*value) {
-		return;
-	}
-
-	const char *currentValue = obs_data_get_string(settings, key);
-	if (!currentValue || !*currentValue) {
-		obs_data_set_string(settings, key, value);
-	}
-}
-
-void backupCurrentServiceCompatibilityFields(obs_service_t *service)
-{
-	if (!service || isVdoNinjaService(service)) {
-		return;
-	}
-
-	config_t *profileConfig = obs_frontend_get_profile_config();
-	if (!profileConfig) {
-		return;
-	}
-
-	obs_data_t *currentSettings = obs_service_get_settings(service);
-	if (!currentSettings) {
-		return;
-	}
-
-	const char *serviceType = obs_service_get_type(service);
-	config_set_string(profileConfig, kCompatBackupSection, kCompatBackupServiceType, serviceType ? serviceType : "");
-	config_set_string(profileConfig, kCompatBackupSection, kCompatBackupServer,
-	                  obs_data_get_string(currentSettings, "server"));
-	config_set_string(profileConfig, kCompatBackupSection, kCompatBackupKey,
-	                  obs_data_get_string(currentSettings, "key"));
-	config_set_string(profileConfig, kCompatBackupSection, kCompatBackupBearerToken,
-	                  obs_data_get_string(currentSettings, "bearer_token"));
-	config_save(profileConfig);
-	obs_data_release(currentSettings);
-}
-
-void applyBackedUpCompatibilityFields(obs_data_t *settings)
-{
-	if (!settings) {
-		return;
-	}
-
-	config_t *profileConfig = obs_frontend_get_profile_config();
-	if (!profileConfig) {
-		return;
-	}
-
-	const char *serviceType = config_get_string(profileConfig, kCompatBackupSection, kCompatBackupServiceType);
-	if (!serviceType || !*serviceType) {
-		return;
-	}
-
-	setSettingStringIfMissing(settings, "server",
-	                          config_get_string(profileConfig, kCompatBackupSection, kCompatBackupServer));
-	setSettingStringIfMissing(settings, "key", config_get_string(profileConfig, kCompatBackupSection, kCompatBackupKey));
-	setSettingStringIfMissing(settings, "bearer_token",
-	                          config_get_string(profileConfig, kCompatBackupSection, kCompatBackupBearerToken));
-}
-
 void releaseServiceSnapshot(ServiceSnapshot &snapshot)
 {
 	if (snapshot.settings) {
@@ -1320,12 +1252,10 @@ static bool activateVdoNinjaServiceFromSettings(obs_data_t *sourceSettings, bool
 		captureLastNonVdoServiceSnapshot(currentService);
 		clearTemporaryServiceRestoreBackup();
 	}
-	backupCurrentServiceCompatibilityFields(currentService);
 
 	obs_data_t *serviceSettings = obs_data_create();
 	vdoninja_service_defaults(serviceSettings);
 	obs_data_apply(serviceSettings, sourceSettings);
-	applyBackedUpCompatibilityFields(serviceSettings);
 
 	const char *streamId = obs_data_get_string(serviceSettings, "stream_id");
 	if ((!streamId || !*streamId) && generateStreamIdIfMissing) {

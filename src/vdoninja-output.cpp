@@ -556,7 +556,8 @@ void VDONinjaOutput::loadSettings(obs_data_t *settings)
 	if (!keySalt.empty()) {
 		settings_.salt = keySalt;
 	}
-	if (settings_.wssHost.empty() && !serviceServer.empty()) {
+	if (settings_.wssHost.empty() && !serviceServer.empty() &&
+	    (startsWithInsensitive(serviceServer, "wss://") || startsWithInsensitive(serviceServer, "ws://"))) {
 		settings_.wssHost = serviceServer;
 	}
 
