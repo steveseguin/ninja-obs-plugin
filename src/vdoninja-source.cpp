@@ -106,8 +106,15 @@ static obs_properties_t *vdoninja_source_properties(void *)
 	obs_properties_add_int(props, "height", tr("Height", "Height"), 240, 2160, 1);
 
 	obs_properties_t *advanced = obs_properties_create();
-	obs_properties_add_text(advanced, "wss_host", tr("SignalingServer", "Signaling Server"), OBS_TEXT_DEFAULT);
-	obs_properties_add_text(advanced, "salt", tr("Salt", "Salt"), OBS_TEXT_DEFAULT);
+	obs_property_t *wssHost =
+	    obs_properties_add_text(advanced, "wss_host", tr("SignalingServer", "Signaling Server"), OBS_TEXT_DEFAULT);
+	obs_property_set_long_description(
+	    wssHost,
+	    tr("SignalingServer.OptionalHelp",
+	       "Optional. Leave blank to use default signaling server: wss://wss.vdo.ninja:443"));
+	obs_property_t *salt = obs_properties_add_text(advanced, "salt", tr("Salt", "Salt"), OBS_TEXT_DEFAULT);
+	obs_property_set_long_description(
+	    salt, tr("Salt.OptionalHelp", "Optional. Leave blank to use default salt: vdo.ninja"));
 	obs_property_t *iceServers = obs_properties_add_text(
 	    advanced, "custom_ice_servers", tr("CustomICEServers", "Custom STUN/TURN Servers"), OBS_TEXT_DEFAULT);
 	obs_property_text_set_monospace(iceServers, true);
@@ -137,8 +144,8 @@ static void vdoninja_source_defaults(obs_data_t *settings)
 	obs_data_set_default_string(settings, "stream_id", "");
 	obs_data_set_default_string(settings, "room_id", "");
 	obs_data_set_default_string(settings, "password", "");
-	obs_data_set_default_string(settings, "wss_host", DEFAULT_WSS_HOST);
-	obs_data_set_default_string(settings, "salt", DEFAULT_SALT);
+	obs_data_set_default_string(settings, "wss_host", "");
+	obs_data_set_default_string(settings, "salt", "");
 	obs_data_set_default_string(settings, "custom_ice_servers", "");
 	obs_data_set_default_string(
 	    settings, "custom_ice_servers_help",

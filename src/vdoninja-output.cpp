@@ -5,6 +5,7 @@
 
 #include "vdoninja-output.h"
 
+#include <algorithm>
 #include <cctype>
 #include <cstring>
 
@@ -47,6 +48,21 @@ bool startsWithInsensitive(const std::string &value, const char *prefix)
 		}
 	}
 	return true;
+}
+
+bool containsInsensitive(const std::string &value, const char *needle)
+{
+	if (!needle || !*needle) {
+		return false;
+	}
+
+	std::string lowerValue = value;
+	std::string lowerNeedle = needle;
+	std::transform(lowerValue.begin(), lowerValue.end(), lowerValue.begin(),
+	               [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+	std::transform(lowerNeedle.begin(), lowerNeedle.end(), lowerNeedle.begin(),
+	               [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+	return lowerValue.find(lowerNeedle) != std::string::npos;
 }
 
 int hexValue(unsigned char c)
@@ -324,30 +340,6 @@ static obs_properties_t *vdoninja_output_properties(void *)
 	obs_properties_add_bool(props, "enable_data_channel", tr("EnableDataChannel", "Enable Data Channel"));
 	obs_properties_add_bool(props, "auto_reconnect", tr("AutoReconnect", "Auto Reconnect"));
 
-	obs_properties_t *advanced = obs_properties_create();
-	obs_properties_add_text(advanced, "wss_host", tr("SignalingServer", "Signaling Server"), OBS_TEXT_DEFAULT);
-	obs_properties_add_text(advanced, "salt", tr("Salt", "Salt"), OBS_TEXT_DEFAULT);
-	obs_property_t *iceServers = obs_properties_add_text(
-	    advanced, "custom_ice_servers", tr("CustomICEServers", "Custom STUN/TURN Servers"), OBS_TEXT_DEFAULT);
-	obs_property_text_set_monospace(iceServers, true);
-	obs_property_set_long_description(
-	    iceServers, tr("CustomICEServers.Help",
-	                   "Format: one server entry per item. Use ';' to separate multiple entries. "
-	                   "Examples: stun:stun.l.google.com:19302; turn:turn.example.com:3478|user|pass. "
-	                   "Leave empty to use built-in STUN defaults (Google + Cloudflare); no TURN is added automatically."));
-	obs_property_t *iceHelp = obs_properties_add_text(
-	    advanced, "custom_ice_servers_help",
-	    tr("CustomICEServers.Help",
-	       "Format: one server entry per item. Use ';' to separate multiple entries. "
-	       "Examples: stun:stun.l.google.com:19302; turn:turn.example.com:3478|user|pass. "
-	       "Leave empty to use built-in STUN defaults (Google + Cloudflare); no TURN is added automatically."),
-	    OBS_TEXT_INFO);
-	obs_property_text_set_info_type(iceHelp, OBS_TEXT_INFO_NORMAL);
-	obs_property_text_set_info_word_wrap(iceHelp, true);
-	obs_properties_add_bool(advanced, "force_turn", tr("ForceTURN", "Force TURN Relay"));
-	obs_properties_add_group(props, "advanced", tr("AdvancedSettings", "Advanced Settings"), OBS_GROUP_NORMAL,
-	                         advanced);
-
 	obs_properties_add_bool(props, "auto_inbound_enabled", tr("AutoInbound.Enabled", "Auto Manage Inbound Streams"));
 	obs_properties_add_text(props, "auto_inbound_room_id", tr("AutoInbound.RoomID", "Inbound Room ID"),
 	                        OBS_TEXT_DEFAULT);
@@ -375,16 +367,48 @@ static obs_properties_t *vdoninja_output_properties(void *)
 	obs_property_list_add_int(layoutMode, tr("AutoInbound.Layout.Grid", "Grid"),
 	                          static_cast<int>(AutoLayoutMode::Grid));
 
+	obs_properties_t *advanced = obs_properties_create();
+	obs_property_t *wssHost =
+	    obs_properties_add_text(advanced, "wss_host", tr("SignalingServer", "Signaling Server"), OBS_TEXT_DEFAULT);
+	obs_property_set_long_description(
+	    wssHost,
+	    tr("SignalingServer.OptionalHelp",
+	       "Optional. Leave blank to use default signaling server: wss://wss.vdo.ninja:443"));
+	obs_property_t *salt = obs_properties_add_text(advanced, "salt", tr("Salt", "Salt"), OBS_TEXT_DEFAULT);
+	obs_property_set_long_description(
+	    salt, tr("Salt.OptionalHelp", "Optional. Leave blank to use default salt: vdo.ninja"));
+	obs_property_t *iceServers = obs_properties_add_text(
+	    advanced, "custom_ice_servers", tr("CustomICEServers", "Custom STUN/TURN Servers"), OBS_TEXT_DEFAULT);
+	obs_property_text_set_monospace(iceServers, true);
+	obs_property_set_long_description(
+	    iceServers, tr("CustomICEServers.Help",
+	                   "Format: one server entry per item. Use ';' to separate multiple entries. "
+	                   "Examples: stun:stun.l.google.com:19302; turn:turn.example.com:3478|user|pass. "
+	                   "Leave empty to use built-in STUN defaults (Google + Cloudflare); no TURN is added automatically."));
+	obs_property_t *iceHelp = obs_properties_add_text(
+	    advanced, "custom_ice_servers_help",
+	    tr("CustomICEServers.Help",
+	       "Format: one server entry per item. Use ';' to separate multiple entries. "
+	       "Examples: stun:stun.l.google.com:19302; turn:turn.example.com:3478|user|pass. "
+	       "Leave empty to use built-in STUN defaults (Google + Cloudflare); no TURN is added automatically."),
+	    OBS_TEXT_INFO);
+	obs_property_text_set_info_type(iceHelp, OBS_TEXT_INFO_NORMAL);
+	obs_property_text_set_info_word_wrap(iceHelp, true);
+	obs_properties_add_bool(advanced, "force_turn", tr("ForceTURN", "Force TURN Relay"));
+	obs_properties_add_group(props, "advanced", tr("AdvancedSettings", "Advanced Settings"), OBS_GROUP_NORMAL,
+	                         advanced);
+
 	return props;
 }
 
 static void vdoninja_output_defaults(obs_data_t *settings)
 {
-	obs_data_set_default_string(settings, "stream_id", "");
+	const std::string defaultStreamId = generateSessionId();
+	obs_data_set_default_string(settings, "stream_id", defaultStreamId.c_str());
 	obs_data_set_default_string(settings, "room_id", "");
 	obs_data_set_default_string(settings, "password", "");
-	obs_data_set_default_string(settings, "wss_host", DEFAULT_WSS_HOST);
-	obs_data_set_default_string(settings, "salt", DEFAULT_SALT);
+	obs_data_set_default_string(settings, "wss_host", "");
+	obs_data_set_default_string(settings, "salt", "");
 	obs_data_set_default_string(settings, "custom_ice_servers", "");
 	obs_data_set_default_string(
 	    settings, "custom_ice_servers_help",
@@ -790,7 +814,17 @@ void VDONinjaOutput::startThread()
 		}
 	});
 
-	signaling_->setOnError([this](const std::string &error) { logError("Signaling error: %s", error.c_str()); });
+	signaling_->setOnError([this](const std::string &error) {
+		logError("Signaling error: %s", error.c_str());
+		obs_output_set_last_error(output_, error.c_str());
+
+		const bool streamIdConflict =
+		    containsInsensitive(error, "already in use") || containsInsensitive(error, "already claimed");
+		if (streamIdConflict && running_) {
+			logError("Stopping publish due to signaling conflict (stream/room already claimed)");
+			obs_output_signal_stop(output_, OBS_OUTPUT_ERROR);
+		}
+	});
 
 	signaling_->setOnRoomJoined([this](const std::vector<std::string> &members) {
 		if (autoSceneManager_ && settings_.autoInbound.enabled) {

@@ -22,6 +22,7 @@ If either is missing, reinstall and confirm plugin/data paths from `INSTALL.md`.
 1. In `Settings -> Stream`, set service to `VDO.Ninja`.
 2. Keep `Server` at default unless you use a custom signaling host.
 3. Use `Tools -> VDO.Ninja Control Center` for normal setup.
+   - `Signaling Server` and `Salt` are optional; leave blank for defaults.
 4. The `Stream Key` box remains in OBS for compatibility; you can still use it directly with:
    - URL form: `https://vdo.ninja/?push=mytest123&password=secret&room=myroom&salt=vdo.ninja&wss=wss://wss.vdo.ninja:443`
    - Compact form: `mytest123|secret|myroom|vdo.ninja|wss://wss.vdo.ninja:443`
@@ -41,9 +42,9 @@ Viewer link pattern:
 
 ## 3) Ingest a VDO.Ninja stream in OBS
 
-1. `Add Source -> VDO.Ninja Source`
-2. Enter Stream ID (and optional room/password)
-3. Confirm video/audio appears in preview/program
+1. Recommended today: use Browser Source or room-based auto-inbound.
+2. `VDO.Ninja Source` exists, but native ingest is still experimental.
+3. Confirm video/audio appears in preview/program.
 
 ## 4) Recommended first validation pass
 
@@ -54,8 +55,8 @@ Viewer link pattern:
 
 ## 5) Useful advanced options
 
-- `Salt` (default `vdo.ninja`) for compatibility/self-hosting needs
-- Custom signaling WebSocket URL
+- `Salt` (optional; blank uses default `vdo.ninja`) for compatibility/self-hosting needs
+- Custom signaling WebSocket URL (optional; blank uses default `wss://wss.vdo.ninja:443`)
 - Custom STUN/TURN servers (use `;` to separate multiple entries)
 - Force TURN for difficult NAT/network paths (requires a TURN server entry)
 

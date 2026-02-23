@@ -22,6 +22,13 @@
 #include <string>
 #include <vector>
 
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
+
 #include "vdoninja-output.h"
 #include "vdoninja-source.h"
 #include "vdoninja-utils.h"
@@ -52,6 +59,7 @@ struct ControlCenterContext {
 };
 
 obs_source_t *gControlCenterSource = nullptr;
+bool gFrontendCallbackRegistered = false;
 
 constexpr const char *kVdoNinjaRtmpServiceEntry = R"VDOJSON(
         {
@@ -862,7 +870,8 @@ static obs_properties_t *vdoninja_service_properties(void *)
 	    props, "service_hint",
 	    tr("ServiceSetupHint",
 	       "Tip: Use Tools -> VDO.Ninja Control Center for full setup (stream ID, password, room, salt, signaling). "
-	       "VDO.Ninja publishing uses OBS Start Streaming and cannot run in parallel with another stream destination."),
+	       "VDO.Ninja publishing uses OBS Start Streaming and cannot run in parallel with another stream destination. "
+	       "Signaling Server and Salt are optional; leave blank for defaults."),
 	    OBS_TEXT_INFO);
 	obs_property_text_set_info_type(serviceHint, OBS_TEXT_INFO_NORMAL);
 	obs_property_text_set_info_word_wrap(serviceHint, true);
@@ -878,8 +887,15 @@ static obs_properties_t *vdoninja_service_properties(void *)
 	obs_properties_add_int(props, "max_viewers", tr("MaxViewers", "Max Viewers"), 1, 50, 1);
 
 	obs_properties_t *advanced = obs_properties_create();
-	obs_properties_add_text(advanced, "wss_host", tr("SignalingServer", "Signaling Server"), OBS_TEXT_DEFAULT);
-	obs_properties_add_text(advanced, "salt", tr("Salt", "Salt"), OBS_TEXT_DEFAULT);
+	obs_property_t *wssHost =
+	    obs_properties_add_text(advanced, "wss_host", tr("SignalingServer", "Signaling Server"), OBS_TEXT_DEFAULT);
+	obs_property_set_long_description(
+	    wssHost,
+	    tr("SignalingServer.OptionalHelp",
+	       "Optional. Leave blank to use default signaling server: wss://wss.vdo.ninja:443"));
+	obs_property_t *salt = obs_properties_add_text(advanced, "salt", tr("Salt", "Salt"), OBS_TEXT_DEFAULT);
+	obs_property_set_long_description(
+	    salt, tr("Salt.OptionalHelp", "Optional. Leave blank to use default salt: vdo.ninja"));
 	obs_property_t *iceServers = obs_properties_add_text(
 	    advanced, "custom_ice_servers", tr("CustomICEServers", "Custom STUN/TURN Servers"), OBS_TEXT_DEFAULT);
 	obs_property_text_set_monospace(iceServers, true);
@@ -906,15 +922,16 @@ static obs_properties_t *vdoninja_service_properties(void *)
 
 static void vdoninja_service_defaults(obs_data_t *settings)
 {
-	obs_data_set_default_string(settings, "stream_id", "");
+	const std::string defaultStreamId = generateSessionId();
+	obs_data_set_default_string(settings, "stream_id", defaultStreamId.c_str());
 	obs_data_set_default_string(settings, "room_id", "");
 	obs_data_set_default_string(settings, "password", "");
-	obs_data_set_default_string(settings, "wss_host", DEFAULT_WSS_HOST);
+	obs_data_set_default_string(settings, "wss_host", "");
 	obs_data_set_default_string(settings, "service", kVdoCatalogServiceName);
 	obs_data_set_default_string(settings, "server", DEFAULT_WSS_HOST);
 	obs_data_set_default_string(settings, "protocol", "VDO.Ninja");
-	obs_data_set_default_string(settings, "key", "");
-	obs_data_set_default_string(settings, "salt", DEFAULT_SALT);
+	obs_data_set_default_string(settings, "key", defaultStreamId.c_str());
+	obs_data_set_default_string(settings, "salt", "");
 	obs_data_set_default_string(settings, "custom_ice_servers", "");
 	obs_data_set_default_string(
 	    settings, "custom_ice_servers_help",
@@ -1100,6 +1117,57 @@ static std::string formatBytesHuman(uint64_t bytes)
 	return oss.str();
 }
 
+static bool copyTextToClipboard(const std::string &text)
+{
+#ifdef _WIN32
+	if (!OpenClipboard(nullptr)) {
+		return false;
+	}
+
+	EmptyClipboard();
+
+	const int wideLength = MultiByteToWideChar(CP_UTF8, 0, text.c_str(), -1, nullptr, 0);
+	if (wideLength <= 0) {
+		CloseClipboard();
+		return false;
+	}
+
+	const SIZE_T bytes = static_cast<SIZE_T>(wideLength) * sizeof(wchar_t);
+	HGLOBAL memory = GlobalAlloc(GMEM_MOVEABLE, bytes);
+	if (!memory) {
+		CloseClipboard();
+		return false;
+	}
+
+	void *locked = GlobalLock(memory);
+	if (!locked) {
+		GlobalFree(memory);
+		CloseClipboard();
+		return false;
+	}
+
+	const int converted = MultiByteToWideChar(CP_UTF8, 0, text.c_str(), -1, static_cast<wchar_t *>(locked), wideLength);
+	GlobalUnlock(memory);
+	if (converted <= 0) {
+		GlobalFree(memory);
+		CloseClipboard();
+		return false;
+	}
+
+	if (!SetClipboardData(CF_UNICODETEXT, memory)) {
+		GlobalFree(memory);
+		CloseClipboard();
+		return false;
+	}
+
+	CloseClipboard();
+	return true;
+#else
+	UNUSED_PARAMETER(text);
+	return false;
+#endif
+}
+
 static bool activateVdoNinjaServiceFromSettings(obs_data_t *sourceSettings, bool generateStreamIdIfMissing)
 {
 	if (!sourceSettings) {
@@ -1169,6 +1237,7 @@ static void updateControlCenterStatus(obs_data_t *settings, ControlCenterContext
 	const int droppedFrames = obs_output_get_frames_dropped(output);
 	const int totalFrames = obs_output_get_total_frames(output);
 	const float congestion = obs_output_get_congestion(output);
+	const char *lastError = obs_output_get_last_error(output);
 
 	double bitrateKbps = 0.0;
 	if (ctx) {
@@ -1189,6 +1258,9 @@ static void updateControlCenterStatus(obs_data_t *settings, ControlCenterContext
 	status << "Instant bitrate: " << static_cast<int>(bitrateKbps) << " kbps\n";
 	status << "Dropped/total frames: " << droppedFrames << "/" << totalFrames << "\n";
 	status << "Congestion: " << congestion << "\n";
+	if (lastError && *lastError) {
+		status << "Last error: " << lastError << "\n";
+	}
 
 	auto *typedOutput = static_cast<VDONinjaOutput *>(obs_output_get_type_data(output));
 	if (typedOutput) {
@@ -1350,6 +1422,58 @@ static bool controlCenterRefreshClicked(obs_properties_t *, obs_property_t *, vo
 	return true;
 }
 
+static bool controlCenterCopyPushUrlClicked(obs_properties_t *, obs_property_t *, void *data)
+{
+	auto *ctx = static_cast<ControlCenterContext *>(data);
+	if (!ctx || !ctx->source) {
+		return false;
+	}
+
+	obs_data_t *settings = obs_source_get_settings(ctx->source);
+	if (!settings) {
+		return false;
+	}
+
+	const std::string pushUrl = buildPushUrlFromSettings(settings);
+	if (pushUrl.empty()) {
+		updateControlCenterStatus(settings, ctx, "No publish URL available yet. Set Stream ID first.");
+	} else if (copyTextToClipboard(pushUrl)) {
+		updateControlCenterStatus(settings, ctx, "Copied publish URL to clipboard.");
+	} else {
+		updateControlCenterStatus(settings, ctx, "Unable to copy publish URL to clipboard on this platform.");
+	}
+
+	obs_source_update(ctx->source, settings);
+	obs_data_release(settings);
+	return true;
+}
+
+static bool controlCenterCopyViewUrlClicked(obs_properties_t *, obs_property_t *, void *data)
+{
+	auto *ctx = static_cast<ControlCenterContext *>(data);
+	if (!ctx || !ctx->source) {
+		return false;
+	}
+
+	obs_data_t *settings = obs_source_get_settings(ctx->source);
+	if (!settings) {
+		return false;
+	}
+
+	const std::string viewUrl = buildViewUrlFromSettings(settings);
+	if (viewUrl.empty()) {
+		updateControlCenterStatus(settings, ctx, "No viewer URL available yet. Set Stream ID first.");
+	} else if (copyTextToClipboard(viewUrl)) {
+		updateControlCenterStatus(settings, ctx, "Copied viewer URL to clipboard.");
+	} else {
+		updateControlCenterStatus(settings, ctx, "Unable to copy viewer URL to clipboard on this platform.");
+	}
+
+	obs_source_update(ctx->source, settings);
+	obs_data_release(settings);
+	return true;
+}
+
 static const char *vdoninja_control_center_getname(void *)
 {
 	return tr("VDONinjaControlCenter", "VDO.Ninja Control Center");
@@ -1410,38 +1534,15 @@ static obs_properties_t *vdoninja_control_center_properties(void *data)
 	    obs_properties_add_text(props, "password", tr("Password", "Password"), OBS_TEXT_PASSWORD);
 	obs_property_t *maxViewers =
 	    obs_properties_add_int(props, "max_viewers", tr("MaxViewers", "Max Viewers"), 1, 50, 1);
-
-	obs_properties_t *advanced = obs_properties_create();
-	obs_property_t *wssHost = obs_properties_add_text(advanced, "wss_host",
-	                                                  tr("SignalingServer", "Signaling Server"), OBS_TEXT_DEFAULT);
-	obs_property_t *salt = obs_properties_add_text(advanced, "salt", tr("Salt", "Salt"), OBS_TEXT_DEFAULT);
-	obs_property_t *iceServers = obs_properties_add_text(
-	    advanced, "custom_ice_servers", tr("CustomICEServers", "Custom STUN/TURN Servers"), OBS_TEXT_DEFAULT);
-	obs_property_text_set_monospace(iceServers, true);
-	obs_property_set_long_description(
-	    iceServers, tr("CustomICEServers.Help",
-	                   "Format: one server entry per item. Use ';' to separate multiple entries. "
-	                   "Examples: stun:stun.l.google.com:19302; turn:turn.example.com:3478|user|pass. "
-	                   "Leave empty to use built-in STUN defaults (Google + Cloudflare); no TURN is added automatically."));
-	obs_property_t *iceHelp = obs_properties_add_text(
-	    advanced, "custom_ice_servers_help",
-	    tr("CustomICEServers.Help",
-	       "Format: one server entry per item. Use ';' to separate multiple entries. "
-	       "Examples: stun:stun.l.google.com:19302; turn:turn.example.com:3478|user|pass. "
-	       "Leave empty to use built-in STUN defaults (Google + Cloudflare); no TURN is added automatically."),
-	    OBS_TEXT_INFO);
-	obs_property_text_set_info_type(iceHelp, OBS_TEXT_INFO_NORMAL);
-	obs_property_text_set_info_word_wrap(iceHelp, true);
-	obs_property_t *forceTurn =
-	    obs_properties_add_bool(advanced, "force_turn", tr("ForceTURN", "Force TURN Relay"));
-	obs_properties_add_group(props, "advanced", tr("AdvancedSettings", "Advanced Settings"), OBS_GROUP_NORMAL,
-	                         advanced);
+	obs_property_t *wssHost = nullptr;
+	obs_property_t *salt = nullptr;
+	obs_property_t *forceTurn = nullptr;
 
 	obs_property_t *modeNote = obs_properties_add_text(
 	    props, "cc_mode_note",
 	    tr("ControlCenter.ModeNote",
 	       "Publishing uses OBS Start Streaming pipeline. Control Center Start/Stop are shortcuts for OBS Start/Stop Streaming "
-	       "and cannot run in parallel with another stream destination."),
+	       "and cannot run in parallel with another stream destination. Ingest is separate and not auto-created from external push links."),
 	    OBS_TEXT_INFO);
 	obs_property_text_set_info_type(modeNote, OBS_TEXT_INFO_NORMAL);
 	obs_property_text_set_info_word_wrap(modeNote, true);
@@ -1464,8 +1565,14 @@ static obs_properties_t *vdoninja_control_center_properties(void *data)
 
 	obs_property_t *pushUrl =
 	    obs_properties_add_text(props, "cc_push_url", tr("ControlCenter.PushURL", "Publish URL"), OBS_TEXT_INFO);
+	obs_properties_add_button2(props, "cc_copy_push_url",
+	                           tr("ControlCenter.CopyPushURL", "Copy Publish URL"),
+	                           controlCenterCopyPushUrlClicked, ctx);
 	obs_property_t *viewUrl =
 	    obs_properties_add_text(props, "cc_view_url", tr("ControlCenter.ViewURL", "Viewer URL"), OBS_TEXT_INFO);
+	obs_properties_add_button2(props, "cc_copy_view_url",
+	                           tr("ControlCenter.CopyViewURL", "Copy Viewer URL"),
+	                           controlCenterCopyViewUrlClicked, ctx);
 	obs_property_t *status =
 	    obs_properties_add_text(props, "cc_status", tr("ControlCenter.Status", "Runtime Status"), OBS_TEXT_INFO);
 	obs_property_t *peerStats = obs_properties_add_text(
@@ -1475,6 +1582,36 @@ static obs_properties_t *vdoninja_control_center_properties(void *data)
 	obs_property_text_set_info_word_wrap(viewUrl, true);
 	obs_property_text_set_info_word_wrap(status, true);
 	obs_property_text_set_info_word_wrap(peerStats, true);
+
+	obs_properties_t *advanced = obs_properties_create();
+	wssHost = obs_properties_add_text(advanced, "wss_host", tr("SignalingServer", "Signaling Server"), OBS_TEXT_DEFAULT);
+	obs_property_set_long_description(
+	    wssHost,
+	    tr("SignalingServer.OptionalHelp",
+	       "Optional. Leave blank to use default signaling server: wss://wss.vdo.ninja:443"));
+	salt = obs_properties_add_text(advanced, "salt", tr("Salt", "Salt"), OBS_TEXT_DEFAULT);
+	obs_property_set_long_description(
+	    salt, tr("Salt.OptionalHelp", "Optional. Leave blank to use default salt: vdo.ninja"));
+	obs_property_t *iceServers = obs_properties_add_text(
+	    advanced, "custom_ice_servers", tr("CustomICEServers", "Custom STUN/TURN Servers"), OBS_TEXT_DEFAULT);
+	obs_property_text_set_monospace(iceServers, true);
+	obs_property_set_long_description(
+	    iceServers, tr("CustomICEServers.Help",
+	                   "Format: one server entry per item. Use ';' to separate multiple entries. "
+	                   "Examples: stun:stun.l.google.com:19302; turn:turn.example.com:3478|user|pass. "
+	                   "Leave empty to use built-in STUN defaults (Google + Cloudflare); no TURN is added automatically."));
+	obs_property_t *iceHelp = obs_properties_add_text(
+	    advanced, "custom_ice_servers_help",
+	    tr("CustomICEServers.Help",
+	       "Format: one server entry per item. Use ';' to separate multiple entries. "
+	       "Examples: stun:stun.l.google.com:19302; turn:turn.example.com:3478|user|pass. "
+	       "Leave empty to use built-in STUN defaults (Google + Cloudflare); no TURN is added automatically."),
+	    OBS_TEXT_INFO);
+	obs_property_text_set_info_type(iceHelp, OBS_TEXT_INFO_NORMAL);
+	obs_property_text_set_info_word_wrap(iceHelp, true);
+	forceTurn = obs_properties_add_bool(advanced, "force_turn", tr("ForceTURN", "Force TURN Relay"));
+	obs_properties_add_group(props, "advanced", tr("AdvancedSettings", "Advanced Settings"), OBS_GROUP_NORMAL,
+	                         advanced);
 
 	obs_property_set_modified_callback2(streamId, controlCenterFieldModified, ctx);
 	obs_property_set_modified_callback2(roomId, controlCenterFieldModified, ctx);
@@ -1489,18 +1626,19 @@ static obs_properties_t *vdoninja_control_center_properties(void *data)
 
 static void vdoninja_control_center_defaults(obs_data_t *settings)
 {
+	const std::string defaultStreamId = generateSessionId();
 	obs_data_set_default_string(
 	    settings, "cc_intro",
-	    "Manage VDO.Ninja publish settings, apply them to OBS Stream Service, and control publish/stop from one place.");
+	    "Publish-first control center: configure and start VDO.Ninja publishing from OBS. External push links are not auto-ingested.");
 	obs_data_set_default_string(
 	    settings, "cc_mode_note",
 	    "Publishing uses OBS Start Streaming pipeline. Control Center Start/Stop are shortcuts for OBS Start/Stop Streaming "
-	    "and cannot run in parallel with another stream destination.");
-	obs_data_set_default_string(settings, "stream_id", "");
+	    "and cannot run in parallel with another stream destination. Ingest is separate and not auto-created from external push links.");
+	obs_data_set_default_string(settings, "stream_id", defaultStreamId.c_str());
 	obs_data_set_default_string(settings, "room_id", "");
 	obs_data_set_default_string(settings, "password", "");
-	obs_data_set_default_string(settings, "wss_host", DEFAULT_WSS_HOST);
-	obs_data_set_default_string(settings, "salt", DEFAULT_SALT);
+	obs_data_set_default_string(settings, "wss_host", "");
+	obs_data_set_default_string(settings, "salt", "");
 	obs_data_set_default_string(settings, "custom_ice_servers", "");
 	obs_data_set_default_string(
 	    settings, "custom_ice_servers_help",
@@ -1634,6 +1772,7 @@ bool obs_module_load(void)
 
 	// Register frontend callback
 	obs_frontend_add_event_callback(frontend_event_callback, nullptr);
+	gFrontendCallbackRegistered = true;
 
 	logInfo("VDO.Ninja plugin loaded successfully");
 	return true;
@@ -1644,7 +1783,10 @@ void obs_module_unload(void)
 {
 	logInfo("Unloading VDO.Ninja plugin");
 
-	obs_frontend_remove_event_callback(frontend_event_callback, nullptr);
+	if (gFrontendCallbackRegistered) {
+		obs_frontend_remove_event_callback(frontend_event_callback, nullptr);
+		gFrontendCallbackRegistered = false;
+	}
 
 	if (gControlCenterSource) {
 		obs_source_release(gControlCenterSource);

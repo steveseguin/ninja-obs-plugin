@@ -100,6 +100,7 @@ Portable OBS note: if launching from terminal, start `obs64.exe` from `bin\64bit
 2. Service: `VDO.Ninja`
 3. `Server` should stay at default (`wss://wss.vdo.ninja:443`) unless self-hosting.
 4. Use OBS -> `Tools` -> `VDO.Ninja Control Center` for full setup (stream ID, password, room, salt, signaling).
+   - `Signaling Server` and `Salt` are optional; leave blank to use defaults.
 5. `Stream Key` remains visible in OBS for compatibility; if you use it directly, set your stream ID or an advanced envelope:
    - URL: `https://vdo.ninja/?push=<StreamID>&password=<Password>&room=<RoomID>&salt=<Salt>&wss=<WSS_URL>`
    - Compact: `<StreamID>|<Password>|<RoomID>|<Salt>|<WSS_URL>`
@@ -122,16 +123,16 @@ https://vdo.ninja/?view=<StreamID>&password=<Password>
 
 ### 3. Ingest a VDO.Ninja stream in OBS
 
-1. Add Source -> `VDO.Ninja Source`
-2. Enter `Stream ID` (and optional room/password)
-3. For room automation, use auto-inbound options in plugin settings
+1. Recommended today: use Browser Source or room-based auto-inbound.
+2. `VDO.Ninja Source` exists, but native ingest is still experimental.
+3. For room automation, use auto-inbound options in plugin settings.
 
 ## Key Settings
 
 - `Stream ID`: Primary stream identifier.
 - `Password`: Uses VDO.Ninja-compatible hashing behavior.
-- `Salt`: Default `vdo.ninja`; change for self-hosted/domain-specific setups.
-- `Signaling Server`: Default `wss://wss.vdo.ninja`; can be customized.
+- `Salt`: Optional; leave blank for default `vdo.ninja` or set for self-hosted/domain-specific setups.
+- `Signaling Server`: Optional; leave blank for default `wss://wss.vdo.ninja:443` or set custom signaling.
 - `Custom ICE Servers`: Optional custom STUN/TURN list. Use `;` to separate entries.
   - Example: `stun:stun.l.google.com:19302; turn:turn.example.com:3478|user|pass`
 - `Force TURN`: Use relay-only path for difficult network environments. Requires at least one TURN server entry.
