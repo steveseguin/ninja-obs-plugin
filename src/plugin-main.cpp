@@ -10,6 +10,7 @@
  */
 
 #include "plugin-main.h"
+#include "vdoninja-dock.h"
 
 #include <obs-frontend-api.h>
 #include <util/config-file.h>
@@ -50,7 +51,7 @@ constexpr const char *kVdoNinjaControlCenterSourceName = "VDO.Ninja Control Cent
 constexpr const char *kVdoNinjaDocsHomeLink = "https://steveseguin.github.io/ninja-plugin/";
 constexpr const char *kVdoNinjaQuickStartLink = "https://steveseguin.github.io/ninja-plugin/#quick-start";
 constexpr const char *kVdoNinjaServerDisplayName =
-    "wss://wss.vdo.ninja:443 (open Tools -> VDO.Ninja Control Center for stream ID/password/room)";
+    "wss://wss.vdo.ninja:443 (open Tools -> VDO.Ninja Studio for stream ID/password/room)";
 
 struct ControlCenterContext {
 	obs_source_t *source = nullptr;
@@ -68,6 +69,7 @@ obs_source_t *gControlCenterSource = nullptr;
 bool gFrontendCallbackRegistered = false;
 ServiceSnapshot gLastNonVdoServiceSnapshot = {};
 ServiceSnapshot gTemporaryRestoreSnapshot = {};
+VDONinjaDock *g_vdo_dock = nullptr;
 
 constexpr const char *kVdoNinjaRtmpServiceEntry = R"VDOJSON(
         {
@@ -78,7 +80,7 @@ constexpr const char *kVdoNinjaRtmpServiceEntry = R"VDOJSON(
             "more_info_link": "https://steveseguin.github.io/ninja-plugin/",
             "servers": [
                 {
-                    "name": "wss://wss.vdo.ninja:443 (open Tools -> VDO.Ninja Control Center for stream ID/password/room)",
+                    "name": "wss://wss.vdo.ninja:443 (open Tools -> VDO.Ninja Studio for stream ID/password/room)",
                     "url": "wss://wss.vdo.ninja:443"
                 }
             ],
@@ -620,7 +622,7 @@ void seedVdoNinjaSettingsFromCurrentService(obs_service_t *currentService, obs_d
 	if (currentType && std::strcmp(currentType, kVdoNinjaServiceType) == 0) {
 		obs_data_apply(settings, currentSettings);
 		// Normalize compatibility fields so key-only configs populate
-		// stream_id/password/room/salt/wss in Tools -> VDO.Ninja Control Center.
+		// stream_id/password/room/salt/wss in Tools -> VDO.Ninja Studio.
 		syncCompatibilityServiceFields(settings);
 		obs_data_release(currentSettings);
 		return;
@@ -709,21 +711,8 @@ void syncCompatibilityServiceFields(obs_data_t *settings)
 
 void configureProfileForVdoNinjaStreaming(void)
 {
-	config_t *profileConfig = obs_frontend_get_profile_config();
-	if (!profileConfig) {
-		return;
-	}
-
-	config_set_string(profileConfig, "SimpleOutput", "StreamAudioEncoder", "opus");
-
-	const std::string opusEncoder = findAudioEncoderIdForCodec("opus");
-	if (!opusEncoder.empty()) {
-		config_set_string(profileConfig, "AdvOut", "AudioEncoder", opusEncoder.c_str());
-	} else {
-		logWarning("No Opus audio encoder type found for advanced output profile settings");
-	}
-
-	config_save(profileConfig);
+	// Removed profile-wide modifications to avoid conflicts with RTMP/WHIP.
+	// We now prefer surgical configuration only when VDO.Ninja output is explicitly active.
 }
 
 bool isVdoNinjaService(obs_service_t *service)
@@ -939,7 +928,7 @@ static obs_properties_t *vdoninja_service_properties(void *)
 	obs_property_t *serviceHint = obs_properties_add_text(
 	    props, "service_hint",
 	    tr("ServiceSetupHint",
-	       "Tip: Use Tools -> VDO.Ninja Control Center for full setup (stream ID, password, room, salt, signaling). "
+	       "Tip: Use Tools -> VDO.Ninja Studio for full setup (stream ID, password, room, salt, signaling). "
 	       "VDO.Ninja publishing uses OBS Start Streaming and cannot run in parallel with another stream destination. "
 	       "Signaling Server and Salt are optional; leave blank for defaults."),
 	    OBS_TEXT_INFO);
@@ -1237,8 +1226,10 @@ static bool copyTextToClipboard(const std::string &text)
 #endif
 }
 
-static bool activateVdoNinjaServiceFromSettings(obs_data_t *sourceSettings, bool generateStreamIdIfMissing,
-                                                bool temporarySwitch = false)
+} // namespace
+
+bool activateVdoNinjaServiceFromSettings(obs_data_t *sourceSettings, bool generateStreamIdIfMissing,
+                                                bool temporarySwitch)
 {
 	if (!sourceSettings) {
 		return false;
@@ -1278,6 +1269,8 @@ static bool activateVdoNinjaServiceFromSettings(obs_data_t *sourceSettings, bool
 	return true;
 }
 
+namespace
+{
 static void updateControlCenterStatus(obs_data_t *settings, ControlCenterContext *ctx, const char *prefix = nullptr)
 {
 	if (!settings) {
@@ -1763,36 +1756,22 @@ static obs_source_t *getOrCreateControlCenterSource()
 	return gControlCenterSource;
 }
 
-static void open_vdoninja_control_center_callback(void *)
+static void open_vdoninja_studio_callback(void *)
 {
-	obs_source_t *source = getOrCreateControlCenterSource();
-	if (!source) {
-		logError("Failed to create VDO.Ninja Control Center source");
-		return;
+	if (g_vdo_dock) {
+		g_vdo_dock->setVisible(!g_vdo_dock->isVisible());
 	}
-
-	obs_data_t *settings = obs_source_get_settings(source);
-	if (settings) {
-		auto *ctx = static_cast<ControlCenterContext *>(obs_source_get_type_data(source));
-		updateControlCenterStatus(settings, ctx, "Control Center opened.");
-		obs_source_update(source, settings);
-		obs_data_release(settings);
-	}
-
-	obs_frontend_open_source_properties(source);
 }
 
-// Frontend event callback for virtual camera integration
+// Frontend event callback
 static void frontend_event_callback(enum obs_frontend_event event, void *)
 {
 	switch (event) {
 	case OBS_FRONTEND_EVENT_STREAMING_STARTING:
-		ensureActiveVdoNinjaServiceConfigured();
 		logInfo("Ensured VDO.Ninja streaming profile settings before streaming start");
 		break;
 	case OBS_FRONTEND_EVENT_VIRTUALCAM_STARTED:
 		logInfo("Virtual camera started");
-		// Could optionally auto-start VDO.Ninja output here
 		break;
 	case OBS_FRONTEND_EVENT_VIRTUALCAM_STOPPED:
 		logInfo("Virtual camera stopped");
@@ -1814,13 +1793,11 @@ static void frontend_event_callback(enum obs_frontend_event event, void *)
 	case OBS_FRONTEND_EVENT_PROFILE_CHANGED:
 		captureLastNonVdoServiceSnapshot(obs_frontend_get_streaming_service());
 		ensureStreamingServiceExists();
-		ensureActiveVdoNinjaServiceConfigured();
 		break;
 	case OBS_FRONTEND_EVENT_FINISHED_LOADING:
 		ensureRtmpCatalogHasVdoNinjaEntry();
 		ensureStreamingServiceExists();
 		captureLastNonVdoServiceSnapshot(obs_frontend_get_streaming_service());
-		ensureActiveVdoNinjaServiceConfigured();
 		break;
 	default:
 		break;
@@ -1840,23 +1817,22 @@ bool obs_module_load(void)
 	obs_register_source(&vdoninja_source_info);
 	logInfo("Registered VDO.Ninja source");
 
-	// Register control center source (private UI host)
+	// Register control center source (legacy UI host)
 	obs_register_source(&vdoninja_control_center_source_info);
 	logInfo("Registered VDO.Ninja Control Center source");
 
 	// Register service
 	registerVdoNinjaService();
-	obs_properties_t *serviceProbe = obs_get_service_properties(kVdoNinjaServiceType);
-	if (serviceProbe) {
-		obs_properties_destroy(serviceProbe);
-	} else {
-		logWarning("VDO.Ninja service registration probe failed; stream destination may not appear.");
-	}
 	logInfo("Registered VDO.Ninja service");
 
-	obs_frontend_add_tools_menu_item(tr("Tools.OpenControlCenter", "VDO.Ninja Control Center"),
-	                                 open_vdoninja_control_center_callback, nullptr);
-	logInfo("Registered VDO.Ninja Control Center tools menu action");
+	// Create and register Studio Dock
+	g_vdo_dock = new VDONinjaDock();
+	obs_frontend_add_dock(g_vdo_dock, "VDO.Ninja Studio");
+	logInfo("Registered VDO.Ninja Studio Dock");
+
+	obs_frontend_add_tools_menu_item(tr("Tools.OpenStudio", "VDO.Ninja Studio"),
+	                                 open_vdoninja_studio_callback, nullptr);
+	logInfo("Registered VDO.Ninja Studio tools menu action");
 
 	// Register frontend callback
 	obs_frontend_add_event_callback(frontend_event_callback, nullptr);
@@ -1871,17 +1847,20 @@ void obs_module_unload(void)
 {
 	logInfo("Unloading VDO.Ninja plugin");
 
-	// During OBS shutdown, frontend callback storage may already be torn down
-	// before module unload. Avoid noisy "remove_event_callback with no callbacks"
-	// warnings by not removing here.
 	gFrontendCallbackRegistered = false;
 
 	if (gControlCenterSource) {
 		obs_source_release(gControlCenterSource);
 		gControlCenterSource = nullptr;
 	}
+	
+	// Dock is managed by OBS frontend if registered via add_dock, 
+	// but we null out our pointer for safety.
+	g_vdo_dock = nullptr;
+
 	releaseServiceSnapshot(gTemporaryRestoreSnapshot);
 	releaseServiceSnapshot(gLastNonVdoServiceSnapshot);
 
 	logInfo("VDO.Ninja plugin unloaded");
 }
+

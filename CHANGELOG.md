@@ -8,6 +8,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **VDO.Ninja Studio Dock**: A new persistent Qt5-based dockable panel for OBS.
+  - Dedicated fields for Stream ID, Room ID, and Password (no more piped stream keys).
+  - One-click "Go Live" independent of the primary stream button.
+  - "Zero-config" experience with automatic secure Stream ID generation.
+  - Quick-action buttons to copy View and Push links.
+  - Real-time live status, uptime, and viewer telemetry directly in the dock.
+- Independent output management allowing VDO.Ninja to function as a surgical multi-stream destination.
+
+### Fixed
+- **RTMP/WHIP Compatibility**: Fixed bugs where VDO.Ninja would conflict with other streaming services.
+  - Removed aggressive profile-wide overrides that forced the Opus encoder on all services.
+  - Service settings are now applied surgically only when the VDO.Ninja output is active.
+- Rebranded legacy "Control Center" to "VDO.Ninja Studio" for a more professional integration feel.
+
+### Added (Installer)
 - Windows GUI installer (`obs-vdoninja-windows-x64-setup.exe`) via Inno Setup, with:
   - OBS install path detection
   - optional launch OBS / open Quick Start on finish

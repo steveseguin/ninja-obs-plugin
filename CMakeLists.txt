@@ -27,6 +27,9 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 find_package(OpenSSL QUIET)
 find_package(Threads REQUIRED)
 
+# Find Qt5 for the custom dock UI
+find_package(Qt5 COMPONENTS Widgets REQUIRED)
+
 if(DEFINED OBS_SDK_PATH)
     list(PREPEND CMAKE_PREFIX_PATH "${OBS_SDK_PATH}")
     if(EXISTS "${OBS_SDK_PATH}/include/obs/obs-module.h")
@@ -240,6 +243,7 @@ if(BUILD_PLUGIN)
         src/vdoninja-peer-manager.cpp
         src/vdoninja-data-channel.cpp
         src/vdoninja-utils.cpp
+        src/vdoninja-dock.cpp
     )
 
     set(PLUGIN_HEADERS
@@ -254,10 +258,12 @@ if(BUILD_PLUGIN)
         src/vdoninja-peer-manager.h
         src/vdoninja-data-channel.h
         src/vdoninja-utils.h
+        src/vdoninja-dock.h
     )
 
     # Create the plugin library
     add_library(${PROJECT_NAME} MODULE ${PLUGIN_SOURCES} ${PLUGIN_HEADERS})
+    set_target_properties(${PROJECT_NAME} PROPERTIES CMAKE_AUTOMOC ON)
 
     target_include_directories(${PROJECT_NAME} PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/src
@@ -319,6 +325,9 @@ if(BUILD_PLUGIN)
             target_include_directories(${PROJECT_NAME} PRIVATE ${OBS_FRONTEND_INCLUDE_DIRS})
         endif()
     endif()
+
+    # Link Qt5
+    target_link_libraries(${PROJECT_NAME} PRIVATE Qt5::Widgets)
 
     # Link other dependencies
     target_link_libraries(${PROJECT_NAME} PRIVATE Threads::Threads)

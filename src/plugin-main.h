@@ -24,4 +24,7 @@ void obs_module_unload(void);
 
 #ifdef __cplusplus
 }
+
+bool activateVdoNinjaServiceFromSettings(obs_data_t *sourceSettings, bool generateStreamIdIfMissing,
+                                                bool temporarySwitch);
 #endif
