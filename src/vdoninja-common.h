@@ -34,6 +34,7 @@ constexpr const char *DEFAULT_WSS_HOST = "wss://wss.vdo.ninja";
 constexpr const char *DEFAULT_SALT = "vdo.ninja";
 constexpr const char *DEFAULT_PASSWORD = "someEncryptionKey123";
 constexpr int DEFAULT_RECONNECT_ATTEMPTS = 5;
+constexpr int MIN_RECONNECT_INTERVAL_MS = 15 * 60 * 1000;
 constexpr int ICE_CANDIDATE_BUNDLE_DELAY_MS = 70;
 
 // Default STUN servers

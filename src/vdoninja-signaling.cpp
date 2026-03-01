@@ -236,6 +236,10 @@ bool VDONinjaSignaling::connect(const std::string &wssHost)
 		logWarning("Already connected to signaling server");
 		return true;
 	}
+	if (shouldRun_) {
+		logWarning("Signaling connection thread is already running");
+		return connected_;
+	}
 
 	{
 		std::lock_guard<std::mutex> lock(stateMutex_);
@@ -447,7 +451,8 @@ void VDONinjaSignaling::wsThreadFunc()
 			break;
 		}
 
-		int delay = std::min(1000 * (1 << reconnectAttempts), 30000);
+		const int exponentialDelay = std::min(1000 * (1 << reconnectAttempts), 30000);
+		const int delay = std::max(exponentialDelay, MIN_RECONNECT_INTERVAL_MS);
 		logInfo("Reconnecting in %d ms (attempt %d/%d)", delay, reconnectAttempts, maxAttempts);
 
 		// Sleep in small increments so we can respond to shouldRun_ going false

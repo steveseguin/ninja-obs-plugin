@@ -1048,6 +1048,10 @@ void VDONinjaOutput::startThread(OutputSettings settingsSnap)
 		const bool streamIdConflict =
 		    containsInsensitive(error, "already in use") || containsInsensitive(error, "already claimed");
 		if (streamIdConflict && running_) {
+			const std::string conflictMessage =
+			    "Stream ID is already in use. Choose a different Stream ID, then retry Start Streaming.";
+			obs_output_set_last_error(output_, conflictMessage.c_str());
+			signaling_->setAutoReconnect(false, 0);
 			logError("Stopping publish due to signaling conflict (stream/room already claimed)");
 			obs_output_signal_stop(output_, OBS_OUTPUT_ERROR);
 		}
