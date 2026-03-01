@@ -49,6 +49,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Plugin runtime version banner now correctly reports `1.1.15` (`PLUGIN_VERSION` macro alignment).
 
+## [1.1.17] - 2026-03-01
+
+### Fixed
+- Windows release workflow now treats self-signed/private-CA trust warnings during `signtool verify` as non-fatal when Authenticode signature + signer thumbprint checks pass.
+- This unblocks signed installer artifact publication in GitHub releases for private certificates.
+
 ## [1.1.16] - 2026-03-01
 
 ### Fixed

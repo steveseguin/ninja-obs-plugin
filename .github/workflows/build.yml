@@ -653,8 +653,10 @@ jobs:
             $sigStatus = [string]$sig.Status
             if ($sigStatus -eq "Valid") {
               Write-Host "signtool verify failed with policy check, but Authenticode reports a valid signature from expected cert."
+              $global:LASTEXITCODE = 0
             } elseif ($sigStatus -eq "NotTrusted" -or $sigStatus -eq "UnknownError") {
               Write-Warning "Installer is signed by expected cert, but root trust is unavailable on this runner (self-signed/private CA)."
+              $global:LASTEXITCODE = 0
             } else {
               throw "signtool verify failed for installer. Authenticode status: $sigStatus ($($sig.StatusMessage))"
             }
