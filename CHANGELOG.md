@@ -47,7 +47,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Local build artifact hygiene improved (`install/`, setup `.exe`, `_obs-portable/`, temp dirs ignored by git).
 
 ### Fixed
-- Plugin runtime version banner now correctly reports `1.1.14` (`PLUGIN_VERSION` macro alignment).
+- Plugin runtime version banner now correctly reports `1.1.15` (`PLUGIN_VERSION` macro alignment).
 
 ## [1.1.10] - 2026-02-22
 

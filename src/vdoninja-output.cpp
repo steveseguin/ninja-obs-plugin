@@ -252,7 +252,7 @@ const char *connectionTypeToString(ConnectionType type)
 	}
 }
 
-constexpr const char *kPluginInfoVersion = "1.1.0";
+constexpr const char *kPluginInfoVersion = PLUGIN_VERSION;
 constexpr size_t kMaxAudioMixes = 6;
 
 std::string findAudioEncoderIdForCodec(const char *codec)
