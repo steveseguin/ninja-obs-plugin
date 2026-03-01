@@ -49,6 +49,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Plugin runtime version banner now correctly reports `1.1.15` (`PLUGIN_VERSION` macro alignment).
 
+## [1.1.16] - 2026-03-01
+
+### Fixed
+- Publishing now forwards only one selected OBS audio track into the WebRTC output path.
+- Added startup track selection (prefers profile stream track, falls back to first available output audio encoder).
+- Non-selected OBS audio track packets are explicitly dropped to prevent multi-track packet mixing on a single WebRTC audio sender.
+
+### Tested
+- Plugin build: `cmake --build build-plugin --config Release`
+- Unit tests: `ctest --test-dir build --output-on-failure` (306 passed, 0 failed)
+- E2E web tests: `npm test` (3 Playwright scenarios passed)
+- Portable OBS live validation: OBS publish to VDO.Ninja + Playwright viewer stats confirmed inbound audio/video bytes and packets.
+
 ## [1.1.10] - 2026-02-22
 
 ### Added

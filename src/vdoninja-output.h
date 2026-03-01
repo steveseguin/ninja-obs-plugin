@@ -115,6 +115,11 @@ private:
 	mutable std::mutex keyframeCacheMutex_;
 	std::vector<uint8_t> cachedKeyframe_;
 	uint32_t cachedKeyframeTimestamp_ = 0;
+
+	// OBS can provide multiple encoded audio tracks. VDO.Ninja publish uses one
+	// Opus stream, so we forward exactly one selected track index.
+	size_t selectedAudioTrackIdx_ = 0;
+	std::atomic<uint64_t> droppedAudioPacketsOtherTracks_{0};
 };
 
 // OBS output info registration

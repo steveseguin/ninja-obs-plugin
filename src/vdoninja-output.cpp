@@ -11,6 +11,7 @@
 #include <cctype>
 #include <cstring>
 
+#include <util/config-file.h>
 #include <util/dstr.h>
 #include <util/threading.h>
 
@@ -361,6 +362,51 @@ bool validateOpusAudioEncoders(obs_output_t *output, std::string &nonOpusCodec)
 	}
 
 	return true;
+}
+
+size_t getPreferredStreamAudioTrackIndex()
+{
+	config_t *profile = obs_frontend_get_profile_config();
+	if (!profile) {
+		return 0;
+	}
+
+	const char *outputModeRaw = config_get_string(profile, "Output", "Mode");
+	const bool advancedOutput = outputModeRaw && std::strcmp(outputModeRaw, "Advanced") == 0;
+
+	uint64_t oneBasedTrackIndex = 0;
+	if (advancedOutput) {
+		oneBasedTrackIndex = config_get_uint(profile, "AdvOut", "TrackIndex");
+	} else {
+		oneBasedTrackIndex = config_get_uint(profile, "SimpleOutput", "TrackIndex");
+	}
+
+	if (oneBasedTrackIndex == 0 || oneBasedTrackIndex > kMaxAudioMixes) {
+		return 0;
+	}
+
+	return static_cast<size_t>(oneBasedTrackIndex - 1);
+}
+
+size_t resolveOutputAudioTrackIndex(obs_output_t *output)
+{
+	const size_t preferredTrackIdx = getPreferredStreamAudioTrackIndex();
+	if (!output) {
+		return preferredTrackIdx;
+	}
+
+	obs_encoder_t *preferred = obs_output_get_audio_encoder(output, preferredTrackIdx);
+	if (preferred) {
+		return preferredTrackIdx;
+	}
+
+	for (size_t i = 0; i < kMaxAudioMixes; ++i) {
+		if (obs_output_get_audio_encoder(output, i)) {
+			return i;
+		}
+	}
+
+	return preferredTrackIdx;
 }
 
 } // namespace
@@ -947,6 +993,10 @@ bool VDONinjaOutput::start()
 		return false;
 	}
 
+	selectedAudioTrackIdx_ = resolveOutputAudioTrackIndex(output_);
+	droppedAudioPacketsOtherTracks_ = 0;
+	logInfo("Publishing OBS audio track index %zu only", selectedAudioTrackIdx_);
+
 	running_ = true;
 	startTimeMs_ = currentTimeMs();
 	capturing_ = false;
@@ -1303,6 +1353,23 @@ void VDONinjaOutput::processVideoPacket(encoder_packet *packet)
 
 void VDONinjaOutput::processAudioPacket(encoder_packet *packet)
 {
+	if (!packet || !packet->data || packet->size == 0) {
+		return;
+	}
+
+	const size_t packetTrackIdx = static_cast<size_t>(packet->track_idx);
+	if (packetTrackIdx != selectedAudioTrackIdx_) {
+		const uint64_t droppedCount = ++droppedAudioPacketsOtherTracks_;
+		if (droppedCount == 1) {
+			logWarning("Ignoring OBS audio track %zu packet; publishing track %zu only (dropped=%llu)", packetTrackIdx,
+			           selectedAudioTrackIdx_, static_cast<unsigned long long>(droppedCount));
+		} else if ((droppedCount % 500) == 0) {
+			logDebug("Still dropping non-selected OBS audio tracks (selected=%zu, dropped=%llu)", selectedAudioTrackIdx_,
+			         static_cast<unsigned long long>(droppedCount));
+		}
+		return;
+	}
+
 	uint32_t timestamp = static_cast<uint32_t>(packet->pts * 48); // Convert to 48kHz clock
 
 	peerManager_->sendAudioFrame(packet->data, packet->size, timestamp);
