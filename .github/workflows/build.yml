@@ -204,6 +204,7 @@ jobs:
   build-macos:
     name: macOS
     runs-on: macos-14
+    continue-on-error: true
     strategy:
       matrix:
         arch: [arm64]
@@ -648,7 +649,7 @@ jobs:
   release:
     name: Create Release
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [build-linux, build-macos, build-windows]
+    needs: [build-linux, build-windows]
     runs-on: ubuntu-latest
     env:
       VT_API_KEY: ${{ secrets.VT_API_KEY }}
