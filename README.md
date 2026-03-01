@@ -175,6 +175,7 @@ Manual OBS test checklist:
 - `main` pushes run `CI`, `Code Quality`, and `GitHub Pages`.
 - Tag pushes matching `v*` run cross-platform build/release packaging.
 - Current release workflow auto-builds Linux x86_64, Windows x64 ZIP + setup `.exe`, and macOS arm64.
+- Before tagging, sync signing secrets with `powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\sync-release-secrets-windows.ps1`.
 - Optional nightly live internet e2e matrix is in `.github/workflows/live-e2e.yml`.
 
 ## Trust and Security

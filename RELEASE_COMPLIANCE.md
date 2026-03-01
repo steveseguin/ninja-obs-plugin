@@ -14,6 +14,9 @@ Use this checklist before publishing a GitHub release.
 - `THIRD_PARTY_LICENSES.md`
 5. Verify license metadata is consistent:
 - `AGPL-3.0-only` in repository metadata/docs (`README.md`, `CMakeLists.txt`, `package.json`).
+6. Sync release-signing secrets before tagging:
+- Run `scripts/sync-release-secrets-windows.ps1` to set `WIN_SIGN_CERT_B64` and `WIN_CSC_KEY_PASSWORD` from local `code-signing` repo.
+- Confirm `gh secret list --repo steveseguin/ninja-obs-plugin` contains required secrets.
 
 ## Recommended
 
@@ -34,4 +37,8 @@ git push origin vX.Y.Z
 
 ```bash
 git rev-parse --short HEAD
+```
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\sync-release-secrets-windows.ps1
 ```

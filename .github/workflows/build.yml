@@ -407,6 +407,27 @@ jobs:
           Write-Host "=== OBS SDK install tree ==="
           Get-ChildItem -Path "${{ github.workspace }}\obs-sdk" -Recurse | Select-Object -First 100
 
+      - name: Locate Qt CMake package
+        shell: pwsh
+        run: |
+          $searchRoot = "${{ github.workspace }}\obs-studio"
+          $qt6 = Get-ChildItem -Path $searchRoot -Recurse -Filter Qt6Config.cmake -ErrorAction SilentlyContinue | Select-Object -First 1
+          $qt5 = if (-not $qt6) { Get-ChildItem -Path $searchRoot -Recurse -Filter Qt5Config.cmake -ErrorAction SilentlyContinue | Select-Object -First 1 } else { $null }
+
+          if ($qt6) {
+            $qtDir = $qt6.Directory.FullName.Replace('\', '/')
+            "QT_PACKAGE_NAME=Qt6" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+            "QT_PACKAGE_DIR=$qtDir" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+            Write-Host "Using Qt6 package dir: $qtDir"
+          } elseif ($qt5) {
+            $qtDir = $qt5.Directory.FullName.Replace('\', '/')
+            "QT_PACKAGE_NAME=Qt5" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+            "QT_PACKAGE_DIR=$qtDir" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+            Write-Host "Using Qt5 package dir: $qtDir"
+          } else {
+            throw "Could not locate Qt6Config.cmake or Qt5Config.cmake under $searchRoot"
+          }
+
       - name: Build libdatachannel
         run: |
           git clone --depth 1 --branch v0.20.2 https://github.com/paullouisageneau/libdatachannel.git
@@ -492,13 +513,24 @@ jobs:
 
       - name: Configure Plugin
         run: |
+          $qtArg = ""
+          if ($env:QT_PACKAGE_NAME -eq "Qt6" -and $env:QT_PACKAGE_DIR) {
+            $qtArg = "-DQt6_DIR=$env:QT_PACKAGE_DIR"
+          } elseif ($env:QT_PACKAGE_NAME -eq "Qt5" -and $env:QT_PACKAGE_DIR) {
+            $qtArg = "-DQt5_DIR=$env:QT_PACKAGE_DIR"
+          }
+          if (-not $qtArg) {
+            throw "QT_PACKAGE_NAME/QT_PACKAGE_DIR was not set by Locate Qt CMake package step."
+          }
+
           cmake -B build -G Ninja `
             -DCMAKE_BUILD_TYPE=Release `
             -DCMAKE_PREFIX_PATH="${{ github.workspace }}\local-libdatachannel;${{ github.workspace }}\deps;${{ github.workspace }}\obs-sdk" `
             -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT\scripts\buildsystems\vcpkg.cmake" `
             -DVCPKG_TARGET_TRIPLET=x64-windows-static-md `
             -DLibDataChannel_DIR="${{ github.workspace }}\local-libdatachannel" `
-            -DOBS_SDK_PATH="${{ github.workspace }}\obs-sdk"
+            -DOBS_SDK_PATH="${{ github.workspace }}\obs-sdk" `
+            $qtArg
 
       - name: Verify local libdatachannel prefix
         run: |
