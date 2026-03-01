@@ -92,10 +92,10 @@ bool isIceUrl(const std::string &url)
 // UUID Generation
 std::string generateUUID()
 {
-	static std::random_device rd;
-	static std::mt19937 gen(rd());
-	static std::uniform_int_distribution<> dis(0, 15);
-	static std::uniform_int_distribution<> dis2(8, 11);
+	thread_local std::random_device rd;
+	thread_local std::mt19937 gen(rd());
+	thread_local std::uniform_int_distribution<> dis(0, 15);
+	thread_local std::uniform_int_distribution<> dis2(8, 11);
 
 	std::stringstream ss;
 	ss << std::hex;
@@ -123,9 +123,9 @@ std::string generateSessionId()
 {
 	static const char alphanum[] = "0123456789"
 	                               "abcdefghijklmnopqrstuvwxyz";
-	static std::random_device rd;
-	static std::mt19937 gen(rd());
-	static std::uniform_int_distribution<> dis(0, sizeof(alphanum) - 2);
+	thread_local std::random_device rd;
+	thread_local std::mt19937 gen(rd());
+	thread_local std::uniform_int_distribution<> dis(0, sizeof(alphanum) - 2);
 
 	std::string result;
 	result.reserve(8);
@@ -295,6 +295,12 @@ JsonBuilder &JsonBuilder::add(const std::string &key, const char *value)
 }
 
 JsonBuilder &JsonBuilder::add(const std::string &key, int value)
+{
+	entries_.emplace_back(key, std::to_string(value));
+	return *this;
+}
+
+JsonBuilder &JsonBuilder::add(const std::string &key, int64_t value)
 {
 	entries_.emplace_back(key, std::to_string(value));
 	return *this;

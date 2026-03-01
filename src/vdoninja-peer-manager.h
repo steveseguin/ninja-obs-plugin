@@ -67,6 +67,7 @@ public:
 	void stopPublishing();
 	bool isPublishing() const;
 	int getViewerCount() const;
+	int getMaxViewers() const;
 
 	// Send media to all connected peers (viewers)
 	void sendAudioFrame(const uint8_t *data, size_t size, uint32_t timestamp);

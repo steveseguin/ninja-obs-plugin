@@ -5,6 +5,8 @@
 
 #include "vdoninja-data-channel.h"
 
+#include <algorithm>
+#include <cctype>
 #include <initializer_list>
 
 namespace vdoninja
@@ -70,6 +72,30 @@ std::string extractWhepUrlRecursive(const JsonParser &json, int depth)
 	return "";
 }
 
+std::string asciiLower(std::string value)
+{
+	std::transform(value.begin(), value.end(), value.begin(),
+	               [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+	return value;
+}
+
+bool isLegacyRemoteActionValue(const std::string &value)
+{
+	const std::string lowered = asciiLower(value);
+	return lowered == "nextscene" || lowered == "prevscene" || lowered == "setscene" ||
+	       lowered == "setcurrentscene" || lowered == "startstreaming" || lowered == "stopstreaming" ||
+	       lowered == "startrecording" || lowered == "stoprecording" || lowered == "startvirtualcam" ||
+	       lowered == "stopvirtualcam" || lowered == "mute" || lowered == "unmute";
+}
+
+std::string normalizeRemoteAction(std::string action)
+{
+	if (action == "setCurrentScene") {
+		return "setScene";
+	}
+	return action;
+}
+
 } // namespace
 
 VDONinjaDataChannel::VDONinjaDataChannel()
@@ -103,6 +129,10 @@ DataMessage VDONinjaDataChannel::parseMessage(const std::string &rawMessage)
 		} else if (json.hasKey("stats")) {
 			msg.type = DataMessageType::Stats;
 			msg.data = json.getString("stats");
+		} else if (json.hasKey("obsCommand") || json.hasKey("action") ||
+		           (json.hasKey("remote") && (json.hasKey("scene") || json.hasKey("value")))) {
+			msg.type = DataMessageType::RemoteControl;
+			msg.data = rawMessage;
 		} else if (json.hasKey("custom") || json.hasKey("type")) {
 			msg.type = DataMessageType::Custom;
 			msg.data = rawMessage;
@@ -118,7 +148,7 @@ std::string VDONinjaDataChannel::createChatMessage(const std::string &message)
 {
 	JsonBuilder builder;
 	builder.add("chat", message);
-	builder.add("timestamp", static_cast<int>(currentTimeMs()));
+	builder.add("timestamp", currentTimeMs());
 	return builder.build();
 }
 
@@ -157,7 +187,7 @@ std::string VDONinjaDataChannel::createCustomMessage(const std::string &type, co
 	JsonBuilder builder;
 	builder.add("type", type);
 	builder.add("data", data);
-	builder.add("timestamp", static_cast<int>(currentTimeMs()));
+	builder.add("timestamp", currentTimeMs());
 	return builder.build();
 }
 
@@ -183,6 +213,9 @@ void VDONinjaDataChannel::handleMessage(const std::string &senderId, const std::
 			if (onKeyframeRequest_) {
 				onKeyframeRequest_(senderId);
 			}
+			break;
+		case DataMessageType::RemoteControl:
+			parseRemoteControlMessage(senderId, json);
 			break;
 		case DataMessageType::Custom:
 			parseCustomMessage(senderId, json);
@@ -290,6 +323,10 @@ void VDONinjaDataChannel::setOnKeyframeRequest(OnKeyframeRequestCallback callbac
 {
 	onKeyframeRequest_ = callback;
 }
+void VDONinjaDataChannel::setOnRemoteControl(OnRemoteControlCallback callback)
+{
+	onRemoteControl_ = callback;
+}
 
 void VDONinjaDataChannel::setLocalTally(const TallyState &state)
 {
@@ -311,6 +348,58 @@ TallyState VDONinjaDataChannel::getPeerTally(const std::string &peerId) const
 		return it->second;
 	}
 	return TallyState{};
+}
+
+std::map<std::string, TallyState> VDONinjaDataChannel::getAllPeerTallies() const
+{
+	std::lock_guard<std::mutex> lock(mutex_);
+	return peerTallies_;
+}
+
+void VDONinjaDataChannel::parseRemoteControlMessage(const std::string &senderId, const JsonParser &json)
+{
+	std::string action;
+	std::string value;
+
+	if (json.hasKey("obsCommand")) {
+		const std::string commandObject = json.getObject("obsCommand");
+		if (!commandObject.empty()) {
+			JsonParser commandJson(commandObject);
+			action = trim(commandJson.getString("action"));
+			value = trim(commandJson.getString("value"));
+		}
+	}
+
+	if (action.empty() && json.hasKey("action")) {
+		action = trim(json.getString("action"));
+	}
+
+	if (value.empty()) {
+		if (json.hasKey("value")) {
+			value = trim(json.getString("value"));
+		} else if (json.hasKey("scene")) {
+			value = trim(json.getString("scene"));
+		}
+	}
+
+	// Backward compatibility: older payloads used "remote" as the action key.
+	if (action.empty() && json.hasKey("remote")) {
+		const std::string remoteValue = trim(json.getString("remote"));
+		if (isLegacyRemoteActionValue(remoteValue)) {
+			action = remoteValue;
+		}
+	}
+
+	action = normalizeRemoteAction(action);
+	if (action.empty()) {
+		return;
+	}
+
+	logInfo("Remote control from %s: action=%s value=%s", senderId.c_str(), action.c_str(), value.c_str());
+
+	if (onRemoteControl_) {
+		onRemoteControl_(action, value);
+	}
 }
 
 } // namespace vdoninja

@@ -5,6 +5,8 @@
 
 #include <regex>
 #include <set>
+#include <thread>
+#include <vector>
 
 #include <gtest/gtest.h>
 
@@ -77,6 +79,38 @@ TEST_F(SessionIdTest, GeneratesUniqueSessionIds)
 
 	// Allow for some collisions since it's only 8 chars, but should be rare
 	EXPECT_GT(sessionIds.size(), numIds - 10);
+}
+
+// Multi-threaded UUID Generation Test
+TEST_F(UUIDTest, GeneratesUniqueUUIDsAcrossThreads)
+{
+	const int numThreads = 4;
+	const int uuidsPerThread = 250;
+	std::vector<std::thread> threads;
+	std::vector<std::vector<std::string>> results(numThreads);
+
+	for (int t = 0; t < numThreads; t++) {
+		threads.emplace_back([&results, t, uuidsPerThread]() {
+			results[t].reserve(uuidsPerThread);
+			for (int i = 0; i < uuidsPerThread; i++) {
+				results[t].push_back(generateUUID());
+			}
+		});
+	}
+
+	for (auto &thread : threads) {
+		thread.join();
+	}
+
+	std::set<std::string> allUuids;
+	for (const auto &batch : results) {
+		for (const auto &uuid : batch) {
+			allUuids.insert(uuid);
+		}
+	}
+
+	EXPECT_EQ(allUuids.size(), static_cast<size_t>(numThreads * uuidsPerThread))
+	    << "Expected all UUIDs to be unique across threads";
 }
 
 // SHA256 Hashing Tests

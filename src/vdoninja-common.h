@@ -69,7 +69,7 @@ struct PeerInfo {
 	std::string streamId;
 	std::string session;
 	ConnectionType type;
-	ConnectionState state = ConnectionState::New;
+	std::atomic<ConnectionState> state{ConnectionState::New};
 	bool hasDataChannel = false;
 	bool awaitingVideoKeyframe = true;
 	std::shared_ptr<rtc::PeerConnection> pc;
@@ -130,6 +130,7 @@ struct AutoInboundSettings {
 	bool enabled = false;
 	std::string roomId;
 	std::string password;
+	std::string salt = DEFAULT_SALT;
 	std::string targetScene;
 	std::string sourcePrefix = "VDO";
 	std::string baseUrl = "https://vdo.ninja";
@@ -155,6 +156,7 @@ struct OutputSettings {
 	int maxViewers = 10; // Max simultaneous P2P connections
 	std::vector<IceServer> customIceServers;
 	bool forceTurn = false;
+	bool enableRemote = false;
 	AutoInboundSettings autoInbound;
 };
 

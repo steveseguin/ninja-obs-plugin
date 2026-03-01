@@ -47,11 +47,18 @@ public:
 	uint64_t getTotalBytes() const;
 	int getConnectTime() const;
 	int getViewerCount() const;
+	int getMaxViewers() const;
 	bool isRunning() const;
 	bool isConnected() const;
 	int64_t getUptimeMs() const;
 	OutputSettings getSettingsSnapshot() const;
 	std::vector<ViewerRuntimeSnapshot> getViewerSnapshots() const;
+
+	// Tally aggregation across all peers
+	TallyState getAggregatedTally() const;
+
+	// Remote control enabled flag (read from settings)
+	bool isRemoteControlEnabled() const;
 
 	// Update settings
 	void update(obs_data_t *settings);
@@ -61,7 +68,7 @@ private:
 	void loadSettings(obs_data_t *settings);
 
 	// Start/stop thread functions
-	void startThread();
+	void startThread(OutputSettings settingsSnap);
 	void stopThread();
 
 	// Handle encoding
@@ -70,12 +77,16 @@ private:
 	void sendInitialPeerInfo(const std::string &uuid);
 	void primeViewerWithCachedKeyframe(const std::string &uuid);
 	std::string buildInitialInfoMessage() const;
+	std::string buildObsStateMessage() const;
+	void sendObsStateToPeer(const std::string &uuid);
+	void queueObsStateToPeer(const std::string &uuid);
 
 	// OBS output handle
 	obs_output_t *output_;
 
-	// Settings
+	// Settings (protected by settingsMutex_)
 	OutputSettings settings_;
+	mutable std::mutex settingsMutex_;
 
 	// Components
 	std::unique_ptr<VDONinjaSignaling> signaling_;
@@ -92,14 +103,8 @@ private:
 
 	// Statistics
 	std::atomic<uint64_t> totalBytes_{0};
-	int64_t connectTimeMs_ = 0;
-	int64_t startTimeMs_ = 0;
-
-	// Encoder info
-	video_t *video_ = nullptr;
-	audio_t *audio_ = nullptr;
-	const char *videoCodecName_ = nullptr;
-	const char *audioCodecName_ = nullptr;
+	std::atomic<int64_t> connectTimeMs_{0};
+	std::atomic<int64_t> startTimeMs_{0};
 
 	// Data-channel telemetry cache (per peer)
 	mutable std::mutex telemetryMutex_;

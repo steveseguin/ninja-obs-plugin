@@ -36,6 +36,7 @@ public:
 	JsonBuilder &add(const std::string &key, const std::string &value);
 	JsonBuilder &add(const std::string &key, const char *value);
 	JsonBuilder &add(const std::string &key, int value);
+	JsonBuilder &add(const std::string &key, int64_t value);
 	JsonBuilder &add(const std::string &key, bool value);
 	JsonBuilder &addRaw(const std::string &key, const std::string &rawJson);
 	std::string build() const;

@@ -111,6 +111,24 @@ TEST_F(JsonBuilderTest, ChainsMultipleAdds)
 	EXPECT_NE(result.find("\"c\":true"), std::string::npos);
 }
 
+TEST_F(JsonBuilderTest, BuildsInt64Value)
+{
+	int64_t largeTimestamp = 1709136000000LL;
+	builder.add("timestamp", largeTimestamp);
+	EXPECT_EQ(builder.build(), "{\"timestamp\":1709136000000}");
+}
+
+TEST_F(JsonBuilderTest, Int64RoundTrip)
+{
+	int64_t value = 9007199254740992LL; // 2^53
+	builder.add("big", value);
+
+	JsonParser parser(builder.build());
+	// Parser returns string for large numbers; verify it's present in output
+	std::string raw = parser.getRaw("big");
+	EXPECT_EQ(raw, "9007199254740992");
+}
+
 // JsonParser Tests
 class JsonParserTest : public ::testing::Test
 {

@@ -300,6 +300,18 @@ void VDONinjaSource::disconnect()
 			signaling_->leaveRoom();
 		}
 		signaling_->disconnect();
+
+		// Clear signaling callbacks that capture `this`
+		signaling_->setOnConnected(nullptr);
+		signaling_->setOnDisconnected(nullptr);
+		signaling_->setOnError(nullptr);
+		signaling_->setOnStreamAdded(nullptr);
+	}
+
+	if (peerManager_) {
+		peerManager_->setOnPeerConnected(nullptr);
+		peerManager_->setOnPeerDisconnected(nullptr);
+		peerManager_->setOnTrack(nullptr);
 	}
 
 	if (connectionThread_.joinable()) {

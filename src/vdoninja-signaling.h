@@ -102,16 +102,13 @@ private:
 	void handleRequest(const ParsedSignalMessage &message);
 	std::string getActiveSignalingPassword() const;
 
-	// Reconnection logic
-	void attemptReconnect();
-
 	// Internal state
 	std::string wssHost_;
 	std::string salt_ = DEFAULT_SALT;
 	std::string defaultPassword_ = DEFAULT_PASSWORD;
 	std::string localUUID_;
 
-	// Room state
+	// Room state (protected by stateMutex_)
 	RoomInfo currentRoom_;
 	StreamInfo publishedStream_;
 	std::map<std::string, StreamInfo> viewingStreams_;
@@ -119,8 +116,10 @@ private:
 	// Connection state
 	std::atomic<bool> connected_{false};
 	std::atomic<bool> shouldRun_{false};
+	std::atomic<bool> needsReconnect_{false};
+
+	// Config (protected by stateMutex_)
 	bool autoReconnect_ = true;
-	int reconnectAttempts_ = 0;
 	int maxReconnectAttempts_ = DEFAULT_RECONNECT_ATTEMPTS;
 
 	// Threading
@@ -129,10 +128,17 @@ private:
 	std::queue<std::string> sendQueue_;
 	std::condition_variable sendCv_;
 
-	// WebSocket handle (platform-specific, abstracted)
+	// WebSocket handle (protected by handleMutex_)
 	void *wsHandle_ = nullptr;
+	std::mutex handleMutex_;
 
-	// Callbacks
+	// Protects room/stream/config state
+	mutable std::mutex stateMutex_;
+
+	// Protects all callback members
+	mutable std::mutex callbackMutex_;
+
+	// Callbacks (protected by callbackMutex_)
 	OnConnectedCallback onConnected_;
 	OnDisconnectedCallback onDisconnected_;
 	OnErrorCallback onError_;

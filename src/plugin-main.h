@@ -13,10 +13,6 @@
 extern "C" {
 #endif
 
-// Plugin module functions
-OBS_DECLARE_MODULE()
-OBS_MODULE_USE_DEFAULT_LOCALE("obs-vdoninja", "en")
-
 const char *obs_module_name(void);
 const char *obs_module_description(void);
 bool obs_module_load(void);
@@ -27,4 +23,10 @@ void obs_module_unload(void);
 
 bool activateVdoNinjaServiceFromSettings(obs_data_t *sourceSettings, bool generateStreamIdIfMissing,
                                                 bool temporarySwitch);
+
+// Forward chat messages from output thread to dock (must be called on UI thread)
+void vdo_dock_show_chat(const char *sender, const char *message);
+
+// Handle remote control actions from data channel (must be called on UI thread)
+void vdo_handle_remote_control(const char *action, const char *value);
 #endif

@@ -9,9 +9,11 @@
 #include <cctype>
 #include <cstring>
 
+#include <obs-frontend-api.h>
 #include <util/dstr.h>
 #include <util/threading.h>
 
+#include "plugin-main.h"
 #include "vdoninja-utils.h"
 
 namespace vdoninja
@@ -581,9 +583,13 @@ void VDONinjaOutput::loadSettings(obs_data_t *settings)
 	}
 	settings_.quality.bitrate = getIntSetting("bitrate", 4000) * 1000;
 	settings_.maxViewers = getIntSetting("max_viewers", 10);
+	if (settings_.maxViewers <= 0) {
+		settings_.maxViewers = 10;
+	}
 	settings_.enableDataChannel = getBoolSetting("enable_data_channel", true);
 	settings_.autoReconnect = getBoolSetting("auto_reconnect", true);
 	settings_.forceTurn = getBoolSetting("force_turn", false);
+	settings_.enableRemote = getBoolSetting("enable_remote", false);
 
 	settings_.autoInbound.enabled = getBoolSetting("auto_inbound_enabled", false);
 	settings_.autoInbound.roomId = getStringSetting("auto_inbound_room_id");
@@ -607,6 +613,11 @@ void VDONinjaOutput::loadSettings(obs_data_t *settings)
 	if (settings_.autoInbound.password.empty()) {
 		settings_.autoInbound.password = settings_.password;
 	}
+	// Pass salt and room to auto-inbound for URL building
+	settings_.autoInbound.salt = settings_.salt;
+	if (settings_.autoInbound.roomId.empty()) {
+		settings_.autoInbound.roomId = settings_.roomId;
+	}
 
 	if (serviceSettings) {
 		obs_data_release(serviceSettings);
@@ -615,23 +626,31 @@ void VDONinjaOutput::loadSettings(obs_data_t *settings)
 
 void VDONinjaOutput::update(obs_data_t *settings)
 {
+	std::lock_guard<std::mutex> lock(settingsMutex_);
 	loadSettings(settings);
 }
 
 std::string VDONinjaOutput::buildInitialInfoMessage() const
 {
+	OutputSettings snap;
+	{
+		std::lock_guard<std::mutex> lock(settingsMutex_);
+		snap = settings_;
+	}
+
 	JsonBuilder info;
-	info.add("label", settings_.streamId);
+	info.add("label", snap.streamId);
 	info.add("version", kPluginInfoVersion);
-	info.add("obs_control", false);
+	info.add("remote", snap.enableRemote);
+	info.add("obs_control", snap.enableRemote);
 	info.add("proaudio_init", false);
 	info.add("recording_audio_pipeline", true);
 	info.add("playback_audio_pipeline", true);
 	info.add("playback_audio_volume_meter", true);
-	info.add("codec_url", codecToUrlValue(settings_.videoCodec));
+	info.add("codec_url", codecToUrlValue(snap.videoCodec));
 	info.add("audio_codec_url", "opus");
-	info.add("vb_url", settings_.quality.bitrate / 1000);
-	info.add("maxviewers_url", settings_.maxViewers);
+	info.add("vb_url", snap.quality.bitrate / 1000);
+	info.add("maxviewers_url", snap.maxViewers);
 
 	obs_video_info videoInfo = {};
 	if (obs_get_video_info(&videoInfo)) {
@@ -662,7 +681,104 @@ std::string VDONinjaOutput::buildInitialInfoMessage() const
 
 	JsonBuilder payload;
 	payload.addRaw("info", info.build());
+	if (snap.enableRemote) {
+		payload.add("remote", true);
+	}
 	return payload.build();
+}
+
+std::string VDONinjaOutput::buildObsStateMessage() const
+{
+	// Build obsState.details matching VDO.Ninja's browser dock format.
+	// The viewer needs controlLevel >= 4 to show remote control buttons.
+	// controlLevel 5 = ALL (full control).
+	JsonBuilder details;
+	details.add("controlLevel", 5);
+
+	// Include current scene and scene list so the viewer can show scene buttons
+	obs_source_t *currentScene = obs_frontend_get_current_scene();
+	if (currentScene) {
+		const char *sceneName = obs_source_get_name(currentScene);
+		JsonBuilder currentSceneObj;
+		currentSceneObj.add("name", sceneName ? sceneName : "");
+		details.addRaw("currentScene", currentSceneObj.build());
+		obs_source_release(currentScene);
+	}
+
+	struct obs_frontend_source_list sceneList = {};
+	obs_frontend_get_scenes(&sceneList);
+	std::string scenesArray = "[";
+	for (size_t i = 0; i < sceneList.sources.num; i++) {
+		const char *name = obs_source_get_name(sceneList.sources.array[i]);
+		if (i > 0) scenesArray += ",";
+		// JSON-escape the scene name
+		std::string nameStr = name ? name : "";
+		std::string escaped = "\"";
+		for (char c : nameStr) {
+			if (c == '"') escaped += "\\\"";
+			else if (c == '\\') escaped += "\\\\";
+			else escaped += c;
+		}
+		escaped += "\"";
+		scenesArray += escaped;
+	}
+	scenesArray += "]";
+	obs_frontend_source_list_free(&sceneList);
+	details.addRaw("scenes", scenesArray);
+
+	JsonBuilder obsState;
+	// Mirror the OBS browser-dock obsState shape so guest tally/remote UI works.
+	obsState.add("visibility", true);
+	obsState.add("sourceActive", true);
+	obsState.add("streaming", obs_frontend_streaming_active());
+	obsState.add("recording", obs_frontend_recording_active());
+	obsState.add("virtualcam", obs_frontend_virtualcam_active());
+	obsState.addRaw("details", details.build());
+
+	JsonBuilder msg;
+	msg.addRaw("obsState", obsState.build());
+	return msg.build();
+}
+
+void VDONinjaOutput::sendObsStateToPeer(const std::string &uuid)
+{
+	if (!peerManager_ || uuid.empty()) {
+		return;
+	}
+
+	OutputSettings snap;
+	{
+		std::lock_guard<std::mutex> lock(settingsMutex_);
+		snap = settings_;
+	}
+	if (!snap.enableRemote) {
+		return;
+	}
+
+	peerManager_->sendDataToPeer(uuid, buildObsStateMessage());
+}
+
+void VDONinjaOutput::queueObsStateToPeer(const std::string &uuid)
+{
+	if (uuid.empty()) {
+		return;
+	}
+
+	struct ObsStateTaskData {
+		VDONinjaOutput *self;
+		std::string uuid;
+	};
+
+	auto *task = new ObsStateTaskData{this, uuid};
+	obs_queue_task(OBS_TASK_UI,
+	               [](void *param) {
+		               std::unique_ptr<ObsStateTaskData> data(static_cast<ObsStateTaskData *>(param));
+		               if (!data || !data->self) {
+			               return;
+		               }
+		               data->self->sendObsStateToPeer(data->uuid);
+	               },
+	               task, false);
 }
 
 void VDONinjaOutput::sendInitialPeerInfo(const std::string &uuid)
@@ -672,6 +788,8 @@ void VDONinjaOutput::sendInitialPeerInfo(const std::string &uuid)
 	}
 
 	peerManager_->sendDataToPeer(uuid, buildInitialInfoMessage());
+	// Build/send OBS state from UI thread (OBS frontend APIs are UI-affine).
+	queueObsStateToPeer(uuid);
 }
 
 void VDONinjaOutput::primeViewerWithCachedKeyframe(const std::string &uuid)
@@ -733,6 +851,8 @@ bool VDONinjaOutput::start()
 	running_ = true;
 	startTimeMs_ = currentTimeMs();
 	capturing_ = false;
+	totalBytes_ = 0;
+	connected_ = false;
 	{
 		std::lock_guard<std::mutex> lock(keyframeCacheMutex_);
 		cachedKeyframe_.clear();
@@ -743,44 +863,51 @@ bool VDONinjaOutput::start()
 		startStopThread_.join();
 	}
 
-	startStopThread_ = std::thread(&VDONinjaOutput::startThread, this);
+	// Snapshot settings under lock for the start thread
+	OutputSettings settingsSnap;
+	{
+		std::lock_guard<std::mutex> lock(settingsMutex_);
+		settingsSnap = settings_;
+	}
+
+	startStopThread_ = std::thread(&VDONinjaOutput::startThread, this, settingsSnap);
 
 	return true;
 }
 
-void VDONinjaOutput::startThread()
+void VDONinjaOutput::startThread(OutputSettings settingsSnap)
 {
 	logInfo("Starting VDO.Ninja output...");
 
 	// Initialize peer manager
 	peerManager_->initialize(signaling_.get());
-	peerManager_->setVideoCodec(settings_.videoCodec);
-	peerManager_->setAudioCodec(settings_.audioCodec);
-	peerManager_->setBitrate(settings_.quality.bitrate);
-	peerManager_->setEnableDataChannel(settings_.enableDataChannel);
-	peerManager_->setIceServers(settings_.customIceServers);
-	peerManager_->setForceTurn(settings_.forceTurn);
-	signaling_->setSalt(settings_.salt);
+	peerManager_->setVideoCodec(settingsSnap.videoCodec);
+	peerManager_->setAudioCodec(settingsSnap.audioCodec);
+	peerManager_->setBitrate(settingsSnap.quality.bitrate);
+	peerManager_->setEnableDataChannel(settingsSnap.enableDataChannel);
+	peerManager_->setIceServers(settingsSnap.customIceServers);
+	peerManager_->setForceTurn(settingsSnap.forceTurn);
+	signaling_->setSalt(settingsSnap.salt);
 
 	if (autoSceneManager_) {
-		autoSceneManager_->configure(settings_.autoInbound);
-		std::vector<std::string> ownIds = {settings_.streamId,
-		                                   hashStreamId(settings_.streamId, settings_.password, settings_.salt),
-		                                   hashStreamId(settings_.streamId, DEFAULT_PASSWORD, settings_.salt)};
+		autoSceneManager_->configure(settingsSnap.autoInbound);
+		std::vector<std::string> ownIds = {settingsSnap.streamId,
+		                                   hashStreamId(settingsSnap.streamId, settingsSnap.password, settingsSnap.salt),
+		                                   hashStreamId(settingsSnap.streamId, DEFAULT_PASSWORD, settingsSnap.salt)};
 		autoSceneManager_->setOwnStreamIds(ownIds);
-		if (settings_.autoInbound.enabled) {
+		if (settingsSnap.autoInbound.enabled) {
 			autoSceneManager_->start();
 		}
 	}
 
 	// Set up callbacks
-	signaling_->setOnConnected([this]() {
+	signaling_->setOnConnected([this, settingsSnap]() {
 		logInfo("Connected to signaling server");
 
 		const std::string roomToJoin =
-		    !settings_.autoInbound.roomId.empty() ? settings_.autoInbound.roomId : settings_.roomId;
+		    !settingsSnap.autoInbound.roomId.empty() ? settingsSnap.autoInbound.roomId : settingsSnap.roomId;
 		const std::string roomPassword =
-		    !settings_.autoInbound.password.empty() ? settings_.autoInbound.password : settings_.password;
+		    !settingsSnap.autoInbound.password.empty() ? settingsSnap.autoInbound.password : settingsSnap.password;
 
 		// Join room for inbound orchestration and/or publishing presence.
 		if (!roomToJoin.empty()) {
@@ -788,8 +915,8 @@ void VDONinjaOutput::startThread()
 		}
 
 		// Start publishing
-		signaling_->publishStream(settings_.streamId, settings_.password);
-		peerManager_->startPublishing(settings_.maxViewers);
+		signaling_->publishStream(settingsSnap.streamId, settingsSnap.password);
+		peerManager_->startPublishing(settingsSnap.maxViewers);
 
 		connected_ = true;
 		connectTimeMs_ = currentTimeMs() - startTimeMs_;
@@ -806,11 +933,11 @@ void VDONinjaOutput::startThread()
 		}
 	});
 
-	signaling_->setOnDisconnected([this]() {
+	signaling_->setOnDisconnected([this, settingsSnap]() {
 		logInfo("Disconnected from signaling server");
 		connected_ = false;
 
-		if (running_ && settings_.autoReconnect) {
+		if (running_ && settingsSnap.autoReconnect) {
 			logInfo("Will attempt to reconnect...");
 		}
 	});
@@ -827,20 +954,20 @@ void VDONinjaOutput::startThread()
 		}
 	});
 
-	signaling_->setOnRoomJoined([this](const std::vector<std::string> &members) {
-		if (autoSceneManager_ && settings_.autoInbound.enabled) {
+	signaling_->setOnRoomJoined([this, settingsSnap](const std::vector<std::string> &members) {
+		if (autoSceneManager_ && settingsSnap.autoInbound.enabled) {
 			autoSceneManager_->onRoomListing(members);
 		}
 	});
 
-	signaling_->setOnStreamAdded([this](const std::string &streamId, const std::string &) {
-		if (autoSceneManager_ && settings_.autoInbound.enabled) {
+	signaling_->setOnStreamAdded([this, settingsSnap](const std::string &streamId, const std::string &) {
+		if (autoSceneManager_ && settingsSnap.autoInbound.enabled) {
 			autoSceneManager_->onStreamAdded(streamId);
 		}
 	});
 
-	signaling_->setOnStreamRemoved([this](const std::string &streamId, const std::string &) {
-		if (autoSceneManager_ && settings_.autoInbound.enabled) {
+	signaling_->setOnStreamRemoved([this, settingsSnap](const std::string &streamId, const std::string &) {
+		if (autoSceneManager_ && settingsSnap.autoInbound.enabled) {
 			autoSceneManager_->onStreamRemoved(streamId);
 		}
 	});
@@ -862,7 +989,9 @@ void VDONinjaOutput::startThread()
 	peerManager_->setOnDataChannel(
 	    [this](const std::string &uuid, std::shared_ptr<rtc::DataChannel>) { sendInitialPeerInfo(uuid); });
 
-	peerManager_->setOnDataChannelMessage([this](const std::string &uuid, const std::string &message) {
+	peerManager_->setOnDataChannelMessage([this, settingsSnap](const std::string &uuid, const std::string &message) {
+		dataChannel_.handleMessage(uuid, message);
+
 		const DataMessage parsed = dataChannel_.parseMessage(message);
 		if (parsed.type == DataMessageType::RequestKeyframe) {
 			logInfo("Viewer %s requested keyframe over data channel", uuid.c_str());
@@ -875,7 +1004,22 @@ void VDONinjaOutput::startThread()
 			lastPeerStatsTimestampMs_[uuid] = currentTimeMs();
 		}
 
-		if (autoSceneManager_ && settings_.autoInbound.enabled) {
+		if (settingsSnap.enableRemote) {
+			bool wantsObsState = parsed.type == DataMessageType::RemoteControl;
+			try {
+				JsonParser json(message);
+				if (json.hasKey("getOBSState") && json.getBool("getOBSState")) {
+					wantsObsState = true;
+				}
+			} catch (const std::exception &) {
+			}
+
+			if (wantsObsState) {
+				queueObsStateToPeer(uuid);
+			}
+		}
+
+		if (autoSceneManager_ && settingsSnap.autoInbound.enabled) {
 			const std::string whepUrl = dataChannel_.extractWhepPlaybackUrl(message);
 			if (!whepUrl.empty()) {
 				logInfo("Discovered WHEP playback URL from %s", uuid.c_str());
@@ -884,11 +1028,41 @@ void VDONinjaOutput::startThread()
 		}
 	});
 
+	// Set up chat callback to forward to dock
+	dataChannel_.setOnChatMessage([](const std::string &senderId, const std::string &message) {
+		struct ChatData {
+			std::string sender;
+			std::string message;
+		};
+		auto *data = new ChatData{senderId, message};
+		obs_queue_task(OBS_TASK_UI, [](void *param) {
+			auto *cd = static_cast<ChatData *>(param);
+			vdo_dock_show_chat(cd->sender.c_str(), cd->message.c_str());
+			delete cd;
+		}, data, false);
+	});
+
+	// Set up remote control callback
+	if (settingsSnap.enableRemote) {
+		dataChannel_.setOnRemoteControl([](const std::string &action, const std::string &value) {
+			struct RemoteData {
+				std::string action;
+				std::string value;
+			};
+			auto *data = new RemoteData{action, value};
+			obs_queue_task(OBS_TASK_UI, [](void *param) {
+				auto *rd = static_cast<RemoteData *>(param);
+				vdo_handle_remote_control(rd->action.c_str(), rd->value.c_str());
+				delete rd;
+			}, data, false);
+		});
+	}
+
 	// Configure reconnection
-	signaling_->setAutoReconnect(settings_.autoReconnect, DEFAULT_RECONNECT_ATTEMPTS);
+	signaling_->setAutoReconnect(settingsSnap.autoReconnect, DEFAULT_RECONNECT_ATTEMPTS);
 
 	// Connect to signaling server
-	if (!signaling_->connect(settings_.wssHost)) {
+	if (!signaling_->connect(settingsSnap.wssHost)) {
 		logError("Failed to connect to signaling server");
 		if (autoSceneManager_) {
 			autoSceneManager_->stop();
@@ -912,6 +1086,11 @@ void VDONinjaOutput::stop()
 	const bool wasRunning = running_.exchange(false);
 	const bool wasCapturing = capturing_.load();
 	if (!wasRunning && !wasCapturing) {
+		// Still join the thread in case startThread failed and set running_=false
+		// but is still cleaning up.
+		if (startStopThread_.joinable()) {
+			startStopThread_.join();
+		}
 		stopping_ = false;
 		return;
 	}
@@ -923,6 +1102,26 @@ void VDONinjaOutput::stop()
 	if (autoSceneManager_) {
 		autoSceneManager_->stop();
 	}
+
+	// Clear all callbacks before disconnect to prevent dangling `this` captures
+	// from firing during teardown. This includes peer manager's signaling callbacks.
+	signaling_->setOnConnected(nullptr);
+	signaling_->setOnDisconnected(nullptr);
+	signaling_->setOnError(nullptr);
+	signaling_->setOnRoomJoined(nullptr);
+	signaling_->setOnStreamAdded(nullptr);
+	signaling_->setOnStreamRemoved(nullptr);
+	signaling_->setOnOffer(nullptr);
+	signaling_->setOnAnswer(nullptr);
+	signaling_->setOnOfferRequest(nullptr);
+	signaling_->setOnIceCandidate(nullptr);
+	peerManager_->setOnPeerConnected(nullptr);
+	peerManager_->setOnPeerDisconnected(nullptr);
+	peerManager_->setOnDataChannel(nullptr);
+	peerManager_->setOnDataChannelMessage(nullptr);
+	dataChannel_.setOnChatMessage(nullptr);
+	dataChannel_.setOnRemoteControl(nullptr);
+	dataChannel_.setOnTallyChange(nullptr);
 
 	// Stop publishing
 	peerManager_->stopPublishing();
@@ -1015,6 +1214,32 @@ int VDONinjaOutput::getViewerCount() const
 	return peerManager_ ? peerManager_->getViewerCount() : 0;
 }
 
+int VDONinjaOutput::getMaxViewers() const
+{
+	return peerManager_ ? peerManager_->getMaxViewers() : 0;
+}
+
+TallyState VDONinjaOutput::getAggregatedTally() const
+{
+	TallyState aggregated;
+	auto tallies = dataChannel_.getAllPeerTallies();
+	for (const auto &pair : tallies) {
+		if (pair.second.program) {
+			aggregated.program = true;
+		}
+		if (pair.second.preview) {
+			aggregated.preview = true;
+		}
+	}
+	return aggregated;
+}
+
+bool VDONinjaOutput::isRemoteControlEnabled() const
+{
+	std::lock_guard<std::mutex> lock(settingsMutex_);
+	return settings_.enableRemote;
+}
+
 bool VDONinjaOutput::isRunning() const
 {
 	return running_;
@@ -1037,6 +1262,7 @@ int64_t VDONinjaOutput::getUptimeMs() const
 
 OutputSettings VDONinjaOutput::getSettingsSnapshot() const
 {
+	std::lock_guard<std::mutex> lock(settingsMutex_);
 	return settings_;
 }
 

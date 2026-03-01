@@ -21,6 +21,9 @@ VDONinjaPeerManager::VDONinjaPeerManager()
 
 	audioSsrc_ = dis(gen);
 	videoSsrc_ = dis(gen);
+	while (videoSsrc_ == audioSsrc_) {
+		videoSsrc_ = dis(gen);
+	}
 
 	logInfo("Peer manager created with audio SSRC: %u, video SSRC: %u", audioSsrc_, videoSsrc_);
 }
@@ -28,6 +31,21 @@ VDONinjaPeerManager::VDONinjaPeerManager()
 VDONinjaPeerManager::~VDONinjaPeerManager()
 {
 	stopPublishing();
+
+	// Clear signaling callbacks that capture `this`
+	if (signaling_) {
+		signaling_->setOnOffer(nullptr);
+		signaling_->setOnAnswer(nullptr);
+		signaling_->setOnOfferRequest(nullptr);
+		signaling_->setOnIceCandidate(nullptr);
+	}
+
+	// Clear own callbacks
+	onPeerConnected_ = nullptr;
+	onPeerDisconnected_ = nullptr;
+	onTrack_ = nullptr;
+	onDataChannel_ = nullptr;
+	onDataChannelMessage_ = nullptr;
 
 	// Close all peer connections
 	std::lock_guard<std::mutex> lock(peersMutex_);
@@ -140,17 +158,25 @@ void VDONinjaPeerManager::stopPublishing()
 
 	publishing_ = false;
 
-	// Close all viewer connections
-	std::lock_guard<std::mutex> lock(peersMutex_);
-	auto it = peers_.begin();
-	while (it != peers_.end()) {
-		if (it->second->type == ConnectionType::Publisher) {
-			if (it->second->pc) {
-				it->second->pc->close();
+	// Collect peers to close outside the lock to avoid deadlock:
+	// pc->close() triggers onStateChange callback which also acquires peersMutex_.
+	std::vector<std::shared_ptr<PeerInfo>> toClose;
+	{
+		std::lock_guard<std::mutex> lock(peersMutex_);
+		auto it = peers_.begin();
+		while (it != peers_.end()) {
+			if (it->second->type == ConnectionType::Publisher) {
+				toClose.push_back(it->second);
+				it = peers_.erase(it);
+			} else {
+				++it;
 			}
-			it = peers_.erase(it);
-		} else {
-			++it;
+		}
+	}
+
+	for (auto &peer : toClose) {
+		if (peer->pc) {
+			peer->pc->close();
 		}
 	}
 
@@ -172,6 +198,11 @@ int VDONinjaPeerManager::getViewerCount() const
 		}
 	}
 	return count;
+}
+
+int VDONinjaPeerManager::getMaxViewers() const
+{
+	return maxViewers_;
 }
 
 int VDONinjaPeerManager::getPublisherSlotCount() const
@@ -266,6 +297,10 @@ void VDONinjaPeerManager::setupPeerConnectionCallbacks(std::shared_ptr<PeerInfo>
 			if (onPeerDisconnected_) {
 				onPeerDisconnected_(uuid);
 			}
+			{
+				std::lock_guard<std::mutex> lock(peersMutex_);
+				peers_.erase(uuid);
+			}
 			break;
 		case rtc::PeerConnection::State::Failed:
 			peer->state = ConnectionState::Failed;
@@ -273,10 +308,18 @@ void VDONinjaPeerManager::setupPeerConnectionCallbacks(std::shared_ptr<PeerInfo>
 			if (onPeerDisconnected_) {
 				onPeerDisconnected_(uuid);
 			}
+			{
+				std::lock_guard<std::mutex> lock(peersMutex_);
+				peers_.erase(uuid);
+			}
 			break;
 		case rtc::PeerConnection::State::Closed:
 			peer->state = ConnectionState::Closed;
 			logInfo("Peer %s closed", uuid.c_str());
+			{
+				std::lock_guard<std::mutex> lock(peersMutex_);
+				peers_.erase(uuid);
+			}
 			break;
 		}
 	});
@@ -891,7 +934,7 @@ std::vector<PeerSnapshot> VDONinjaPeerManager::getPeerSnapshots() const
 		snapshot.uuid = pair.first;
 		snapshot.streamId = pair.second ? pair.second->streamId : "";
 		snapshot.type = pair.second ? pair.second->type : ConnectionType::Publisher;
-		snapshot.state = pair.second ? pair.second->state : ConnectionState::Closed;
+		snapshot.state = pair.second ? pair.second->state.load() : ConnectionState::Closed;
 		snapshot.hasDataChannel = pair.second && pair.second->hasDataChannel;
 		snapshots.emplace_back(std::move(snapshot));
 	}

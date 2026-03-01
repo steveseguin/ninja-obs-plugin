@@ -16,6 +16,7 @@ option(BUILD_PLUGIN "Build the OBS plugin (requires OBS SDK)" ON)
 # Use C++20 on Windows for designated initializers support (MSVC requires /std:c++20)
 if(MSVC)
     set(CMAKE_CXX_STANDARD 20)
+    add_compile_options(/Zc:__cplusplus)
 else()
     set(CMAKE_CXX_STANDARD 17)
 endif()
@@ -27,8 +28,13 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 find_package(OpenSSL QUIET)
 find_package(Threads REQUIRED)
 
-# Find Qt5 for the custom dock UI
-find_package(Qt5 COMPONENTS Widgets REQUIRED)
+# Find Qt for the custom dock UI (only needed when building the plugin)
+if(BUILD_PLUGIN)
+    find_package(Qt6 COMPONENTS Widgets QUIET)
+    if(NOT Qt6_FOUND)
+        find_package(Qt5 COMPONENTS Widgets REQUIRED)
+    endif()
+endif()
 
 if(DEFINED OBS_SDK_PATH)
     list(PREPEND CMAKE_PREFIX_PATH "${OBS_SDK_PATH}")
@@ -263,7 +269,7 @@ if(BUILD_PLUGIN)
 
     # Create the plugin library
     add_library(${PROJECT_NAME} MODULE ${PLUGIN_SOURCES} ${PLUGIN_HEADERS})
-    set_target_properties(${PROJECT_NAME} PROPERTIES CMAKE_AUTOMOC ON)
+    set_target_properties(${PROJECT_NAME} PROPERTIES AUTOMOC ON)
 
     target_include_directories(${PROJECT_NAME} PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/src
@@ -326,8 +332,12 @@ if(BUILD_PLUGIN)
         endif()
     endif()
 
-    # Link Qt5
-    target_link_libraries(${PROJECT_NAME} PRIVATE Qt5::Widgets)
+    # Link Qt
+    if(Qt6_FOUND)
+        target_link_libraries(${PROJECT_NAME} PRIVATE Qt6::Widgets)
+    else()
+        target_link_libraries(${PROJECT_NAME} PRIVATE Qt5::Widgets)
+    endif()
 
     # Link other dependencies
     target_link_libraries(${PROJECT_NAME} PRIVATE Threads::Threads)

@@ -100,6 +100,22 @@ TEST_F(DataChannelTest, ParsesCustomMessage)
 	EXPECT_EQ(msg.type, DataMessageType::Custom);
 }
 
+TEST_F(DataChannelTest, ParsesRemoteControlObsCommandMessage)
+{
+	std::string raw = R"({"obsCommand":{"action":"setCurrentScene","value":"Scene A"},"remote":"secret"})";
+	DataMessage msg = dataChannel.parseMessage(raw);
+
+	EXPECT_EQ(msg.type, DataMessageType::RemoteControl);
+}
+
+TEST_F(DataChannelTest, DoesNotTreatRemoteAuthOnlyAsAction)
+{
+	std::string raw = R"({"remote":"secret"})";
+	DataMessage msg = dataChannel.parseMessage(raw);
+
+	EXPECT_EQ(msg.type, DataMessageType::Unknown);
+}
+
 TEST_F(DataChannelTest, ExtractsTopLevelWhepUrl)
 {
 	std::string raw = "{\"whepUrl\":\"https://example.com/live/whep\"}";
@@ -236,6 +252,10 @@ protected:
 	bool customCalled = false;
 	std::string lastCustomData;
 
+	bool remoteCalled = false;
+	std::string lastRemoteAction;
+	std::string lastRemoteValue;
+
 	void SetUp() override
 	{
 		dataChannel.setOnChatMessage([this](const std::string &senderId, const std::string &message) {
@@ -261,6 +281,12 @@ protected:
 		dataChannel.setOnCustomData([this](const std::string &, const std::string &data) {
 			customCalled = true;
 			lastCustomData = data;
+		});
+
+		dataChannel.setOnRemoteControl([this](const std::string &action, const std::string &value) {
+			remoteCalled = true;
+			lastRemoteAction = action;
+			lastRemoteValue = value;
 		});
 	}
 };
@@ -325,6 +351,34 @@ TEST_F(DataChannelCallbackTest, TriggersOnCustomData)
 
 	EXPECT_TRUE(customCalled);
 	EXPECT_EQ(lastCustomData, "payload");
+}
+
+TEST_F(DataChannelCallbackTest, TriggersRemoteControlFromObsCommand)
+{
+	dataChannel.handleMessage("peer1",
+	                          R"({"obsCommand":{"action":"setCurrentScene","value":"Program"},"remote":"secret"})");
+
+	EXPECT_TRUE(remoteCalled);
+	EXPECT_EQ(lastRemoteAction, "setScene");
+	EXPECT_EQ(lastRemoteValue, "Program");
+}
+
+TEST_F(DataChannelCallbackTest, TriggersRemoteControlFromLegacyActionField)
+{
+	dataChannel.handleMessage("peer1", R"({"action":"startStreaming","remote":"secret"})");
+
+	EXPECT_TRUE(remoteCalled);
+	EXPECT_EQ(lastRemoteAction, "startStreaming");
+	EXPECT_TRUE(lastRemoteValue.empty());
+}
+
+TEST_F(DataChannelCallbackTest, TriggersRemoteControlFromLegacyRemoteKey)
+{
+	dataChannel.handleMessage("peer1", R"({"remote":"nextScene","scene":"unused"})");
+
+	EXPECT_TRUE(remoteCalled);
+	EXPECT_EQ(lastRemoteAction, "nextScene");
+	EXPECT_EQ(lastRemoteValue, "unused");
 }
 
 // Tally State Management Tests

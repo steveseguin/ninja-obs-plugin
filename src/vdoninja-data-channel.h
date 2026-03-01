@@ -29,6 +29,7 @@ enum class DataMessageType {
 	RequestKeyframe, // Request keyframe from publisher
 	Mute,            // Mute state change
 	Stats,           // Connection statistics
+	RemoteControl,   // Remote control command (scene, streaming, recording)
 	Custom           // Custom application data
 };
 
@@ -52,6 +53,7 @@ using OnTallyChangeCallback = std::function<void(const std::string &streamId, co
 using OnMuteChangeCallback = std::function<void(const std::string &senderId, bool audioMuted, bool videoMuted)>;
 using OnCustomDataCallback = std::function<void(const std::string &senderId, const std::string &data)>;
 using OnKeyframeRequestCallback = std::function<void(const std::string &senderId)>;
+using OnRemoteControlCallback = std::function<void(const std::string &action, const std::string &value)>;
 
 class VDONinjaDataChannel
 {
@@ -82,11 +84,13 @@ public:
 	void setOnMuteChange(OnMuteChangeCallback callback);
 	void setOnCustomData(OnCustomDataCallback callback);
 	void setOnKeyframeRequest(OnKeyframeRequestCallback callback);
+	void setOnRemoteControl(OnRemoteControlCallback callback);
 
 	// Tally light management
 	void setLocalTally(const TallyState &state);
 	TallyState getLocalTally() const;
 	TallyState getPeerTally(const std::string &peerId) const;
+	std::map<std::string, TallyState> getAllPeerTallies() const;
 
 private:
 	// Parse specific message types
@@ -94,6 +98,7 @@ private:
 	void parseTallyMessage(const std::string &senderId, const JsonParser &json);
 	void parseMuteMessage(const std::string &senderId, const JsonParser &json);
 	void parseCustomMessage(const std::string &senderId, const JsonParser &json);
+	void parseRemoteControlMessage(const std::string &senderId, const JsonParser &json);
 
 	// Callbacks
 	OnChatMessageCallback onChatMessage_;
@@ -101,6 +106,7 @@ private:
 	OnMuteChangeCallback onMuteChange_;
 	OnCustomDataCallback onCustomData_;
 	OnKeyframeRequestCallback onKeyframeRequest_;
+	OnRemoteControlCallback onRemoteControl_;
 
 	// State
 	TallyState localTally_;

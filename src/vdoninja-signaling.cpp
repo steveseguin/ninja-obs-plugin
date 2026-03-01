@@ -237,9 +237,12 @@ bool VDONinjaSignaling::connect(const std::string &wssHost)
 		return true;
 	}
 
-	wssHost_ = wssHost;
+	{
+		std::lock_guard<std::mutex> lock(stateMutex_);
+		wssHost_ = wssHost;
+	}
 	shouldRun_ = true;
-	reconnectAttempts_ = 0;
+	needsReconnect_ = false;
 
 	// Start WebSocket thread
 	wsThread_ = std::thread(&VDONinjaSignaling::wsThreadFunc, this);
@@ -264,11 +267,14 @@ void VDONinjaSignaling::disconnect()
 	}
 
 	// Close WebSocket
-	if (wsHandle_) {
-		auto ws = static_cast<std::shared_ptr<rtc::WebSocket> *>(wsHandle_);
-		(*ws)->close();
-		delete ws;
-		wsHandle_ = nullptr;
+	{
+		std::lock_guard<std::mutex> lock(handleMutex_);
+		if (wsHandle_) {
+			auto ws = static_cast<std::shared_ptr<rtc::WebSocket> *>(wsHandle_);
+			(*ws)->close();
+			delete ws;
+			wsHandle_ = nullptr;
+		}
 	}
 
 	// Wait for thread to finish
@@ -277,14 +283,22 @@ void VDONinjaSignaling::disconnect()
 	}
 
 	// Reset state
-	currentRoom_ = RoomInfo{};
-	publishedStream_ = StreamInfo{};
-	viewingStreams_.clear();
+	{
+		std::lock_guard<std::mutex> lock(stateMutex_);
+		currentRoom_ = RoomInfo{};
+		publishedStream_ = StreamInfo{};
+		viewingStreams_.clear();
+	}
 
 	logInfo("Disconnected from signaling server");
 
-	if (onDisconnected_) {
-		onDisconnected_();
+	OnDisconnectedCallback cb;
+	{
+		std::lock_guard<std::mutex> lock(callbackMutex_);
+		cb = onDisconnected_;
+	}
+	if (cb) {
+		cb();
 	}
 }
 
@@ -295,100 +309,151 @@ bool VDONinjaSignaling::isConnected() const
 
 void VDONinjaSignaling::wsThreadFunc()
 {
-	logInfo("Connecting to signaling server: %s", wssHost_.c_str());
+	int reconnectAttempts = 0;
 
-	try {
-		auto ws = std::make_shared<rtc::WebSocket>();
-		wsHandle_ = new std::shared_ptr<rtc::WebSocket>(ws);
+	while (shouldRun_) {
+		std::string host;
+		bool autoReconnect;
+		int maxAttempts;
+		{
+			std::lock_guard<std::mutex> lock(stateMutex_);
+			host = wssHost_;
+			autoReconnect = autoReconnect_;
+			maxAttempts = maxReconnectAttempts_;
+		}
 
-		ws->onOpen([this]() {
-			logInfo("WebSocket connected to signaling server");
-			connected_ = true;
-			reconnectAttempts_ = 0;
-			if (onConnected_) {
-				onConnected_();
+		logInfo("Connecting to signaling server: %s", host.c_str());
+		needsReconnect_ = false;
+
+		try {
+			auto ws = std::make_shared<rtc::WebSocket>();
+			{
+				std::lock_guard<std::mutex> lock(handleMutex_);
+				wsHandle_ = new std::shared_ptr<rtc::WebSocket>(ws);
 			}
-		});
 
-		ws->onClosed([this]() {
-			logInfo("WebSocket closed");
-			connected_ = false;
-			if (shouldRun_ && autoReconnect_) {
-				attemptReconnect();
-			}
-		});
+			ws->onOpen([this, &reconnectAttempts]() {
+				logInfo("WebSocket connected to signaling server");
+				connected_ = true;
+				reconnectAttempts = 0;
 
-		ws->onError([this](const std::string &error) {
-			logError("WebSocket error: %s", error.c_str());
-			if (onError_) {
-				onError_(error);
-			}
-		});
-
-		ws->onMessage([this](auto data) {
-			if (std::holds_alternative<std::string>(data)) {
-				processMessage(std::get<std::string>(data));
-			}
-		});
-
-		ws->open(wssHost_);
-
-		// Main loop - process send queue
-		while (shouldRun_) {
-			std::unique_lock<std::mutex> lock(sendMutex_);
-			sendCv_.wait_for(lock, std::chrono::milliseconds(100),
-			                 [this] { return !sendQueue_.empty() || !shouldRun_; });
-
-			while (!sendQueue_.empty() && connected_) {
-				std::string msg = sendQueue_.front();
-				sendQueue_.pop();
-				lock.unlock();
-
-				try {
-					ws->send(msg);
-					logDebug("Sent: %s", msg.c_str());
-				} catch (const std::exception &e) {
-					logError("Failed to send message: %s", e.what());
+				OnConnectedCallback cb;
+				{
+					std::lock_guard<std::mutex> lock(callbackMutex_);
+					cb = onConnected_;
 				}
+				if (cb) {
+					cb();
+				}
+			});
 
-				lock.lock();
+			ws->onClosed([this]() {
+				logInfo("WebSocket closed");
+				connected_ = false;
+				needsReconnect_ = true;
+				// Wake send loop so it can exit
+				std::lock_guard<std::mutex> lock(sendMutex_);
+				sendCv_.notify_all();
+			});
+
+			ws->onError([this](const std::string &error) {
+				logError("WebSocket error: %s", error.c_str());
+				OnErrorCallback cb;
+				{
+					std::lock_guard<std::mutex> lock(callbackMutex_);
+					cb = onError_;
+				}
+				if (cb) {
+					cb(error);
+				}
+			});
+
+			ws->onMessage([this](auto data) {
+				if (std::holds_alternative<std::string>(data)) {
+					processMessage(std::get<std::string>(data));
+				}
+			});
+
+			ws->open(host);
+
+			// Main loop - process send queue
+			while (shouldRun_ && !needsReconnect_) {
+				std::unique_lock<std::mutex> lock(sendMutex_);
+				sendCv_.wait_for(lock, std::chrono::milliseconds(100),
+				                 [this] { return !sendQueue_.empty() || !shouldRun_ || needsReconnect_.load(); });
+
+				while (!sendQueue_.empty() && connected_) {
+					std::string msg = sendQueue_.front();
+					sendQueue_.pop();
+					lock.unlock();
+
+					try {
+						ws->send(msg);
+						logDebug("Sent: %s", msg.c_str());
+					} catch (const std::exception &e) {
+						logError("Failed to send message: %s", e.what());
+					}
+
+					lock.lock();
+				}
+			}
+
+			// Clean up this connection
+			{
+				std::lock_guard<std::mutex> lock(handleMutex_);
+				if (wsHandle_) {
+					auto stored = static_cast<std::shared_ptr<rtc::WebSocket> *>(wsHandle_);
+					delete stored;
+					wsHandle_ = nullptr;
+				}
+			}
+		} catch (const std::exception &e) {
+			logError("WebSocket thread error: %s", e.what());
+			connected_ = false;
+
+			OnErrorCallback cb;
+			{
+				std::lock_guard<std::mutex> lock(callbackMutex_);
+				cb = onError_;
+			}
+			if (cb) {
+				cb(e.what());
+			}
+
+			std::lock_guard<std::mutex> lock(handleMutex_);
+			if (wsHandle_) {
+				auto stored = static_cast<std::shared_ptr<rtc::WebSocket> *>(wsHandle_);
+				delete stored;
+				wsHandle_ = nullptr;
 			}
 		}
-	} catch (const std::exception &e) {
-		logError("WebSocket thread error: %s", e.what());
-		connected_ = false;
-		if (onError_) {
-			onError_(e.what());
-		}
-	}
-}
 
-void VDONinjaSignaling::attemptReconnect()
-{
-	if (reconnectAttempts_ >= maxReconnectAttempts_) {
-		logError("Max reconnection attempts reached");
-		if (onError_) {
-			onError_("Max reconnection attempts reached");
-		}
-		return;
-	}
-
-	reconnectAttempts_++;
-	int delay = std::min(1000 * (1 << reconnectAttempts_), 30000); // Exponential backoff, max 30s
-
-	logInfo("Reconnecting in %d ms (attempt %d/%d)", delay, reconnectAttempts_, maxReconnectAttempts_);
-	std::this_thread::sleep_for(std::chrono::milliseconds(delay));
-
-	if (shouldRun_) {
-		// Clean up old connection
-		if (wsHandle_) {
-			auto ws = static_cast<std::shared_ptr<rtc::WebSocket> *>(wsHandle_);
-			delete ws;
-			wsHandle_ = nullptr;
+		// Reconnect logic (iterative, not recursive)
+		if (!shouldRun_ || !autoReconnect || !needsReconnect_) {
+			break;
 		}
 
-		// Restart connection in same thread
-		wsThreadFunc();
+		reconnectAttempts++;
+		if (reconnectAttempts > maxAttempts) {
+			logError("Max reconnection attempts reached");
+			OnErrorCallback cb;
+			{
+				std::lock_guard<std::mutex> lock(callbackMutex_);
+				cb = onError_;
+			}
+			if (cb) {
+				cb("Max reconnection attempts reached");
+			}
+			break;
+		}
+
+		int delay = std::min(1000 * (1 << reconnectAttempts), 30000);
+		logInfo("Reconnecting in %d ms (attempt %d/%d)", delay, reconnectAttempts, maxAttempts);
+
+		// Sleep in small increments so we can respond to shouldRun_ going false
+		for (int waited = 0; waited < delay && shouldRun_; waited += 100) {
+			std::this_thread::sleep_for(std::chrono::milliseconds(100));
+		}
 	}
 }
 
@@ -398,61 +463,114 @@ void VDONinjaSignaling::processMessage(const std::string &message)
 
 	auto dispatchParsed = [this](const ParsedSignalMessage &parsed) {
 		switch (parsed.kind) {
-		case ParsedSignalKind::Listing:
+		case ParsedSignalKind::Listing: {
 			logInfo("Received room listing");
-			currentRoom_.isJoined = true;
-			currentRoom_.members = parsed.listingMembers;
-			if (onRoomJoined_) {
-				onRoomJoined_(currentRoom_.members);
+			std::vector<std::string> members;
+			{
+				std::lock_guard<std::mutex> lock(stateMutex_);
+				currentRoom_.isJoined = true;
+				currentRoom_.members = parsed.listingMembers;
+				members = currentRoom_.members;
+			}
+			OnRoomJoinedCallback cb;
+			{
+				std::lock_guard<std::mutex> lock(callbackMutex_);
+				cb = onRoomJoined_;
+			}
+			if (cb) {
+				cb(members);
 			}
 			break;
-		case ParsedSignalKind::Offer:
+		}
+		case ParsedSignalKind::Offer: {
 			logInfo("Received offer from %s", parsed.uuid.c_str());
-			if (onOffer_) {
-				onOffer_(parsed.uuid, parsed.sdp, parsed.session);
+			OnOfferCallback cb;
+			{
+				std::lock_guard<std::mutex> lock(callbackMutex_);
+				cb = onOffer_;
+			}
+			if (cb) {
+				cb(parsed.uuid, parsed.sdp, parsed.session);
 			}
 			break;
-		case ParsedSignalKind::Answer:
+		}
+		case ParsedSignalKind::Answer: {
 			logInfo("Received answer from %s", parsed.uuid.c_str());
-			if (onAnswer_) {
-				onAnswer_(parsed.uuid, parsed.sdp, parsed.session);
+			OnAnswerCallback cb;
+			{
+				std::lock_guard<std::mutex> lock(callbackMutex_);
+				cb = onAnswer_;
+			}
+			if (cb) {
+				cb(parsed.uuid, parsed.sdp, parsed.session);
 			}
 			break;
-		case ParsedSignalKind::Candidate:
+		}
+		case ParsedSignalKind::Candidate: {
 			logDebug("Received ICE candidate from %s", parsed.uuid.c_str());
-			if (onIceCandidate_) {
-				onIceCandidate_(parsed.uuid, parsed.candidate, parsed.mid, parsed.session);
+			OnIceCandidateCallback cb;
+			{
+				std::lock_guard<std::mutex> lock(callbackMutex_);
+				cb = onIceCandidate_;
+			}
+			if (cb) {
+				cb(parsed.uuid, parsed.candidate, parsed.mid, parsed.session);
 			}
 			break;
-		case ParsedSignalKind::CandidatesBundle:
+		}
+		case ParsedSignalKind::CandidatesBundle: {
 			logDebug("Received ICE candidate bundle from %s", parsed.uuid.c_str());
-			if (onIceCandidate_) {
+			OnIceCandidateCallback cb;
+			{
+				std::lock_guard<std::mutex> lock(callbackMutex_);
+				cb = onIceCandidate_;
+			}
+			if (cb) {
 				for (const auto &candidate : parsed.candidates) {
-					onIceCandidate_(parsed.uuid, candidate.candidate, candidate.mid, parsed.session);
+					cb(parsed.uuid, candidate.candidate, candidate.mid, parsed.session);
 				}
 			}
 			break;
+		}
 		case ParsedSignalKind::Request:
 			handleRequest(parsed);
 			break;
-		case ParsedSignalKind::Alert:
+		case ParsedSignalKind::Alert: {
 			logWarning("Server alert: %s", parsed.alert.c_str());
-			if (onError_) {
-				onError_(parsed.alert);
+			OnErrorCallback cb;
+			{
+				std::lock_guard<std::mutex> lock(callbackMutex_);
+				cb = onError_;
+			}
+			if (cb) {
+				cb(parsed.alert);
 			}
 			break;
-		case ParsedSignalKind::VideoAddedToRoom:
+		}
+		case ParsedSignalKind::VideoAddedToRoom: {
 			logInfo("Stream added to room: %s by %s", parsed.streamId.c_str(), parsed.uuid.c_str());
-			if (onStreamAdded_) {
-				onStreamAdded_(parsed.streamId, parsed.uuid);
+			OnStreamAddedCallback cb;
+			{
+				std::lock_guard<std::mutex> lock(callbackMutex_);
+				cb = onStreamAdded_;
+			}
+			if (cb) {
+				cb(parsed.streamId, parsed.uuid);
 			}
 			break;
-		case ParsedSignalKind::VideoRemovedFromRoom:
+		}
+		case ParsedSignalKind::VideoRemovedFromRoom: {
 			logInfo("Stream removed from room: %s by %s", parsed.streamId.c_str(), parsed.uuid.c_str());
-			if (onStreamRemoved_) {
-				onStreamRemoved_(parsed.streamId, parsed.uuid);
+			OnStreamRemovedCallback cb;
+			{
+				std::lock_guard<std::mutex> lock(callbackMutex_);
+				cb = onStreamRemoved_;
+			}
+			if (cb) {
+				cb(parsed.streamId, parsed.uuid);
 			}
 			break;
+		}
 		default:
 			logDebug("Unknown message type");
 			break;
@@ -460,9 +578,14 @@ void VDONinjaSignaling::processMessage(const std::string &message)
 	};
 
 	const std::string activePassword = getActiveSignalingPassword();
+	std::string processSalt;
+	{
+		std::lock_guard<std::mutex> lock(stateMutex_);
+		processSalt = salt_;
+	}
 	JsonParser raw(message);
 	if (!activePassword.empty() && raw.hasKey("vector")) {
-		const std::string phrase = activePassword + salt_;
+		const std::string phrase = activePassword + processSalt;
 		const std::string vector = raw.getString("vector");
 
 		ParsedSignalMessage decryptedParsed;
@@ -568,10 +691,16 @@ void VDONinjaSignaling::handleRequest(const ParsedSignalMessage &message)
 
 	// VDO.Ninja can request publisher offers with different request labels depending
 	// on endpoint/flow.
-	if ((requestLower == "offersdp" || requestLower == "sendoffer" || requestLower == "play" ||
-	     requestLower == "joinroom") &&
-	    onOfferRequest_) {
-		onOfferRequest_(message.uuid, message.session);
+	if (requestLower == "offersdp" || requestLower == "sendoffer" || requestLower == "play" ||
+	    requestLower == "joinroom") {
+		OnOfferRequestCallback cb;
+		{
+			std::lock_guard<std::mutex> lock(callbackMutex_);
+			cb = onOfferRequest_;
+		}
+		if (cb) {
+			cb(message.uuid, message.session);
+		}
 	}
 }
 
@@ -599,14 +728,25 @@ bool VDONinjaSignaling::joinRoom(const std::string &roomId, const std::string &p
 		return false;
 	}
 
-	bool passwordDisabled = false;
-	std::string effectivePassword = resolveEffectivePassword(password, defaultPassword_, passwordDisabled);
-	std::string hashedRoom =
-	    passwordDisabled ? hashRoomId(roomId, "", salt_) : hashRoomId(roomId, effectivePassword, salt_);
+	std::string defaultPw;
+	std::string salt;
+	{
+		std::lock_guard<std::mutex> lock(stateMutex_);
+		defaultPw = defaultPassword_;
+		salt = salt_;
+	}
 
-	currentRoom_.roomId = roomId;
-	currentRoom_.hashedRoomId = hashedRoom;
-	currentRoom_.password = passwordDisabled ? "" : effectivePassword;
+	bool passwordDisabled = false;
+	std::string effectivePassword = resolveEffectivePassword(password, defaultPw, passwordDisabled);
+	std::string hashedRoom =
+	    passwordDisabled ? hashRoomId(roomId, "", salt) : hashRoomId(roomId, effectivePassword, salt);
+
+	{
+		std::lock_guard<std::mutex> lock(stateMutex_);
+		currentRoom_.roomId = roomId;
+		currentRoom_.hashedRoomId = hashedRoom;
+		currentRoom_.password = passwordDisabled ? "" : effectivePassword;
+	}
 
 	JsonBuilder msg;
 	msg.add("request", "joinroom");
@@ -621,15 +761,22 @@ bool VDONinjaSignaling::joinRoom(const std::string &roomId, const std::string &p
 
 bool VDONinjaSignaling::leaveRoom()
 {
-	if (!currentRoom_.isJoined) {
-		return true;
+	{
+		std::lock_guard<std::mutex> lock(stateMutex_);
+		if (!currentRoom_.isJoined) {
+			return true;
+		}
 	}
 
 	JsonBuilder msg;
 	msg.add("request", "leaveroom");
 
 	sendMessage(msg.build());
-	currentRoom_ = RoomInfo{};
+
+	{
+		std::lock_guard<std::mutex> lock(stateMutex_);
+		currentRoom_ = RoomInfo{};
+	}
 
 	logInfo("Left room");
 	return true;
@@ -637,11 +784,13 @@ bool VDONinjaSignaling::leaveRoom()
 
 bool VDONinjaSignaling::isInRoom() const
 {
+	std::lock_guard<std::mutex> lock(stateMutex_);
 	return currentRoom_.isJoined;
 }
 
 std::string VDONinjaSignaling::getCurrentRoomId() const
 {
+	std::lock_guard<std::mutex> lock(stateMutex_);
 	return currentRoom_.roomId;
 }
 
@@ -652,16 +801,27 @@ bool VDONinjaSignaling::publishStream(const std::string &streamId, const std::st
 		return false;
 	}
 
-	bool passwordDisabled = false;
-	std::string effectivePassword = resolveEffectivePassword(password, defaultPassword_, passwordDisabled);
-	std::string hashedStream =
-	    passwordDisabled ? sanitizeStreamId(streamId) : hashStreamId(streamId, effectivePassword, salt_);
+	std::string defaultPw;
+	std::string salt;
+	{
+		std::lock_guard<std::mutex> lock(stateMutex_);
+		defaultPw = defaultPassword_;
+		salt = salt_;
+	}
 
-	publishedStream_.streamId = streamId;
-	publishedStream_.hashedStreamId = hashedStream;
-	publishedStream_.password = passwordDisabled ? "" : effectivePassword;
-	publishedStream_.isViewing = false;
-	publishedStream_.isPublishing = true;
+	bool passwordDisabled = false;
+	std::string effectivePassword = resolveEffectivePassword(password, defaultPw, passwordDisabled);
+	std::string hashedStream =
+	    passwordDisabled ? sanitizeStreamId(streamId) : hashStreamId(streamId, effectivePassword, salt);
+
+	{
+		std::lock_guard<std::mutex> lock(stateMutex_);
+		publishedStream_.streamId = streamId;
+		publishedStream_.hashedStreamId = hashedStream;
+		publishedStream_.password = passwordDisabled ? "" : effectivePassword;
+		publishedStream_.isViewing = false;
+		publishedStream_.isPublishing = true;
+	}
 
 	JsonBuilder msg;
 	msg.add("request", "seed");
@@ -675,16 +835,25 @@ bool VDONinjaSignaling::publishStream(const std::string &streamId, const std::st
 
 bool VDONinjaSignaling::unpublishStream()
 {
-	if (!publishedStream_.isPublishing) {
-		return true;
+	std::string hashedStreamId;
+	{
+		std::lock_guard<std::mutex> lock(stateMutex_);
+		if (!publishedStream_.isPublishing) {
+			return true;
+		}
+		hashedStreamId = publishedStream_.hashedStreamId;
 	}
 
 	JsonBuilder msg;
 	msg.add("request", "unseed");
-	msg.add("streamID", publishedStream_.hashedStreamId);
+	msg.add("streamID", hashedStreamId);
 
 	sendMessage(msg.build());
-	publishedStream_ = StreamInfo{};
+
+	{
+		std::lock_guard<std::mutex> lock(stateMutex_);
+		publishedStream_ = StreamInfo{};
+	}
 
 	logInfo("Unpublished stream");
 	return true;
@@ -692,11 +861,13 @@ bool VDONinjaSignaling::unpublishStream()
 
 bool VDONinjaSignaling::isPublishing() const
 {
+	std::lock_guard<std::mutex> lock(stateMutex_);
 	return publishedStream_.isPublishing;
 }
 
 std::string VDONinjaSignaling::getPublishedStreamId() const
 {
+	std::lock_guard<std::mutex> lock(stateMutex_);
 	return publishedStream_.streamId;
 }
 
@@ -707,17 +878,29 @@ bool VDONinjaSignaling::viewStream(const std::string &streamId, const std::strin
 		return false;
 	}
 
+	std::string defaultPw;
+	std::string salt;
+	{
+		std::lock_guard<std::mutex> lock(stateMutex_);
+		defaultPw = defaultPassword_;
+		salt = salt_;
+	}
+
 	bool passwordDisabled = false;
-	std::string effectivePassword = resolveEffectivePassword(password, defaultPassword_, passwordDisabled);
+	std::string effectivePassword = resolveEffectivePassword(password, defaultPw, passwordDisabled);
 	std::string hashedStream =
-	    passwordDisabled ? sanitizeStreamId(streamId) : hashStreamId(streamId, effectivePassword, salt_);
+	    passwordDisabled ? sanitizeStreamId(streamId) : hashStreamId(streamId, effectivePassword, salt);
 
 	StreamInfo stream;
 	stream.streamId = streamId;
 	stream.hashedStreamId = hashedStream;
 	stream.password = passwordDisabled ? "" : effectivePassword;
 	stream.isViewing = true;
-	viewingStreams_[streamId] = stream;
+
+	{
+		std::lock_guard<std::mutex> lock(stateMutex_);
+		viewingStreams_[streamId] = stream;
+	}
 
 	JsonBuilder msg;
 	msg.add("request", "play");
@@ -731,17 +914,22 @@ bool VDONinjaSignaling::viewStream(const std::string &streamId, const std::strin
 
 bool VDONinjaSignaling::stopViewing(const std::string &streamId)
 {
-	auto it = viewingStreams_.find(streamId);
-	if (it == viewingStreams_.end()) {
-		return true;
+	std::string hashedStreamId;
+	{
+		std::lock_guard<std::mutex> lock(stateMutex_);
+		auto it = viewingStreams_.find(streamId);
+		if (it == viewingStreams_.end()) {
+			return true;
+		}
+		hashedStreamId = it->second.hashedStreamId;
+		viewingStreams_.erase(it);
 	}
 
 	JsonBuilder msg;
 	msg.add("request", "stopPlay");
-	msg.add("streamID", it->second.hashedStreamId);
+	msg.add("streamID", hashedStreamId);
 
 	sendMessage(msg.build());
-	viewingStreams_.erase(it);
 
 	logInfo("Stopped viewing stream: %s", streamId.c_str());
 	return true;
@@ -749,6 +937,7 @@ bool VDONinjaSignaling::stopViewing(const std::string &streamId)
 
 std::string VDONinjaSignaling::getActiveSignalingPassword() const
 {
+	std::lock_guard<std::mutex> lock(stateMutex_);
 	if (publishedStream_.isPublishing && !publishedStream_.password.empty()) {
 		return publishedStream_.password;
 	}
@@ -772,18 +961,28 @@ void VDONinjaSignaling::sendOffer(const std::string &uuid, const std::string &sd
 	description.add("type", "offer");
 	description.add("sdp", sdp);
 
+	std::string hashedStreamId;
+	std::string salt;
+	{
+		std::lock_guard<std::mutex> lock(stateMutex_);
+		if (publishedStream_.isPublishing && !publishedStream_.hashedStreamId.empty()) {
+			hashedStreamId = publishedStream_.hashedStreamId;
+		}
+		salt = salt_;
+	}
+
 	JsonBuilder msg;
 	msg.add("UUID", uuid);
 	msg.add("session", session);
-	if (publishedStream_.isPublishing && !publishedStream_.hashedStreamId.empty()) {
-		msg.add("streamID", publishedStream_.hashedStreamId);
+	if (!hashedStreamId.empty()) {
+		msg.add("streamID", hashedStreamId);
 	}
 
 	const std::string activePassword = getActiveSignalingPassword();
 	if (!activePassword.empty()) {
 		std::string encryptedDescription;
 		std::string vector;
-		if (encryptAesCbcHex(description.build(), activePassword + salt_, encryptedDescription, vector)) {
+		if (encryptAesCbcHex(description.build(), activePassword + salt, encryptedDescription, vector)) {
 			msg.add("description", encryptedDescription);
 			msg.add("vector", vector);
 		} else {
@@ -808,6 +1007,12 @@ void VDONinjaSignaling::sendAnswer(const std::string &uuid, const std::string &s
 	description.add("type", "answer");
 	description.add("sdp", sdp);
 
+	std::string salt;
+	{
+		std::lock_guard<std::mutex> lock(stateMutex_);
+		salt = salt_;
+	}
+
 	JsonBuilder msg;
 	msg.add("UUID", uuid);
 	msg.add("session", session);
@@ -816,7 +1021,7 @@ void VDONinjaSignaling::sendAnswer(const std::string &uuid, const std::string &s
 	if (!activePassword.empty()) {
 		std::string encryptedDescription;
 		std::string vector;
-		if (encryptAesCbcHex(description.build(), activePassword + salt_, encryptedDescription, vector)) {
+		if (encryptAesCbcHex(description.build(), activePassword + salt, encryptedDescription, vector)) {
 			msg.add("description", encryptedDescription);
 			msg.add("vector", vector);
 		} else {
@@ -838,29 +1043,48 @@ void VDONinjaSignaling::sendAnswer(const std::string &uuid, const std::string &s
 void VDONinjaSignaling::sendIceCandidate(const std::string &uuid, const std::string &candidate, const std::string &mid,
                                          const std::string &session)
 {
+	std::string salt;
+	{
+		std::lock_guard<std::mutex> lock(stateMutex_);
+		salt = salt_;
+	}
+
 	JsonBuilder msg;
 	msg.add("UUID", uuid);
+	msg.add("type", "local");
 	msg.add("session", session);
+
+	std::string normalizedCandidate = candidate;
+	if (normalizedCandidate.rfind("a=", 0) == 0) {
+		normalizedCandidate.erase(0, 2);
+	}
 
 	const std::string activePassword = getActiveSignalingPassword();
 	if (!activePassword.empty()) {
 		JsonBuilder candidatePayload;
-		candidatePayload.add("candidate", candidate);
+		candidatePayload.add("candidate", normalizedCandidate);
+		candidatePayload.add("mid", mid);
 		candidatePayload.add("sdpMid", mid);
 
 		std::string encryptedCandidate;
 		std::string vector;
-		if (encryptAesCbcHex(candidatePayload.build(), activePassword + salt_, encryptedCandidate, vector)) {
+		if (encryptAesCbcHex(candidatePayload.build(), activePassword + salt, encryptedCandidate, vector)) {
 			msg.add("candidate", encryptedCandidate);
 			msg.add("vector", vector);
 		} else {
 			logWarning("Failed to encrypt ICE candidate; sending plaintext");
-			msg.add("candidate", candidate);
-			msg.add("mid", mid);
+			JsonBuilder candidateObj;
+			candidateObj.add("candidate", normalizedCandidate);
+			candidateObj.add("mid", mid);
+			candidateObj.add("sdpMid", mid);
+			msg.addRaw("candidate", candidateObj.build());
 		}
 	} else {
-		msg.add("candidate", candidate);
-		msg.add("mid", mid);
+		JsonBuilder candidateObj;
+		candidateObj.add("candidate", normalizedCandidate);
+		candidateObj.add("mid", mid);
+		candidateObj.add("sdpMid", mid);
+		msg.addRaw("candidate", candidateObj.build());
 	}
 
 	sendMessage(msg.build());
@@ -878,51 +1102,63 @@ void VDONinjaSignaling::sendDataMessage(const std::string &uuid, const std::stri
 
 void VDONinjaSignaling::setOnConnected(OnConnectedCallback callback)
 {
+	std::lock_guard<std::mutex> lock(callbackMutex_);
 	onConnected_ = callback;
 }
 void VDONinjaSignaling::setOnDisconnected(OnDisconnectedCallback callback)
 {
+	std::lock_guard<std::mutex> lock(callbackMutex_);
 	onDisconnected_ = callback;
 }
 void VDONinjaSignaling::setOnError(OnErrorCallback callback)
 {
+	std::lock_guard<std::mutex> lock(callbackMutex_);
 	onError_ = callback;
 }
 void VDONinjaSignaling::setOnOffer(OnOfferCallback callback)
 {
+	std::lock_guard<std::mutex> lock(callbackMutex_);
 	onOffer_ = callback;
 }
 void VDONinjaSignaling::setOnAnswer(OnAnswerCallback callback)
 {
+	std::lock_guard<std::mutex> lock(callbackMutex_);
 	onAnswer_ = callback;
 }
 void VDONinjaSignaling::setOnOfferRequest(OnOfferRequestCallback callback)
 {
+	std::lock_guard<std::mutex> lock(callbackMutex_);
 	onOfferRequest_ = callback;
 }
 void VDONinjaSignaling::setOnIceCandidate(OnIceCandidateCallback callback)
 {
+	std::lock_guard<std::mutex> lock(callbackMutex_);
 	onIceCandidate_ = callback;
 }
 void VDONinjaSignaling::setOnRoomJoined(OnRoomJoinedCallback callback)
 {
+	std::lock_guard<std::mutex> lock(callbackMutex_);
 	onRoomJoined_ = callback;
 }
 void VDONinjaSignaling::setOnStreamAdded(OnStreamAddedCallback callback)
 {
+	std::lock_guard<std::mutex> lock(callbackMutex_);
 	onStreamAdded_ = callback;
 }
 void VDONinjaSignaling::setOnStreamRemoved(OnStreamRemovedCallback callback)
 {
+	std::lock_guard<std::mutex> lock(callbackMutex_);
 	onStreamRemoved_ = callback;
 }
 void VDONinjaSignaling::setOnData(OnDataCallback callback)
 {
+	std::lock_guard<std::mutex> lock(callbackMutex_);
 	onData_ = callback;
 }
 
 void VDONinjaSignaling::setSalt(const std::string &salt)
 {
+	std::lock_guard<std::mutex> lock(stateMutex_);
 	salt_ = trim(salt);
 	if (salt_.empty()) {
 		salt_ = DEFAULT_SALT;
@@ -930,10 +1166,12 @@ void VDONinjaSignaling::setSalt(const std::string &salt)
 }
 void VDONinjaSignaling::setDefaultPassword(const std::string &password)
 {
+	std::lock_guard<std::mutex> lock(stateMutex_);
 	defaultPassword_ = password;
 }
 void VDONinjaSignaling::setAutoReconnect(bool enable, int maxAttempts)
 {
+	std::lock_guard<std::mutex> lock(stateMutex_);
 	autoReconnect_ = enable;
 	maxReconnectAttempts_ = maxAttempts;
 }

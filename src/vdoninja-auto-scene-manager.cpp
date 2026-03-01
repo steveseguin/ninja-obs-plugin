@@ -109,31 +109,31 @@ void VDOAutoSceneManager::onRoomListing(const std::vector<std::string> &streamId
 
 void VDOAutoSceneManager::onStreamAdded(const std::string &streamId)
 {
-	bool running = false;
-	{
-		std::lock_guard<std::mutex> lock(stateMutex_);
-		running = running_;
-	}
-	if (!running || streamId.empty() || isOwnStream(streamId)) {
+	if (streamId.empty()) {
 		return;
 	}
 
+	bool switchScene = false;
+	int sourceWidth = 1920;
+	int sourceHeight = 1080;
+	AutoLayoutMode layoutMode = AutoLayoutMode::Grid;
 	{
 		std::lock_guard<std::mutex> lock(stateMutex_);
+		if (!running_) {
+			return;
+		}
+		if (ownStreamIds_.find(streamId) != ownStreamIds_.end()) {
+			return;
+		}
 		managedStreamIds_.insert(streamId);
+		switchScene = settings_.switchToSceneOnNewStream;
+		sourceWidth = settings_.width;
+		sourceHeight = settings_.height;
+		layoutMode = settings_.layoutMode;
 	}
 
 	const std::string sourceName = sourceNameForStream(streamId);
 	const std::string sourceUrl = buildSourceUrl(streamId);
-	bool switchScene = false;
-	int sourceWidth = 1920;
-	int sourceHeight = 1080;
-	{
-		std::lock_guard<std::mutex> lock(stateMutex_);
-		switchScene = settings_.switchToSceneOnNewStream;
-		sourceWidth = settings_.width;
-		sourceHeight = settings_.height;
-	}
 
 	runOnUiThread([this, sourceName, sourceUrl, switchScene, sourceWidth, sourceHeight]() {
 		obs_source_t *sceneSource = resolveTargetSceneSource();
@@ -178,11 +178,6 @@ void VDOAutoSceneManager::onStreamAdded(const std::string &streamId)
 		}
 	});
 
-	AutoLayoutMode layoutMode = AutoLayoutMode::Grid;
-	{
-		std::lock_guard<std::mutex> lock(stateMutex_);
-		layoutMode = settings_.layoutMode;
-	}
 	if (layoutMode == AutoLayoutMode::Grid) {
 		runOnUiThread([this]() { applyLayoutForManagedSources(); });
 	}
@@ -273,16 +268,44 @@ std::string VDOAutoSceneManager::buildSourceUrl(const std::string &streamId) con
 
 	std::string baseUrl;
 	std::string password;
+	std::string roomId;
+	std::string salt;
 	{
 		std::lock_guard<std::mutex> lock(stateMutex_);
 		baseUrl = settings_.baseUrl;
 		password = settings_.password;
+		roomId = settings_.roomId;
+		salt = settings_.salt;
 	}
 	if (baseUrl.empty()) {
 		baseUrl = "https://vdo.ninja";
 	}
 
-	std::string url = baseUrl + "/?view=" + urlEncode(streamId);
+	// Strip the 6-char hash suffix from stream IDs when present.
+	// VDO.Ninja appends sha256(password+salt).substr(0,6), and some flows
+	// use DEFAULT_PASSWORD when no explicit room password is provided.
+	std::string viewId = streamId;
+	if (viewId.size() > 6) {
+		std::vector<std::string> suffixes;
+		if (!password.empty()) {
+			suffixes.push_back(sha256(password + salt).substr(0, 6));
+		}
+		suffixes.push_back(sha256(std::string(DEFAULT_PASSWORD) + salt).substr(0, 6));
+
+		for (const auto &suffix : suffixes) {
+			if (!suffix.empty() && viewId.size() > suffix.size() &&
+			    viewId.compare(viewId.size() - suffix.size(), suffix.size(), suffix) == 0) {
+				viewId.resize(viewId.size() - suffix.size());
+				break;
+			}
+		}
+	}
+
+	// Build a room-based solo link: ?view=STREAMID&solo&room=ROOMID
+	std::string url = baseUrl + "/?view=" + urlEncode(viewId);
+	if (!roomId.empty()) {
+		url += "&solo&room=" + urlEncode(roomId);
+	}
 	if (!password.empty()) {
 		url += "&password=" + urlEncode(password);
 	}

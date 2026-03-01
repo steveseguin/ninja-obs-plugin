@@ -12,6 +12,9 @@
 #include "plugin-main.h"
 #include "vdoninja-dock.h"
 
+OBS_DECLARE_MODULE()
+OBS_MODULE_USE_DEFAULT_LOCALE("obs-vdoninja", "en")
+
 #include <obs-frontend-api.h>
 #include <util/config-file.h>
 #include <util/platform.h>
@@ -66,7 +69,6 @@ struct ServiceSnapshot {
 };
 
 obs_source_t *gControlCenterSource = nullptr;
-bool gFrontendCallbackRegistered = false;
 ServiceSnapshot gLastNonVdoServiceSnapshot = {};
 ServiceSnapshot gTemporaryRestoreSnapshot = {};
 VDONinjaDock *g_vdo_dock = nullptr;
@@ -1226,8 +1228,6 @@ static bool copyTextToClipboard(const std::string &text)
 #endif
 }
 
-} // namespace
-
 bool activateVdoNinjaServiceFromSettings(obs_data_t *sourceSettings, bool generateStreamIdIfMissing,
                                                 bool temporarySwitch)
 {
@@ -1333,7 +1333,9 @@ static void updateControlCenterStatus(obs_data_t *settings, ControlCenterContext
 		status << "Last error: " << lastError << "\n";
 	}
 
-	auto *typedOutput = static_cast<VDONinjaOutput *>(obs_output_get_type_data(output));
+	auto *typedOutput = (outputId && strcmp(outputId, "vdoninja_output") == 0)
+	                        ? static_cast<VDONinjaOutput *>(obs_obj_get_data(output))
+	                        : nullptr;
 	if (typedOutput) {
 		status << "Connected to signaling: " << (typedOutput->isConnected() ? "yes" : "no") << "\n";
 		status << "Viewer count: " << typedOutput->getViewerCount() << "\n";
@@ -1804,6 +1806,78 @@ static void frontend_event_callback(enum obs_frontend_event event, void *)
 	}
 }
 
+} // namespace
+
+void vdo_dock_show_chat(const char *sender, const char *message)
+{
+	if (g_vdo_dock && sender && message) {
+		g_vdo_dock->onChatReceived(QString::fromUtf8(sender), QString::fromUtf8(message));
+	}
+}
+
+void vdo_handle_remote_control(const char *action, const char *value)
+{
+	if (!action || !*action) {
+		return;
+	}
+
+	const std::string act(action);
+	const std::string val(value ? value : "");
+
+	if (act == "nextScene" || act == "prevScene") {
+		struct obs_frontend_source_list scenes = {};
+		obs_frontend_get_scenes(&scenes);
+		if (scenes.sources.num == 0) {
+			obs_frontend_source_list_free(&scenes);
+			return;
+		}
+		obs_source_t *current = obs_frontend_get_current_scene();
+		int currentIdx = -1;
+		for (size_t i = 0; i < scenes.sources.num; i++) {
+			if (scenes.sources.array[i] == current) {
+				currentIdx = static_cast<int>(i);
+				break;
+			}
+		}
+		obs_source_release(current);
+		int newIdx = 0;
+		if (currentIdx >= 0) {
+			int count = static_cast<int>(scenes.sources.num);
+			newIdx = act == "nextScene"
+			         ? (currentIdx + 1) % count
+			         : (currentIdx - 1 + count) % count;
+		}
+		obs_frontend_set_current_scene(scenes.sources.array[newIdx]);
+		obs_frontend_source_list_free(&scenes);
+	} else if ((act == "setScene" || act == "setCurrentScene") && !val.empty()) {
+		obs_source_t *scene = obs_get_source_by_name(val.c_str());
+		if (scene) {
+			obs_frontend_set_current_scene(scene);
+			obs_source_release(scene);
+		}
+	} else if (act == "startStreaming") {
+		obs_frontend_streaming_start();
+	} else if (act == "stopStreaming") {
+		obs_frontend_streaming_stop();
+	} else if (act == "startRecording") {
+		obs_frontend_recording_start();
+	} else if (act == "stopRecording") {
+		obs_frontend_recording_stop();
+	} else if (act == "startVirtualcam") {
+		obs_frontend_start_virtualcam();
+	} else if (act == "stopVirtualcam") {
+		obs_frontend_stop_virtualcam();
+	} else if (act == "mute" || act == "unmute") {
+		obs_source_t *desktopAudio = obs_get_output_source(1);
+		if (desktopAudio) {
+			obs_source_set_muted(desktopAudio, act == "mute");
+			obs_source_release(desktopAudio);
+		}
+	} else {
+		logInfo("Unknown remote control action: %s", action);
+	}
+}
+
 // Module load
 bool obs_module_load(void)
 {
@@ -1827,7 +1901,7 @@ bool obs_module_load(void)
 
 	// Create and register Studio Dock
 	g_vdo_dock = new VDONinjaDock();
-	obs_frontend_add_dock(g_vdo_dock, "VDO.Ninja Studio");
+	obs_frontend_add_custom_qdock("VDONinjaStudioDock", g_vdo_dock);
 	logInfo("Registered VDO.Ninja Studio Dock");
 
 	obs_frontend_add_tools_menu_item(tr("Tools.OpenStudio", "VDO.Ninja Studio"),
@@ -1836,7 +1910,6 @@ bool obs_module_load(void)
 
 	// Register frontend callback
 	obs_frontend_add_event_callback(frontend_event_callback, nullptr);
-	gFrontendCallbackRegistered = true;
 
 	logInfo("VDO.Ninja plugin loaded successfully");
 	return true;
@@ -1847,7 +1920,7 @@ void obs_module_unload(void)
 {
 	logInfo("Unloading VDO.Ninja plugin");
 
-	gFrontendCallbackRegistered = false;
+	obs_frontend_remove_event_callback(frontend_event_callback, nullptr);
 
 	if (gControlCenterSource) {
 		obs_source_release(gControlCenterSource);
@@ -1863,4 +1936,3 @@ void obs_module_unload(void)
 
 	logInfo("VDO.Ninja plugin unloaded");
 }
-
