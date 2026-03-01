@@ -2,7 +2,7 @@
 
 This guide gets you from install to first working stream quickly.
 
-Web quick start (recommended): `https://steveseguin.github.io/ninja-plugin/#quick-start`
+Web quick start (recommended): `https://steveseguin.github.io/ninja-obs-plugin/#quick-start`
 
 On Windows, use `obs-vdoninja-windows-x64-setup.exe` first.  
 If you are using the ZIP package instead, run `install.cmd`.

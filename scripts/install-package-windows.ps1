@@ -46,7 +46,7 @@ Copy-Item (Join-Path $srcPluginDir "*") $dstPluginDir -Recurse -Force
 Copy-Item (Join-Path $srcDataDir "*") $dstDataDir -Recurse -Force
 
 $quickStartPath = Join-Path $packageRoot "QUICKSTART.md"
-$quickStartUrl = "https://steveseguin.github.io/ninja-plugin/#quick-start"
+$quickStartUrl = "https://steveseguin.github.io/ninja-obs-plugin/#quick-start"
 $nextSteps = @"
 
 Install complete.

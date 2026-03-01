@@ -51,8 +51,8 @@ constexpr const char *kRtmpServicesModuleName = "rtmp-services";
 constexpr const char *kVdoCatalogServiceName = "VDO.Ninja";
 constexpr const char *kVdoNinjaControlCenterSourceId = "vdoninja_control_center";
 constexpr const char *kVdoNinjaControlCenterSourceName = "VDO.Ninja Control Center";
-constexpr const char *kVdoNinjaDocsHomeLink = "https://steveseguin.github.io/ninja-plugin/";
-constexpr const char *kVdoNinjaQuickStartLink = "https://steveseguin.github.io/ninja-plugin/#quick-start";
+constexpr const char *kVdoNinjaDocsHomeLink = "https://steveseguin.github.io/ninja-obs-plugin/";
+constexpr const char *kVdoNinjaQuickStartLink = "https://steveseguin.github.io/ninja-obs-plugin/#quick-start";
 constexpr const char *kVdoNinjaServerDisplayName =
     "wss://wss.vdo.ninja:443 (open Tools -> VDO.Ninja Studio for stream ID/password/room)";
 
@@ -78,8 +78,8 @@ constexpr const char *kVdoNinjaRtmpServiceEntry = R"VDOJSON(
             "name": "VDO.Ninja",
             "common": true,
             "protocol": "VDO.Ninja",
-            "stream_key_link": "https://steveseguin.github.io/ninja-plugin/#quick-start",
-            "more_info_link": "https://steveseguin.github.io/ninja-plugin/",
+            "stream_key_link": "https://steveseguin.github.io/ninja-obs-plugin/#quick-start",
+            "more_info_link": "https://steveseguin.github.io/ninja-obs-plugin/",
             "servers": [
                 {
                     "name": "wss://wss.vdo.ninja:443 (open Tools -> VDO.Ninja Studio for stream ID/password/room)",

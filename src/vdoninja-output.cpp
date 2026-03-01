@@ -589,7 +589,7 @@ void VDONinjaOutput::loadSettings(obs_data_t *settings)
 	settings_.enableDataChannel = getBoolSetting("enable_data_channel", true);
 	settings_.autoReconnect = getBoolSetting("auto_reconnect", true);
 	settings_.forceTurn = getBoolSetting("force_turn", false);
-	settings_.enableRemote = getBoolSetting("enable_remote", false);
+	settings_.enableRemote = false;
 
 	settings_.autoInbound.enabled = getBoolSetting("auto_inbound_enabled", false);
 	settings_.autoInbound.roomId = getStringSetting("auto_inbound_room_id");

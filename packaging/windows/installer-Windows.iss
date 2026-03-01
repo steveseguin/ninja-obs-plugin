@@ -56,7 +56,7 @@ Source: "{#MySourceDir}\THIRD_PARTY_LICENSES.md"; DestDir: "{app}\data\obs-plugi
 
 [Run]
 Filename: "{app}\bin\64bit\obs64.exe"; Description: "Launch OBS Studio now"; Flags: nowait postinstall skipifsilent unchecked; Check: FileExists(ExpandConstant('{app}\bin\64bit\obs64.exe'))
-Filename: "https://steveseguin.github.io/ninja-plugin/#quick-start"; Description: "Open web Quick Start guide"; Flags: shellexec nowait postinstall skipifsilent
+Filename: "https://steveseguin.github.io/ninja-obs-plugin/#quick-start"; Description: "Open web Quick Start guide"; Flags: shellexec nowait postinstall skipifsilent
 
 [Code]
 function QueryObsInstallDir(const RootKey: Integer; var InstallDir: string): Boolean;

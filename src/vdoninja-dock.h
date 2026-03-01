@@ -50,7 +50,6 @@ private:
     QPushButton *btnStop;
 
     // Options
-    QCheckBox *chkEnableRemote;
     QCheckBox *chkAutoAddFeeds;
 
     // Status

@@ -544,7 +544,22 @@ jobs:
           '@
           $script | python -
 
+      - name: Prepare Windows signing certificate
+        if: ${{ secrets.WIN_SIGN_CERT_B64 != '' && secrets.WIN_CSC_KEY_PASSWORD != '' }}
+        shell: pwsh
+        env:
+          WIN_SIGN_CERT_B64: ${{ secrets.WIN_SIGN_CERT_B64 }}
+        run: |
+          $certPath = Join-Path $env:RUNNER_TEMP "obs-vdoninja-signing.pfx"
+          [System.IO.File]::WriteAllBytes($certPath, [System.Convert]::FromBase64String($env:WIN_SIGN_CERT_B64))
+          if (-not (Test-Path $certPath)) {
+            throw "Failed to materialize signing certificate."
+          }
+          "WIN_SIGN_CERT_PATH=$certPath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
       - name: Package
+        env:
+          WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
         run: |
           cmake --install build --prefix install
           Copy-Item LICENSE install\
@@ -560,11 +575,38 @@ jobs:
           Copy-Item scripts\install-package-windows.ps1 install\install.ps1
           Copy-Item scripts\uninstall-package-windows.cmd install\uninstall.cmd
           Copy-Item scripts\uninstall-package-windows.ps1 install\uninstall.ps1
+
+          if ($env:WIN_SIGN_CERT_PATH -and (Test-Path $env:WIN_SIGN_CERT_PATH)) {
+            $pluginDll = Resolve-Path "install\obs-plugins\64bit\obs-vdoninja.dll"
+            & signtool sign /fd SHA256 /f $env:WIN_SIGN_CERT_PATH /p "$env:WIN_CSC_KEY_PASSWORD" /tr http://timestamp.digicert.com /td SHA256 /v $pluginDll
+            if ($LASTEXITCODE -ne 0) {
+              throw "signtool failed signing plugin DLL."
+            }
+          }
+
           7z a ${{ env.PLUGIN_NAME }}-windows-x64.zip .\install\*
           powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File scripts\build-installer-windows.ps1 `
             -SourceDir "install" `
             -OutputDir "." `
             -OutputBaseFilename "${{ env.PLUGIN_NAME }}-windows-x64-setup"
+
+      - name: Sign Windows installer
+        if: ${{ secrets.WIN_SIGN_CERT_B64 != '' && secrets.WIN_CSC_KEY_PASSWORD != '' }}
+        env:
+          WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+        run: |
+          $installerPath = "${{ env.PLUGIN_NAME }}-windows-x64-setup.exe"
+          if (-not (Test-Path $installerPath)) {
+            throw "Installer not found: $installerPath"
+          }
+          & signtool sign /fd SHA256 /f $env:WIN_SIGN_CERT_PATH /p "$env:WIN_CSC_KEY_PASSWORD" /tr http://timestamp.digicert.com /td SHA256 /v $installerPath
+          if ($LASTEXITCODE -ne 0) {
+            throw "signtool failed signing installer."
+          }
+          & signtool verify /pa /v $installerPath
+          if ($LASTEXITCODE -ne 0) {
+            throw "signtool verify failed for installer."
+          }
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
@@ -602,6 +644,35 @@ jobs:
           fi
           sha256sum "${files[@]}" > checksums.txt
           cat checksums.txt
+
+      - name: Submit Artifacts to VirusTotal
+        if: ${{ secrets.VT_API_KEY != '' }}
+        env:
+          VT_API_KEY: ${{ secrets.VT_API_KEY }}
+        run: |
+          cd artifacts
+          shopt -s nullglob
+          files=( *.zip *.tar.gz *.exe )
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "No release files found for VirusTotal submission."
+            exit 1
+          fi
+
+          for file in "${files[@]}"; do
+            echo "Submitting $file to VirusTotal..."
+            response_file="virustotal-${file}.json"
+            curl --fail --silent --show-error \
+              --request POST \
+              --url "https://www.virustotal.com/api/v3/files" \
+              --header "x-apikey: ${VT_API_KEY}" \
+              --form "file=@${file}" \
+              > "${response_file}"
+
+            analysis_id=$(jq -r '.data.id // empty' "${response_file}")
+            if [ -n "${analysis_id}" ]; then
+              echo "VirusTotal analysis for ${file}: https://www.virustotal.com/gui/file-analysis/${analysis_id}"
+            fi
+          done
 
       - name: Create Release
         uses: softprops/action-gh-release@v1

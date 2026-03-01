@@ -90,17 +90,11 @@ void VDONinjaDock::setupUi()
     QGroupBox *grpOptions = new QGroupBox(obs_module_text_vdo("VDONinja.Dock.Options"), container);
     QVBoxLayout *optLayout = new QVBoxLayout(grpOptions);
 
-    chkEnableRemote = new QCheckBox(obs_module_text_vdo("VDONinja.Dock.EnableRemote"), grpOptions);
-    chkEnableRemote->setToolTip(obs_module_text_vdo("VDONinja.Dock.EnableRemote.Tooltip"));
-    chkEnableRemote->setChecked(false);
-    optLayout->addWidget(chkEnableRemote);
-
     chkAutoAddFeeds = new QCheckBox(obs_module_text_vdo("VDONinja.Dock.AutoAddFeeds"), grpOptions);
     chkAutoAddFeeds->setChecked(false);
     chkAutoAddFeeds->setToolTip(obs_module_text_vdo("VDONinja.Dock.AutoAddFeeds.Tooltip"));
     optLayout->addWidget(chkAutoAddFeeds);
 
-    connect(chkEnableRemote, &QCheckBox::toggled, this, &VDONinjaDock::onSettingsChanged);
     connect(chkAutoAddFeeds, &QCheckBox::toggled, this, &VDONinjaDock::onSettingsChanged);
 
     layout->addWidget(grpOptions);
@@ -195,7 +189,6 @@ void VDONinjaDock::loadSettings()
     if (maxV >= 1 && maxV <= 50) spinMaxViewers->setValue(maxV);
     else spinMaxViewers->setValue(10);
 
-    chkEnableRemote->setChecked(config_get_bool(config, "VDONinja", "EnableRemote"));
     chkAutoAddFeeds->setChecked(config_get_bool(config, "VDONinja", "AutoAddFeeds"));
 }
 
@@ -208,7 +201,6 @@ void VDONinjaDock::saveSettings()
     config_set_string(config, "VDONinja", "RoomID", editRoomId->text().toUtf8().constData());
     config_set_string(config, "VDONinja", "Password", editPassword->text().toUtf8().constData());
     config_set_int(config, "VDONinja", "MaxViewers", spinMaxViewers->value());
-    config_set_bool(config, "VDONinja", "EnableRemote", chkEnableRemote->isChecked());
     config_set_bool(config, "VDONinja", "AutoAddFeeds", chkAutoAddFeeds->isChecked());
     config_save(config);
 }
@@ -264,7 +256,7 @@ void VDONinjaDock::onGoLiveClicked()
     obs_data_set_string(settings, "room_id", editRoomId->text().toUtf8().constData());
     obs_data_set_string(settings, "password", editPassword->text().toUtf8().constData());
     obs_data_set_int(settings, "max_viewers", spinMaxViewers->value());
-    obs_data_set_bool(settings, "enable_remote", chkEnableRemote->isChecked());
+    obs_data_set_bool(settings, "enable_remote", false);
 
     // Auto-inbound settings: only enable if a room ID is set
     QString roomId = editRoomId->text().trimmed();
@@ -327,7 +319,6 @@ void VDONinjaDock::updateStats()
     editRoomId->setEnabled(!streaming);
     editPassword->setEnabled(!streaming);
     spinMaxViewers->setEnabled(!streaming);
-    chkEnableRemote->setEnabled(!streaming);
     chkAutoAddFeeds->setEnabled(!streaming);
 
     if (streaming) {
