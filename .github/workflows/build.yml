@@ -589,7 +589,13 @@ jobs:
           if (-not (Test-Path $certPath)) {
             throw "Failed to materialize signing certificate."
           }
+          $cert = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new(
+            $certPath,
+            $env:WIN_CSC_KEY_PASSWORD,
+            [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]::DefaultKeySet
+          )
           "WIN_SIGN_CERT_PATH=$certPath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "WIN_SIGN_CERT_THUMBPRINT=$($cert.Thumbprint)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Package
         run: |
@@ -635,7 +641,23 @@ jobs:
           }
           & signtool verify /pa /v $installerPath
           if ($LASTEXITCODE -ne 0) {
-            throw "signtool verify failed for installer."
+            $sig = Get-AuthenticodeSignature -FilePath $installerPath
+            if (-not $sig.SignerCertificate) {
+              throw "Installer signature verification failed and no signer certificate was found."
+            }
+
+            if ($env:WIN_SIGN_CERT_THUMBPRINT -and ($sig.SignerCertificate.Thumbprint -ne $env:WIN_SIGN_CERT_THUMBPRINT)) {
+              throw "Installer signer thumbprint mismatch. Expected $env:WIN_SIGN_CERT_THUMBPRINT, got $($sig.SignerCertificate.Thumbprint)."
+            }
+
+            $sigStatus = [string]$sig.Status
+            if ($sigStatus -eq "Valid") {
+              Write-Host "signtool verify failed with policy check, but Authenticode reports a valid signature from expected cert."
+            } elseif ($sigStatus -eq "NotTrusted") {
+              Write-Warning "Installer is signed by expected cert, but root trust is unavailable on this runner (self-signed/private CA)."
+            } else {
+              throw "signtool verify failed for installer. Authenticode status: $sigStatus ($($sig.StatusMessage))"
+            }
           }
 
       - name: Upload Artifact
