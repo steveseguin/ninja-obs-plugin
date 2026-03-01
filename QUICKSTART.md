@@ -1,4 +1,4 @@
-# OBS VDO.Ninja Plugin - Quick Start
+# OBS Plugin for VDO.Ninja - Quick Start
 
 This guide gets you from install to first working stream quickly.
 

@@ -34,7 +34,7 @@ if ($CurrentUser) {
     $dstDataDir = Join-Path $ObsRoot "data\obs-plugins\obs-vdoninja"
 }
 
-Write-Host "Installing OBS VDO.Ninja plugin from package..."
+Write-Host "Installing OBS Plugin for VDO.Ninja from package..."
 Write-Host "Source:      $packageRoot"
 Write-Host "Plugin dst:  $dstPluginDir"
 Write-Host "Data dst:    $dstDataDir"
@@ -80,10 +80,10 @@ if ($OpenQuickStart) {
 if (-not $NoQuickStartPopup) {
     try {
         Add-Type -AssemblyName System.Windows.Forms -ErrorAction Stop
-        $message = "OBS VDO.Ninja plugin installed.`n`nOpen web Quick Start now?"
+        $message = "OBS Plugin for VDO.Ninja installed.`n`nOpen web Quick Start now?"
         $result = [System.Windows.Forms.MessageBox]::Show(
             $message,
-            "OBS VDO.Ninja Plugin",
+            "OBS Plugin for VDO.Ninja",
             [System.Windows.Forms.MessageBoxButtons]::YesNo,
             [System.Windows.Forms.MessageBoxIcon]::Information
         )

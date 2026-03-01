@@ -1,4 +1,4 @@
-# OBS VDO.Ninja Plugin
+# OBS Plugin for VDO.Ninja
 
 [![CI](https://github.com/steveseguin/ninja-obs-plugin/actions/workflows/ci.yml/badge.svg)](https://github.com/steveseguin/ninja-obs-plugin/actions/workflows/ci.yml)
 [![License: AGPL-3.0-only](https://img.shields.io/badge/License-AGPL--3.0--only-blue.svg)](LICENSE)

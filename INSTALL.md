@@ -1,4 +1,4 @@
-# OBS VDO.Ninja Plugin - Install / Update / Uninstall
+# OBS Plugin for VDO.Ninja - Install / Update / Uninstall
 
 Windows now ships with a GUI installer plus script-based fallback.
 Preferred first-run guide: `https://steveseguin.github.io/ninja-obs-plugin/#quick-start`.
@@ -55,7 +55,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1
 
 If installed via setup `.exe`, uninstall via:
 
-- Windows Settings -> Apps -> Installed apps -> `OBS VDO.Ninja Plugin`, or
+- Windows Settings -> Apps -> Installed apps -> `OBS Plugin for VDO.Ninja`, or
 - Control Panel -> Programs and Features
 
 ZIP/script installs can be removed with:

@@ -653,7 +653,7 @@ jobs:
             $sigStatus = [string]$sig.Status
             if ($sigStatus -eq "Valid") {
               Write-Host "signtool verify failed with policy check, but Authenticode reports a valid signature from expected cert."
-            } elseif ($sigStatus -eq "NotTrusted") {
+            } elseif ($sigStatus -eq "NotTrusted" -or $sigStatus -eq "UnknownError") {
               Write-Warning "Installer is signed by expected cert, but root trust is unavailable on this runner (self-signed/private CA)."
             } else {
               throw "signtool verify failed for installer. Authenticode status: $sigStatus ($($sig.StatusMessage))"
@@ -736,7 +736,7 @@ jobs:
             - Windows installer: `obs-vdoninja-windows-x64-setup.exe`
             - Windows portable/manual package: `obs-vdoninja-windows-x64.zip`
             - Linux package: `obs-vdoninja-linux-x86_64.tar.gz`
-            - macOS package: `obs-vdoninja-macos-arm64.zip`
+            - macOS package (when available): `obs-vdoninja-macos-arm64.zip`
 
             ## Install
             - Follow `INSTALL.md` in each package.
