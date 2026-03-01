@@ -4,6 +4,8 @@ Windows now ships with a GUI installer plus script-based fallback.
 Preferred first-run guide: `https://steveseguin.github.io/ninja-obs-plugin/#quick-start`.
 Every release archive still includes `QUICKSTART.md` as an offline copy.
 
+For source builds and dependency setup on a fresh machine, see `BUILDING.md`.
+
 ## Windows
 
 ### Install or update

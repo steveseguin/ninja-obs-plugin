@@ -16,6 +16,7 @@ VDO.Ninja is a low-latency WebRTC platform used for live production, remote gues
 
 - Download latest build: [Releases](https://github.com/steveseguin/ninja-obs-plugin/releases)
 - Install steps: [INSTALL.md](INSTALL.md)
+- Build requirements and source build guide: [BUILDING.md](BUILDING.md)
 - Web quick start (recommended): [GitHub Pages Quick Start](https://steveseguin.github.io/ninja-obs-plugin/#quick-start)
 - First-run usage guide: [QUICKSTART.md](QUICKSTART.md)
 - Full docs: [README Quick Start](#quick-start)
@@ -169,6 +170,21 @@ E2E covers:
 Manual OBS test checklist:
 
 - [TESTING_OBS_MANUAL.md](TESTING_OBS_MANUAL.md)
+
+## Build from Source
+
+For a clean-machine setup (dependencies, required paths, and platform-specific commands), use:
+
+- [BUILDING.md](BUILDING.md)
+
+Windows includes a dependency checker script:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\check-build-requirements-windows.ps1 `
+  -ObsSdkPath "D:\deps\obs-sdk" `
+  -LibDataChannelPrefix "D:\deps\libdatachannel-install" `
+  -Qt6Prefix "D:\deps\obs-deps-qt6"
+```
 
 ## CI and Releases
 

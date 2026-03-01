@@ -255,6 +255,92 @@ const char *connectionTypeToString(ConnectionType type)
 constexpr const char *kPluginInfoVersion = "1.1.0";
 constexpr size_t kMaxAudioMixes = 6;
 
+std::string findAudioEncoderIdForCodec(const char *codec)
+{
+	if (!codec || !*codec) {
+		return "";
+	}
+
+	const char *encoderId = nullptr;
+	size_t idx = 0;
+	while (obs_enum_encoder_types(idx++, &encoderId)) {
+		if (!encoderId || obs_get_encoder_type(encoderId) != OBS_ENCODER_AUDIO) {
+			continue;
+		}
+
+		const char *encoderCodec = obs_get_encoder_codec(encoderId);
+		if (encoderCodec && std::strcmp(encoderCodec, codec) == 0) {
+			return encoderId;
+		}
+	}
+
+	return "";
+}
+
+bool rebindOutputAudioEncodersToOpus(obs_output_t *output, std::string &errorMessage)
+{
+	if (!output) {
+		return true;
+	}
+
+	const std::string opusEncoderId = findAudioEncoderIdForCodec("opus");
+	if (opusEncoderId.empty()) {
+		errorMessage = "Opus audio encoder is unavailable in this OBS build.";
+		return false;
+	}
+
+	audio_t *audio = obs_get_audio();
+	if (!audio) {
+		errorMessage = "OBS audio subsystem is unavailable.";
+		return false;
+	}
+
+	for (size_t i = 0; i < kMaxAudioMixes; ++i) {
+		obs_encoder_t *audioEncoder = obs_output_get_audio_encoder(output, i);
+		if (!audioEncoder) {
+			continue;
+		}
+
+		const char *codec = obs_encoder_get_codec(audioEncoder);
+		if (codec && std::strcmp(codec, "opus") == 0) {
+			continue;
+		}
+
+		const size_t mixerIndex = obs_encoder_get_mixer_index(audioEncoder);
+		const char *encoderName = obs_encoder_get_name(audioEncoder);
+		const std::string name =
+		    (encoderName && *encoderName) ? encoderName : ("vdoninja_stream_audio_" + std::to_string(i));
+
+		obs_data_t *encoderSettings = obs_data_create();
+		obs_data_t *existingSettings = obs_encoder_get_settings(audioEncoder);
+		if (existingSettings) {
+			const int64_t bitrate = obs_data_get_int(existingSettings, "bitrate");
+			if (bitrate > 0) {
+				obs_data_set_int(encoderSettings, "bitrate", bitrate);
+			}
+			obs_data_release(existingSettings);
+		}
+
+		obs_encoder_t *opusEncoder =
+		    obs_audio_encoder_create(opusEncoderId.c_str(), name.c_str(), encoderSettings, mixerIndex, nullptr);
+		obs_data_release(encoderSettings);
+		if (!opusEncoder) {
+			logError("Failed to create Opus encoder '%s' for output audio index %zu", opusEncoderId.c_str(), i);
+			errorMessage = "Unable to create Opus audio encoder for VDO.Ninja streaming.";
+			return false;
+		}
+
+		obs_encoder_set_audio(opusEncoder, audio);
+		obs_output_set_audio_encoder(output, opusEncoder, i);
+		obs_encoder_release(opusEncoder);
+
+		logInfo("Rebound output audio encoder index %zu to Opus (%s), mixer index %zu", i, opusEncoderId.c_str(),
+		        mixerIndex);
+	}
+
+	return true;
+}
+
 bool validateOpusAudioEncoders(obs_output_t *output, std::string &nonOpusCodec)
 {
 	if (!output) {
@@ -829,28 +915,35 @@ bool VDONinjaOutput::start()
 
 	if (settings_.streamId.empty()) {
 		logError("Stream ID is required");
-		obs_output_signal_stop(output_, OBS_OUTPUT_INVALID_STREAM);
+		obs_output_set_last_error(output_, "Stream ID is required for VDO.Ninja publishing.");
 		return false;
 	}
 
 	if (!obs_output_can_begin_data_capture(output_, 0)) {
 		logError("Output cannot begin data capture");
+		obs_output_set_last_error(output_, "Unable to begin OBS data capture for VDO.Ninja output.");
+		return false;
+	}
+
+	std::string rebindError;
+	if (!rebindOutputAudioEncodersToOpus(output_, rebindError)) {
+		logError("Unable to enforce Opus audio encoders before start: %s", rebindError.c_str());
+		obs_output_set_last_error(output_, rebindError.c_str());
 		return false;
 	}
 
 	std::string nonOpusCodec;
 	if (!validateOpusAudioEncoders(output_, nonOpusCodec)) {
-		const std::string error =
-		    "VDO.Ninja requires Opus audio. Open Tools -> VDO.Ninja Control Center, then retry Start Streaming.";
+		const std::string error = "VDO.Ninja requires Opus audio. "
+		                          "Set the streaming audio encoder to Opus (Settings -> Output), then retry Go Live.";
 		logError("Refusing to start: active audio encoder codec is '%s' (Opus required)", nonOpusCodec.c_str());
 		obs_output_set_last_error(output_, error.c_str());
-		obs_output_signal_stop(output_, OBS_OUTPUT_ERROR);
 		return false;
 	}
 
 	if (!obs_output_initialize_encoders(output_, 0)) {
 		logError("Failed to initialize output encoders");
-		obs_output_signal_stop(output_, OBS_OUTPUT_ERROR);
+		obs_output_set_last_error(output_, "Failed to initialize OBS encoders for VDO.Ninja output.");
 		return false;
 	}
 

@@ -260,6 +260,12 @@ void VDONinjaDock::onCopyPushLink()
 
 void VDONinjaDock::onGoLiveClicked()
 {
+	if (obs_frontend_streaming_active()) {
+		lblStatus->setText(obs_module_text_vdo("VDONinja.Dock.AlreadyLive"));
+		return;
+	}
+
+	btnGoLive->setEnabled(false);
 	saveSettings();
 
 	// Create settings object to pass to activation helper
@@ -278,8 +284,14 @@ void VDONinjaDock::onGoLiveClicked()
 	}
 
 	// Use the shared activation helper which backs up and restores the previous service.
-	activateVdoNinjaServiceFromSettings(settings, false, false);
+	const bool configured = activateVdoNinjaServiceFromSettings(settings, false, false);
 	obs_data_release(settings);
+
+	if (!configured) {
+		lblStatus->setText(obs_module_text_vdo("VDONinja.Dock.ConfigFailed"));
+		btnGoLive->setEnabled(true);
+		return;
+	}
 
 	obs_frontend_streaming_start();
 	lblStatus->setText(obs_module_text_vdo("VDONinja.Dock.Starting"));

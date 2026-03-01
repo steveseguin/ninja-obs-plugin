@@ -724,8 +724,44 @@ void syncCompatibilityServiceFields(obs_data_t *settings)
 
 void configureProfileForVdoNinjaStreaming(void)
 {
-	// Removed profile-wide modifications to avoid conflicts with RTMP/WHIP.
-	// We now prefer surgical configuration only when VDO.Ninja output is explicitly active.
+	// Keep this targeted to the active profile at VDO.Ninja activation time so
+	// "Go Live" succeeds without requiring manual encoder changes first.
+	config_t *profile = obs_frontend_get_profile_config();
+	if (!profile) {
+		logWarning("Unable to access profile config; cannot enforce Opus stream audio encoder");
+		return;
+	}
+
+	const std::string opusEncoderId = findAudioEncoderIdForCodec("opus");
+	if (opusEncoderId.empty()) {
+		logWarning("Opus audio encoder is unavailable in this OBS build");
+		return;
+	}
+
+	const char *outputModeRaw = config_get_string(profile, "Output", "Mode");
+	const std::string outputMode = outputModeRaw ? outputModeRaw : "";
+	bool changed = false;
+
+	auto setStringIfDifferent = [&](const char *section, const char *key, const std::string &value) {
+		const char *current = config_get_string(profile, section, key);
+		const bool same = current && value == current;
+		if (!same) {
+			config_set_string(profile, section, key, value.c_str());
+			changed = true;
+		}
+	};
+
+	// OBS simple mode uses StreamAudioEncoder; advanced mode uses AdvOut AudioEncoder.
+	if (outputMode == "Advanced") {
+		setStringIfDifferent("AdvOut", "AudioEncoder", opusEncoderId);
+	} else {
+		setStringIfDifferent("SimpleOutput", "StreamAudioEncoder", opusEncoderId);
+	}
+
+	if (changed) {
+		config_save(profile);
+		logInfo("Configured profile stream audio encoder to Opus (%s) for VDO.Ninja", opusEncoderId.c_str());
+	}
 }
 
 bool isVdoNinjaService(obs_service_t *service)
@@ -1772,6 +1808,7 @@ static void frontend_event_callback(enum obs_frontend_event event, void *)
 {
 	switch (event) {
 	case OBS_FRONTEND_EVENT_STREAMING_STARTING:
+		ensureActiveVdoNinjaServiceConfigured();
 		logInfo("Ensured VDO.Ninja streaming profile settings before streaming start");
 		break;
 	case OBS_FRONTEND_EVENT_VIRTUALCAM_STARTED:
