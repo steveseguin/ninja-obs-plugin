@@ -5,11 +5,12 @@
 
 #include "vdoninja-output.h"
 
+#include <obs-frontend-api.h>
+
 #include <algorithm>
 #include <cctype>
 #include <cstring>
 
-#include <obs-frontend-api.h>
 #include <util/dstr.h>
 #include <util/threading.h>
 
@@ -373,20 +374,20 @@ static obs_properties_t *vdoninja_output_properties(void *)
 	obs_property_t *wssHost =
 	    obs_properties_add_text(advanced, "wss_host", tr("SignalingServer", "Signaling Server"), OBS_TEXT_DEFAULT);
 	obs_property_set_long_description(
-	    wssHost,
-	    tr("SignalingServer.OptionalHelp",
-	       "Optional. Leave blank to use default signaling server: wss://wss.vdo.ninja:443"));
+	    wssHost, tr("SignalingServer.OptionalHelp",
+	                "Optional. Leave blank to use default signaling server: wss://wss.vdo.ninja:443"));
 	obs_property_t *salt = obs_properties_add_text(advanced, "salt", tr("Salt", "Salt"), OBS_TEXT_DEFAULT);
-	obs_property_set_long_description(
-	    salt, tr("Salt.OptionalHelp", "Optional. Leave blank to use default salt: vdo.ninja"));
+	obs_property_set_long_description(salt,
+	                                  tr("Salt.OptionalHelp", "Optional. Leave blank to use default salt: vdo.ninja"));
 	obs_property_t *iceServers = obs_properties_add_text(
 	    advanced, "custom_ice_servers", tr("CustomICEServers", "Custom STUN/TURN Servers"), OBS_TEXT_DEFAULT);
 	obs_property_text_set_monospace(iceServers, true);
 	obs_property_set_long_description(
-	    iceServers, tr("CustomICEServers.Help",
-	                   "Format: one server entry per item. Use ';' to separate multiple entries. "
-	                   "Examples: stun:stun.l.google.com:19302; turn:turn.example.com:3478|user|pass. "
-	                   "Leave empty to use built-in STUN defaults (Google + Cloudflare); no TURN is added automatically."));
+	    iceServers,
+	    tr("CustomICEServers.Help",
+	       "Format: one server entry per item. Use ';' to separate multiple entries. "
+	       "Examples: stun:stun.l.google.com:19302; turn:turn.example.com:3478|user|pass. "
+	       "Leave empty to use built-in STUN defaults (Google + Cloudflare); no TURN is added automatically."));
 	obs_property_t *iceHelp = obs_properties_add_text(
 	    advanced, "custom_ice_servers_help",
 	    tr("CustomICEServers.Help",
@@ -710,14 +711,18 @@ std::string VDONinjaOutput::buildObsStateMessage() const
 	std::string scenesArray = "[";
 	for (size_t i = 0; i < sceneList.sources.num; i++) {
 		const char *name = obs_source_get_name(sceneList.sources.array[i]);
-		if (i > 0) scenesArray += ",";
+		if (i > 0)
+			scenesArray += ",";
 		// JSON-escape the scene name
 		std::string nameStr = name ? name : "";
 		std::string escaped = "\"";
 		for (char c : nameStr) {
-			if (c == '"') escaped += "\\\"";
-			else if (c == '\\') escaped += "\\\\";
-			else escaped += c;
+			if (c == '"')
+				escaped += "\\\"";
+			else if (c == '\\')
+				escaped += "\\\\";
+			else
+				escaped += c;
 		}
 		escaped += "\"";
 		scenesArray += escaped;
@@ -770,15 +775,16 @@ void VDONinjaOutput::queueObsStateToPeer(const std::string &uuid)
 	};
 
 	auto *task = new ObsStateTaskData{this, uuid};
-	obs_queue_task(OBS_TASK_UI,
-	               [](void *param) {
-		               std::unique_ptr<ObsStateTaskData> data(static_cast<ObsStateTaskData *>(param));
-		               if (!data || !data->self) {
-			               return;
-		               }
-		               data->self->sendObsStateToPeer(data->uuid);
-	               },
-	               task, false);
+	obs_queue_task(
+	    OBS_TASK_UI,
+	    [](void *param) {
+		    std::unique_ptr<ObsStateTaskData> data(static_cast<ObsStateTaskData *>(param));
+		    if (!data || !data->self) {
+			    return;
+		    }
+		    data->self->sendObsStateToPeer(data->uuid);
+	    },
+	    task, false);
 }
 
 void VDONinjaOutput::sendInitialPeerInfo(const std::string &uuid)
@@ -891,9 +897,9 @@ void VDONinjaOutput::startThread(OutputSettings settingsSnap)
 
 	if (autoSceneManager_) {
 		autoSceneManager_->configure(settingsSnap.autoInbound);
-		std::vector<std::string> ownIds = {settingsSnap.streamId,
-		                                   hashStreamId(settingsSnap.streamId, settingsSnap.password, settingsSnap.salt),
-		                                   hashStreamId(settingsSnap.streamId, DEFAULT_PASSWORD, settingsSnap.salt)};
+		std::vector<std::string> ownIds = {
+		    settingsSnap.streamId, hashStreamId(settingsSnap.streamId, settingsSnap.password, settingsSnap.salt),
+		    hashStreamId(settingsSnap.streamId, DEFAULT_PASSWORD, settingsSnap.salt)};
 		autoSceneManager_->setOwnStreamIds(ownIds);
 		if (settingsSnap.autoInbound.enabled) {
 			autoSceneManager_->start();
@@ -1035,11 +1041,14 @@ void VDONinjaOutput::startThread(OutputSettings settingsSnap)
 			std::string message;
 		};
 		auto *data = new ChatData{senderId, message};
-		obs_queue_task(OBS_TASK_UI, [](void *param) {
-			auto *cd = static_cast<ChatData *>(param);
-			vdo_dock_show_chat(cd->sender.c_str(), cd->message.c_str());
-			delete cd;
-		}, data, false);
+		obs_queue_task(
+		    OBS_TASK_UI,
+		    [](void *param) {
+			    auto *cd = static_cast<ChatData *>(param);
+			    vdo_dock_show_chat(cd->sender.c_str(), cd->message.c_str());
+			    delete cd;
+		    },
+		    data, false);
 	});
 
 	// Set up remote control callback
@@ -1050,11 +1059,14 @@ void VDONinjaOutput::startThread(OutputSettings settingsSnap)
 				std::string value;
 			};
 			auto *data = new RemoteData{action, value};
-			obs_queue_task(OBS_TASK_UI, [](void *param) {
-				auto *rd = static_cast<RemoteData *>(param);
-				vdo_handle_remote_control(rd->action.c_str(), rd->value.c_str());
-				delete rd;
-			}, data, false);
+			obs_queue_task(
+			    OBS_TASK_UI,
+			    [](void *param) {
+				    auto *rd = static_cast<RemoteData *>(param);
+				    vdo_handle_remote_control(rd->action.c_str(), rd->value.c_str());
+				    delete rd;
+			    },
+			    data, false);
 		});
 	}
 

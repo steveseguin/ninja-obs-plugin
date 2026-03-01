@@ -5,9 +5,9 @@
 
 #include "vdoninja-peer-manager.h"
 
-#include <random>
 #include <algorithm>
 #include <cctype>
+#include <random>
 
 namespace vdoninja
 {
@@ -577,9 +577,9 @@ void VDONinjaPeerManager::onSignalingOfferRequest(const std::string &uuid, const
 				peers_.erase(it);
 				peer = nullptr;
 			} else {
-				const bool sessionRotated =
-				    !session.empty() && !peer->session.empty() && (peer->session != session);
-				const bool staleState = peer->state == ConnectionState::Failed || peer->state == ConnectionState::Closed;
+				const bool sessionRotated = !session.empty() && !peer->session.empty() && (peer->session != session);
+				const bool staleState =
+				    peer->state == ConnectionState::Failed || peer->state == ConnectionState::Closed;
 				if (sessionRotated || staleState) {
 					stalePeer = peer;
 					staleReason = sessionRotated ? "session-rotated" : "stale-state";
@@ -774,7 +774,8 @@ bool VDONinjaPeerManager::sendVideoFrameToPeer(const std::string &uuid, const ui
 }
 
 bool VDONinjaPeerManager::sendVideoFrameToPeerLocked(const std::string &uuid, const std::shared_ptr<PeerInfo> &peer,
-                                                     const uint8_t *data, size_t size, uint32_t timestamp, bool keyframe)
+                                                     const uint8_t *data, size_t size, uint32_t timestamp,
+                                                     bool keyframe)
 {
 	if (!peer || peer->type != ConnectionType::Publisher || peer->state != ConnectionState::Connected) {
 		return false;

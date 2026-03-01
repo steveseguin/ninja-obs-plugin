@@ -10,14 +10,13 @@
  */
 
 #include "plugin-main.h"
+
 #include "vdoninja-dock.h"
 
 OBS_DECLARE_MODULE()
 OBS_MODULE_USE_DEFAULT_LOCALE("obs-vdoninja", "en")
 
 #include <obs-frontend-api.h>
-#include <util/config-file.h>
-#include <util/platform.h>
 
 #include <cctype>
 #include <cstring>
@@ -25,6 +24,9 @@ OBS_MODULE_USE_DEFAULT_LOCALE("obs-vdoninja", "en")
 #include <sstream>
 #include <string>
 #include <vector>
+
+#include <util/config-file.h>
+#include <util/platform.h>
 
 #ifdef _WIN32
 #ifndef NOMINMAX
@@ -395,47 +397,56 @@ void ensureRtmpCatalogHasVdoNinjaEntry(void)
 	bool updatedExistingEntry = false;
 	if (hasCatalogServiceEntry(catalogJson, kVdoCatalogServiceName)) {
 		const std::string quickStartField = std::string("\"stream_key_link\": \"") + kVdoNinjaQuickStartLink + "\"";
-		const std::string quickStartFieldCompact = std::string("\"stream_key_link\":\"") + kVdoNinjaQuickStartLink + "\"";
+		const std::string quickStartFieldCompact =
+		    std::string("\"stream_key_link\":\"") + kVdoNinjaQuickStartLink + "\"";
 		const std::string moreInfoField = std::string("\"more_info_link\": \"") + kVdoNinjaDocsHomeLink + "\"";
 		const std::string moreInfoFieldCompact = std::string("\"more_info_link\":\"") + kVdoNinjaDocsHomeLink + "\"";
-		updatedExistingEntry |= replaceFirst(catalogJson, "\"stream_key_link\": \"https://vdo.ninja/\"", quickStartField);
-		updatedExistingEntry |= replaceFirst(catalogJson, "\"stream_key_link\":\"https://vdo.ninja/\"", quickStartFieldCompact);
+		updatedExistingEntry |=
+		    replaceFirst(catalogJson, "\"stream_key_link\": \"https://vdo.ninja/\"", quickStartField);
+		updatedExistingEntry |=
+		    replaceFirst(catalogJson, "\"stream_key_link\":\"https://vdo.ninja/\"", quickStartFieldCompact);
+		updatedExistingEntry |= replaceFirst(
+		    catalogJson,
+		    "\"stream_key_link\": "
+		    "\"https://github.com/steveseguin/ninja-obs-plugin/blob/main/QUICKSTART.md#2-publish-your-first-stream\"",
+		    quickStartField);
+		updatedExistingEntry |= replaceFirst(
+		    catalogJson,
+		    "\"stream_key_link\":"
+		    "\"https://github.com/steveseguin/ninja-obs-plugin/blob/main/QUICKSTART.md#2-publish-your-first-stream\"",
+		    quickStartFieldCompact);
+		updatedExistingEntry |= replaceFirst(
+		    catalogJson,
+		    "\"more_info_link\": "
+		    "\"https://github.com/steveseguin/ninja-obs-plugin/blob/main/README.md#2-publish-to-vdoninja\"",
+		    moreInfoField);
 		updatedExistingEntry |= replaceFirst(catalogJson,
-		                                     "\"stream_key_link\": "
-		                                     "\"https://github.com/steveseguin/ninja-obs-plugin/blob/main/QUICKSTART.md#2-publish-your-first-stream\"",
-		                                     quickStartField);
-		updatedExistingEntry |= replaceFirst(catalogJson,
-		                                     "\"stream_key_link\":"
-		                                     "\"https://github.com/steveseguin/ninja-obs-plugin/blob/main/QUICKSTART.md#2-publish-your-first-stream\"",
-		                                     quickStartFieldCompact);
-		updatedExistingEntry |= replaceFirst(catalogJson,
-		                                     "\"more_info_link\": "
-		                                     "\"https://github.com/steveseguin/ninja-obs-plugin/blob/main/README.md#2-publish-to-vdoninja\"",
-		                                     moreInfoField);
-		updatedExistingEntry |= replaceFirst(catalogJson,
-		                                     "\"more_info_link\":\"https://github.com/steveseguin/ninja-obs-plugin/blob/main/README.md#2-publish-to-vdoninja\"",
+		                                     "\"more_info_link\":\"https://github.com/steveseguin/ninja-obs-plugin/"
+		                                     "blob/main/README.md#2-publish-to-vdoninja\"",
 		                                     moreInfoFieldCompact);
 		updatedExistingEntry |= replaceFirst(catalogJson, "\"more_info_link\": \"https://vdo.ninja/\"", moreInfoField);
-		updatedExistingEntry |= replaceFirst(catalogJson, "\"more_info_link\":\"https://vdo.ninja/\"", moreInfoFieldCompact);
+		updatedExistingEntry |=
+		    replaceFirst(catalogJson, "\"more_info_link\":\"https://vdo.ninja/\"", moreInfoFieldCompact);
 
 		if (!serviceEntryContainsToken(catalogJson, kVdoCatalogServiceName, "\"stream_key_link\"")) {
-			updatedExistingEntry |= replaceFirst(
-			    catalogJson, "\"protocol\": \"VDO.Ninja\",",
-			    std::string("\"protocol\": \"VDO.Ninja\",\n            ") + quickStartField + ",");
-			updatedExistingEntry |= replaceFirst(catalogJson, "\"protocol\":\"VDO.Ninja\",",
-			                                     std::string("\"protocol\":\"VDO.Ninja\",") + quickStartFieldCompact + ",");
+			updatedExistingEntry |=
+			    replaceFirst(catalogJson, "\"protocol\": \"VDO.Ninja\",",
+			                 std::string("\"protocol\": \"VDO.Ninja\",\n            ") + quickStartField + ",");
+			updatedExistingEntry |=
+			    replaceFirst(catalogJson, "\"protocol\":\"VDO.Ninja\",",
+			                 std::string("\"protocol\":\"VDO.Ninja\",") + quickStartFieldCompact + ",");
 		}
 
 		updatedExistingEntry |= replaceFirst(catalogJson, "\"name\": \"Default Signaling\"",
 		                                     std::string("\"name\": \"") + kVdoNinjaServerDisplayName + "\"");
 		updatedExistingEntry |= replaceFirst(catalogJson, "\"name\":\"Default Signaling\"",
 		                                     std::string("\"name\":\"") + kVdoNinjaServerDisplayName + "\"");
-		updatedExistingEntry |= replaceFirst(
-		    catalogJson, "\"name\": \"wss://wss.vdo.ninja:443 (default; override via Stream Key URL)\"",
-		    std::string("\"name\": \"") + kVdoNinjaServerDisplayName + "\"");
-		updatedExistingEntry |= replaceFirst(
-		    catalogJson, "\"name\":\"wss://wss.vdo.ninja:443 (default; override via Stream Key URL)\"",
-		    std::string("\"name\":\"") + kVdoNinjaServerDisplayName + "\"");
+		updatedExistingEntry |=
+		    replaceFirst(catalogJson, "\"name\": \"wss://wss.vdo.ninja:443 (default; override via Stream Key URL)\"",
+		                 std::string("\"name\": \"") + kVdoNinjaServerDisplayName + "\"");
+		updatedExistingEntry |=
+		    replaceFirst(catalogJson, "\"name\":\"wss://wss.vdo.ninja:443 (default; override via Stream Key URL)\"",
+		                 std::string("\"name\":\"") + kVdoNinjaServerDisplayName + "\"");
 		updatedExistingEntry |= replaceFirst(
 		    catalogJson,
 		    "\"name\": \"wss://wss.vdo.ninja:443 (default; use Tools -> Configure VDO.Ninja for password/room/salt)\"",
@@ -475,9 +486,9 @@ void ensureRtmpCatalogHasVdoNinjaEntry(void)
 		return;
 	}
 
-	const bool wroteCatalog = os_quick_write_utf8_file_safe(configPath, catalogJson.c_str(), catalogJson.size(), false,
-	                                                         ".tmp", ".bak") ||
-	                          os_quick_write_utf8_file(configPath, catalogJson.c_str(), catalogJson.size(), false);
+	const bool wroteCatalog =
+	    os_quick_write_utf8_file_safe(configPath, catalogJson.c_str(), catalogJson.size(), false, ".tmp", ".bak") ||
+	    os_quick_write_utf8_file(configPath, catalogJson.c_str(), catalogJson.size(), false);
 	if (!wroteCatalog) {
 		logWarning("Failed writing VDO.Ninja entry to rtmp-services catalog");
 	} else {
@@ -819,9 +830,9 @@ bool restoreServiceFromTemporaryBackupIfNeeded()
 		return false;
 	}
 
-	obs_service_t *restoredService = obs_service_create(gTemporaryRestoreSnapshot.serviceType.c_str(),
-	                                                    kVdoNinjaServiceName, gTemporaryRestoreSnapshot.settings,
-	                                                    gTemporaryRestoreSnapshot.hotkeys);
+	obs_service_t *restoredService =
+	    obs_service_create(gTemporaryRestoreSnapshot.serviceType.c_str(), kVdoNinjaServiceName,
+	                       gTemporaryRestoreSnapshot.settings, gTemporaryRestoreSnapshot.hotkeys);
 	if (!restoredService) {
 		clearTemporaryServiceRestoreBackup();
 		return false;
@@ -951,20 +962,20 @@ static obs_properties_t *vdoninja_service_properties(void *)
 	obs_property_t *wssHost =
 	    obs_properties_add_text(advanced, "wss_host", tr("SignalingServer", "Signaling Server"), OBS_TEXT_DEFAULT);
 	obs_property_set_long_description(
-	    wssHost,
-	    tr("SignalingServer.OptionalHelp",
-	       "Optional. Leave blank to use default signaling server: wss://wss.vdo.ninja:443"));
+	    wssHost, tr("SignalingServer.OptionalHelp",
+	                "Optional. Leave blank to use default signaling server: wss://wss.vdo.ninja:443"));
 	obs_property_t *salt = obs_properties_add_text(advanced, "salt", tr("Salt", "Salt"), OBS_TEXT_DEFAULT);
-	obs_property_set_long_description(
-	    salt, tr("Salt.OptionalHelp", "Optional. Leave blank to use default salt: vdo.ninja"));
+	obs_property_set_long_description(salt,
+	                                  tr("Salt.OptionalHelp", "Optional. Leave blank to use default salt: vdo.ninja"));
 	obs_property_t *iceServers = obs_properties_add_text(
 	    advanced, "custom_ice_servers", tr("CustomICEServers", "Custom STUN/TURN Servers"), OBS_TEXT_DEFAULT);
 	obs_property_text_set_monospace(iceServers, true);
 	obs_property_set_long_description(
-	    iceServers, tr("CustomICEServers.Help",
-	                   "Format: one server entry per item. Use ';' to separate multiple entries. "
-	                   "Examples: stun:stun.l.google.com:19302; turn:turn.example.com:3478|user|pass. "
-	                   "Leave empty to use built-in STUN defaults (Google + Cloudflare); no TURN is added automatically."));
+	    iceServers,
+	    tr("CustomICEServers.Help",
+	       "Format: one server entry per item. Use ';' to separate multiple entries. "
+	       "Examples: stun:stun.l.google.com:19302; turn:turn.example.com:3478|user|pass. "
+	       "Leave empty to use built-in STUN defaults (Google + Cloudflare); no TURN is added automatically."));
 	obs_property_t *iceHelp = obs_properties_add_text(
 	    advanced, "custom_ice_servers_help",
 	    tr("CustomICEServers.Help",
@@ -1078,16 +1089,10 @@ void registerVdoNinjaService(void)
 	info.get_url = vdoninja_service_url;
 	info.get_key = vdoninja_service_key;
 	info.apply_encoder_settings = vdoninja_service_apply_encoder_settings;
-	info.get_output_type = [](void *) -> const char * {
-		return "vdoninja_output";
-	};
-	info.get_supported_video_codecs = [](void *) -> const char ** {
-		return vdoninja_video_codecs;
-	};
+	info.get_output_type = [](void *) -> const char * { return "vdoninja_output"; };
+	info.get_supported_video_codecs = [](void *) -> const char ** { return vdoninja_video_codecs; };
 	info.get_protocol = vdoninja_service_protocol;
-	info.get_supported_audio_codecs = [](void *) -> const char ** {
-		return vdoninja_audio_codecs;
-	};
+	info.get_supported_audio_codecs = [](void *) -> const char ** { return vdoninja_audio_codecs; };
 	info.get_connect_info = vdoninja_service_connect_info;
 	info.can_try_to_connect = vdoninja_service_can_try_connect;
 
@@ -1229,7 +1234,7 @@ static bool copyTextToClipboard(const std::string &text)
 }
 
 bool activateVdoNinjaServiceFromSettings(obs_data_t *sourceSettings, bool generateStreamIdIfMissing,
-                                                bool temporarySwitch)
+                                         bool temporarySwitch)
 {
 	if (!sourceSettings) {
 		return false;
@@ -1256,7 +1261,8 @@ bool activateVdoNinjaServiceFromSettings(obs_data_t *sourceSettings, bool genera
 
 	syncCompatibilityServiceFields(serviceSettings);
 
-	obs_service_t *newService = obs_service_create(kVdoNinjaServiceType, kVdoNinjaServiceName, serviceSettings, nullptr);
+	obs_service_t *newService =
+	    obs_service_create(kVdoNinjaServiceType, kVdoNinjaServiceName, serviceSettings, nullptr);
 	obs_data_release(serviceSettings);
 	if (!newService) {
 		return false;
@@ -1313,7 +1319,8 @@ static void updateControlCenterStatus(obs_data_t *settings, ControlCenterContext
 	double bitrateKbps = 0.0;
 	if (ctx) {
 		const int64_t nowMs = currentTimeMs();
-		if (ctx->previousSampleTimeMs > 0 && nowMs > ctx->previousSampleTimeMs && totalBytes >= ctx->previousTotalBytes) {
+		if (ctx->previousSampleTimeMs > 0 && nowMs > ctx->previousSampleTimeMs &&
+		    totalBytes >= ctx->previousTotalBytes) {
 			const double elapsedSec = static_cast<double>(nowMs - ctx->previousSampleTimeMs) / 1000.0;
 			const double deltaBytes = static_cast<double>(totalBytes - ctx->previousTotalBytes);
 			if (elapsedSec > 0.0) {
@@ -1415,8 +1422,8 @@ static bool controlCenterApplyClicked(obs_properties_t *, obs_property_t *, void
 	}
 
 	const bool ok = activateVdoNinjaServiceFromSettings(settings, true, false);
-	updateControlCenterStatus(settings, ctx, ok ? "VDO.Ninja stream service configured."
-	                                            : "Failed to configure VDO.Ninja stream service.");
+	updateControlCenterStatus(
+	    settings, ctx, ok ? "VDO.Ninja stream service configured." : "Failed to configure VDO.Ninja stream service.");
 	obs_source_update(ctx->source, settings);
 	obs_data_release(settings);
 	return true;
@@ -1594,9 +1601,8 @@ static obs_properties_t *vdoninja_control_center_properties(void *data)
 	auto *ctx = static_cast<ControlCenterContext *>(data);
 	obs_properties_t *props = obs_properties_create();
 
-	obs_property_t *intro = obs_properties_add_text(
-	    props, "cc_intro", tr("ControlCenter.Intro", "Control Center"),
-	    OBS_TEXT_INFO);
+	obs_property_t *intro =
+	    obs_properties_add_text(props, "cc_intro", tr("ControlCenter.Intro", "Control Center"), OBS_TEXT_INFO);
 	obs_property_text_set_info_type(intro, OBS_TEXT_INFO_NORMAL);
 	obs_property_text_set_info_word_wrap(intro, true);
 
@@ -1613,43 +1619,37 @@ static obs_properties_t *vdoninja_control_center_properties(void *data)
 
 	obs_property_t *modeNote = obs_properties_add_text(
 	    props, "cc_mode_note",
-	    tr("ControlCenter.ModeNote",
-	       "Publishing uses OBS Start Streaming pipeline. Control Center Start/Stop are shortcuts for OBS Start/Stop Streaming "
-	       "and cannot run in parallel with another stream destination. Ingest is separate and not auto-created from external push links."),
+	    tr("ControlCenter.ModeNote", "Publishing uses OBS Start Streaming pipeline. Control Center Start/Stop are "
+	                                 "shortcuts for OBS Start/Stop Streaming "
+	                                 "and cannot run in parallel with another stream destination. Ingest is separate "
+	                                 "and not auto-created from external push links."),
 	    OBS_TEXT_INFO);
 	obs_property_text_set_info_type(modeNote, OBS_TEXT_INFO_NORMAL);
 	obs_property_text_set_info_word_wrap(modeNote, true);
 
-	obs_properties_add_button2(props, "cc_load_active",
-	                           tr("ControlCenter.LoadActive", "Load Active Service Settings"),
+	obs_properties_add_button2(props, "cc_load_active", tr("ControlCenter.LoadActive", "Load Active Service Settings"),
 	                           controlCenterLoadActiveClicked, ctx);
-	obs_properties_add_button2(props, "cc_apply",
-	                           tr("ControlCenter.ApplyService", "Apply As Stream Service"),
+	obs_properties_add_button2(props, "cc_apply", tr("ControlCenter.ApplyService", "Apply As Stream Service"),
 	                           controlCenterApplyClicked, ctx);
-	obs_properties_add_button2(props, "cc_start_publish",
-	                           tr("ControlCenter.StartPublish", "Start Publishing"),
+	obs_properties_add_button2(props, "cc_start_publish", tr("ControlCenter.StartPublish", "Start Publishing"),
 	                           controlCenterStartClicked, ctx);
-	obs_properties_add_button2(props, "cc_stop_publish",
-	                           tr("ControlCenter.StopPublish", "Stop Publishing"),
+	obs_properties_add_button2(props, "cc_stop_publish", tr("ControlCenter.StopPublish", "Stop Publishing"),
 	                           controlCenterStopClicked, ctx);
-	obs_properties_add_button2(props, "cc_refresh",
-	                           tr("ControlCenter.Refresh", "Refresh Runtime Stats"),
+	obs_properties_add_button2(props, "cc_refresh", tr("ControlCenter.Refresh", "Refresh Runtime Stats"),
 	                           controlCenterRefreshClicked, ctx);
 
 	obs_property_t *pushUrl =
 	    obs_properties_add_text(props, "cc_push_url", tr("ControlCenter.PushURL", "Publish URL"), OBS_TEXT_INFO);
-	obs_properties_add_button2(props, "cc_copy_push_url",
-	                           tr("ControlCenter.CopyPushURL", "Copy Publish URL"),
+	obs_properties_add_button2(props, "cc_copy_push_url", tr("ControlCenter.CopyPushURL", "Copy Publish URL"),
 	                           controlCenterCopyPushUrlClicked, ctx);
 	obs_property_t *viewUrl =
 	    obs_properties_add_text(props, "cc_view_url", tr("ControlCenter.ViewURL", "Viewer URL"), OBS_TEXT_INFO);
-	obs_properties_add_button2(props, "cc_copy_view_url",
-	                           tr("ControlCenter.CopyViewURL", "Copy Viewer URL"),
+	obs_properties_add_button2(props, "cc_copy_view_url", tr("ControlCenter.CopyViewURL", "Copy Viewer URL"),
 	                           controlCenterCopyViewUrlClicked, ctx);
 	obs_property_t *status =
 	    obs_properties_add_text(props, "cc_status", tr("ControlCenter.Status", "Runtime Status"), OBS_TEXT_INFO);
-	obs_property_t *peerStats = obs_properties_add_text(
-	    props, "cc_peer_stats", tr("ControlCenter.Peers", "Viewer/Peer Stats"), OBS_TEXT_INFO);
+	obs_property_t *peerStats =
+	    obs_properties_add_text(props, "cc_peer_stats", tr("ControlCenter.Peers", "Viewer/Peer Stats"), OBS_TEXT_INFO);
 
 	obs_property_text_set_info_word_wrap(pushUrl, true);
 	obs_property_text_set_info_word_wrap(viewUrl, true);
@@ -1657,22 +1657,23 @@ static obs_properties_t *vdoninja_control_center_properties(void *data)
 	obs_property_text_set_info_word_wrap(peerStats, true);
 
 	obs_properties_t *advanced = obs_properties_create();
-	wssHost = obs_properties_add_text(advanced, "wss_host", tr("SignalingServer", "Signaling Server"), OBS_TEXT_DEFAULT);
+	wssHost =
+	    obs_properties_add_text(advanced, "wss_host", tr("SignalingServer", "Signaling Server"), OBS_TEXT_DEFAULT);
 	obs_property_set_long_description(
-	    wssHost,
-	    tr("SignalingServer.OptionalHelp",
-	       "Optional. Leave blank to use default signaling server: wss://wss.vdo.ninja:443"));
+	    wssHost, tr("SignalingServer.OptionalHelp",
+	                "Optional. Leave blank to use default signaling server: wss://wss.vdo.ninja:443"));
 	salt = obs_properties_add_text(advanced, "salt", tr("Salt", "Salt"), OBS_TEXT_DEFAULT);
-	obs_property_set_long_description(
-	    salt, tr("Salt.OptionalHelp", "Optional. Leave blank to use default salt: vdo.ninja"));
+	obs_property_set_long_description(salt,
+	                                  tr("Salt.OptionalHelp", "Optional. Leave blank to use default salt: vdo.ninja"));
 	obs_property_t *iceServers = obs_properties_add_text(
 	    advanced, "custom_ice_servers", tr("CustomICEServers", "Custom STUN/TURN Servers"), OBS_TEXT_DEFAULT);
 	obs_property_text_set_monospace(iceServers, true);
 	obs_property_set_long_description(
-	    iceServers, tr("CustomICEServers.Help",
-	                   "Format: one server entry per item. Use ';' to separate multiple entries. "
-	                   "Examples: stun:stun.l.google.com:19302; turn:turn.example.com:3478|user|pass. "
-	                   "Leave empty to use built-in STUN defaults (Google + Cloudflare); no TURN is added automatically."));
+	    iceServers,
+	    tr("CustomICEServers.Help",
+	       "Format: one server entry per item. Use ';' to separate multiple entries. "
+	       "Examples: stun:stun.l.google.com:19302; turn:turn.example.com:3478|user|pass. "
+	       "Leave empty to use built-in STUN defaults (Google + Cloudflare); no TURN is added automatically."));
 	obs_property_t *iceHelp = obs_properties_add_text(
 	    advanced, "custom_ice_servers_help",
 	    tr("CustomICEServers.Help",
@@ -1700,13 +1701,14 @@ static obs_properties_t *vdoninja_control_center_properties(void *data)
 static void vdoninja_control_center_defaults(obs_data_t *settings)
 {
 	const std::string defaultStreamId = generateSessionId();
-	obs_data_set_default_string(
-	    settings, "cc_intro",
-	    "Publish-first control center: configure and start VDO.Ninja publishing from OBS. External push links are not auto-ingested.");
-	obs_data_set_default_string(
-	    settings, "cc_mode_note",
-	    "Publishing uses OBS Start Streaming pipeline. Control Center Start/Stop are shortcuts for OBS Start/Stop Streaming "
-	    "and cannot run in parallel with another stream destination. Ingest is separate and not auto-created from external push links.");
+	obs_data_set_default_string(settings, "cc_intro",
+	                            "Publish-first control center: configure and start VDO.Ninja publishing from OBS. "
+	                            "External push links are not auto-ingested.");
+	obs_data_set_default_string(settings, "cc_mode_note",
+	                            "Publishing uses OBS Start Streaming pipeline. Control Center Start/Stop are shortcuts "
+	                            "for OBS Start/Stop Streaming "
+	                            "and cannot run in parallel with another stream destination. Ingest is separate and "
+	                            "not auto-created from external push links.");
 	obs_data_set_default_string(settings, "stream_id", defaultStreamId.c_str());
 	obs_data_set_default_string(settings, "room_id", "");
 	obs_data_set_default_string(settings, "password", "");
@@ -1752,8 +1754,8 @@ static obs_source_t *getOrCreateControlCenterSource()
 	seedVdoNinjaSettingsFromCurrentService(currentService, settings);
 	updateControlCenterStatus(settings, nullptr, "Control Center ready.");
 
-	gControlCenterSource = obs_source_create_private(kVdoNinjaControlCenterSourceId, kVdoNinjaControlCenterSourceName,
-	                                                 settings);
+	gControlCenterSource =
+	    obs_source_create_private(kVdoNinjaControlCenterSourceId, kVdoNinjaControlCenterSourceName, settings);
 	obs_data_release(settings);
 	return gControlCenterSource;
 }
@@ -1843,9 +1845,7 @@ void vdo_handle_remote_control(const char *action, const char *value)
 		int newIdx = 0;
 		if (currentIdx >= 0) {
 			int count = static_cast<int>(scenes.sources.num);
-			newIdx = act == "nextScene"
-			         ? (currentIdx + 1) % count
-			         : (currentIdx - 1 + count) % count;
+			newIdx = act == "nextScene" ? (currentIdx + 1) % count : (currentIdx - 1 + count) % count;
 		}
 		obs_frontend_set_current_scene(scenes.sources.array[newIdx]);
 		obs_frontend_source_list_free(&scenes);
@@ -1904,8 +1904,8 @@ bool obs_module_load(void)
 	obs_frontend_add_custom_qdock("VDONinjaStudioDock", g_vdo_dock);
 	logInfo("Registered VDO.Ninja Studio Dock");
 
-	obs_frontend_add_tools_menu_item(tr("Tools.OpenStudio", "VDO.Ninja Studio"),
-	                                 open_vdoninja_studio_callback, nullptr);
+	obs_frontend_add_tools_menu_item(tr("Tools.OpenStudio", "VDO.Ninja Studio"), open_vdoninja_studio_callback,
+	                                 nullptr);
 	logInfo("Registered VDO.Ninja Studio tools menu action");
 
 	// Register frontend callback
@@ -1926,8 +1926,8 @@ void obs_module_unload(void)
 		obs_source_release(gControlCenterSource);
 		gControlCenterSource = nullptr;
 	}
-	
-	// Dock is managed by OBS frontend if registered via add_dock, 
+
+	// Dock is managed by OBS frontend if registered via add_dock,
 	// but we null out our pointer for safety.
 	g_vdo_dock = nullptr;
 

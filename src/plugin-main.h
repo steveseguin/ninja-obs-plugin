@@ -22,7 +22,7 @@ void obs_module_unload(void);
 }
 
 bool activateVdoNinjaServiceFromSettings(obs_data_t *sourceSettings, bool generateStreamIdIfMissing,
-                                                bool temporarySwitch);
+                                         bool temporarySwitch);
 
 // Forward chat messages from output thread to dock (must be called on UI thread)
 void vdo_dock_show_chat(const char *sender, const char *message);

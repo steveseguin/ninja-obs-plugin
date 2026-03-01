@@ -109,20 +109,20 @@ static obs_properties_t *vdoninja_source_properties(void *)
 	obs_property_t *wssHost =
 	    obs_properties_add_text(advanced, "wss_host", tr("SignalingServer", "Signaling Server"), OBS_TEXT_DEFAULT);
 	obs_property_set_long_description(
-	    wssHost,
-	    tr("SignalingServer.OptionalHelp",
-	       "Optional. Leave blank to use default signaling server: wss://wss.vdo.ninja:443"));
+	    wssHost, tr("SignalingServer.OptionalHelp",
+	                "Optional. Leave blank to use default signaling server: wss://wss.vdo.ninja:443"));
 	obs_property_t *salt = obs_properties_add_text(advanced, "salt", tr("Salt", "Salt"), OBS_TEXT_DEFAULT);
-	obs_property_set_long_description(
-	    salt, tr("Salt.OptionalHelp", "Optional. Leave blank to use default salt: vdo.ninja"));
+	obs_property_set_long_description(salt,
+	                                  tr("Salt.OptionalHelp", "Optional. Leave blank to use default salt: vdo.ninja"));
 	obs_property_t *iceServers = obs_properties_add_text(
 	    advanced, "custom_ice_servers", tr("CustomICEServers", "Custom STUN/TURN Servers"), OBS_TEXT_DEFAULT);
 	obs_property_text_set_monospace(iceServers, true);
 	obs_property_set_long_description(
-	    iceServers, tr("CustomICEServers.Help",
-	                   "Format: one server entry per item. Use ';' to separate multiple entries. "
-	                   "Examples: stun:stun.l.google.com:19302; turn:turn.example.com:3478|user|pass. "
-	                   "Leave empty to use built-in STUN defaults (Google + Cloudflare); no TURN is added automatically."));
+	    iceServers,
+	    tr("CustomICEServers.Help",
+	       "Format: one server entry per item. Use ';' to separate multiple entries. "
+	       "Examples: stun:stun.l.google.com:19302; turn:turn.example.com:3478|user|pass. "
+	       "Leave empty to use built-in STUN defaults (Google + Cloudflare); no TURN is added automatically."));
 	obs_property_t *iceHelp = obs_properties_add_text(
 	    advanced, "custom_ice_servers_help",
 	    tr("CustomICEServers.Help",

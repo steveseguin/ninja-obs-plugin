@@ -82,10 +82,10 @@ std::string asciiLower(std::string value)
 bool isLegacyRemoteActionValue(const std::string &value)
 {
 	const std::string lowered = asciiLower(value);
-	return lowered == "nextscene" || lowered == "prevscene" || lowered == "setscene" ||
-	       lowered == "setcurrentscene" || lowered == "startstreaming" || lowered == "stopstreaming" ||
-	       lowered == "startrecording" || lowered == "stoprecording" || lowered == "startvirtualcam" ||
-	       lowered == "stopvirtualcam" || lowered == "mute" || lowered == "unmute";
+	return lowered == "nextscene" || lowered == "prevscene" || lowered == "setscene" || lowered == "setcurrentscene" ||
+	       lowered == "startstreaming" || lowered == "stopstreaming" || lowered == "startrecording" ||
+	       lowered == "stoprecording" || lowered == "startvirtualcam" || lowered == "stopvirtualcam" ||
+	       lowered == "mute" || lowered == "unmute";
 }
 
 std::string normalizeRemoteAction(std::string action)

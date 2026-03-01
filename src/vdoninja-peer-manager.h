@@ -72,7 +72,8 @@ public:
 	// Send media to all connected peers (viewers)
 	void sendAudioFrame(const uint8_t *data, size_t size, uint32_t timestamp);
 	void sendVideoFrame(const uint8_t *data, size_t size, uint32_t timestamp, bool keyframe);
-	bool sendVideoFrameToPeer(const std::string &uuid, const uint8_t *data, size_t size, uint32_t timestamp, bool keyframe);
+	bool sendVideoFrameToPeer(const std::string &uuid, const uint8_t *data, size_t size, uint32_t timestamp,
+	                          bool keyframe);
 
 	// Viewing mode - receive media from publishers
 	bool startViewing(const std::string &streamId);

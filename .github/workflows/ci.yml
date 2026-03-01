@@ -44,4 +44,4 @@ jobs:
 
       - name: Check formatting
         run: |
-          find src tests -name "*.cpp" -o -name "*.h" | xargs clang-format-14 --dry-run --Werror
+          find src tests \( -name "*.cpp" -o -name "*.h" \) -print0 | xargs -0 clang-format-14 --dry-run --Werror
