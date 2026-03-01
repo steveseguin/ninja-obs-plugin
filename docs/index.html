@@ -8,255 +8,421 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;700;800&family=JetBrains+Mono:wght@400;600&display=swap"
       rel="stylesheet"
     />
     <style>
       :root {
-        --bg: #091015;
-        --bg-soft: #101c24;
-        --card: #132530;
-        --line: #24546c;
-        --ink: #ecf5fa;
-        --muted: #b4c9d6;
-        --accent: #5dd5ff;
-        --accent-2: #45f0b1;
+        --ink-strong: #10131a;
+        --ink: #1c2431;
+        --muted: #5f7289;
+        --paper: #f8fafc;
+        --card: #ffffff;
+        --line: #d9e3ef;
+        --accent: #00a596;
+        --accent-strong: #00786d;
+        --accent-soft: #e7faf8;
+        --warning: #ffb24a;
+        --radius: 16px;
+        --shadow: 0 12px 40px rgba(5, 24, 43, 0.09);
       }
+
       * {
         box-sizing: border-box;
       }
+
+      html,
       body {
         margin: 0;
-        color: var(--ink);
-        font-family: "Space Grotesk", "Segoe UI", sans-serif;
-        background:
-          radial-gradient(circle at 10% 10%, #153447 0%, transparent 45%),
-          radial-gradient(circle at 90% 0%, #1c3b2f 0%, transparent 35%),
-          linear-gradient(180deg, var(--bg-soft), var(--bg));
+        padding: 0;
       }
+
+      body {
+        font-family: "Outfit", "Segoe UI", sans-serif;
+        color: var(--ink);
+        background:
+          radial-gradient(circle at 5% 0%, #d5f4ef 0%, transparent 40%),
+          radial-gradient(circle at 95% 10%, #d9e9ff 0%, transparent 45%),
+          linear-gradient(180deg, #f5f8fd 0%, #eff4fb 100%);
+      }
+
+      body::before {
+        content: "";
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+        background-image:
+          linear-gradient(rgba(0, 0, 0, 0.022) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(0, 0, 0, 0.022) 1px, transparent 1px);
+        background-size: 28px 28px;
+        mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.4), transparent 78%);
+      }
+
       .wrap {
         width: min(1120px, 92vw);
         margin: 0 auto;
       }
-      .hero {
-        padding: 56px 0 28px;
+
+      .topbar {
+        padding: 18px 0;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
       }
-      .badge {
-        display: inline-block;
-        padding: 6px 10px;
-        border: 1px solid var(--line);
+
+      .brand {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        color: var(--ink-strong);
+        font-weight: 700;
+        letter-spacing: 0.01em;
+      }
+
+      .dot {
+        width: 12px;
+        height: 12px;
         border-radius: 999px;
-        color: var(--accent);
-        background: rgba(93, 213, 255, 0.1);
-        font-size: 0.78rem;
-        letter-spacing: 0.04em;
+        background: linear-gradient(135deg, var(--accent), #29d0bc);
+        box-shadow: 0 0 0 7px rgba(0, 165, 150, 0.15);
+      }
+
+      .nav {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .nav a {
+        color: var(--ink);
+        text-decoration: none;
+        font-weight: 500;
+        border: 1px solid var(--line);
+        background: rgba(255, 255, 255, 0.65);
+        padding: 8px 12px;
+        border-radius: 999px;
+      }
+
+      .hero {
+        padding: 26px 0 8px;
+        display: grid;
+        grid-template-columns: 1.18fr 0.82fr;
+        gap: 22px;
+      }
+
+      .hero-main {
+        background: var(--card);
+        border: 1px solid var(--line);
+        border-radius: calc(var(--radius) + 4px);
+        padding: 28px;
+        box-shadow: var(--shadow);
+      }
+
+      .eyebrow {
+        margin: 0;
+        color: var(--accent-strong);
         text-transform: uppercase;
+        letter-spacing: 0.08em;
+        font-size: 0.76rem;
+        font-weight: 700;
       }
+
       h1 {
-        margin: 14px 0 8px;
-        font-size: clamp(2rem, 5vw, 3rem);
-        line-height: 1.1;
+        margin: 10px 0 8px;
+        color: var(--ink-strong);
+        line-height: 1.06;
+        font-size: clamp(2rem, 5vw, 3.5rem);
       }
-      .subtitle {
+
+      .lede {
+        margin: 0;
         color: var(--muted);
-        max-width: 760px;
+        max-width: 56ch;
       }
-      .actions {
-        margin-top: 18px;
+
+      .cta {
+        margin-top: 20px;
         display: flex;
         gap: 10px;
         flex-wrap: wrap;
       }
+
       .btn {
         text-decoration: none;
         font-weight: 700;
-        padding: 10px 14px;
-        border-radius: 10px;
+        border-radius: 12px;
+        padding: 11px 14px;
         border: 1px solid transparent;
       }
+
       .btn-primary {
-        background: linear-gradient(135deg, var(--accent), var(--accent-2));
-        color: #06202f;
+        color: #042824;
+        background: linear-gradient(140deg, #1fe4ce, #00b9a8);
       }
+
       .btn-secondary {
         color: var(--ink);
         border-color: var(--line);
-        background: rgba(255, 255, 255, 0.03);
+        background: #f5f8fd;
       }
-      .grid {
+
+      .hero-side {
         display: grid;
-        grid-template-columns: repeat(12, 1fr);
-        gap: 14px;
-        padding: 10px 0 44px;
+        gap: 12px;
       }
-      .card {
-        grid-column: span 12;
-        background: color-mix(in oklab, var(--card) 92%, #fff 8%);
+
+      .panel {
+        background: var(--card);
         border: 1px solid var(--line);
-        border-radius: 14px;
-        padding: 18px;
+        border-radius: var(--radius);
+        padding: 16px;
+        box-shadow: var(--shadow);
       }
-      .card h2 {
-        margin-top: 0;
-        margin-bottom: 10px;
-        font-size: 1.2rem;
+
+      .panel h2,
+      .section h2 {
+        margin: 0 0 8px;
+        color: var(--ink-strong);
+        font-size: 1.05rem;
       }
-      .card p,
-      .card li {
-        color: var(--muted);
+
+      .pill {
+        display: inline-block;
+        font-family: "JetBrains Mono", monospace;
+        font-size: 0.78rem;
+        color: #0e4f47;
+        background: var(--accent-soft);
+        border: 1px solid #bdebe5;
+        border-radius: 999px;
+        padding: 4px 8px;
       }
-      .card ul,
-      .card ol {
-        margin: 0;
-        padding-left: 1.1rem;
+
+      code,
+      pre {
+        font-family: "JetBrains Mono", monospace;
       }
-      .card li + li {
-        margin-top: 6px;
-      }
-      .split-6 {
-        grid-column: span 6;
-      }
+
       code {
-        font-family: "IBM Plex Mono", monospace;
-        font-size: 0.9em;
-        background: #0b1921;
-        border: 1px solid #20455a;
+        font-size: 0.86em;
+        color: #133a36;
+        background: #eaf6f3;
+        border: 1px solid #c8e7e2;
         border-radius: 6px;
         padding: 2px 6px;
       }
+
       pre {
-        margin: 10px 0 0;
-        background: #0a1820;
-        border: 1px solid #21465b;
-        border-radius: 10px;
-        overflow-x: auto;
+        margin: 8px 0 0;
+        background: #0f1724;
+        color: #d8ebff;
+        border-radius: 12px;
         padding: 12px;
+        overflow-x: auto;
       }
+
       pre code {
-        background: none;
+        color: inherit;
+        background: transparent;
         border: 0;
         padding: 0;
       }
-      .small {
+
+      .sections {
+        padding: 14px 0 32px;
+        display: grid;
+        gap: 14px;
+      }
+
+      .section {
+        background: var(--card);
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        padding: 18px;
+        box-shadow: var(--shadow);
+      }
+
+      .steps {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 10px;
+      }
+
+      .step {
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        padding: 12px;
+        background: #fbfdff;
+      }
+
+      .step strong {
+        display: inline-block;
+        margin-bottom: 6px;
+      }
+
+      .mini-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+      }
+
+      .list {
+        margin: 0;
+        padding-left: 1rem;
+        color: var(--muted);
+      }
+
+      .list li + li {
+        margin-top: 6px;
+      }
+
+      .warn {
+        margin-top: 10px;
+        border: 1px solid #ffdca8;
+        background: #fff6e8;
+        color: #6f4d18;
+        border-radius: 10px;
+        padding: 9px 10px;
         font-size: 0.92rem;
       }
-      a {
-        color: var(--accent);
+
+      .links a {
+        color: #0d6a9e;
+        text-decoration: none;
       }
+
       footer {
-        border-top: 1px solid #21465b;
-        color: #93adbd;
-        padding: 16px 0 36px;
+        padding: 4px 0 34px;
+        color: #6f8298;
+        font-size: 0.92rem;
       }
-      @media (max-width: 860px) {
-        .split-6 {
-          grid-column: span 12;
+
+      [data-reveal] {
+        opacity: 0;
+        transform: translateY(14px);
+        animation: rise 0.65s ease forwards;
+        animation-delay: var(--delay, 0ms);
+      }
+
+      @keyframes rise {
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+
+      @media (max-width: 940px) {
+        .hero {
+          grid-template-columns: 1fr;
+        }
+
+        .steps,
+        .mini-grid {
+          grid-template-columns: 1fr;
         }
       }
     </style>
   </head>
   <body>
-    <header class="hero">
-      <div class="wrap">
-        <span class="badge">OBS + VDO.Ninja Plugin</span>
-        <h1>Publish and ingest VDO.Ninja streams directly in OBS</h1>
-        <p class="subtitle">
-          Native WebRTC path for OBS output publishing and inbound stream handling, with multi-viewer support, data channel metadata, and release-ready binaries.
-        </p>
-        <div class="actions">
-          <a class="btn btn-primary" href="https://github.com/steveseguin/ninja-obs-plugin/releases">Download Latest Release</a>
-          <a class="btn btn-secondary" href="https://github.com/steveseguin/ninja-obs-plugin">View Repository</a>
+    <div class="wrap">
+      <header class="topbar" data-reveal style="--delay: 50ms">
+        <div class="brand">
+          <span class="dot" aria-hidden="true"></span>
+          <span>OBS VDO.Ninja Plugin</span>
         </div>
-      </div>
-    </header>
+        <nav class="nav">
+          <a href="#quick-start">Quick Start</a>
+          <a href="https://github.com/steveseguin/ninja-obs-plugin/releases">Releases</a>
+        </nav>
+      </header>
 
-    <main class="wrap grid">
-      <section class="card split-6">
-        <h2>What It Does</h2>
-        <ul>
-          <li>Publishes OBS output to VDO.Ninja using <code>push</code> stream IDs.</li>
-          <li>Ingests VDO.Ninja streams into OBS via source mode or auto-inbound management.</li>
-          <li>Handles multiple viewers from a single publisher session.</li>
-          <li>Parses data-channel metadata (including WHEP URL hints).</li>
-        </ul>
-      </section>
+      <main>
+        <section class="hero">
+          <article class="hero-main" data-reveal style="--delay: 130ms">
+            <p class="eyebrow">Direct WebRTC in OBS</p>
+            <h1>Publish and ingest VDO.Ninja feeds without Browser Source sprawl</h1>
+            <p class="lede">
+              Native OBS service and source for VDO.Ninja workflows. Build stable remote contribution pipelines with cleaner scene management, multi-viewer publishing, and room-based inbound feeds.
+            </p>
+            <div class="cta">
+              <a class="btn btn-primary" href="https://github.com/steveseguin/ninja-obs-plugin/releases">Download Latest Release</a>
+              <a class="btn btn-secondary" href="https://github.com/steveseguin/ninja-obs-plugin">View Repository</a>
+            </div>
+          </article>
 
-      <section class="card split-6">
-        <h2>Advantages</h2>
-        <ul>
-          <li>Lower operational overhead than managing many Browser Sources manually.</li>
-          <li>Built-in OBS workflow for stream IDs, passwords, room IDs, and reconnects.</li>
-          <li>Useful for remote contribution, director-style workflows, and room ingestion.</li>
-          <li>Open-source with CI-tested Linux, Windows, and macOS builds.</li>
-        </ul>
-      </section>
+          <aside class="hero-side">
+            <section class="panel" data-reveal style="--delay: 220ms">
+              <h2>Quick link</h2>
+              <span class="pill">https://steveseguin.github.io/ninja-obs-plugin/#quick-start</span>
+              <p style="margin: 8px 0 0; color: var(--muted)">Use this exact URL for onboarding docs.</p>
+            </section>
+            <section class="panel" data-reveal style="--delay: 300ms">
+              <h2>Viewer URL pattern</h2>
+              <pre><code>https://vdo.ninja/?view=YourStreamID</code></pre>
+            </section>
+          </aside>
+        </section>
 
-      <section class="card" id="quick-start">
-        <h2>How To Use (Quick Start)</h2>
-        <ol>
-          <li>Download the latest release. On Windows, run <code>obs-vdoninja-windows-x64-setup.exe</code> (recommended).</li>
-          <li>Windows portable/manual fallback: extract <code>obs-vdoninja-windows-x64.zip</code> and run <code>install.cmd</code>.</li>
-          <li>On Linux/macOS packages, run <code>install.sh</code> from the extracted archive.</li>
-          <li>In OBS, open <strong>Settings -> Stream</strong> and pick <strong>VDO.Ninja</strong>.</li>
-          <li>Set <code>Stream ID</code> and optional <code>Password</code> / <code>Room ID</code>, then start streaming.</li>
-          <li>Open your viewer URL: <code>https://vdo.ninja/?view=YourStreamID</code> (add password if set).</li>
-          <li>For ingest, add a <strong>VDO.Ninja Source</strong> in OBS and enter the same IDs.</li>
-        </ol>
-        <pre><code>Example:
-Publish: https://vdo.ninja/?push=MyStreamID&password=MyPass
-View:    https://vdo.ninja/?view=MyStreamID&password=MyPass</code></pre>
-      </section>
+        <div class="sections">
+          <section class="section" id="quick-start" data-reveal style="--delay: 120ms">
+            <h2>Quick Start</h2>
+            <div class="steps">
+              <div class="step">
+                <strong>1. Install</strong>
+                <div>Windows: run <code>obs-vdoninja-windows-x64-setup.exe</code>.</div>
+                <div>Fallback: extract zip, then run <code>install.cmd</code>.</div>
+              </div>
+              <div class="step">
+                <strong>2. Configure OBS</strong>
+                <div>Open <code>Settings -> Stream</code>, choose <code>VDO.Ninja</code>, and set <code>Stream ID</code>.</div>
+              </div>
+              <div class="step">
+                <strong>3. Go live</strong>
+                <div>Start streaming, then open your viewer link using <code>?view=StreamID</code>.</div>
+              </div>
+            </div>
+            <div class="warn">
+              Password-enabled streams append a hash internally. Viewer links and room solo links still use the unhashed Stream ID.
+            </div>
+          </section>
 
-      <section class="card split-6">
-        <h2>Advanced Settings</h2>
-        <p class="small">
-          Supports custom salt/domain behavior and custom signaling / ICE configuration for hosted or constrained environments.
-        </p>
-        <ul>
-          <li>Custom salt (default VDO.Ninja compatible behavior).</li>
-          <li>Custom websocket signaling server URL.</li>
-          <li>Custom STUN/TURN servers and relay preferences.</li>
-          <li>Viewer limits and auto-inbound source controls.</li>
-        </ul>
-      </section>
+          <section class="section" data-reveal style="--delay: 180ms">
+            <h2>Core URLs</h2>
+            <div class="mini-grid">
+              <div class="step">
+                <strong>Publish</strong>
+                <pre><code>https://vdo.ninja/?push=MyStreamID&amp;password=MyPass</code></pre>
+              </div>
+              <div class="step">
+                <strong>View</strong>
+                <pre><code>https://vdo.ninja/?view=MyStreamID&amp;password=MyPass</code></pre>
+              </div>
+              <div class="step">
+                <strong>Room solo source</strong>
+                <pre><code>https://vdo.ninja/?view=StreamID&amp;solo&amp;room=RoomID</code></pre>
+              </div>
+              <div class="step">
+                <strong>Docs home</strong>
+                <pre><code>https://steveseguin.github.io/ninja-obs-plugin/</code></pre>
+              </div>
+            </div>
+          </section>
 
-      <section class="card split-6">
-        <h2>Status</h2>
-        <ul>
-          <li>Publishing path is stable and e2e validated.</li>
-          <li>Multi-viewer and reload continuity are tested.</li>
-          <li>Native source decode path exists and is still being hardened.</li>
-          <li>Locale fallback to English is supported if locale files are missing.</li>
-        </ul>
-      </section>
+          <section class="section links" data-reveal style="--delay: 240ms">
+            <h2>Docs and Support</h2>
+            <ul class="list">
+              <li><a href="https://github.com/steveseguin/ninja-obs-plugin/releases">Releases</a></li>
+              <li><a href="https://github.com/steveseguin/ninja-obs-plugin/blob/main/INSTALL.md">Install guide</a></li>
+              <li><a href="https://github.com/steveseguin/ninja-obs-plugin/blob/main/README.md">README</a></li>
+              <li><a href="https://github.com/steveseguin/ninja-obs-plugin/blob/main/TESTING_OBS_MANUAL.md">Manual test matrix</a></li>
+              <li><a href="https://github.com/steveseguin/ninja-obs-plugin/issues">Issue tracker</a></li>
+              <li><a href="https://vdo.ninja/">VDO.Ninja</a></li>
+            </ul>
+          </section>
+        </div>
+      </main>
 
-      <section class="card split-6">
-        <h2>Install UX</h2>
-        <ul>
-          <li>Release archives include <code>INSTALL.md</code> with platform-specific steps.</li>
-          <li>Package includes install and uninstall scripts (<code>install.*</code> / <code>uninstall.*</code>).</li>
-          <li>Checksums are provided for release verification.</li>
-        </ul>
-      </section>
-
-      <section class="card">
-        <h2>Links</h2>
-        <ul>
-          <li><a href="#quick-start">Web Quick Start Guide</a></li>
-          <li><a href="https://github.com/steveseguin/ninja-obs-plugin/releases">Releases</a></li>
-          <li><a href="https://github.com/steveseguin/ninja-obs-plugin/blob/main/INSTALL.md">Install Guide</a></li>
-          <li><a href="https://github.com/steveseguin/ninja-obs-plugin/blob/main/README.md">Full Documentation</a></li>
-          <li><a href="https://github.com/steveseguin/ninja-obs-plugin/blob/main/TESTING_OBS_MANUAL.md">Manual OBS Test Matrix</a></li>
-          <li><a href="https://github.com/steveseguin/ninja-obs-plugin/issues">Report Issues</a></li>
-          <li><a href="https://vdo.ninja/">VDO.Ninja</a></li>
-        </ul>
-      </section>
-    </main>
-
-    <footer>
-      <div class="wrap small">
-        OBS VDO.Ninja Plugin - AGPL-3.0-only
-      </div>
-    </footer>
+      <footer>OBS VDO.Ninja Plugin • AGPL-3.0-only</footer>
+    </div>
   </body>
 </html>
