@@ -430,20 +430,9 @@ void VDONinjaPeerManager::setupPublisherTracks(std::shared_ptr<PeerInfo> peer)
 	audioDesc.addSSRC(audioSsrc_, "audio-stream");
 	peer->audioTrack = peer->pc->addTrack(audioDesc);
 
-	// Prefer libdatachannel packetizers when available, with fallback to manual RTP.
-	try {
-		auto audioConfig = std::make_shared<rtc::RtpPacketizationConfig>(audioSsrc_, "vdoninja", 111,
-		                                                                 rtc::OpusRtpPacketizer::DefaultClockRate);
-		auto audioPacketizer = std::make_shared<rtc::OpusRtpPacketizer>(audioConfig);
-		peer->audioSrReporter = std::make_shared<rtc::RtcpSrReporter>(audioConfig);
-		audioPacketizer->addToChain(peer->audioSrReporter);
-		audioPacketizer->addToChain(std::make_shared<rtc::RtcpNackResponder>());
-		peer->audioTrack->setMediaHandler(audioPacketizer);
-		peer->useAudioPacketizer = true;
-	} catch (const std::exception &ex) {
-		logWarning("Audio packetizer unavailable; using manual RTP for %s: %s", peer->uuid.c_str(), ex.what());
-		peer->useAudioPacketizer = false;
-	}
+	// OBS emits already-encoded Opus payloads; send manual RTP packets for maximum
+	// compatibility across libdatachannel versions.
+	peer->useAudioPacketizer = false;
 
 	if (videoCodec_ == VideoCodec::H264) {
 		try {

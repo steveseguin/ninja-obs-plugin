@@ -49,6 +49,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Plugin runtime version banner now correctly reports `1.1.15` (`PLUGIN_VERSION` macro alignment).
 
+## [1.1.18] - 2026-03-01
+
+### Fixed
+- Audio publishing now uses explicit manual RTP packetization for OBS Opus frames instead of the libdatachannel Opus packetizer path, improving compatibility with real OBS capture streams.
+- Audio RTP timestamps now derive from encoder packet timebase (`pts * timebase_num / timebase_den * 48000`) with a fallback path when timebase is unavailable.
+
+### Changed
+- End-to-end Playwright coverage now explicitly requires inbound audio bytes in all publish/view scenarios to catch silent-audio regressions.
+
 ## [1.1.17] - 2026-03-01
 
 ### Fixed

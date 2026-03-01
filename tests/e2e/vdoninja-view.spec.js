@@ -88,6 +88,10 @@ function sumInbound(snapshot) {
   );
 }
 
+function sumInboundAudio(snapshot) {
+  return snapshot.pcStats.reduce((acc, s) => acc + (s.inboundAudioBytes || 0), 0);
+}
+
 function hasTracks(snapshot) {
   return snapshot.videos.some((v) => v.videoTracks > 0 || v.audioTracks > 0);
 }
@@ -144,7 +148,7 @@ test("vdo.ninja publish -> view receives and plays remote media", async ({ brows
     .poll(
       async () => {
         const snapshot = await collectSnapshot(viewer);
-        return hasTracks(snapshot) && sumInbound(snapshot) > 5000;
+        return hasTracks(snapshot) && sumInbound(snapshot) > 5000 && sumInboundAudio(snapshot) > 500;
       },
       { timeout: 70000, intervals: [1000, 2000, 3000] }
     )
@@ -159,6 +163,7 @@ test("vdo.ninja publish -> view receives and plays remote media", async ({ brows
   expect(hasVideoMetadata(secondSample)).toBeTruthy();
   expect(playbackAdvanced(firstSample, secondSample)).toBeTruthy();
   expect(sumInbound(secondSample)).toBeGreaterThan(5000);
+  expect(sumInboundAudio(secondSample)).toBeGreaterThan(500);
   expect(publisherSample.pcStats.length).toBeGreaterThan(0);
 
   await viewerContext.close();

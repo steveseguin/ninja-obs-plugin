@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <cstring>
 
 #include <util/config-file.h>
@@ -1370,7 +1371,15 @@ void VDONinjaOutput::processAudioPacket(encoder_packet *packet)
 		return;
 	}
 
-	uint32_t timestamp = static_cast<uint32_t>(packet->pts * 48); // Convert to 48kHz clock
+	uint32_t timestamp = 0;
+	if (packet->timebase_num > 0 && packet->timebase_den > 0) {
+		const double ptsSeconds = (static_cast<double>(packet->pts) * static_cast<double>(packet->timebase_num)) /
+		                          static_cast<double>(packet->timebase_den);
+		timestamp = static_cast<uint32_t>(std::llround(ptsSeconds * 48000.0));
+	} else {
+		// Legacy fallback for builds where timebase is not populated.
+		timestamp = static_cast<uint32_t>(packet->pts * 48);
+	}
 
 	peerManager_->sendAudioFrame(packet->data, packet->size, timestamp);
 }

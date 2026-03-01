@@ -81,6 +81,10 @@ function sumInbound(snapshot) {
   );
 }
 
+function sumInboundAudio(snapshot) {
+  return snapshot.pcStats.reduce((acc, s) => acc + (s.inboundAudioBytes || 0), 0);
+}
+
 function hasTracks(snapshot) {
   return snapshot.videos.some((v) => v.videoTracks > 0 || v.audioTracks > 0);
 }
@@ -144,8 +148,8 @@ test("one publisher can serve multiple viewers with active media", async ({ brow
       async () => {
         const snapA = await collectSnapshot(viewerA);
         const snapB = await collectSnapshot(viewerB);
-        const okA = hasTracks(snapA) && hasMetadata(snapA) && sumInbound(snapA) > 5000;
-        const okB = hasTracks(snapB) && hasMetadata(snapB) && sumInbound(snapB) > 5000;
+        const okA = hasTracks(snapA) && hasMetadata(snapA) && sumInbound(snapA) > 5000 && sumInboundAudio(snapA) > 500;
+        const okB = hasTracks(snapB) && hasMetadata(snapB) && sumInbound(snapB) > 5000 && sumInboundAudio(snapB) > 500;
         return okA && okB;
       },
       { timeout: 70000, intervals: [1000, 2000, 3000] }
@@ -165,6 +169,8 @@ test("one publisher can serve multiple viewers with active media", async ({ brow
   expect(hasMetadata(afterB)).toBeTruthy();
   expect(sumInbound(afterA)).toBeGreaterThan(5000);
   expect(sumInbound(afterB)).toBeGreaterThan(5000);
+  expect(sumInboundAudio(afterA)).toBeGreaterThan(500);
+  expect(sumInboundAudio(afterB)).toBeGreaterThan(500);
   expect(playbackAdvanced(beforeA, afterA)).toBeTruthy();
   expect(playbackAdvanced(beforeB, afterB)).toBeTruthy();
 

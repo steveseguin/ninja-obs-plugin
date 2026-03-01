@@ -107,6 +107,10 @@ function sumInbound(snapshot) {
   );
 }
 
+function sumInboundAudio(snapshot) {
+  return snapshot.pcStats.reduce((acc, s) => acc + (s.inboundAudioBytes || 0), 0);
+}
+
 function sumOutbound(snapshot) {
   return snapshot.pcStats.reduce(
     (acc, s) => acc + (s.outboundVideoBytes || 0) + (s.outboundAudioBytes || 0),
@@ -172,7 +176,7 @@ test("vdo.ninja publish -> view -> reload keeps active media", async ({ browser 
     .poll(
       async () => {
         const snap = await collectSnapshot(viewer);
-        return hasTracks(snap) && sumInbound(snap) > 5000;
+        return hasTracks(snap) && sumInbound(snap) > 5000 && sumInboundAudio(snap) > 500;
       },
       { timeout: 70000, intervals: [1000, 2000, 3000] }
     )
@@ -186,6 +190,7 @@ test("vdo.ninja publish -> view -> reload keeps active media", async ({ browser 
   expect(hasTracks(viewerAfter)).toBeTruthy();
   expect(hasVideoMetadata(viewerAfter)).toBeTruthy();
   expect(sumInbound(viewerAfter)).toBeGreaterThan(5000);
+  expect(sumInboundAudio(viewerAfter)).toBeGreaterThan(500);
   expect(playbackAdvanced(viewerBefore, viewerAfter)).toBeTruthy();
 
   const inboundBeforeReload = sumInbound(viewerAfter);
@@ -197,7 +202,7 @@ test("vdo.ninja publish -> view -> reload keeps active media", async ({ browser 
     .poll(
       async () => {
         const snap = await collectSnapshot(viewer);
-        return hasTracks(snap) && sumInbound(snap) > 5000;
+        return hasTracks(snap) && sumInbound(snap) > 5000 && sumInboundAudio(snap) > 500;
       },
       { timeout: 70000, intervals: [1000, 2000, 3000] }
     )
@@ -210,6 +215,7 @@ test("vdo.ninja publish -> view -> reload keeps active media", async ({ browser 
   expect(hasTracks(viewerAfterReload2)).toBeTruthy();
   expect(hasVideoMetadata(viewerAfterReload2)).toBeTruthy();
   expect(sumInbound(viewerAfterReload2)).toBeGreaterThan(5000);
+  expect(sumInboundAudio(viewerAfterReload2)).toBeGreaterThan(500);
   expect(playbackAdvanced(viewerAfterReload1, viewerAfterReload2)).toBeTruthy();
 
   const publisherAfter = await collectSnapshot(publisher);
