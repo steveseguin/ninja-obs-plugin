@@ -80,12 +80,12 @@
         letter-spacing: 0.01em;
       }
 
-      .dot {
-        width: 12px;
-        height: 12px;
-        border-radius: 999px;
-        background: linear-gradient(135deg, var(--accent), #29d0bc);
-        box-shadow: 0 0 0 7px rgba(0, 165, 150, 0.15);
+      .brand-logo {
+        width: 28px;
+        height: 28px;
+        object-fit: contain;
+        border-radius: 7px;
+        box-shadow: 0 0 0 5px rgba(0, 165, 150, 0.14);
       }
 
       .nav {
@@ -327,7 +327,11 @@
     <div class="wrap">
       <header class="topbar" data-reveal style="--delay: 50ms">
         <div class="brand">
-          <span class="dot" aria-hidden="true"></span>
+          <img
+            class="brand-logo"
+            src="https://raw.githubusercontent.com/steveseguin/vdo.ninja/develop/media/vdoninja.png"
+            alt="VDO.Ninja logo"
+          />
           <span>OBS VDO.Ninja Plugin</span>
         </div>
         <nav class="nav">
