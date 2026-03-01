@@ -332,6 +332,9 @@ jobs:
   build-windows:
     name: Windows
     runs-on: windows-2022
+    env:
+      WIN_SIGN_CERT_B64: ${{ secrets.WIN_SIGN_CERT_B64 }}
+      WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -545,10 +548,8 @@ jobs:
           $script | python -
 
       - name: Prepare Windows signing certificate
-        if: ${{ secrets.WIN_SIGN_CERT_B64 != '' && secrets.WIN_CSC_KEY_PASSWORD != '' }}
+        if: ${{ env.WIN_SIGN_CERT_B64 != '' && env.WIN_CSC_KEY_PASSWORD != '' }}
         shell: pwsh
-        env:
-          WIN_SIGN_CERT_B64: ${{ secrets.WIN_SIGN_CERT_B64 }}
         run: |
           $certPath = Join-Path $env:RUNNER_TEMP "obs-vdoninja-signing.pfx"
           [System.IO.File]::WriteAllBytes($certPath, [System.Convert]::FromBase64String($env:WIN_SIGN_CERT_B64))
@@ -558,8 +559,6 @@ jobs:
           "WIN_SIGN_CERT_PATH=$certPath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Package
-        env:
-          WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
         run: |
           cmake --install build --prefix install
           Copy-Item LICENSE install\
@@ -591,9 +590,7 @@ jobs:
             -OutputBaseFilename "${{ env.PLUGIN_NAME }}-windows-x64-setup"
 
       - name: Sign Windows installer
-        if: ${{ secrets.WIN_SIGN_CERT_B64 != '' && secrets.WIN_CSC_KEY_PASSWORD != '' }}
-        env:
-          WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+        if: ${{ env.WIN_SIGN_CERT_B64 != '' && env.WIN_CSC_KEY_PASSWORD != '' }}
         run: |
           $installerPath = "${{ env.PLUGIN_NAME }}-windows-x64-setup.exe"
           if (-not (Test-Path $installerPath)) {
@@ -621,6 +618,8 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/v')
     needs: [build-linux, build-macos, build-windows]
     runs-on: ubuntu-latest
+    env:
+      VT_API_KEY: ${{ secrets.VT_API_KEY }}
     permissions:
       contents: write
     steps:
@@ -646,9 +645,7 @@ jobs:
           cat checksums.txt
 
       - name: Submit Artifacts to VirusTotal
-        if: ${{ secrets.VT_API_KEY != '' }}
-        env:
-          VT_API_KEY: ${{ secrets.VT_API_KEY }}
+        if: ${{ env.VT_API_KEY != '' }}
         run: |
           cd artifacts
           shopt -s nullglob
