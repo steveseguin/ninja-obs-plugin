@@ -64,4 +64,9 @@ install/
 artifacts/
 obs-vdoninja-windows-x64-setup.exe
 _obs-portable/
-_tmp*/
+_tmp*
+_obs_screenshot*.png
+_obs_stderr.txt
+aqtinstall.log
+local-qt6*/
+obs-qt6-deps/
