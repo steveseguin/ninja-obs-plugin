@@ -61,6 +61,7 @@ test-results/
 playwright-*.json
 playwright-*.png
 install/
+dist/
 artifacts/
 obs-vdoninja-windows-x64-setup.exe
 _obs-portable/
