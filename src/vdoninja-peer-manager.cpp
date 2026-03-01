@@ -7,10 +7,228 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstdint>
 #include <random>
 
 namespace vdoninja
 {
+
+namespace
+{
+
+constexpr uint8_t kH264PayloadType = 96;
+constexpr uint8_t kH264FuAType = 28;
+constexpr size_t kMaxRtpPayloadSize = 1200;
+
+struct NalUnitView {
+	const uint8_t *data = nullptr;
+	size_t size = 0;
+};
+
+bool hasStartCodeAt(const uint8_t *data, size_t size, size_t pos, size_t &length)
+{
+	length = 0;
+	if (!data || pos >= size) {
+		return false;
+	}
+
+	if (pos + 3 <= size && data[pos] == 0x00 && data[pos + 1] == 0x00 && data[pos + 2] == 0x01) {
+		length = 3;
+		return true;
+	}
+
+	if (pos + 4 <= size && data[pos] == 0x00 && data[pos + 1] == 0x00 && data[pos + 2] == 0x00 &&
+	    data[pos + 3] == 0x01) {
+		length = 4;
+		return true;
+	}
+
+	return false;
+}
+
+size_t findStartCode(const uint8_t *data, size_t size, size_t from, size_t &length)
+{
+	length = 0;
+	if (!data || from >= size) {
+		return size;
+	}
+
+	for (size_t pos = from; pos < size; ++pos) {
+		if (hasStartCodeAt(data, size, pos, length)) {
+			return pos;
+		}
+	}
+
+	return size;
+}
+
+bool parseAnnexBNalus(const uint8_t *data, size_t size, std::vector<NalUnitView> &nalUnits)
+{
+	size_t startCodeLen = 0;
+	size_t start = findStartCode(data, size, 0, startCodeLen);
+	if (start == size) {
+		return false;
+	}
+
+	while (start < size) {
+		const size_t nalStart = start + startCodeLen;
+		size_t nextStartCodeLen = 0;
+		const size_t nextStart = findStartCode(data, size, nalStart, nextStartCodeLen);
+		size_t nalEnd = nextStart;
+
+		// Trim alignment zeros before the next start code.
+		while (nalEnd > nalStart && data[nalEnd - 1] == 0x00) {
+			--nalEnd;
+		}
+
+		if (nalEnd > nalStart) {
+			nalUnits.push_back({data + nalStart, nalEnd - nalStart});
+		}
+
+		if (nextStart == size) {
+			break;
+		}
+
+		start = nextStart;
+		startCodeLen = nextStartCodeLen;
+	}
+
+	return !nalUnits.empty();
+}
+
+bool parseAvccNalus(const uint8_t *data, size_t size, std::vector<NalUnitView> &nalUnits)
+{
+	if (!data || size < 4) {
+		return false;
+	}
+
+	size_t offset = 0;
+	while (offset + 4 <= size) {
+		const uint32_t nalSize = (static_cast<uint32_t>(data[offset]) << 24) |
+		                         (static_cast<uint32_t>(data[offset + 1]) << 16) |
+		                         (static_cast<uint32_t>(data[offset + 2]) << 8) |
+		                         static_cast<uint32_t>(data[offset + 3]);
+		offset += 4;
+
+		if (nalSize == 0) {
+			continue;
+		}
+		if (offset + nalSize > size) {
+			return false;
+		}
+
+		nalUnits.push_back({data + offset, nalSize});
+		offset += nalSize;
+	}
+
+	return offset == size && !nalUnits.empty();
+}
+
+bool extractH264Nalus(const uint8_t *data, size_t size, std::vector<NalUnitView> &nalUnits)
+{
+	nalUnits.clear();
+	if (!data || size == 0) {
+		return false;
+	}
+
+	if (parseAnnexBNalus(data, size, nalUnits)) {
+		return true;
+	}
+
+	if (parseAvccNalus(data, size, nalUnits)) {
+		return true;
+	}
+
+	// Fallback: treat as a single NAL payload.
+	nalUnits.push_back({data, size});
+	return true;
+}
+
+bool sendRtpPacket(const std::shared_ptr<rtc::Track> &track, uint16_t &sequence, uint32_t timestamp, uint32_t ssrc,
+                   bool marker, const uint8_t *payload, size_t payloadSize)
+{
+	if (!track || !payload || payloadSize == 0) {
+		return false;
+	}
+
+	std::vector<uint8_t> packet;
+	packet.reserve(12 + payloadSize);
+	packet.push_back(0x80); // V=2, P=0, X=0, CC=0
+	packet.push_back(static_cast<uint8_t>(kH264PayloadType | (marker ? 0x80 : 0x00)));
+	packet.push_back(static_cast<uint8_t>((sequence >> 8) & 0xFF));
+	packet.push_back(static_cast<uint8_t>(sequence & 0xFF));
+	sequence++;
+	packet.push_back(static_cast<uint8_t>((timestamp >> 24) & 0xFF));
+	packet.push_back(static_cast<uint8_t>((timestamp >> 16) & 0xFF));
+	packet.push_back(static_cast<uint8_t>((timestamp >> 8) & 0xFF));
+	packet.push_back(static_cast<uint8_t>(timestamp & 0xFF));
+	packet.push_back(static_cast<uint8_t>((ssrc >> 24) & 0xFF));
+	packet.push_back(static_cast<uint8_t>((ssrc >> 16) & 0xFF));
+	packet.push_back(static_cast<uint8_t>((ssrc >> 8) & 0xFF));
+	packet.push_back(static_cast<uint8_t>(ssrc & 0xFF));
+	packet.insert(packet.end(), payload, payload + payloadSize);
+	track->send(reinterpret_cast<const std::byte *>(packet.data()), packet.size());
+	return true;
+}
+
+bool sendH264FrameRtp(const std::shared_ptr<rtc::Track> &track, uint16_t &sequence, uint32_t timestamp, uint32_t ssrc,
+                      const uint8_t *data, size_t size)
+{
+	std::vector<NalUnitView> nalUnits;
+	if (!extractH264Nalus(data, size, nalUnits)) {
+		return false;
+	}
+
+	for (size_t i = 0; i < nalUnits.size(); ++i) {
+		const NalUnitView &nal = nalUnits[i];
+		if (!nal.data || nal.size == 0) {
+			continue;
+		}
+
+		const bool lastNalInFrame = (i + 1 == nalUnits.size());
+		if (nal.size <= kMaxRtpPayloadSize) {
+			if (!sendRtpPacket(track, sequence, timestamp, ssrc, lastNalInFrame, nal.data, nal.size)) {
+				return false;
+			}
+			continue;
+		}
+
+		// FU-A fragmentation for oversized NAL units.
+		if (nal.size <= 1) {
+			continue;
+		}
+
+		const uint8_t nalHeader = nal.data[0];
+		const uint8_t fuIndicator = static_cast<uint8_t>((nalHeader & 0xE0) | kH264FuAType);
+		const uint8_t nalType = static_cast<uint8_t>(nalHeader & 0x1F);
+		const size_t maxChunk = kMaxRtpPayloadSize - 2;
+		size_t offset = 1;
+
+		while (offset < nal.size) {
+			const size_t remaining = nal.size - offset;
+			const size_t chunk = std::min(remaining, maxChunk);
+			const bool start = (offset == 1);
+			const bool end = (offset + chunk >= nal.size);
+			const bool marker = end && lastNalInFrame;
+
+			std::vector<uint8_t> payload;
+			payload.reserve(2 + chunk);
+			payload.push_back(fuIndicator);
+			payload.push_back(static_cast<uint8_t>(nalType | (start ? 0x80 : 0x00) | (end ? 0x40 : 0x00)));
+			payload.insert(payload.end(), nal.data + offset, nal.data + offset + chunk);
+
+			if (!sendRtpPacket(track, sequence, timestamp, ssrc, marker, payload.data(), payload.size())) {
+				return false;
+			}
+
+			offset += chunk;
+		}
+	}
+
+	return true;
+}
+
+} // namespace
 
 VDONinjaPeerManager::VDONinjaPeerManager()
 {
@@ -433,25 +651,10 @@ void VDONinjaPeerManager::setupPublisherTracks(std::shared_ptr<PeerInfo> peer)
 	// OBS emits already-encoded Opus payloads; send manual RTP packets for maximum
 	// compatibility across libdatachannel versions.
 	peer->useAudioPacketizer = false;
-
-	if (videoCodec_ == VideoCodec::H264) {
-		try {
-			auto videoConfig = std::make_shared<rtc::RtpPacketizationConfig>(videoSsrc_, "vdoninja", 96,
-			                                                                 rtc::H264RtpPacketizer::defaultClockRate);
-			auto videoPacketizer = std::make_shared<rtc::H264RtpPacketizer>(
-			    rtc::H264RtpPacketizer::Separator::StartSequence, videoConfig, 1200);
-			peer->videoSrReporter = std::make_shared<rtc::RtcpSrReporter>(videoConfig);
-			videoPacketizer->addToChain(peer->videoSrReporter);
-			videoPacketizer->addToChain(std::make_shared<rtc::RtcpNackResponder>(4000));
-			peer->videoTrack->setMediaHandler(videoPacketizer);
-			peer->useVideoPacketizer = true;
-		} catch (const std::exception &ex) {
-			logWarning("Video packetizer unavailable; using manual RTP for %s: %s", peer->uuid.c_str(), ex.what());
-			peer->useVideoPacketizer = false;
-		}
-	} else {
-		peer->useVideoPacketizer = false;
-	}
+	// OBS emits encoded H264 access units; do explicit RTP packetization here to
+	// keep timestamping and fragmentation deterministic across libdatachannel
+	// versions.
+	peer->useVideoPacketizer = false;
 
 	// Create data channel if enabled
 	if (enableDataChannel_) {
@@ -786,41 +989,12 @@ bool VDONinjaPeerManager::sendVideoFrameToPeerLocked(const std::string &uuid, co
 			return false;
 		}
 
-		if (peer->useVideoPacketizer) {
-			track->send(reinterpret_cast<const std::byte *>(data), size);
-			return true;
+		uint32_t ts = timestamp ? timestamp : videoTimestamp_;
+		if (!sendH264FrameRtp(track, videoSeq_, ts, videoSsrc_, data, size)) {
+			return false;
 		}
 
-		// Create RTP packet (simplified - real impl needs fragmentation for large
-		// frames)
-		std::vector<uint8_t> rtpPacket;
-		rtpPacket.reserve(12 + size);
-
-		// RTP header
-		rtpPacket.push_back(0x80);                        // V=2, P=0, X=0, CC=0
-		rtpPacket.push_back(keyframe ? (96 | 0x80) : 96); // PT=96, M=1 for keyframe
-		rtpPacket.push_back((videoSeq_ >> 8) & 0xFF);
-		rtpPacket.push_back(videoSeq_ & 0xFF);
-		videoSeq_++;
-
-		// Timestamp
-		uint32_t ts = timestamp ? timestamp : videoTimestamp_;
-		rtpPacket.push_back((ts >> 24) & 0xFF);
-		rtpPacket.push_back((ts >> 16) & 0xFF);
-		rtpPacket.push_back((ts >> 8) & 0xFF);
-		rtpPacket.push_back(ts & 0xFF);
-		videoTimestamp_ = ts + 3000; // 90kHz clock, ~30fps
-
-		// SSRC
-		rtpPacket.push_back((videoSsrc_ >> 24) & 0xFF);
-		rtpPacket.push_back((videoSsrc_ >> 16) & 0xFF);
-		rtpPacket.push_back((videoSsrc_ >> 8) & 0xFF);
-		rtpPacket.push_back(videoSsrc_ & 0xFF);
-
-		// Payload
-		rtpPacket.insert(rtpPacket.end(), data, data + size);
-
-		track->send(reinterpret_cast<const std::byte *>(rtpPacket.data()), rtpPacket.size());
+		videoTimestamp_ = ts + 3000; // 90kHz clock, ~30fps fallback cadence
 		return true;
 	} catch (const std::exception &e) {
 		logError("Failed to send video to %s: %s", uuid.c_str(), e.what());

@@ -49,6 +49,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Plugin runtime version banner now correctly reports `1.1.15` (`PLUGIN_VERSION` macro alignment).
 
+## [1.1.19] - 2026-03-01
+
+### Fixed
+- OBS publish video now uses explicit H264 RTP packetization (single NAL + FU-A fragmentation) with deterministic marker bits and sequencing.
+- Video RTP timestamps now derive from encoder packet timebase (`pts * timebase_num / timebase_den * 90000`) with a fallback path when timebase is unavailable.
+- Video transport no longer depends on libdatachannel H264 packetizer behavior, reducing frozen-frame/stalled-playback cases.
+
 ## [1.1.18] - 2026-03-01
 
 ### Fixed

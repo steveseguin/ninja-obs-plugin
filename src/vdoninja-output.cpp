@@ -1341,7 +1341,15 @@ void VDONinjaOutput::data(encoder_packet *packet)
 void VDONinjaOutput::processVideoPacket(encoder_packet *packet)
 {
 	bool keyframe = packet->keyframe;
-	uint32_t timestamp = static_cast<uint32_t>(packet->pts * 90); // Convert to 90kHz clock
+	uint32_t timestamp = 0;
+	if (packet->timebase_num > 0 && packet->timebase_den > 0) {
+		const double ptsSeconds = (static_cast<double>(packet->pts) * static_cast<double>(packet->timebase_num)) /
+		                          static_cast<double>(packet->timebase_den);
+		timestamp = static_cast<uint32_t>(std::llround(ptsSeconds * 90000.0));
+	} else {
+		// Legacy fallback for builds where timebase is not populated.
+		timestamp = static_cast<uint32_t>(packet->pts * 90);
+	}
 
 	if (keyframe && packet->data && packet->size > 0) {
 		std::lock_guard<std::mutex> lock(keyframeCacheMutex_);
