@@ -8,7 +8,6 @@
 #include <QMessageBox>
 #include <QSpinBox>
 #include <QVBoxLayout>
-
 #include <cstring>
 
 #include <util/config-file.h>

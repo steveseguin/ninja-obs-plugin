@@ -105,10 +105,9 @@ bool parseAvccNalus(const uint8_t *data, size_t size, std::vector<NalUnitView> &
 
 	size_t offset = 0;
 	while (offset + 4 <= size) {
-		const uint32_t nalSize = (static_cast<uint32_t>(data[offset]) << 24) |
-		                         (static_cast<uint32_t>(data[offset + 1]) << 16) |
-		                         (static_cast<uint32_t>(data[offset + 2]) << 8) |
-		                         static_cast<uint32_t>(data[offset + 3]);
+		const uint32_t nalSize =
+		    (static_cast<uint32_t>(data[offset]) << 24) | (static_cast<uint32_t>(data[offset + 1]) << 16) |
+		    (static_cast<uint32_t>(data[offset + 2]) << 8) | static_cast<uint32_t>(data[offset + 3]);
 		offset += 4;
 
 		if (nalSize == 0) {
@@ -518,53 +517,53 @@ void VDONinjaPeerManager::setupPeerConnectionCallbacks(std::shared_ptr<PeerInfo>
 			peer->state = ConnectionState::Connecting;
 			logInfo("Peer %s connecting", uuid.c_str());
 			break;
-			case rtc::PeerConnection::State::Connected: {
-				peer->state = ConnectionState::Connected;
-				logInfo("Peer %s connected", uuid.c_str());
-				OnPeerConnectedCallback cb;
-				{
-					std::lock_guard<std::mutex> callbackLock(callbackMutex_);
+		case rtc::PeerConnection::State::Connected: {
+			peer->state = ConnectionState::Connected;
+			logInfo("Peer %s connected", uuid.c_str());
+			OnPeerConnectedCallback cb;
+			{
+				std::lock_guard<std::mutex> callbackLock(callbackMutex_);
 				cb = onPeerConnected_;
 			}
-				if (cb) {
-					cb(uuid);
-				}
-				break;
+			if (cb) {
+				cb(uuid);
 			}
-			case rtc::PeerConnection::State::Disconnected: {
-				peer->state = ConnectionState::Disconnected;
-				logInfo("Peer %s disconnected", uuid.c_str());
-				OnPeerDisconnectedCallback cb;
-				{
-					std::lock_guard<std::mutex> callbackLock(callbackMutex_);
+			break;
+		}
+		case rtc::PeerConnection::State::Disconnected: {
+			peer->state = ConnectionState::Disconnected;
+			logInfo("Peer %s disconnected", uuid.c_str());
+			OnPeerDisconnectedCallback cb;
+			{
+				std::lock_guard<std::mutex> callbackLock(callbackMutex_);
 				cb = onPeerDisconnected_;
 			}
 			if (cb) {
 				cb(uuid);
 			}
-				{
-					std::lock_guard<std::mutex> lock(peersMutex_);
-					peers_.erase(uuid);
-				}
-				break;
+			{
+				std::lock_guard<std::mutex> lock(peersMutex_);
+				peers_.erase(uuid);
 			}
-			case rtc::PeerConnection::State::Failed: {
-				peer->state = ConnectionState::Failed;
-				logError("Peer %s connection failed", uuid.c_str());
-				OnPeerDisconnectedCallback cb;
-				{
-					std::lock_guard<std::mutex> callbackLock(callbackMutex_);
+			break;
+		}
+		case rtc::PeerConnection::State::Failed: {
+			peer->state = ConnectionState::Failed;
+			logError("Peer %s connection failed", uuid.c_str());
+			OnPeerDisconnectedCallback cb;
+			{
+				std::lock_guard<std::mutex> callbackLock(callbackMutex_);
 				cb = onPeerDisconnected_;
 			}
 			if (cb) {
 				cb(uuid);
 			}
-				{
-					std::lock_guard<std::mutex> lock(peersMutex_);
-					peers_.erase(uuid);
-				}
-				break;
+			{
+				std::lock_guard<std::mutex> lock(peersMutex_);
+				peers_.erase(uuid);
 			}
+			break;
+		}
 		case rtc::PeerConnection::State::Closed:
 			peer->state = ConnectionState::Closed;
 			logInfo("Peer %s closed", uuid.c_str());
@@ -903,7 +902,8 @@ void VDONinjaPeerManager::onSignalingOfferRequest(const std::string &uuid, const
 	const bool sameSession = session.empty() || peer->session.empty() || peer->session == session;
 	const bool activePeer = state == ConnectionState::Connected;
 	if (hadExistingPeer && sameSession && activePeer) {
-		logDebug("Ignoring duplicate offer request for active peer %s (state=%d)", uuid.c_str(), static_cast<int>(state));
+		logDebug("Ignoring duplicate offer request for active peer %s (state=%d)", uuid.c_str(),
+		         static_cast<int>(state));
 		return;
 	}
 
@@ -1004,16 +1004,16 @@ void VDONinjaPeerManager::sendAudioFrame(const uint8_t *data, size_t size, uint3
 		// This is a simplified version
 		try {
 			auto track = peer->audioTrack;
-				if (!track) {
-					continue;
-				}
+			if (!track) {
+				continue;
+			}
 
-				if (peer->useAudioPacketizer) {
-					rtc::binary opusFrame(size);
-					std::memcpy(opusFrame.data(), data, size);
-					track->send(std::move(opusFrame));
-					continue;
-				}
+			if (peer->useAudioPacketizer) {
+				rtc::binary opusFrame(size);
+				std::memcpy(opusFrame.data(), data, size);
+				track->send(std::move(opusFrame));
+				continue;
+			}
 
 			// Create RTP packet (simplified)
 			std::vector<uint8_t> rtpPacket;
@@ -1040,15 +1040,15 @@ void VDONinjaPeerManager::sendAudioFrame(const uint8_t *data, size_t size, uint3
 			rtpPacket.push_back((audioSsrc_ >> 8) & 0xFF);
 			rtpPacket.push_back(audioSsrc_ & 0xFF);
 
-				// Payload
-				rtpPacket.insert(rtpPacket.end(), data, data + size);
+			// Payload
+			rtpPacket.insert(rtpPacket.end(), data, data + size);
 
-				rtc::binary packet(rtpPacket.size());
-				std::memcpy(packet.data(), rtpPacket.data(), rtpPacket.size());
-				track->send(std::move(packet));
-			} catch (const std::exception &e) {
-				logError("Failed to send audio to %s: %s", pair.first.c_str(), e.what());
-			}
+			rtc::binary packet(rtpPacket.size());
+			std::memcpy(packet.data(), rtpPacket.data(), rtpPacket.size());
+			track->send(std::move(packet));
+		} catch (const std::exception &e) {
+			logError("Failed to send audio to %s: %s", pair.first.c_str(), e.what());
+		}
 	}
 }
 

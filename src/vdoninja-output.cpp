@@ -1460,8 +1460,8 @@ void VDONinjaOutput::processAudioPacket(encoder_packet *packet)
 			logWarning("Ignoring OBS audio track %zu packet; publishing track %zu only (dropped=%llu)", packetTrackIdx,
 			           selectedAudioTrackIdx_, static_cast<unsigned long long>(droppedCount));
 		} else if ((droppedCount % 500) == 0) {
-			logDebug("Still dropping non-selected OBS audio tracks (selected=%zu, dropped=%llu)", selectedAudioTrackIdx_,
-			         static_cast<unsigned long long>(droppedCount));
+			logDebug("Still dropping non-selected OBS audio tracks (selected=%zu, dropped=%llu)",
+			         selectedAudioTrackIdx_, static_cast<unsigned long long>(droppedCount));
 		}
 		return;
 	}
