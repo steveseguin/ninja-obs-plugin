@@ -325,7 +325,9 @@
           <span>OBS Plugin for VDO.Ninja</span>
         </div>
         <nav class="nav">
+          <a href="https://github.com/steveseguin/ninja-obs-plugin/blob/main/INSTALL.md">Install</a>
           <a href="#quick-start">Quick Start</a>
+          <a href="#faq">FAQ</a>
           <a href="https://github.com/steveseguin/ninja-obs-plugin/releases">Releases</a>
         </nav>
       </header>
@@ -361,11 +363,11 @@ https://vdo.ninja/?view=YourStreamID&amp;room=YourRoomID&amp;solo</code></pre>
         <div class="sections">
           <section class="section" id="quick-start" data-reveal style="--delay: 120ms">
             <h2>Quick Start</h2>
+            <p style="margin-top: 0; color: var(--muted)">This section is post-install. Need install steps first? Open the <a href="https://github.com/steveseguin/ninja-obs-plugin/blob/main/INSTALL.md">install guide</a>.</p>
             <div class="steps">
               <div class="step">
-                <strong>1. Install</strong>
-                <div>Windows: run <code>obs-vdoninja-windows-x64-setup.exe</code>.</div>
-                <div>Fallback: extract zip, then run <code>install.cmd</code>.</div>
+                <strong>1. Confirm plugin loaded</strong>
+                <div>Check <code>Settings -> Stream</code> for <code>VDO.Ninja</code> and <code>Tools -> VDO.Ninja Control Center</code>.</div>
               </div>
               <div class="step">
                 <strong>2. Configure OBS</strong>
@@ -373,7 +375,7 @@ https://vdo.ninja/?view=YourStreamID&amp;room=YourRoomID&amp;solo</code></pre>
               </div>
               <div class="step">
                 <strong>3. Go live</strong>
-                <div>Start streaming, then open your viewer link using <code>?view=StreamID</code> (or add <code>&amp;room=RoomID&amp;solo</code> for room viewing).</div>
+                <div>Use either OBS <code>Start Streaming</code> or Control Center <code>Go Live</code> (same stream pipeline), then open <code>?view=StreamID</code> (or add <code>&amp;room=RoomID&amp;solo</code>).</div>
               </div>
             </div>
           </section>
@@ -405,10 +407,21 @@ https://vdo.ninja/?view=YourStreamID&amp;room=YourRoomID&amp;solo</code></pre>
             <ul class="list">
               <li><a href="https://github.com/steveseguin/ninja-obs-plugin/releases">Releases</a></li>
               <li><a href="https://github.com/steveseguin/ninja-obs-plugin/blob/main/INSTALL.md">Install guide</a></li>
+              <li><a href="https://github.com/steveseguin/ninja-obs-plugin/blob/main/INSTALL.md#install-linux">Linux install guide</a></li>
+              <li><a href="https://github.com/steveseguin/ninja-obs-plugin/blob/main/INSTALL.md#install-macos">macOS install guide</a></li>
               <li><a href="https://github.com/steveseguin/ninja-obs-plugin/blob/main/README.md">README</a></li>
               <li><a href="https://github.com/steveseguin/ninja-obs-plugin/blob/main/TESTING_OBS_MANUAL.md">Manual test matrix</a></li>
               <li><a href="https://github.com/steveseguin/ninja-obs-plugin/issues">Issue tracker</a></li>
               <li><a href="https://vdo.ninja/">VDO.Ninja</a></li>
+            </ul>
+          </section>
+
+          <section class="section" id="faq" data-reveal style="--delay: 300ms">
+            <h2>FAQ</h2>
+            <ul class="list">
+              <li><strong>Does <code>Go Live</code> do anything different from <code>Start Streaming</code>?</strong> No. They trigger the same OBS stream output pipeline.</li>
+              <li><strong>Can I publish to VDO.Ninja and another stream destination at the same time?</strong> Not with this plugin path alone. It uses the active OBS stream output slot as a single destination.</li>
+              <li><strong>Where are Linux/macOS install steps?</strong> Use the install guide links above, or open <a href="https://github.com/steveseguin/ninja-obs-plugin/blob/main/INSTALL.md">INSTALL.md</a>.</li>
             </ul>
           </section>
         </div>

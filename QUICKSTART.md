@@ -1,11 +1,9 @@
 # OBS Plugin for VDO.Ninja - Quick Start
 
-This guide gets you from install to first working stream quickly.
+This guide is for first use after plugin installation.
+For install/update steps, see `INSTALL.md`.
 
 Web quick start (recommended): `https://steveseguin.github.io/ninja-obs-plugin/#quick-start`
-
-On Windows, use `obs-vdoninja-windows-x64-setup.exe` first.  
-If you are using the ZIP package instead, run `install.cmd`.
 
 ## 1) Confirm plugin loaded in OBS
 
@@ -73,6 +71,19 @@ Default ICE behavior:
 - Check OBS logs and VDO.Ninja stats for packet loss/RTT.
 - Use `INSTALL.md` for reinstall/uninstall paths.
 - If using portable OBS from terminal, launch `obs64.exe` from `bin\64bit` (wrong working directory can trigger `Failed to load theme`).
+
+## FAQ
+
+Q: `Go Live` vs `Start Streaming` - are they different?  
+A: No. In this plugin, `Go Live` in `Tools -> VDO.Ninja Control Center` triggers the same OBS stream start/stop pipeline as `Start Streaming`.
+
+Q: Can I stream to VDO.Ninja and another destination at the same time?  
+A: Not with this plugin/service path by itself. It uses OBS's active stream output slot, so VDO.Ninja is the single active destination in that slot.
+
+Q: Where are Linux/macOS install steps?  
+A: See `INSTALL.md`:
+- Linux: [INSTALL.md#install-linux](INSTALL.md#install-linux)
+- macOS: [INSTALL.md#install-macos](INSTALL.md#install-macos)
 
 Additional docs:
 

@@ -16,8 +16,10 @@ VDO.Ninja is a low-latency WebRTC platform used for live production, remote gues
 
 - Download latest build: [Releases](https://github.com/steveseguin/ninja-obs-plugin/releases)
 - Install steps: [INSTALL.md](INSTALL.md)
+- Linux install: [INSTALL.md#install-linux](INSTALL.md#install-linux)
+- macOS install: [INSTALL.md#install-macos](INSTALL.md#install-macos)
 - Build requirements and source build guide: [BUILDING.md](BUILDING.md)
-- Web quick start (recommended): [GitHub Pages Quick Start](https://steveseguin.github.io/ninja-obs-plugin/#quick-start)
+- Web quick start (post-install): [GitHub Pages Quick Start](https://steveseguin.github.io/ninja-obs-plugin/#quick-start)
 - First-run usage guide: [QUICKSTART.md](QUICKSTART.md)
 - Full docs: [README Quick Start](#quick-start)
 - New Windows users: run `obs-vdoninja-windows-x64-setup.exe` (ZIP scripts remain available for portable/manual installs).

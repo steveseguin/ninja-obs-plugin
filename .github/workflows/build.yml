@@ -784,8 +784,13 @@ jobs:
             - macOS package: `obs-vdoninja-macos-arm64.zip`
 
             ## Install
-            - Follow `INSTALL.md` in each package.
-            - First-run publishing flow: `QUICKSTART.md`.
+            - Full install guide: `https://github.com/steveseguin/ninja-obs-plugin/blob/main/INSTALL.md`
+            - Linux install: `https://github.com/steveseguin/ninja-obs-plugin/blob/main/INSTALL.md#install-linux`
+            - macOS install: `https://github.com/steveseguin/ninja-obs-plugin/blob/main/INSTALL.md#install-macos`
+            - Windows installer: run `obs-vdoninja-windows-x64-setup.exe`
+            - Windows zip: extract, then run `install.cmd`
+            - Linux/macOS packages: extract, then run `install.sh`
+            - Post-install usage: `QUICKSTART.md`
 
             ## Verification
             - SHA-256 checksums are provided in `checksums.txt`.

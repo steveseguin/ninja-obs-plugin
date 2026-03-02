@@ -6,6 +6,12 @@ Every release archive still includes `QUICKSTART.md` as an offline copy.
 
 For source builds and dependency setup on a fresh machine, see `BUILDING.md`.
 
+Platform quick links:
+
+- Windows: [#windows](#windows)
+- Linux: [#install-linux](#install-linux)
+- macOS: [#install-macos](#install-macos)
+
 ## Windows
 
 ### Install or update
@@ -72,6 +78,8 @@ Remove plugin + data:
 .\uninstall.cmd -RemoveData
 ```
 
+<a id="install-linux"></a>
+
 ## Linux (`obs-vdoninja-linux-x86_64.tar.gz`)
 
 ### Install or update
@@ -93,6 +101,8 @@ Remove plugin + data:
 ```bash
 sudo ./uninstall.sh --remove-data
 ```
+
+<a id="install-macos"></a>
 
 ## macOS (`obs-vdoninja-macos-arm64.zip`)
 
