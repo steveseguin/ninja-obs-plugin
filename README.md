@@ -120,6 +120,8 @@ Viewer URL pattern:
 ```text
 https://vdo.ninja/?view=<StreamID>
 https://vdo.ninja/?view=<StreamID>&password=<Password>
+https://vdo.ninja/?view=<StreamID>&room=<RoomID>&solo
+https://vdo.ninja/?view=<StreamID>&room=<RoomID>&solo&password=<Password>
 ```
 
 ### 3. Ingest a VDO.Ninja stream in OBS

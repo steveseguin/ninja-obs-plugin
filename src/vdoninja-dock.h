@@ -22,6 +22,7 @@ class VDONinjaDock : public QDockWidget
 public:
 	explicit VDONinjaDock(QWidget *parent = nullptr);
 	~VDONinjaDock();
+	void syncFromActiveService();
 
 	// Called from output thread (via obs_queue_task) to show chat messages
 	void onChatReceived(const QString &sender, const QString &message);
@@ -40,6 +41,7 @@ private:
 	void loadSettings();
 	void saveSettings();
 	QString buildUrl(bool push) const;
+	bool loadFromServiceSettings(obs_data_t *serviceSettings);
 
 	// Session Setup
 	QLineEdit *editStreamId;

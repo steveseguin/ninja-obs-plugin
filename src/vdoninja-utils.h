@@ -23,8 +23,12 @@ std::string generateSessionId();
 
 // SHA-256 based hashing for stream/room IDs (matching VDO.Ninja SDK)
 std::string sha256(const std::string &input);
+bool isPasswordDisabledToken(const std::string &password);
 std::string hashStreamId(const std::string &streamId, const std::string &password, const std::string &salt);
 std::string hashRoomId(const std::string &roomId, const std::string &password, const std::string &salt);
+std::string deriveViewStreamId(const std::string &streamId, const std::string &password, const std::string &salt);
+std::string buildInboundViewUrl(const std::string &baseUrl, const std::string &streamId, const std::string &password,
+                                const std::string &roomId, const std::string &salt);
 
 // Sanitize stream ID (replace non-alphanumeric with underscores)
 std::string sanitizeStreamId(const std::string &streamId);

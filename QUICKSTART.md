@@ -39,6 +39,8 @@ Viewer link pattern:
 
 - No password: `https://vdo.ninja/?view=mytest123`
 - With password: `https://vdo.ninja/?view=mytest123&password=yourpass`
+- Room view: `https://vdo.ninja/?view=mytest123&room=myroom&solo`
+- Room view with password: `https://vdo.ninja/?view=mytest123&room=myroom&solo&password=yourpass`
 
 ## 3) Ingest a VDO.Ninja stream in OBS
 

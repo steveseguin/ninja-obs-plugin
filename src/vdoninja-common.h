@@ -81,6 +81,10 @@ struct PeerInfo {
 	std::shared_ptr<rtc::RtcpSrReporter> videoSrReporter;
 	bool useAudioPacketizer = false;
 	bool useVideoPacketizer = false;
+	uint16_t audioSeq = 0;
+	uint16_t videoSeq = 0;
+	uint32_t audioTimestamp = 0;
+	uint32_t videoTimestamp = 0;
 };
 
 // Room information

@@ -71,6 +71,7 @@ bool parseSignalingMessage(const std::string &message, ParsedSignalMessage &pars
 		parsed.uuid = getAnyString(json, {"UUID", "uuid", "from"});
 		parsed.session = getAnyString(json, {"session", "Session"});
 		parsed.request = getAnyString(json, {"request", "Request"});
+		parsed.streamId = getAnyString(json, {"streamID", "streamId", "whep", "whepUrl", "url", "URL"});
 		const std::string requestLower = asciiLower(parsed.request);
 
 		if (requestLower == "listing" || json.hasKey("listing") || json.hasKey("list")) {

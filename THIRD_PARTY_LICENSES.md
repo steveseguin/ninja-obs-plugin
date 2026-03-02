@@ -22,6 +22,11 @@ licenses and where to find their full terms.
 - Source: https://www.openssl.org/
 - Notes: Used for cryptographic operations.
 
+4. Qt (Widgets)
+- License: `LGPL-3.0-only` / `GPL-2.0-or-later` / commercial (depending on distribution terms)
+- Source: https://www.qt.io/
+- Notes: Required for dock/UI components when building the plugin.
+
 ## Test / Dev Dependencies
 
 1. GoogleTest / GoogleMock
@@ -33,6 +38,11 @@ licenses and where to find their full terms.
 - License: `Apache-2.0`
 - Source: https://github.com/microsoft/playwright
 - Notes: Used only for end-to-end browser tests.
+
+3. Inno Setup (Windows installer build tool)
+- License: `Inno Setup License`
+- Source: https://www.innosetup.com/
+- Notes: Used to build Windows setup `.exe` artifacts in release packaging.
 
 ## Distribution Notes
 

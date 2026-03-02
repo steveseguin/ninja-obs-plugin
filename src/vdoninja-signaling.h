@@ -46,7 +46,7 @@ public:
 	bool isConnected() const;
 
 	// Room management
-	bool joinRoom(const std::string &roomId, const std::string &password = "");
+	bool joinRoom(const std::string &roomId, const std::string &password = "", bool claimDirector = false);
 	bool leaveRoom();
 	bool isInRoom() const;
 	std::string getCurrentRoomId() const;

@@ -9,6 +9,8 @@
 #include <QSpinBox>
 #include <QVBoxLayout>
 
+#include <cstring>
+
 #include <util/config-file.h>
 
 #include "plugin-main.h"
@@ -22,6 +24,20 @@ static const char *obs_module_text_vdo(const char *key)
 {
 	const char *text = obs_module_text(key);
 	return (text && *text) ? text : key;
+}
+
+static QString buildPasswordQueryValue(const QString &password)
+{
+	const std::string trimmed = trim(password.toStdString());
+	if (trimmed.empty()) {
+		return {};
+	}
+
+	if (isPasswordDisabledToken(trimmed)) {
+		return "false";
+	}
+
+	return QString::fromStdString(urlEncode(trimmed));
 }
 
 VDONinjaDock::VDONinjaDock(QWidget *parent) : QDockWidget(parent)
@@ -198,6 +214,7 @@ void VDONinjaDock::loadSettings()
 		spinMaxViewers->setValue(10);
 
 	chkAutoAddFeeds->setChecked(config_get_bool(config, "VDONinja", "AutoAddFeeds"));
+	syncFromActiveService();
 }
 
 void VDONinjaDock::saveSettings()
@@ -214,6 +231,53 @@ void VDONinjaDock::saveSettings()
 	config_save(config);
 }
 
+bool VDONinjaDock::loadFromServiceSettings(obs_data_t *serviceSettings)
+{
+	if (!serviceSettings) {
+		return false;
+	}
+
+	QString sid = QString::fromUtf8(obs_data_get_string(serviceSettings, "stream_id")).trimmed();
+	if (sid.isEmpty()) {
+		return false;
+	}
+
+	editStreamId->setText(sid);
+	editRoomId->setText(QString::fromUtf8(obs_data_get_string(serviceSettings, "room_id")).trimmed());
+	const QString servicePassword = QString::fromUtf8(obs_data_get_string(serviceSettings, "password"));
+	if (!servicePassword.isEmpty()) {
+		editPassword->setText(servicePassword);
+	}
+
+	const int maxV = static_cast<int>(obs_data_get_int(serviceSettings, "max_viewers"));
+	if (maxV >= 1 && maxV <= 50) {
+		spinMaxViewers->setValue(maxV);
+	}
+
+	return true;
+}
+
+void VDONinjaDock::syncFromActiveService()
+{
+	obs_service_t *currentService = obs_frontend_get_streaming_service();
+	if (!currentService) {
+		return;
+	}
+
+	const char *serviceType = obs_service_get_type(currentService);
+	if (!serviceType || std::strcmp(serviceType, "vdoninja_service") != 0) {
+		return;
+	}
+
+	obs_data_t *serviceSettings = obs_service_get_settings(currentService);
+	if (!serviceSettings) {
+		return;
+	}
+
+	loadFromServiceSettings(serviceSettings);
+	obs_data_release(serviceSettings);
+}
+
 QString VDONinjaDock::buildUrl(bool push) const
 {
 	QString sid = editStreamId->text().trimmed();
@@ -221,7 +285,7 @@ QString VDONinjaDock::buildUrl(bool push) const
 		return "";
 
 	QString rid = editRoomId->text().trimmed();
-	QString pass = editPassword->text().trimmed();
+	const QString passValue = buildPasswordQueryValue(editPassword->text());
 
 	QString url = "https://vdo.ninja/?";
 	url += push ? "push=" : "view=";
@@ -229,8 +293,10 @@ QString VDONinjaDock::buildUrl(bool push) const
 
 	if (!rid.isEmpty())
 		url += "&room=" + QString::fromStdString(urlEncode(rid.toStdString()));
-	if (!pass.isEmpty())
-		url += "&password=" + QString::fromStdString(urlEncode(pass.toStdString()));
+	if (!push && !rid.isEmpty())
+		url += "&solo";
+	if (!passValue.isEmpty())
+		url += "&password=" + passValue;
 
 	return url;
 }
@@ -242,6 +308,10 @@ void VDONinjaDock::onGenerateIdClicked()
 
 void VDONinjaDock::onCopyViewLink()
 {
+	if (obs_frontend_streaming_active()) {
+		syncFromActiveService();
+	}
+
 	QString url = buildUrl(false);
 	if (!url.isEmpty()) {
 		QApplication::clipboard()->setText(url);
@@ -251,6 +321,10 @@ void VDONinjaDock::onCopyViewLink()
 
 void VDONinjaDock::onCopyPushLink()
 {
+	if (obs_frontend_streaming_active()) {
+		syncFromActiveService();
+	}
+
 	QString url = buildUrl(true);
 	if (!url.isEmpty()) {
 		QApplication::clipboard()->setText(url);

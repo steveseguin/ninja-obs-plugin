@@ -11,6 +11,7 @@
 #include <cctype>
 #include <cmath>
 #include <cstring>
+#include <initializer_list>
 
 #include <util/config-file.h>
 #include <util/dstr.h>
@@ -134,6 +135,17 @@ std::string queryValue(const std::string &url, const char *param)
 	return "";
 }
 
+std::string queryFirstValue(const std::string &url, const std::initializer_list<const char *> &params)
+{
+	for (const char *param : params) {
+		const std::string value = queryValue(url, param);
+		if (!value.empty()) {
+			return value;
+		}
+	}
+	return "";
+}
+
 void parseVdoKeyValue(const std::string &keyValue, std::string &streamId, std::string &password, std::string &roomId,
                       std::string &salt, std::string &wssHost)
 {
@@ -183,10 +195,7 @@ void parseVdoKeyValue(const std::string &keyValue, std::string &streamId, std::s
 	}
 
 	if (password.empty()) {
-		password = queryValue(keyValue, "password");
-		if (password.empty()) {
-			password = queryValue(keyValue, "pasword");
-		}
+		password = queryFirstValue(keyValue, {"password", "pasword", "pass", "pw", "p"});
 	}
 
 	if (roomId.empty()) {
@@ -632,6 +641,9 @@ void VDONinjaOutput::loadSettings(obs_data_t *settings)
 	}
 
 	auto getStringSetting = [&](const char *key) -> std::string {
+		// Prefer output settings first; they are the source-of-truth snapshot used
+		// to start this output. Some OBS service fields (notably password-like
+		// fields) can be omitted/redacted when read back from service settings.
 		std::string value;
 		if (settings && (obs_data_has_user_value(settings, key) || !serviceSettings)) {
 			const char *raw = obs_data_get_string(settings, key);
@@ -639,12 +651,28 @@ void VDONinjaOutput::loadSettings(obs_data_t *settings)
 				value = raw;
 			}
 		}
+
+		if (value.empty() && serviceSettings && obs_data_has_user_value(serviceSettings, key)) {
+			const char *raw = obs_data_get_string(serviceSettings, key);
+			if (raw) {
+				value = raw;
+			}
+		}
+
 		if (value.empty() && serviceSettings) {
 			const char *raw = obs_data_get_string(serviceSettings, key);
 			if (raw) {
 				value = raw;
 			}
 		}
+
+		if (value.empty() && settings) {
+			const char *raw = obs_data_get_string(settings, key);
+			if (raw) {
+				value = raw;
+			}
+		}
+
 		return value;
 	};
 
@@ -708,6 +736,13 @@ void VDONinjaOutput::loadSettings(obs_data_t *settings)
 	}
 	if (settings_.salt.empty()) {
 		settings_.salt = DEFAULT_SALT;
+	}
+	if (settings_.password.empty()) {
+		logInfo("No explicit password configured; using default VDO.Ninja password hashing");
+	} else if (isPasswordDisabledToken(settings_.password)) {
+		logInfo("Explicit password disable token detected; publishing without stream hashing/encryption");
+	} else {
+		logInfo("Explicit password configured; using custom VDO.Ninja hashing/encryption");
 	}
 
 	const int configuredVideoCodec = getIntSetting("video_codec", static_cast<int>(VideoCodec::H264));
@@ -1008,6 +1043,10 @@ bool VDONinjaOutput::start()
 		cachedKeyframe_.clear();
 		cachedKeyframeTimestamp_ = 0;
 	}
+	hasLastVideoRtpTimestamp_ = false;
+	lastVideoRtpTimestamp_ = 0;
+	hasLastAudioRtpTimestamp_ = false;
+	lastAudioRtpTimestamp_ = 0;
 
 	if (startStopThread_.joinable()) {
 		startStopThread_.join();
@@ -1295,6 +1334,10 @@ void VDONinjaOutput::stop()
 		cachedKeyframe_.clear();
 		cachedKeyframeTimestamp_ = 0;
 	}
+	hasLastVideoRtpTimestamp_ = false;
+	lastVideoRtpTimestamp_ = 0;
+	hasLastAudioRtpTimestamp_ = false;
+	lastAudioRtpTimestamp_ = 0;
 
 	// Unpublish stream
 	if (signaling_->isPublishing()) {
@@ -1338,18 +1381,62 @@ void VDONinjaOutput::data(encoder_packet *packet)
 	totalBytes_ += packet->size;
 }
 
-void VDONinjaOutput::processVideoPacket(encoder_packet *packet)
+namespace
 {
-	bool keyframe = packet->keyframe;
-	uint32_t timestamp = 0;
+
+uint32_t timestampFromPacket(const encoder_packet *packet, double rtpClockRate)
+{
+	if (!packet || rtpClockRate <= 0.0) {
+		return 0;
+	}
+
+	// OBS fills DTS in microseconds; this is the most stable source across
+	// encoders and avoids ambiguity in encoder-specific timebase units.
+	if (packet->dts_usec > 0) {
+		const double dtsSeconds = static_cast<double>(packet->dts_usec) / 1000000.0;
+		return static_cast<uint32_t>(std::llround(dtsSeconds * rtpClockRate));
+	}
+
 	if (packet->timebase_num > 0 && packet->timebase_den > 0) {
 		const double ptsSeconds = (static_cast<double>(packet->pts) * static_cast<double>(packet->timebase_num)) /
 		                          static_cast<double>(packet->timebase_den);
-		timestamp = static_cast<uint32_t>(std::llround(ptsSeconds * 90000.0));
-	} else {
-		// Legacy fallback for builds where timebase is not populated.
-		timestamp = static_cast<uint32_t>(packet->pts * 90);
+		return static_cast<uint32_t>(std::llround(ptsSeconds * rtpClockRate));
 	}
+
+	// Legacy fallback when timebase metadata is unavailable.
+	if (rtpClockRate == 90000.0) {
+		return static_cast<uint32_t>(packet->pts * 90);
+	}
+	if (rtpClockRate == 48000.0) {
+		return static_cast<uint32_t>(packet->pts * 48);
+	}
+	return 0;
+}
+
+uint32_t sanitizeMonotonicTimestamp(uint32_t candidate, bool &hasLast, uint32_t &last, uint32_t fallbackStep)
+{
+	if (!hasLast) {
+		hasLast = true;
+		last = candidate;
+		return candidate;
+	}
+
+	// Guard against non-monotonic or degenerate encoder timestamps.
+	if (candidate <= last) {
+		candidate = last + fallbackStep;
+	}
+
+	last = candidate;
+	return candidate;
+}
+
+} // namespace
+
+void VDONinjaOutput::processVideoPacket(encoder_packet *packet)
+{
+	bool keyframe = packet->keyframe;
+	uint32_t timestamp = timestampFromPacket(packet, 90000.0);
+	timestamp = sanitizeMonotonicTimestamp(timestamp, hasLastVideoRtpTimestamp_, lastVideoRtpTimestamp_, 3000);
 
 	if (keyframe && packet->data && packet->size > 0) {
 		std::lock_guard<std::mutex> lock(keyframeCacheMutex_);
@@ -1379,15 +1466,8 @@ void VDONinjaOutput::processAudioPacket(encoder_packet *packet)
 		return;
 	}
 
-	uint32_t timestamp = 0;
-	if (packet->timebase_num > 0 && packet->timebase_den > 0) {
-		const double ptsSeconds = (static_cast<double>(packet->pts) * static_cast<double>(packet->timebase_num)) /
-		                          static_cast<double>(packet->timebase_den);
-		timestamp = static_cast<uint32_t>(std::llround(ptsSeconds * 48000.0));
-	} else {
-		// Legacy fallback for builds where timebase is not populated.
-		timestamp = static_cast<uint32_t>(packet->pts * 48);
-	}
+	uint32_t timestamp = timestampFromPacket(packet, 48000.0);
+	timestamp = sanitizeMonotonicTimestamp(timestamp, hasLastAudioRtpTimestamp_, lastAudioRtpTimestamp_, 960);
 
 	peerManager_->sendAudioFrame(packet->data, packet->size, timestamp);
 }

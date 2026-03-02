@@ -154,6 +154,17 @@ TEST_F(SHA256Test, HashHasCorrectLength)
 	EXPECT_EQ(hash.length(), 64u); // 256 bits = 64 hex chars
 }
 
+TEST(UtilsPasswordTest, DetectsDisabledPasswordTokens)
+{
+	EXPECT_TRUE(isPasswordDisabledToken("false"));
+	EXPECT_TRUE(isPasswordDisabledToken("0"));
+	EXPECT_TRUE(isPasswordDisabledToken("off"));
+	EXPECT_TRUE(isPasswordDisabledToken("no"));
+	EXPECT_TRUE(isPasswordDisabledToken(" FALSE "));
+	EXPECT_FALSE(isPasswordDisabledToken(""));
+	EXPECT_FALSE(isPasswordDisabledToken("somepassword"));
+}
+
 // Stream ID Sanitization Tests
 class SanitizeStreamIdTest : public ::testing::Test
 {
@@ -201,6 +212,14 @@ TEST_F(HashStreamIdTest, ReturnsRawIdWhenNoPassword)
 	EXPECT_EQ(result, "mystream");
 }
 
+TEST_F(HashStreamIdTest, ReturnsRawIdWhenPasswordDisabledToken)
+{
+	EXPECT_EQ(hashStreamId("mystream", "false", "salt"), "mystream");
+	EXPECT_EQ(hashStreamId("mystream", "0", "salt"), "mystream");
+	EXPECT_EQ(hashStreamId("mystream", "off", "salt"), "mystream");
+	EXPECT_EQ(hashStreamId("mystream", "  FALSE  ", "salt"), "mystream");
+}
+
 TEST_F(HashStreamIdTest, HashesWithPassword)
 {
 	std::string result = hashStreamId("mystream", "password", "salt");
@@ -245,6 +264,14 @@ TEST_F(HashRoomIdTest, ReturnsRawIdWhenNoPassword)
 {
 	std::string result = hashRoomId("myroom", "", "salt");
 	EXPECT_EQ(result, "myroom");
+}
+
+TEST_F(HashRoomIdTest, ReturnsRawIdWhenPasswordDisabledToken)
+{
+	EXPECT_EQ(hashRoomId("myroom", "false", "salt"), "myroom");
+	EXPECT_EQ(hashRoomId("myroom", "0", "salt"), "myroom");
+	EXPECT_EQ(hashRoomId("myroom", "off", "salt"), "myroom");
+	EXPECT_EQ(hashRoomId("myroom", " Off ", "salt"), "myroom");
 }
 
 TEST_F(HashRoomIdTest, HashesWithPassword)

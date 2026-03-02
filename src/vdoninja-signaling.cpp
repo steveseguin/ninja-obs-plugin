@@ -179,25 +179,10 @@ bool decryptAesCbcHex(const std::string &cipherHex, const std::string &vectorHex
 #endif
 }
 
-bool isExplicitlyDisabledPassword(const std::string &password)
-{
-	if (password.empty()) {
-		return false;
-	}
-
-	std::string lowered;
-	lowered.reserve(password.size());
-	for (char c : trim(password)) {
-		lowered += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-	}
-
-	return lowered == "false" || lowered == "0" || lowered == "off" || lowered == "no";
-}
-
 std::string resolveEffectivePassword(const std::string &password, const std::string &defaultPassword, bool &disabled)
 {
 	const std::string trimmedPassword = trim(password);
-	if (isExplicitlyDisabledPassword(trimmedPassword)) {
+	if (isPasswordDisabledToken(trimmedPassword)) {
 		disabled = true;
 		return "";
 	}
@@ -694,10 +679,11 @@ void VDONinjaSignaling::handleRequest(const ParsedSignalMessage &message)
 	logInfo("Received request: %s from %s", message.request.c_str(), message.uuid.c_str());
 	const std::string requestLower = asciiLower(message.request);
 
-	// VDO.Ninja can request publisher offers with different request labels depending
-	// on endpoint/flow.
-	if (requestLower == "offersdp" || requestLower == "sendoffer" || requestLower == "play" ||
-	    requestLower == "joinroom") {
+	// VDO.Ninja requests publisher offers with offerSDP/sendoffer/play. For custom
+	// signaling compatibility, accept joinroom only when the request also carries
+	// a stream identifier; plain joinroom events are room-admission flow.
+	const bool joinroomOfferCompat = requestLower == "joinroom" && !message.streamId.empty();
+	if (requestLower == "offersdp" || requestLower == "sendoffer" || requestLower == "play" || joinroomOfferCompat) {
 		OnOfferRequestCallback cb;
 		{
 			std::lock_guard<std::mutex> lock(callbackMutex_);
@@ -726,7 +712,7 @@ void VDONinjaSignaling::queueMessage(const std::string &message)
 	sendMessage(message);
 }
 
-bool VDONinjaSignaling::joinRoom(const std::string &roomId, const std::string &password)
+bool VDONinjaSignaling::joinRoom(const std::string &roomId, const std::string &password, bool claimDirector)
 {
 	if (!connected_) {
 		logError("Cannot join room - not connected");
@@ -743,8 +729,7 @@ bool VDONinjaSignaling::joinRoom(const std::string &roomId, const std::string &p
 
 	bool passwordDisabled = false;
 	std::string effectivePassword = resolveEffectivePassword(password, defaultPw, passwordDisabled);
-	std::string hashedRoom =
-	    passwordDisabled ? hashRoomId(roomId, "", salt) : hashRoomId(roomId, effectivePassword, salt);
+	std::string hashedRoom = passwordDisabled ? roomId : hashRoomId(roomId, effectivePassword, salt);
 
 	{
 		std::lock_guard<std::mutex> lock(stateMutex_);
@@ -756,10 +741,13 @@ bool VDONinjaSignaling::joinRoom(const std::string &roomId, const std::string &p
 	JsonBuilder msg;
 	msg.add("request", "joinroom");
 	msg.add("roomid", hashedRoom);
-	msg.add("claim", true);
+	if (claimDirector) {
+		msg.add("claim", true);
+	}
 
 	sendMessage(msg.build());
-	logInfo("Joining room: %s (resolved: %s)", roomId.c_str(), hashedRoom.c_str());
+	logInfo("Joining room: %s (resolved: %s, claim: %s)", roomId.c_str(), hashedRoom.c_str(),
+	        claimDirector ? "true" : "false");
 
 	return true;
 }
@@ -816,8 +804,7 @@ bool VDONinjaSignaling::publishStream(const std::string &streamId, const std::st
 
 	bool passwordDisabled = false;
 	std::string effectivePassword = resolveEffectivePassword(password, defaultPw, passwordDisabled);
-	std::string hashedStream =
-	    passwordDisabled ? sanitizeStreamId(streamId) : hashStreamId(streamId, effectivePassword, salt);
+	std::string hashedStream = passwordDisabled ? streamId : hashStreamId(streamId, effectivePassword, salt);
 
 	{
 		std::lock_guard<std::mutex> lock(stateMutex_);
@@ -893,8 +880,7 @@ bool VDONinjaSignaling::viewStream(const std::string &streamId, const std::strin
 
 	bool passwordDisabled = false;
 	std::string effectivePassword = resolveEffectivePassword(password, defaultPw, passwordDisabled);
-	std::string hashedStream =
-	    passwordDisabled ? sanitizeStreamId(streamId) : hashStreamId(streamId, effectivePassword, salt);
+	std::string hashedStream = passwordDisabled ? streamId : hashStreamId(streamId, effectivePassword, salt);
 
 	StreamInfo stream;
 	stream.streamId = streamId;

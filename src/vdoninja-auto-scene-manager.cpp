@@ -257,15 +257,6 @@ std::string VDOAutoSceneManager::sourceNameForStream(const std::string &streamId
 
 std::string VDOAutoSceneManager::buildSourceUrl(const std::string &streamId) const
 {
-	// Accept direct WHEP URLs when signaling metadata provides one.
-	if (streamId.rfind("http://", 0) == 0 || streamId.rfind("https://", 0) == 0) {
-		return streamId;
-	}
-
-	if (streamId.rfind("whep:", 0) == 0) {
-		return streamId.substr(5);
-	}
-
 	std::string baseUrl;
 	std::string password;
 	std::string roomId;
@@ -281,35 +272,7 @@ std::string VDOAutoSceneManager::buildSourceUrl(const std::string &streamId) con
 		baseUrl = "https://vdo.ninja";
 	}
 
-	// Strip the 6-char hash suffix from stream IDs when present.
-	// VDO.Ninja appends sha256(password+salt).substr(0,6), and some flows
-	// use DEFAULT_PASSWORD when no explicit room password is provided.
-	std::string viewId = streamId;
-	if (viewId.size() > 6) {
-		std::vector<std::string> suffixes;
-		if (!password.empty()) {
-			suffixes.push_back(sha256(password + salt).substr(0, 6));
-		}
-		suffixes.push_back(sha256(std::string(DEFAULT_PASSWORD) + salt).substr(0, 6));
-
-		for (const auto &suffix : suffixes) {
-			if (!suffix.empty() && viewId.size() > suffix.size() &&
-			    viewId.compare(viewId.size() - suffix.size(), suffix.size(), suffix) == 0) {
-				viewId.resize(viewId.size() - suffix.size());
-				break;
-			}
-		}
-	}
-
-	// Build a room-based solo link: ?view=STREAMID&solo&room=ROOMID
-	std::string url = baseUrl + "/?view=" + urlEncode(viewId);
-	if (!roomId.empty()) {
-		url += "&solo&room=" + urlEncode(roomId);
-	}
-	if (!password.empty()) {
-		url += "&password=" + urlEncode(password);
-	}
-	return url;
+	return buildInboundViewUrl(baseUrl, streamId, password, roomId, salt);
 }
 
 std::string VDOAutoSceneManager::sanitizeNameToken(const std::string &input)

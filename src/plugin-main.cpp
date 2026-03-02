@@ -21,6 +21,7 @@ OBS_MODULE_USE_DEFAULT_LOCALE("obs-vdoninja", "en")
 #include <cctype>
 #include <cstring>
 #include <filesystem>
+#include <initializer_list>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -545,6 +546,17 @@ std::string queryValue(const std::string &url, const char *param)
 	return "";
 }
 
+std::string queryFirstValue(const std::string &url, const std::initializer_list<const char *> &params)
+{
+	for (const char *param : params) {
+		const std::string value = queryValue(url, param);
+		if (!value.empty()) {
+			return value;
+		}
+	}
+	return "";
+}
+
 void parseVdoStreamKey(const std::string &keyValue, std::string &streamId, std::string &password, std::string &roomId,
                        std::string &salt, std::string &wssHost, bool allowBareStreamId = true)
 {
@@ -569,10 +581,7 @@ void parseVdoStreamKey(const std::string &keyValue, std::string &streamId, std::
 		}
 
 		if (password.empty()) {
-			password = queryValue(keyValue, "password");
-			if (password.empty()) {
-				password = queryValue(keyValue, "pasword");
-			}
+			password = queryFirstValue(keyValue, {"password", "pasword", "pass", "pw", "p"});
 		}
 		if (roomId.empty()) {
 			roomId = queryValue(keyValue, "room");
@@ -633,7 +642,11 @@ void seedVdoNinjaSettingsFromCurrentService(obs_service_t *currentService, obs_d
 	}
 
 	if (currentType && std::strcmp(currentType, kVdoNinjaServiceType) == 0) {
+		const std::string existingPassword = obs_data_get_string(settings, "password");
 		obs_data_apply(settings, currentSettings);
+		if (trim(obs_data_get_string(settings, "password")).empty() && !trim(existingPassword).empty()) {
+			obs_data_set_string(settings, "password", existingPassword.c_str());
+		}
 		// Normalize compatibility fields so key-only configs populate
 		// stream_id/password/room/salt/wss in Tools -> VDO.Ninja Studio.
 		syncCompatibilityServiceFields(settings);
@@ -1146,14 +1159,14 @@ static std::string buildPushUrlFromSettings(obs_data_t *settings)
 		return "";
 	}
 
-	const std::string password = obs_data_get_string(settings, "password");
+	const std::string password = trim(obs_data_get_string(settings, "password"));
 	const std::string roomId = obs_data_get_string(settings, "room_id");
 	const std::string salt = obs_data_get_string(settings, "salt");
 	const std::string wssHost = obs_data_get_string(settings, "wss_host");
 
 	std::string pushUrl = "https://vdo.ninja/?push=" + urlEncode(streamId);
 	if (!password.empty()) {
-		pushUrl += "&password=" + urlEncode(password);
+		pushUrl += isPasswordDisabledToken(password) ? "&password=false" : "&password=" + urlEncode(password);
 	}
 	if (!roomId.empty()) {
 		pushUrl += "&room=" + urlEncode(roomId);
@@ -1179,17 +1192,18 @@ static std::string buildViewUrlFromSettings(obs_data_t *settings)
 		return "";
 	}
 
-	const std::string password = obs_data_get_string(settings, "password");
+	const std::string password = trim(obs_data_get_string(settings, "password"));
 	const std::string roomId = obs_data_get_string(settings, "room_id");
 	const std::string salt = obs_data_get_string(settings, "salt");
 	const std::string wssHost = obs_data_get_string(settings, "wss_host");
 
 	std::string viewUrl = "https://vdo.ninja/?view=" + urlEncode(streamId);
 	if (!password.empty()) {
-		viewUrl += "&password=" + urlEncode(password);
+		viewUrl += isPasswordDisabledToken(password) ? "&password=false" : "&password=" + urlEncode(password);
 	}
 	if (!roomId.empty()) {
 		viewUrl += "&room=" + urlEncode(roomId);
+		viewUrl += "&solo";
 	}
 	if (!salt.empty() && salt != DEFAULT_SALT) {
 		viewUrl += "&salt=" + urlEncode(salt);
@@ -1216,6 +1230,23 @@ static std::string formatBytesHuman(uint64_t bytes)
 	oss.precision(unit == 0 ? 0 : 2);
 	oss << value << " " << kUnits[unit];
 	return oss.str();
+}
+
+static void preservePasswordFromFallback(obs_data_t *primary, obs_data_t *fallback)
+{
+	if (!primary || !fallback) {
+		return;
+	}
+
+	const std::string primaryPassword = trim(obs_data_get_string(primary, "password"));
+	if (!primaryPassword.empty()) {
+		return;
+	}
+
+	const std::string fallbackPassword = trim(obs_data_get_string(fallback, "password"));
+	if (!fallbackPassword.empty()) {
+		obs_data_set_string(primary, "password", fallbackPassword.c_str());
+	}
 }
 
 static bool copyTextToClipboard(const std::string &text)
@@ -1550,7 +1581,19 @@ static bool controlCenterCopyPushUrlClicked(obs_properties_t *, obs_property_t *
 		return false;
 	}
 
-	const std::string pushUrl = buildPushUrlFromSettings(settings);
+	std::string pushUrl;
+	if (obs_frontend_streaming_active()) {
+		obs_data_t *activeSettings = obs_data_create();
+		obs_service_t *activeService = obs_frontend_get_streaming_service();
+		seedVdoNinjaSettingsFromCurrentService(activeService, activeSettings);
+		preservePasswordFromFallback(activeSettings, settings);
+		pushUrl = buildPushUrlFromSettings(activeSettings);
+		obs_data_release(activeSettings);
+	}
+	if (pushUrl.empty()) {
+		pushUrl = buildPushUrlFromSettings(settings);
+	}
+
 	if (pushUrl.empty()) {
 		updateControlCenterStatus(settings, ctx, "No publish URL available yet. Set Stream ID first.");
 	} else if (copyTextToClipboard(pushUrl)) {
@@ -1576,7 +1619,19 @@ static bool controlCenterCopyViewUrlClicked(obs_properties_t *, obs_property_t *
 		return false;
 	}
 
-	const std::string viewUrl = buildViewUrlFromSettings(settings);
+	std::string viewUrl;
+	if (obs_frontend_streaming_active()) {
+		obs_data_t *activeSettings = obs_data_create();
+		obs_service_t *activeService = obs_frontend_get_streaming_service();
+		seedVdoNinjaSettingsFromCurrentService(activeService, activeSettings);
+		preservePasswordFromFallback(activeSettings, settings);
+		viewUrl = buildViewUrlFromSettings(activeSettings);
+		obs_data_release(activeSettings);
+	}
+	if (viewUrl.empty()) {
+		viewUrl = buildViewUrlFromSettings(settings);
+	}
+
 	if (viewUrl.empty()) {
 		updateControlCenterStatus(settings, ctx, "No viewer URL available yet. Set Stream ID first.");
 	} else if (copyTextToClipboard(viewUrl)) {
@@ -1600,11 +1655,10 @@ static void *vdoninja_control_center_create(obs_data_t *settings, obs_source_t *
 	auto *ctx = new ControlCenterContext();
 	ctx->source = source;
 
-	const char *streamId = obs_data_get_string(settings, "stream_id");
-	if (!streamId || !*streamId) {
-		obs_service_t *currentService = obs_frontend_get_streaming_service();
-		seedVdoNinjaSettingsFromCurrentService(currentService, settings);
-	}
+	// Always seed from active service on open so generated URLs and UI fields
+	// reflect what OBS will actually publish with.
+	obs_service_t *currentService = obs_frontend_get_streaming_service();
+	seedVdoNinjaSettingsFromCurrentService(currentService, settings);
 
 	updateControlCenterStatus(settings, ctx, "Control Center ready.");
 	return ctx;
@@ -1799,7 +1853,11 @@ static obs_source_t *getOrCreateControlCenterSource()
 static void open_vdoninja_studio_callback(void *)
 {
 	if (g_vdo_dock) {
-		g_vdo_dock->setVisible(!g_vdo_dock->isVisible());
+		const bool makeVisible = !g_vdo_dock->isVisible();
+		if (makeVisible) {
+			g_vdo_dock->syncFromActiveService();
+		}
+		g_vdo_dock->setVisible(makeVisible);
 	}
 }
 

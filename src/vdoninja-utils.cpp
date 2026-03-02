@@ -217,32 +217,106 @@ std::string sha256(const std::string &input)
 	return ss.str();
 }
 
+bool isPasswordDisabledToken(const std::string &password)
+{
+	if (password.empty()) {
+		return false;
+	}
+
+	std::string normalized = trim(password);
+	if (normalized.empty()) {
+		return false;
+	}
+
+	std::transform(normalized.begin(), normalized.end(), normalized.begin(),
+	               [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+	return normalized == "false" || normalized == "0" || normalized == "off" || normalized == "no";
+}
+
 // Hash stream ID matching VDO.Ninja SDK algorithm
 std::string hashStreamId(const std::string &streamId, const std::string &password, const std::string &salt)
 {
 	std::string sanitized = sanitizeIdentifier(streamId, 64);
+	const std::string normalizedPassword = trim(password);
 
 	// If no password, just return sanitized stream ID
-	if (password.empty()) {
+	if (normalizedPassword.empty() || isPasswordDisabledToken(normalizedPassword)) {
 		return sanitized;
 	}
 
 	// SDK convention: streamID + first 6 hex chars of sha256(password + salt).
-	std::string passwordHash = sha256(password + salt).substr(0, 6);
+	std::string passwordHash = sha256(normalizedPassword + salt).substr(0, 6);
 	return sanitized + passwordHash;
 }
 
 std::string hashRoomId(const std::string &roomId, const std::string &password, const std::string &salt)
 {
 	std::string sanitized = sanitizeIdentifier(roomId, 30);
+	const std::string normalizedPassword = trim(password);
 
-	if (password.empty()) {
+	if (normalizedPassword.empty() || isPasswordDisabledToken(normalizedPassword)) {
 		return sanitized;
 	}
 
-	std::string combined = sanitized + password + salt;
+	std::string combined = sanitized + normalizedPassword + salt;
 	std::string fullHash = sha256(combined);
 	return fullHash.substr(0, 16);
+}
+
+std::string deriveViewStreamId(const std::string &streamId, const std::string &password, const std::string &salt)
+{
+	std::string viewId = streamId;
+	if (viewId.size() <= 6) {
+		return viewId;
+	}
+
+	const std::string normalizedPassword = trim(password);
+	const bool passwordDisabled = isPasswordDisabledToken(normalizedPassword);
+
+	std::vector<std::string> suffixes;
+	if (!normalizedPassword.empty() && !passwordDisabled) {
+		suffixes.push_back(sha256(normalizedPassword + salt).substr(0, 6));
+	}
+	suffixes.push_back(sha256(std::string(DEFAULT_PASSWORD) + salt).substr(0, 6));
+
+	for (const auto &suffix : suffixes) {
+		if (!suffix.empty() && viewId.size() > suffix.size() &&
+		    viewId.compare(viewId.size() - suffix.size(), suffix.size(), suffix) == 0) {
+			viewId.resize(viewId.size() - suffix.size());
+			break;
+		}
+	}
+
+	return viewId;
+}
+
+std::string buildInboundViewUrl(const std::string &baseUrl, const std::string &streamId, const std::string &password,
+                                const std::string &roomId, const std::string &salt)
+{
+	// Accept direct WHEP URLs when signaling metadata provides one.
+	if (streamId.rfind("http://", 0) == 0 || streamId.rfind("https://", 0) == 0) {
+		return streamId;
+	}
+
+	if (streamId.rfind("whep:", 0) == 0) {
+		return streamId.substr(5);
+	}
+
+	const std::string normalizedBaseUrl = baseUrl.empty() ? "https://vdo.ninja" : baseUrl;
+	const std::string normalizedPassword = trim(password);
+	const bool passwordDisabled = isPasswordDisabledToken(normalizedPassword);
+	const std::string viewId = deriveViewStreamId(streamId, normalizedPassword, salt);
+
+	std::string url = normalizedBaseUrl + "/?view=" + urlEncode(viewId);
+	if (!roomId.empty()) {
+		url += "&solo&room=" + urlEncode(roomId);
+	}
+
+	if (!normalizedPassword.empty()) {
+		url += passwordDisabled ? "&password=false" : "&password=" + urlEncode(normalizedPassword);
+	}
+
+	return url;
 }
 
 std::string sanitizeStreamId(const std::string &streamId)

@@ -54,6 +54,7 @@ vdoninja-tests.exe
 # Local development artifacts
 build-plugin/
 build-verify/
+build-tests/
 local-libdatachannel/
 local-obs-sdk/
 node_modules/

@@ -10,6 +10,7 @@
 
 #include <rtc/rtc.hpp>
 
+#include <atomic>
 #include <functional>
 #include <map>
 #include <mutex>
@@ -120,6 +121,7 @@ private:
 
 	// Setup tracks for publishing
 	void setupPublisherTracks(std::shared_ptr<PeerInfo> peer);
+	void clearPeerCallbacks(const std::shared_ptr<PeerInfo> &peer) const;
 
 	// ICE candidate bundling
 	void bundleAndSendCandidates(const std::string &uuid);
@@ -169,8 +171,10 @@ private:
 	};
 	std::map<std::string, CandidateBundle> candidateBundles_;
 	std::mutex candidateMutex_;
+	std::atomic<bool> shuttingDown_{false};
 
 	// Callbacks
+	mutable std::mutex callbackMutex_;
 	OnPeerConnectedCallback onPeerConnected_;
 	OnPeerDisconnectedCallback onPeerDisconnected_;
 	OnTrackCallback onTrack_;

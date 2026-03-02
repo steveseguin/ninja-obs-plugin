@@ -49,6 +49,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Plugin runtime version banner now correctly reports `1.1.15` (`PLUGIN_VERSION` macro alignment).
 
+## [1.1.22] - 2026-03-02
+
+### Fixed
+- Prevented OBS heap corruption crashes on publish stop/shutdown with active viewers by hardening peer teardown and callback shutdown handling.
+- Outgoing audio/video RTP sends now use owning `rtc::binary` buffers to avoid transient send-buffer lifetime hazards under load.
+
+## [1.1.21] - 2026-03-01
+
+### Fixed
+- Publisher video packetizer path now updates RTP timestamps on every frame before `track->send`, matching OBS `obs-webrtc` send semantics and preventing stalled/frozen playback with only intermittent keyframe refresh.
+- Added runtime logging of whether each viewer connection uses libdatachannel H264 packetizer or manual RTP fallback.
+
+## [1.1.20] - 2026-03-01
+
+### Fixed
+- Signaling request handling no longer treats `joinroom` as an offer-generation trigger, preventing unnecessary renegotiation loops during active publish sessions.
+- Duplicate offer requests for already-active peers are now ignored to avoid repeatedly re-entering keyframe-gated startup behavior (a common cause of stalled/stepwise video playback while audio continues).
+
 ## [1.1.19] - 2026-03-01
 
 ### Fixed

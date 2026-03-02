@@ -6,6 +6,7 @@
 #include <gtest/gtest.h>
 
 #include "vdoninja-signaling-protocol.h"
+#include "vdoninja-utils.h"
 
 using namespace vdoninja;
 
@@ -33,6 +34,59 @@ TEST(SignalingProtocolTest, ParsesPlayRequestAsRequestKind)
 	EXPECT_EQ(parsed.request, "play");
 	EXPECT_EQ(parsed.uuid, "viewer-2");
 	EXPECT_EQ(parsed.session, "sess-2");
+	EXPECT_EQ(parsed.streamId, "abc123");
+}
+
+TEST(SignalingProtocolTest, PlayRequestDefaultHashMapsToViewWithoutPassword)
+{
+	const std::string raw = R"({"request":"play","streamID":"HLBKRuy808d64"})";
+	ParsedSignalMessage parsed;
+	std::string error;
+
+	EXPECT_TRUE(parseSignalingMessage(raw, parsed, &error));
+	ASSERT_EQ(parsed.streamId, "HLBKRuy808d64");
+
+	const std::string viewUrl = buildInboundViewUrl("https://vdo.ninja", parsed.streamId, "", "", DEFAULT_SALT);
+	EXPECT_EQ(viewUrl, "https://vdo.ninja/?view=HLBKRuy");
+}
+
+TEST(SignalingProtocolTest, PlayRequestDisabledPasswordUsesPasswordFalseInViewUrl)
+{
+	const std::string raw = R"({"request":"play","streamID":"HLBKRuy"})";
+	ParsedSignalMessage parsed;
+	std::string error;
+
+	EXPECT_TRUE(parseSignalingMessage(raw, parsed, &error));
+	ASSERT_EQ(parsed.streamId, "HLBKRuy");
+
+	const std::string viewUrl = buildInboundViewUrl("https://vdo.ninja", parsed.streamId, "false", "", DEFAULT_SALT);
+	EXPECT_EQ(viewUrl, "https://vdo.ninja/?view=HLBKRuy&password=false");
+}
+
+TEST(SignalingProtocolTest, PlayRequestPasswordHashMapsToPasswordProtectedViewUrl)
+{
+	const std::string raw = R"({"request":"play","streamID":"HLBKRuyfb3179"})";
+	ParsedSignalMessage parsed;
+	std::string error;
+
+	EXPECT_TRUE(parseSignalingMessage(raw, parsed, &error));
+	ASSERT_EQ(parsed.streamId, "HLBKRuyfb3179");
+
+	const std::string viewUrl = buildInboundViewUrl("https://vdo.ninja", parsed.streamId, "123", "", DEFAULT_SALT);
+	EXPECT_EQ(viewUrl, "https://vdo.ninja/?view=HLBKRuy&password=123");
+}
+
+TEST(SignalingProtocolTest, ParsesJoinRoomRequestKeepsRoomAdmissionSemantics)
+{
+	const std::string raw = R"({"request":"joinroom","roomid":"myroom"})";
+	ParsedSignalMessage parsed;
+	std::string error;
+
+	EXPECT_TRUE(parseSignalingMessage(raw, parsed, &error));
+	EXPECT_EQ(parsed.kind, ParsedSignalKind::Request);
+	EXPECT_EQ(parsed.request, "joinroom");
+	EXPECT_TRUE(parsed.uuid.empty());
+	EXPECT_TRUE(parsed.streamId.empty());
 }
 
 TEST(SignalingProtocolTest, ParsesOfferRequestCaseInsensitive)
