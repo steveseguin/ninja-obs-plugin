@@ -204,7 +204,6 @@ jobs:
   build-macos:
     name: macOS
     runs-on: macos-14
-    continue-on-error: true
     strategy:
       matrix:
         arch: [arm64]
@@ -270,6 +269,11 @@ jobs:
           cp -r libobs/graphics/* ${{ github.workspace }}/obs-sdk/include/graphics/ 2>/dev/null || true
           cp -r libobs/media-io/* ${{ github.workspace }}/obs-sdk/include/media-io/ 2>/dev/null || true
           cp -r libobs/callback/* ${{ github.workspace }}/obs-sdk/include/callback/ 2>/dev/null || true
+          # sse-intrin.h includes simde/x86/*.h; copy bundled obs-deps headers into SDK include tree.
+          deps_include_dir="$(find .deps -maxdepth 2 -type d -name include | grep 'obs-deps' | head -1)"
+          if [ -n "$deps_include_dir" ] && [ -d "$deps_include_dir/simde" ]; then
+            cp -r "$deps_include_dir/simde" ${{ github.workspace }}/obs-sdk/include/
+          fi
           # Copy obs-frontend-api header (OBS 31+: now in frontend/api/)
           cp frontend/api/obs-frontend-api.h ${{ github.workspace }}/obs-sdk/include/obs-frontend-api/ 2>/dev/null || \
             cp UI/obs-frontend-api/obs-frontend-api.h ${{ github.workspace }}/obs-sdk/include/obs-frontend-api/ 2>/dev/null || true
@@ -687,7 +691,7 @@ jobs:
   release:
     name: Create Release
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [build-linux, build-windows]
+    needs: [build-linux, build-macos, build-windows]
     runs-on: ubuntu-latest
     env:
       VT_API_KEY: ${{ secrets.VT_API_KEY }}
@@ -706,6 +710,18 @@ jobs:
         run: |
           cd artifacts
           find . -type f \( -name "*.zip" -o -name "*.tar.gz" -o -name "*.exe" \) -exec mv {} . \;
+          required=(
+            "obs-vdoninja-windows-x64-setup.exe"
+            "obs-vdoninja-windows-x64.zip"
+            "obs-vdoninja-linux-x86_64.tar.gz"
+            "obs-vdoninja-macos-arm64.zip"
+          )
+          for f in "${required[@]}"; do
+            if [ ! -f "$f" ]; then
+              echo "Missing required release artifact: $f"
+              exit 1
+            fi
+          done
           shopt -s nullglob
           files=( *.zip *.tar.gz *.exe )
           if [ ${#files[@]} -eq 0 ]; then
@@ -752,7 +768,7 @@ jobs:
             - Windows installer: `obs-vdoninja-windows-x64-setup.exe`
             - Windows portable/manual package: `obs-vdoninja-windows-x64.zip`
             - Linux package: `obs-vdoninja-linux-x86_64.tar.gz`
-            - macOS package (when available): `obs-vdoninja-macos-arm64.zip`
+            - macOS package: `obs-vdoninja-macos-arm64.zip`
 
             ## Install
             - Follow `INSTALL.md` in each package.
