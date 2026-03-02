@@ -247,6 +247,17 @@ jobs:
             -DOBS_VERSION_OVERRIDE=${{ env.OBS_VERSION }}
           cmake --build build_macos --config RelWithDebInfo
           cmake --install build_macos --prefix ${{ github.workspace }}/obs-sdk --config RelWithDebInfo
+          # OBS app frameworks may omit Qt headers; provide them so framework-based include
+          # resolution remains valid when plugin compile picks OBS framework search paths first.
+          qt_framework_root="$(brew --prefix qt@6)/lib"
+          obs_framework_root="${{ github.workspace }}/obs-sdk/OBS.app/Contents/Frameworks"
+          for fw in QtCore QtGui QtWidgets QtNetwork QtSvg QtXml; do
+            src_headers="$qt_framework_root/${fw}.framework/Headers"
+            dst_framework="$obs_framework_root/${fw}.framework"
+            if [ -d "$dst_framework" ] && [ -d "$src_headers" ] && [ ! -e "$dst_framework/Headers" ]; then
+              ln -s "$src_headers" "$dst_framework/Headers" 2>/dev/null || cp -R "$src_headers" "$dst_framework/"
+            fi
+          done
           echo "=== OBS SDK install tree ==="
           find ${{ github.workspace }}/obs-sdk -type f | head -100
           # Create versioned symlinks for macOS
@@ -286,6 +297,7 @@ jobs:
           ls -la ${{ github.workspace }}/obs-sdk/lib/cmake/ 2>/dev/null | head -20 || echo "No cmake dir"
           echo "=== Checking Frameworks ==="
           ls -la ${{ github.workspace }}/obs-sdk/OBS.app/Contents/Frameworks/ 2>/dev/null | head -30 || echo "No Frameworks dir"
+          ls -la ${{ github.workspace }}/obs-sdk/OBS.app/Contents/Frameworks/QtWidgets.framework/Headers/QtWidgets/qtwidgetsglobal.h 2>/dev/null || echo "QtWidgets headers not available"
           echo "=== Checking headers ==="
           ls -la ${{ github.workspace }}/obs-sdk/include/ 2>/dev/null | head -20 || echo "No include dir"
           ls -la ${{ github.workspace }}/obs-sdk/include/util/ 2>/dev/null | head -10 || echo "No util include dir"
