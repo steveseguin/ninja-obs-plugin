@@ -49,6 +49,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Plugin runtime version banner now correctly reports `1.1.15` (`PLUGIN_VERSION` macro alignment).
 
+## [1.1.23] - 2026-03-02
+
+### Fixed
+- Restored green multi-platform release CI by fixing macOS Qt framework header resolution during OBS SDK packaging in GitHub Actions.
+
 ## [1.1.22] - 2026-03-02
 
 ### Fixed
