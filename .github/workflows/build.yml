@@ -270,9 +270,9 @@ jobs:
           cp -r libobs/media-io/* ${{ github.workspace }}/obs-sdk/include/media-io/ 2>/dev/null || true
           cp -r libobs/callback/* ${{ github.workspace }}/obs-sdk/include/callback/ 2>/dev/null || true
           # sse-intrin.h includes simde/x86/*.h; copy bundled obs-deps headers into SDK include tree.
-          deps_include_dir="$(find .deps -maxdepth 3 -type d -name include | grep 'obs-deps' | head -1)"
-          if [ -n "$deps_include_dir" ] && [ -d "$deps_include_dir/simde" ]; then
-            cp -r "$deps_include_dir/simde" ${{ github.workspace }}/obs-sdk/include/
+          simde_dir="$(find .deps -type d -path '*/include/simde' | head -1)"
+          if [ -n "$simde_dir" ] && [ -d "$simde_dir" ]; then
+            cp -r "$simde_dir" ${{ github.workspace }}/obs-sdk/include/
           fi
           # Copy obs-frontend-api header (OBS 31+: now in frontend/api/)
           cp frontend/api/obs-frontend-api.h ${{ github.workspace }}/obs-sdk/include/obs-frontend-api/ 2>/dev/null || \
@@ -289,6 +289,7 @@ jobs:
           echo "=== Checking headers ==="
           ls -la ${{ github.workspace }}/obs-sdk/include/ 2>/dev/null | head -20 || echo "No include dir"
           ls -la ${{ github.workspace }}/obs-sdk/include/util/ 2>/dev/null | head -10 || echo "No util include dir"
+          ls -la ${{ github.workspace }}/obs-sdk/include/simde/x86/ 2>/dev/null | head -10 || echo "No simde headers copied"
           ls -la ${{ github.workspace }}/obs-sdk/include/obs-frontend-api/ 2>/dev/null || echo "No frontend-api include dir"
 
       - name: Build libdatachannel
