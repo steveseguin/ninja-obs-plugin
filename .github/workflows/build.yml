@@ -270,7 +270,7 @@ jobs:
           cp -r libobs/media-io/* ${{ github.workspace }}/obs-sdk/include/media-io/ 2>/dev/null || true
           cp -r libobs/callback/* ${{ github.workspace }}/obs-sdk/include/callback/ 2>/dev/null || true
           # sse-intrin.h includes simde/x86/*.h; copy bundled obs-deps headers into SDK include tree.
-          deps_include_dir="$(find .deps -maxdepth 2 -type d -name include | grep 'obs-deps' | head -1)"
+          deps_include_dir="$(find .deps -maxdepth 3 -type d -name include | grep 'obs-deps' | head -1)"
           if [ -n "$deps_include_dir" ] && [ -d "$deps_include_dir/simde" ]; then
             cp -r "$deps_include_dir/simde" ${{ github.workspace }}/obs-sdk/include/
           fi
