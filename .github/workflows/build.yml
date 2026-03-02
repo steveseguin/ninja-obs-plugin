@@ -217,7 +217,7 @@ jobs:
 
       - name: Install Dependencies
         run: |
-          brew install cmake ninja openssl@3 qt@6 qt@5
+          brew install cmake ninja openssl@3 qt@6
 
       - name: Build OBS SDK
         run: |
@@ -315,7 +315,7 @@ jobs:
           cmake -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_OSX_ARCHITECTURES=${{ matrix.arch }} \
-            -DCMAKE_PREFIX_PATH="${{ github.workspace }}/deps;${{ github.workspace }}/obs-sdk;$(brew --prefix qt@5);$(brew --prefix openssl@3)" \
+            -DCMAKE_PREFIX_PATH="${{ github.workspace }}/deps;${{ github.workspace }}/obs-sdk;$(brew --prefix qt@6);$(brew --prefix openssl@3)" \
             -DOBS_SDK_PATH="${{ github.workspace }}/obs-sdk" \
             -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0
 
