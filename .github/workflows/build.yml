@@ -225,6 +225,20 @@ jobs:
           git clone --depth 1 --branch ${{ env.OBS_SOURCE_REF }} --recurse-submodules https://github.com/obsproject/obs-studio.git obs-studio
           cd obs-studio
           git checkout "refs/tags/${{ env.OBS_SOURCE_TAG }}" || git checkout ${{ env.OBS_SOURCE_TAG }}
+          python3 - <<'PY'
+          from pathlib import Path
+
+          shader_path = Path("libobs-metal/OBSShader.swift")
+          content = shader_path.read_text(encoding="utf-8")
+          needle = "                gsFunction: function,\n            )"
+          replacement = "                gsFunction: function\n            )"
+
+          if needle in content:
+              shader_path.write_text(content.replace(needle, replacement, 1), encoding="utf-8")
+              print("Applied OBSShader.swift trailing-comma hotfix for Xcode 16.2")
+          else:
+              print("OBSShader.swift hotfix not required for this OBS ref")
+          PY
           export DEVELOPER_DIR=$(ls -d /Applications/Xcode_*.app 2>/dev/null | sort -V | tail -1)/Contents/Developer
           cmake --preset macos-ci -B build_macos \
             -DCMAKE_OSX_ARCHITECTURES=${{ matrix.arch }} \
