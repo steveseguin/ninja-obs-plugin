@@ -23,6 +23,8 @@ Recommended (new users):
 3. Keep the detected OBS folder (or browse to your portable OBS root).
 4. On finish, optionally launch OBS and open Quick Start.
 
+Current release artifacts are built against OBS `32.0.4` to maximize compatibility across OBS `32.x`.
+
 ZIP fallback (`obs-vdoninja-windows-x64.zip`):
 
 1. Extract the ZIP.

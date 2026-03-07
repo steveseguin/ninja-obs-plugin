@@ -23,6 +23,7 @@ VDO.Ninja is a low-latency WebRTC platform used for live production, remote gues
 - First-run usage guide: [QUICKSTART.md](QUICKSTART.md)
 - Full docs: [README Quick Start](#quick-start)
 - New Windows users: run `obs-vdoninja-windows-x64-setup.exe` (ZIP scripts remain available for portable/manual installs).
+- Current release artifacts are built against OBS `32.0.4` for broad OBS `32.x` compatibility.
 
 ## Why This Plugin Exists
 
@@ -93,7 +94,8 @@ Windows recommendation:
 
 1. Use the setup `.exe` for normal installs/uninstalls.
 2. Use ZIP scripts only for portable/custom-path workflows.
-3. Use the web quick-start guide after install: `https://steveseguin.github.io/ninja-obs-plugin/#quick-start`.
+3. Current release artifacts target OBS `32.0.4` to maximize compatibility across OBS `32.x`.
+4. Use the web quick-start guide after install: `https://steveseguin.github.io/ninja-obs-plugin/#quick-start`.
 
 Portable OBS note: if launching from terminal, start `obs64.exe` from `bin\64bit` (or set `Start-Process -WorkingDirectory` to `bin\64bit`) to avoid `Failed to load theme`.
 

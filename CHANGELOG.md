@@ -31,13 +31,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - New build helper script: `scripts/build-installer-windows.ps1`.
 
 ### Changed
+- Release builds now target OBS `32.0.4` instead of OBS `32.1.0-rc1`, so shipped plugin binaries load on current stable OBS `32.x` installs without forcing users to pick version-specific downloads.
 - Stream destination UX now avoids the misleading `Get Stream Key` helper button for VDO.Ninja.
 - VDO.Ninja server label in OBS Stream settings now explicitly points users to `Tools -> VDO.Ninja Control Center`.
 - README/QUICKSTART now clarify that OBS still shows a `Stream Key` field for compatibility.
 - Added a new `Tools -> VDO.Ninja Control Center` workflow with one-place publish config, start/stop controls, generated links, and runtime peer telemetry.
 - Windows release docs now route users to the setup `.exe` first, with ZIP install scripts as fallback.
 - Release workflow now publishes Windows ZIP + setup `.exe`, and release checksums include `.exe` artifacts.
-- Build workflow now targets OBS `32.1.0-rc1` to align with current service ABI requirements.
 - Inno Setup uninstaller files now live under `data/obs-plugins/obs-vdoninja/_installer` instead of the OBS root.
 - Windows installer/script post-install actions now open the GitHub Pages quick-start guide instead of a local Markdown file.
 - In-app Stream Service helper links now point to the GitHub Pages guide/home docs.
@@ -48,6 +48,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - Plugin runtime version banner now correctly reports `1.1.15` (`PLUGIN_VERSION` macro alignment).
+
+## [1.1.24] - 2026-03-07
+
+### Changed
+- Release builds now target OBS `32.0.4` as the OBS 32.x compatibility baseline, keeping the default Windows installer/ZIP compatible with current stable OBS 32.x installs.
+- README/INSTALL/release text now explicitly state the OBS `32.0.4` build baseline so users know which OBS line the shipped artifacts target.
+- Repository agent guidance now documents the "build against the oldest supported OBS version in the compatibility band" rule for future release work.
 
 ## [1.1.23] - 2026-03-02
 

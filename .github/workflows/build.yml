@@ -8,11 +8,13 @@ on:
 
 env:
   PLUGIN_NAME: obs-vdoninja
-  OBS_VERSION: 32.1.0-rc1
-  OBS_SOURCE_REF: 32.1.0-rc1
-  OBS_SOURCE_TAG: 32.1.0-rc1
-  OBS_VERSION_WIN: "32.1.0-rc1"
-  OBS_VERSION_WIN_ZIP: "OBS-Studio-32.1.0-rc1-Windows-x64.zip"
+  # Build against the oldest supported OBS 32.x baseline so one release artifact
+  # works across the widest range of current OBS 32 installs.
+  # Do not bump this to a newer OBS SDK unless we intentionally drop support
+  # for older OBS 32.x installs or ship clearly labeled version-specific builds.
+  OBS_VERSION: 32.0.4
+  OBS_SOURCE_REF: 32.0.4
+  OBS_SOURCE_TAG: 32.0.4
 
 jobs:
   build-linux:
@@ -782,6 +784,8 @@ jobs:
             - Windows portable/manual package: `obs-vdoninja-windows-x64.zip`
             - Linux package: `obs-vdoninja-linux-x86_64.tar.gz`
             - macOS package: `obs-vdoninja-macos-arm64.zip`
+
+            Windows release artifacts are built against OBS `32.0.4` to maximize compatibility across current OBS `32.x` installs.
 
             ## Install
             - Full install guide: `https://github.com/steveseguin/ninja-obs-plugin/blob/main/INSTALL.md`

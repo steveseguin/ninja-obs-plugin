@@ -30,6 +30,15 @@ cmake --install build --prefix install
 
 Use `scripts/install-linux.sh`, `scripts/install-macos.sh`, or `scripts/install-windows.ps1` for local installation.
 
+## OBS Compatibility And Release Baseline
+- OBS plugin binaries are version-gated by the OBS/libobs SDK they are built against; the plugin's own `PLUGIN_VERSION` is not the compatibility key.
+- Build release artifacts against the oldest OBS version in the compatibility band you intend to support.
+- For the current OBS 32.x line, the release baseline is OBS `32.0.4`.
+- Do not bump the release workflow to a newer OBS SDK just because it exists; doing so can prevent the plugin from loading on older OBS 32.x installs.
+- Only introduce separate OBS-version-specific release artifacts if the code starts requiring newer-only OBS APIs.
+- Prefer one obvious Windows installer/ZIP pair for users unless a real compatibility split is technically necessary.
+- When changing OBS targets, update `.github/workflows/build.yml`, release notes, and install/docs text together.
+
 ## Coding Style & Naming Conventions
 - Language level: C++17 (non-MSVC), C++20 (MSVC).
 - Format with `.clang-format` (LLVM-based, tabs for indentation, 120-column limit, Linux brace style).
