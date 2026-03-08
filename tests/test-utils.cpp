@@ -290,15 +290,16 @@ TEST_F(BuildInboundViewUrlTest, BuildsVdoNinjaViewUrlForPlainStreamId)
 	          "https://vdo.ninja/?view=cam_1");
 }
 
-TEST_F(BuildInboundViewUrlTest, RejectsDirectPlaybackUrlForBrowserSourceAutoAdd)
+TEST_F(BuildInboundViewUrlTest, WrapsDirectPlaybackUrlForBrowserSourceAutoAdd)
 {
-	EXPECT_TRUE(buildInboundViewUrl("https://vdo.ninja", "https://example.com/whep/stream", "", "", DEFAULT_SALT).empty());
+	EXPECT_EQ(buildInboundViewUrl("https://vdo.ninja", "https://example.com/whep/stream", "", "", DEFAULT_SALT),
+	          "https://vdo.ninja/?whepplay=https%3a%2f%2fexample.com%2fwhep%2fstream");
 }
 
-TEST_F(BuildInboundViewUrlTest, RejectsWhepPrefixedDirectPlaybackUrlForBrowserSourceAutoAdd)
+TEST_F(BuildInboundViewUrlTest, WrapsWhepPrefixedDirectPlaybackUrlForBrowserSourceAutoAdd)
 {
-	EXPECT_TRUE(
-	    buildInboundViewUrl("https://vdo.ninja", "whep:https://example.com/whep/stream", "", "", DEFAULT_SALT).empty());
+	EXPECT_EQ(buildInboundViewUrl("https://vdo.ninja", "whep:https://example.com/whep/stream", "", "", DEFAULT_SALT),
+	          "https://vdo.ninja/?whepplay=https%3a%2f%2fexample.com%2fwhep%2fstream");
 }
 
 TEST_F(BuildInboundViewUrlTest, DoesNotTreatWhepPrefixedStreamIdAsDirectUrl)
@@ -312,6 +313,21 @@ TEST_F(BuildInboundViewUrlTest, PreservesDirectVdoNinjaViewerPageUrl)
 	EXPECT_EQ(buildInboundViewUrl("https://vdo.ninja", "https://vdo.ninja/?view=cam_2&room=greenroom&solo", "", "",
 	                             DEFAULT_SALT),
 	          "https://vdo.ninja/?view=cam_2&room=greenroom&solo");
+}
+
+TEST_F(BuildInboundViewUrlTest, PreservesDirectVdoNinjaWhepplayPageUrl)
+{
+	EXPECT_EQ(
+	    buildInboundViewUrl("https://vdo.ninja",
+	                        "https://vdo.ninja/?whepplay=https%3A%2F%2Fsomewhip.co%2Fasdf&whepwait=2000&whepplaytoken=tok",
+	                        "", "", DEFAULT_SALT),
+	    "https://vdo.ninja/?whepplay=https%3A%2F%2Fsomewhip.co%2Fasdf&whepwait=2000&whepplaytoken=tok");
+}
+
+TEST_F(BuildInboundViewUrlTest, ConvertsPseudoWhepSchemeToHttpsEndpoint)
+{
+	EXPECT_EQ(buildInboundViewUrl("https://vdo.ninja", "whep://somewhip.co/asdfasdfasdf", "", "", DEFAULT_SALT),
+	          "https://vdo.ninja/?whepplay=https%3a%2f%2fsomewhip.co%2fasdfasdfasdf");
 }
 
 TEST_F(BuildInboundViewUrlTest, IncludesRoomSoloAndPasswordForAutoAddedSources)

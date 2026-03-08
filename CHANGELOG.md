@@ -49,6 +49,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Plugin runtime version banner now correctly reports `1.1.15` (`PLUGIN_VERSION` macro alignment).
 
+## [1.1.27] - 2026-03-08
+
+### Fixed
+- Browser-source auto-add now wraps direct playback/WHEP endpoints in a VDO.Ninja page URL using `?whepplay=...`, so OBS Browser Sources still load VDO.Ninja instead of being pointed at raw playback endpoints.
+- Pseudo WHEP inputs like `whep://host/path` are normalized into `https://...` endpoints before generating the VDO.Ninja browser URL.
+
 ## [1.1.26] - 2026-03-08
 
 ### Fixed

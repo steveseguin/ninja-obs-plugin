@@ -107,11 +107,26 @@ bool containsInsensitive(const std::string &value, const char *needle)
 
 std::string normalizeInboundPlaybackTarget(const std::string &value)
 {
+	if (startsWithInsensitive(value, "whep://")) {
+		return "https://" + value.substr(7);
+	}
+
+	if (startsWithInsensitive(value, "wheps://")) {
+		return "https://" + value.substr(8);
+	}
+
 	if (!startsWithInsensitive(value, "whep:")) {
 		return value;
 	}
 
 	return trim(value.substr(5));
+}
+
+bool hasVdoBrowserPlaybackParam(const std::string &candidate)
+{
+	return containsInsensitive(candidate, "?view=") || containsInsensitive(candidate, "&view=") ||
+	       containsInsensitive(candidate, "?whep=") || containsInsensitive(candidate, "&whep=") ||
+	       containsInsensitive(candidate, "?whepplay=") || containsInsensitive(candidate, "&whepplay=");
 }
 
 bool isBrowserSourceViewerUrl(const std::string &candidate, const std::string &baseUrl)
@@ -122,12 +137,12 @@ bool isBrowserSourceViewerUrl(const std::string &candidate, const std::string &b
 
 	const std::string normalizedBaseUrl = trim(baseUrl);
 	if (!normalizedBaseUrl.empty() && startsWithInsensitive(candidate, normalizedBaseUrl.c_str()) &&
-	    (candidate.find("?view=") != std::string::npos || candidate.find("&view=") != std::string::npos)) {
+	    hasVdoBrowserPlaybackParam(candidate)) {
 		return true;
 	}
 
 	return (containsInsensitive(candidate, "://vdo.ninja") || containsInsensitive(candidate, "://obs.ninja")) &&
-	       (candidate.find("?view=") != std::string::npos || candidate.find("&view=") != std::string::npos);
+	       hasVdoBrowserPlaybackParam(candidate);
 }
 
 std::string normalizeBaseBrowserUrl(const std::string &baseUrl)
@@ -363,7 +378,7 @@ std::string buildInboundViewUrl(const std::string &baseUrl, const std::string &s
 	}
 
 	if (isDirectPlaybackUrl(normalizedStreamId)) {
-		return "";
+		return normalizedBaseUrl + "/?whepplay=" + urlEncode(normalizedStreamId);
 	}
 
 	const std::string normalizedPassword = trim(password);
