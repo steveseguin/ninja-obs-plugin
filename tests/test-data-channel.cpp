@@ -116,28 +116,28 @@ TEST_F(DataChannelTest, DoesNotTreatRemoteAuthOnlyAsAction)
 	EXPECT_EQ(msg.type, DataMessageType::Unknown);
 }
 
-TEST_F(DataChannelTest, ExtractsTopLevelWhepUrl)
+TEST_F(DataChannelTest, ExtractsTopLevelPlaybackHint)
 {
 	std::string raw = "{\"whepUrl\":\"https://example.com/live/whep\"}";
-	EXPECT_EQ(dataChannel.extractWhepPlaybackUrl(raw), "https://example.com/live/whep");
+	EXPECT_EQ(dataChannel.extractInboundPlaybackHint(raw), "https://example.com/live/whep");
 }
 
-TEST_F(DataChannelTest, ExtractsWhepUrlFromSettingsObject)
+TEST_F(DataChannelTest, ExtractsPlaybackHintFromSettingsObject)
 {
 	std::string raw = "{\"whepSettings\":{\"type\":\"whep\",\"url\":\"https://example.com/stream/whep\"}}";
-	EXPECT_EQ(dataChannel.extractWhepPlaybackUrl(raw), "https://example.com/stream/whep");
+	EXPECT_EQ(dataChannel.extractInboundPlaybackHint(raw), "https://example.com/stream/whep");
 }
 
-TEST_F(DataChannelTest, ExtractsWhepUrlFromNestedInfoObject)
+TEST_F(DataChannelTest, ExtractsPlaybackHintFromNestedInfoObject)
 {
 	std::string raw = "{\"info\":{\"whepUrl\":\"https://example.com/nested/whep\"}}";
-	EXPECT_EQ(dataChannel.extractWhepPlaybackUrl(raw), "https://example.com/nested/whep");
+	EXPECT_EQ(dataChannel.extractInboundPlaybackHint(raw), "https://example.com/nested/whep");
 }
 
-TEST_F(DataChannelTest, IgnoresNonUrlWhepPayloads)
+TEST_F(DataChannelTest, IgnoresNonUrlPlaybackHints)
 {
 	std::string raw = "{\"whep\":\"stream-id-not-url\"}";
-	EXPECT_TRUE(dataChannel.extractWhepPlaybackUrl(raw).empty());
+	EXPECT_TRUE(dataChannel.extractInboundPlaybackHint(raw).empty());
 }
 
 TEST_F(DataChannelTest, SetsTimestampOnParse)

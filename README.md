@@ -39,7 +39,7 @@ Using VDO.Ninja only through Browser Sources can be limiting for some production
 - Faster setup for repeat production workflows.
 - Better control of stream/session behavior from OBS.
 - Multi-viewer capable publish path.
-- Optional data-channel metadata hooks (including WHEP URL hints).
+- Optional data-channel metadata hooks for inbound automation.
 
 ## Why Not Just WHIP/WHEP?
 

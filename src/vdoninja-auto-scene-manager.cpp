@@ -113,6 +113,12 @@ void VDOAutoSceneManager::onStreamAdded(const std::string &streamId)
 		return;
 	}
 
+	const std::string sourceUrl = buildSourceUrl(streamId);
+	if (sourceUrl.empty()) {
+		logWarning("Ignoring auto-inbound target without a usable VDO.Ninja viewer URL: %s", streamId.c_str());
+		return;
+	}
+
 	bool switchScene = false;
 	int sourceWidth = 1920;
 	int sourceHeight = 1080;
@@ -133,7 +139,6 @@ void VDOAutoSceneManager::onStreamAdded(const std::string &streamId)
 	}
 
 	const std::string sourceName = sourceNameForStream(streamId);
-	const std::string sourceUrl = buildSourceUrl(streamId);
 
 	runOnUiThread([this, sourceName, sourceUrl, switchScene, sourceWidth, sourceHeight]() {
 		obs_source_t *sceneSource = resolveTargetSceneSource();

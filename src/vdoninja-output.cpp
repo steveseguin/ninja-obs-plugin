@@ -1213,10 +1213,10 @@ void VDONinjaOutput::startThread(OutputSettings settingsSnap)
 		}
 
 		if (autoSceneManager_ && settingsSnap.autoInbound.enabled) {
-			const std::string whepUrl = dataChannel_.extractWhepPlaybackUrl(message);
-			if (!whepUrl.empty()) {
-				logInfo("Discovered WHEP playback URL from %s", uuid.c_str());
-				autoSceneManager_->onStreamAdded(whepUrl);
+			const std::string playbackHint = dataChannel_.extractInboundPlaybackHint(message);
+			if (!playbackHint.empty()) {
+				logInfo("Discovered inbound browser-source hint from %s", uuid.c_str());
+				autoSceneManager_->onStreamAdded(playbackHint);
 			}
 		}
 	});

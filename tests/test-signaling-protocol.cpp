@@ -161,6 +161,16 @@ TEST(SignalingProtocolTest, ParsesWhepUrlAsStreamIdentifier)
 	EXPECT_EQ(parsed.streamId, "https://example.com/whep/streamA");
 }
 
+TEST(SignalingProtocolTest, UnsupportedDirectPlaybackUrlsDoNotBecomeBrowserSourceTargets)
+{
+	const std::string raw = R"({"videoAddedToRoom":true,"UUID":"peer-w","whepUrl":"https://example.com/whep/streamA"})";
+	ParsedSignalMessage parsed;
+	std::string error;
+
+	EXPECT_TRUE(parseSignalingMessage(raw, parsed, &error));
+	EXPECT_TRUE(buildInboundViewUrl("https://vdo.ninja", parsed.streamId, "", "", DEFAULT_SALT).empty());
+}
+
 TEST(SignalingProtocolTest, ParsesListingRequestWithListArray)
 {
 	const std::string raw = R"({

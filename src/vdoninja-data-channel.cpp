@@ -29,13 +29,13 @@ std::string firstNonEmptyValue(const JsonParser &json, const std::initializer_li
 	return "";
 }
 
-bool looksLikeWhepUrl(const std::string &candidate)
+bool looksLikePlaybackHint(const std::string &candidate)
 {
 	return candidate.rfind("https://", 0) == 0 || candidate.rfind("http://", 0) == 0 ||
 	       candidate.rfind("whep:", 0) == 0;
 }
 
-std::string extractWhepUrlRecursive(const JsonParser &json, int depth)
+std::string extractPlaybackHintRecursive(const JsonParser &json, int depth)
 {
 	if (depth > 3) {
 		return "";
@@ -43,12 +43,12 @@ std::string extractWhepUrlRecursive(const JsonParser &json, int depth)
 
 	std::string direct =
 	    firstNonEmptyValue(json, {"whepUrl", "whep", "whepplay", "whepPlay", "whepshare", "whepShare"});
-	if (looksLikeWhepUrl(direct)) {
+	if (looksLikePlaybackHint(direct)) {
 		return direct;
 	}
 
 	std::string urlValue = firstNonEmptyValue(json, {"url", "URL"});
-	if (looksLikeWhepUrl(urlValue)) {
+	if (looksLikePlaybackHint(urlValue)) {
 		return urlValue;
 	}
 
@@ -63,7 +63,7 @@ std::string extractWhepUrlRecursive(const JsonParser &json, int depth)
 		}
 
 		JsonParser nestedJson(nestedObject);
-		const std::string nestedUrl = extractWhepUrlRecursive(nestedJson, depth + 1);
+		const std::string nestedUrl = extractPlaybackHintRecursive(nestedJson, depth + 1);
 		if (!nestedUrl.empty()) {
 			return nestedUrl;
 		}
@@ -229,7 +229,7 @@ void VDONinjaDataChannel::handleMessage(const std::string &senderId, const std::
 	}
 }
 
-std::string VDONinjaDataChannel::extractWhepPlaybackUrl(const std::string &rawMessage) const
+std::string VDONinjaDataChannel::extractInboundPlaybackHint(const std::string &rawMessage) const
 {
 	if (rawMessage.empty()) {
 		return "";
@@ -237,7 +237,7 @@ std::string VDONinjaDataChannel::extractWhepPlaybackUrl(const std::string &rawMe
 
 	try {
 		JsonParser json(rawMessage);
-		return extractWhepUrlRecursive(json, 0);
+		return extractPlaybackHintRecursive(json, 0);
 	} catch (const std::exception &) {
 		return "";
 	}

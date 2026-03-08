@@ -290,22 +290,28 @@ TEST_F(BuildInboundViewUrlTest, BuildsVdoNinjaViewUrlForPlainStreamId)
 	          "https://vdo.ninja/?view=cam_1");
 }
 
-TEST_F(BuildInboundViewUrlTest, PreservesDirectHttpsPlaybackUrl)
+TEST_F(BuildInboundViewUrlTest, RejectsDirectPlaybackUrlForBrowserSourceAutoAdd)
 {
-	EXPECT_EQ(buildInboundViewUrl("https://vdo.ninja", "https://example.com/whep/stream", "", "", DEFAULT_SALT),
-	          "https://example.com/whep/stream");
+	EXPECT_TRUE(buildInboundViewUrl("https://vdo.ninja", "https://example.com/whep/stream", "", "", DEFAULT_SALT).empty());
 }
 
-TEST_F(BuildInboundViewUrlTest, UnwrapsWhepPrefixedDirectPlaybackUrl)
+TEST_F(BuildInboundViewUrlTest, RejectsWhepPrefixedDirectPlaybackUrlForBrowserSourceAutoAdd)
 {
-	EXPECT_EQ(buildInboundViewUrl("https://vdo.ninja", "whep:https://example.com/whep/stream", "", "", DEFAULT_SALT),
-	          "https://example.com/whep/stream");
+	EXPECT_TRUE(
+	    buildInboundViewUrl("https://vdo.ninja", "whep:https://example.com/whep/stream", "", "", DEFAULT_SALT).empty());
 }
 
 TEST_F(BuildInboundViewUrlTest, DoesNotTreatWhepPrefixedStreamIdAsDirectUrl)
 {
 	EXPECT_EQ(buildInboundViewUrl("https://vdo.ninja", "whep:cam_2", "", "", DEFAULT_SALT),
 	          "https://vdo.ninja/?view=cam_2");
+}
+
+TEST_F(BuildInboundViewUrlTest, PreservesDirectVdoNinjaViewerPageUrl)
+{
+	EXPECT_EQ(buildInboundViewUrl("https://vdo.ninja", "https://vdo.ninja/?view=cam_2&room=greenroom&solo", "", "",
+	                             DEFAULT_SALT),
+	          "https://vdo.ninja/?view=cam_2&room=greenroom&solo");
 }
 
 TEST_F(BuildInboundViewUrlTest, IncludesRoomSoloAndPasswordForAutoAddedSources)

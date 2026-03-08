@@ -49,6 +49,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Plugin runtime version banner now correctly reports `1.1.15` (`PLUGIN_VERSION` macro alignment).
 
+## [1.1.26] - 2026-03-08
+
+### Fixed
+- Browser-source auto-add now only accepts VDO.Ninja viewer pages or stream IDs it can convert into `https://vdo.ninja/?view=...` links. Direct playback/WHEP-style URLs are ignored instead of being attached to OBS Browser Sources.
+- Auto-inbound scene management now skips unsupported browser-source targets instead of creating sources with invalid URLs.
+
 ## [1.1.25] - 2026-03-08
 
 ### Fixed

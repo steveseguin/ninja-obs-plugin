@@ -92,6 +92,19 @@ bool isDirectPlaybackUrl(const std::string &value)
 	return startsWithInsensitive(value, "http://") || startsWithInsensitive(value, "https://");
 }
 
+std::string asciiLowerCopy(std::string value)
+{
+	for (char &c : value) {
+		c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+	}
+	return value;
+}
+
+bool containsInsensitive(const std::string &value, const char *needle)
+{
+	return asciiLowerCopy(value).find(asciiLowerCopy(needle)) != std::string::npos;
+}
+
 std::string normalizeInboundPlaybackTarget(const std::string &value)
 {
 	if (!startsWithInsensitive(value, "whep:")) {
@@ -99,6 +112,36 @@ std::string normalizeInboundPlaybackTarget(const std::string &value)
 	}
 
 	return trim(value.substr(5));
+}
+
+bool isBrowserSourceViewerUrl(const std::string &candidate, const std::string &baseUrl)
+{
+	if (!isDirectPlaybackUrl(candidate)) {
+		return false;
+	}
+
+	const std::string normalizedBaseUrl = trim(baseUrl);
+	if (!normalizedBaseUrl.empty() && startsWithInsensitive(candidate, normalizedBaseUrl.c_str()) &&
+	    (candidate.find("?view=") != std::string::npos || candidate.find("&view=") != std::string::npos)) {
+		return true;
+	}
+
+	return (containsInsensitive(candidate, "://vdo.ninja") || containsInsensitive(candidate, "://obs.ninja")) &&
+	       (candidate.find("?view=") != std::string::npos || candidate.find("&view=") != std::string::npos);
+}
+
+std::string normalizeBaseBrowserUrl(const std::string &baseUrl)
+{
+	std::string normalized = trim(baseUrl);
+	if (normalized.empty()) {
+		normalized = "https://vdo.ninja";
+	}
+
+	while (!normalized.empty() && normalized.back() == '/') {
+		normalized.pop_back();
+	}
+
+	return normalized.empty() ? "https://vdo.ninja" : normalized;
 }
 
 } // namespace
@@ -308,13 +351,21 @@ std::string buildInboundViewUrl(const std::string &baseUrl, const std::string &s
                                 const std::string &roomId, const std::string &salt)
 {
 	const std::string normalizedStreamId = normalizeInboundPlaybackTarget(trim(streamId));
+	const std::string normalizedBaseUrl = normalizeBaseBrowserUrl(baseUrl);
 
-	// Accept direct playback URLs when signaling metadata provides one.
-	if (isDirectPlaybackUrl(normalizedStreamId)) {
+	if (normalizedStreamId.empty()) {
+		return "";
+	}
+
+	// Browser-source auto-add should only point at VDO.Ninja-style viewer pages.
+	if (isBrowserSourceViewerUrl(normalizedStreamId, normalizedBaseUrl)) {
 		return normalizedStreamId;
 	}
 
-	const std::string normalizedBaseUrl = baseUrl.empty() ? "https://vdo.ninja" : baseUrl;
+	if (isDirectPlaybackUrl(normalizedStreamId)) {
+		return "";
+	}
+
 	const std::string normalizedPassword = trim(password);
 	const bool passwordDisabled = isPasswordDisabledToken(normalizedPassword);
 	const std::string viewId = deriveViewStreamId(normalizedStreamId, normalizedPassword, salt);
