@@ -49,6 +49,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Plugin runtime version banner now correctly reports `1.1.15` (`PLUGIN_VERSION` macro alignment).
 
+## [1.1.25] - 2026-03-08
+
+### Fixed
+- Auto-added OBS browser sources now always get a full `https://vdo.ninja/?view=...` viewer URL. `whep:<streamId>` inputs no longer collapse to a bare stream ID, and room/solo/password parameters are preserved when configured.
+
 ## [1.1.24] - 2026-03-07
 
 ### Changed

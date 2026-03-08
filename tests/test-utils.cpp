@@ -280,6 +280,46 @@ TEST_F(HashRoomIdTest, HashesWithPassword)
 	EXPECT_EQ(result.length(), 16u);
 }
 
+class BuildInboundViewUrlTest : public ::testing::Test
+{
+};
+
+TEST_F(BuildInboundViewUrlTest, BuildsVdoNinjaViewUrlForPlainStreamId)
+{
+	EXPECT_EQ(buildInboundViewUrl("https://vdo.ninja", "cam_1", "", "", DEFAULT_SALT),
+	          "https://vdo.ninja/?view=cam_1");
+}
+
+TEST_F(BuildInboundViewUrlTest, PreservesDirectHttpsPlaybackUrl)
+{
+	EXPECT_EQ(buildInboundViewUrl("https://vdo.ninja", "https://example.com/whep/stream", "", "", DEFAULT_SALT),
+	          "https://example.com/whep/stream");
+}
+
+TEST_F(BuildInboundViewUrlTest, UnwrapsWhepPrefixedDirectPlaybackUrl)
+{
+	EXPECT_EQ(buildInboundViewUrl("https://vdo.ninja", "whep:https://example.com/whep/stream", "", "", DEFAULT_SALT),
+	          "https://example.com/whep/stream");
+}
+
+TEST_F(BuildInboundViewUrlTest, DoesNotTreatWhepPrefixedStreamIdAsDirectUrl)
+{
+	EXPECT_EQ(buildInboundViewUrl("https://vdo.ninja", "whep:cam_2", "", "", DEFAULT_SALT),
+	          "https://vdo.ninja/?view=cam_2");
+}
+
+TEST_F(BuildInboundViewUrlTest, IncludesRoomSoloAndPasswordForAutoAddedSources)
+{
+	EXPECT_EQ(buildInboundViewUrl("https://vdo.ninja", "cam_3", "hunter2", "greenroom", DEFAULT_SALT),
+	          "https://vdo.ninja/?view=cam_3&room=greenroom&solo&password=hunter2");
+}
+
+TEST_F(BuildInboundViewUrlTest, IncludesRoomSoloAndDisabledPasswordToken)
+{
+	EXPECT_EQ(buildInboundViewUrl("https://vdo.ninja", "whep:cam_4", "false", "greenroom", DEFAULT_SALT),
+	          "https://vdo.ninja/?view=cam_4&room=greenroom&solo&password=false");
+}
+
 // Base64 Encoding/Decoding Tests
 class Base64Test : public ::testing::Test
 {

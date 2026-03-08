@@ -87,6 +87,20 @@ bool isIceUrl(const std::string &url)
 	       startsWithInsensitive(url, "turn:") || startsWithInsensitive(url, "turns:");
 }
 
+bool isDirectPlaybackUrl(const std::string &value)
+{
+	return startsWithInsensitive(value, "http://") || startsWithInsensitive(value, "https://");
+}
+
+std::string normalizeInboundPlaybackTarget(const std::string &value)
+{
+	if (!startsWithInsensitive(value, "whep:")) {
+		return value;
+	}
+
+	return trim(value.substr(5));
+}
+
 } // namespace
 
 // UUID Generation
@@ -293,23 +307,22 @@ std::string deriveViewStreamId(const std::string &streamId, const std::string &p
 std::string buildInboundViewUrl(const std::string &baseUrl, const std::string &streamId, const std::string &password,
                                 const std::string &roomId, const std::string &salt)
 {
-	// Accept direct WHEP URLs when signaling metadata provides one.
-	if (streamId.rfind("http://", 0) == 0 || streamId.rfind("https://", 0) == 0) {
-		return streamId;
-	}
+	const std::string normalizedStreamId = normalizeInboundPlaybackTarget(trim(streamId));
 
-	if (streamId.rfind("whep:", 0) == 0) {
-		return streamId.substr(5);
+	// Accept direct playback URLs when signaling metadata provides one.
+	if (isDirectPlaybackUrl(normalizedStreamId)) {
+		return normalizedStreamId;
 	}
 
 	const std::string normalizedBaseUrl = baseUrl.empty() ? "https://vdo.ninja" : baseUrl;
 	const std::string normalizedPassword = trim(password);
 	const bool passwordDisabled = isPasswordDisabledToken(normalizedPassword);
-	const std::string viewId = deriveViewStreamId(streamId, normalizedPassword, salt);
+	const std::string viewId = deriveViewStreamId(normalizedStreamId, normalizedPassword, salt);
 
 	std::string url = normalizedBaseUrl + "/?view=" + urlEncode(viewId);
 	if (!roomId.empty()) {
-		url += "&solo&room=" + urlEncode(roomId);
+		url += "&room=" + urlEncode(roomId);
+		url += "&solo";
 	}
 
 	if (!normalizedPassword.empty()) {
