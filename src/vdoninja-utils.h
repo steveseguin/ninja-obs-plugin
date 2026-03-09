@@ -106,6 +106,7 @@ std::string formatTimestamp(int64_t ms);
 std::string modifySdpForCodec(const std::string &sdp, VideoCodec codec);
 std::string modifySdpBitrate(const std::string &sdp, int bitrate);
 std::string extractMid(const std::string &sdp, const std::string &mediaType);
+std::string stripUnsupportedTransportCcFeedback(const std::string &sdp);
 
 // Logging helpers
 void logInfo(const char *format, ...);

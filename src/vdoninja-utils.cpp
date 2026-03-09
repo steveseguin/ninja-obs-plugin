@@ -1088,6 +1088,31 @@ std::string extractMid(const std::string &sdp, const std::string &mediaType)
 	return sdp.substr(pos, end - pos);
 }
 
+std::string stripUnsupportedTransportCcFeedback(const std::string &sdp)
+{
+	std::stringstream input(sdp);
+	std::string line;
+	std::string filtered;
+	bool stripped = false;
+
+	while (std::getline(input, line)) {
+		if (!line.empty() && line.back() == '\r') {
+			line.pop_back();
+		}
+		if (line.find("transport-wide-cc-extensions-01") != std::string::npos) {
+			stripped = true;
+			continue;
+		}
+		if (line.rfind("a=rtcp-fb:", 0) == 0 && line.find("transport-cc") != std::string::npos) {
+			stripped = true;
+			continue;
+		}
+		filtered += line + "\r\n";
+	}
+
+	return stripped ? filtered : sdp;
+}
+
 // Logging
 void logInfo(const char *format, ...)
 {

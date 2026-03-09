@@ -767,3 +767,34 @@ TEST_F(SDPTest, ExtractMidReturnsEmptyForMissing)
 
 	EXPECT_EQ(extractMid(sdp, "video"), "");
 }
+
+TEST_F(SDPTest, StripUnsupportedTransportCcFeedbackRemovesTransportCcLines)
+{
+	std::string sdp = "v=0\r\n"
+	                  "m=video 9 UDP/TLS/RTP/SAVPF 96\r\n"
+	                  "a=mid:1\r\n"
+	                  "a=extmap:2 http://www.webrtc.org/experiments/rtp-hdrext/abs-send-time\r\n"
+	                  "a=extmap:4 "
+	                  "http://www.ietf.org/id/draft-holmer-rmcat-transport-wide-cc-extensions-01\r\n"
+	                  "a=rtcp-fb:96 goog-remb\r\n"
+	                  "a=rtcp-fb:96 transport-cc\r\n"
+	                  "a=rtpmap:96 H264/90000\r\n";
+
+	const std::string stripped = stripUnsupportedTransportCcFeedback(sdp);
+
+	EXPECT_EQ(stripped.find("transport-wide-cc-extensions-01"), std::string::npos);
+	EXPECT_EQ(stripped.find("a=rtcp-fb:96 transport-cc"), std::string::npos);
+	EXPECT_NE(stripped.find("a=rtcp-fb:96 goog-remb"), std::string::npos);
+	EXPECT_NE(stripped.find("a=extmap:2 http://www.webrtc.org/experiments/rtp-hdrext/abs-send-time"),
+	          std::string::npos);
+}
+
+TEST_F(SDPTest, StripUnsupportedTransportCcFeedbackLeavesOtherSdpUntouched)
+{
+	std::string sdp = "v=0\r\n"
+	                  "m=audio 9 UDP/TLS/RTP/SAVPF 111\r\n"
+	                  "a=mid:0\r\n"
+	                  "a=rtpmap:111 opus/48000/2\r\n";
+
+	EXPECT_EQ(stripUnsupportedTransportCcFeedback(sdp), sdp);
+}

@@ -82,7 +82,12 @@ std::string constrainViewerOfferToNativeCodecs(const std::string &sdp)
 		}
 	}
 
-	return changed ? std::string(description) : sdp;
+	std::string constrained = changed ? std::string(description) : sdp;
+	std::string filtered = stripUnsupportedTransportCcFeedback(constrained);
+	if (filtered != constrained) {
+		logInfo("Stripped transport-cc feedback/extensions from native viewer offer to prefer REMB-compatible feedback");
+	}
+	return filtered;
 }
 
 struct NalUnitView {
