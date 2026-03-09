@@ -619,6 +619,42 @@ TEST_F(ParseIceServersTest, CountsPendingViewerStatesTowardLimit)
 	EXPECT_FALSE(countsTowardViewerLimit(ConnectionState::Closed));
 }
 
+TEST(UtilsVideoLayoutTest, AspectFitUsesFullCanvasForMatchingAspectRatio)
+{
+	const AspectFitLayout layout = computeAspectFitLayout(1280, 720, 1920, 1080);
+
+	EXPECT_EQ(layout.outputWidth, 1920u);
+	EXPECT_EQ(layout.outputHeight, 1080u);
+	EXPECT_EQ(layout.contentWidth, 1920u);
+	EXPECT_EQ(layout.contentHeight, 1080u);
+	EXPECT_EQ(layout.offsetX, 0u);
+	EXPECT_EQ(layout.offsetY, 0u);
+}
+
+TEST(UtilsVideoLayoutTest, AspectFitLetterboxesWideVideoIntoSquareCanvas)
+{
+	const AspectFitLayout layout = computeAspectFitLayout(1920, 1080, 1920, 1920);
+
+	EXPECT_EQ(layout.outputWidth, 1920u);
+	EXPECT_EQ(layout.outputHeight, 1920u);
+	EXPECT_EQ(layout.contentWidth, 1920u);
+	EXPECT_EQ(layout.contentHeight, 1080u);
+	EXPECT_EQ(layout.offsetX, 0u);
+	EXPECT_EQ(layout.offsetY, 420u);
+}
+
+TEST(UtilsVideoLayoutTest, AspectFitPillarboxesTallVideoIntoWideCanvas)
+{
+	const AspectFitLayout layout = computeAspectFitLayout(480, 640, 1280, 720);
+
+	EXPECT_EQ(layout.outputWidth, 1280u);
+	EXPECT_EQ(layout.outputHeight, 720u);
+	EXPECT_EQ(layout.contentWidth, 540u);
+	EXPECT_EQ(layout.contentHeight, 720u);
+	EXPECT_EQ(layout.offsetX, 370u);
+	EXPECT_EQ(layout.offsetY, 0u);
+}
+
 // Time Utilities Tests
 class TimeUtilsTest : public ::testing::Test
 {

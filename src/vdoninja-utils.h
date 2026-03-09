@@ -15,6 +15,15 @@
 namespace vdoninja
 {
 
+struct AspectFitLayout {
+	uint32_t outputWidth = 0;
+	uint32_t outputHeight = 0;
+	uint32_t contentWidth = 0;
+	uint32_t contentHeight = 0;
+	uint32_t offsetX = 0;
+	uint32_t offsetY = 0;
+};
+
 // UUID generation
 std::string generateUUID();
 
@@ -84,6 +93,8 @@ std::string trim(const std::string &str);
 std::vector<std::string> split(const std::string &str, char delimiter);
 std::vector<IceServer> parseIceServers(const std::string &config);
 bool countsTowardViewerLimit(ConnectionState state);
+AspectFitLayout computeAspectFitLayout(uint32_t sourceWidth, uint32_t sourceHeight, uint32_t outputWidth,
+                                       uint32_t outputHeight);
 
 // Time utilities
 int64_t currentTimeMs();

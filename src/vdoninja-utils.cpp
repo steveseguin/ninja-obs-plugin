@@ -12,6 +12,7 @@
 #include <cctype>
 #include <cstdarg>
 #include <cstdint>
+#include <cmath>
 #include <iomanip>
 #include <random>
 #include <regex>
@@ -924,6 +925,47 @@ bool countsTowardViewerLimit(ConnectionState state)
 	default:
 		return false;
 	}
+}
+
+AspectFitLayout computeAspectFitLayout(uint32_t sourceWidth, uint32_t sourceHeight, uint32_t outputWidth,
+                                       uint32_t outputHeight)
+{
+	AspectFitLayout layout;
+	layout.outputWidth = outputWidth;
+	layout.outputHeight = outputHeight;
+
+	if (layout.outputWidth == 0) {
+		layout.outputWidth = sourceWidth;
+	}
+	if (layout.outputHeight == 0) {
+		layout.outputHeight = sourceHeight;
+	}
+	if (layout.outputWidth == 0) {
+		layout.outputWidth = 1;
+	}
+	if (layout.outputHeight == 0) {
+		layout.outputHeight = 1;
+	}
+
+	if (sourceWidth == 0 || sourceHeight == 0) {
+		layout.contentWidth = layout.outputWidth;
+		layout.contentHeight = layout.outputHeight;
+		return layout;
+	}
+
+	const double widthScale = static_cast<double>(layout.outputWidth) / static_cast<double>(sourceWidth);
+	const double heightScale = static_cast<double>(layout.outputHeight) / static_cast<double>(sourceHeight);
+	const double scale = std::min(widthScale, heightScale);
+
+	layout.contentWidth =
+	    std::max<uint32_t>(1, static_cast<uint32_t>(std::lround(static_cast<double>(sourceWidth) * scale)));
+	layout.contentHeight =
+	    std::max<uint32_t>(1, static_cast<uint32_t>(std::lround(static_cast<double>(sourceHeight) * scale)));
+	layout.contentWidth = std::min(layout.contentWidth, layout.outputWidth);
+	layout.contentHeight = std::min(layout.contentHeight, layout.outputHeight);
+	layout.offsetX = (layout.outputWidth - layout.contentWidth) / 2;
+	layout.offsetY = (layout.outputHeight - layout.contentHeight) / 2;
+	return layout;
 }
 
 // Time utilities

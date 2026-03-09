@@ -1780,32 +1780,33 @@ void VDONinjaSource::outputDecodedVideoFrame(const AVFrame *frame, uint64_t time
 	}
 
 	const AVPixelFormat inputFormat = static_cast<AVPixelFormat>(frame->format);
-	videoScaleContext_ =
-	    sws_getCachedContext(videoScaleContext_, frame->width, frame->height, inputFormat, frame->width, frame->height,
-	                         AV_PIX_FMT_BGRA, SWS_BILINEAR, nullptr, nullptr, nullptr);
+	const AspectFitLayout layout =
+	    computeAspectFitLayout(static_cast<uint32_t>(frame->width), static_cast<uint32_t>(frame->height), width_, height_);
+	videoScaleContext_ = sws_getCachedContext(videoScaleContext_, frame->width, frame->height, inputFormat,
+	                                          static_cast<int>(layout.contentWidth), static_cast<int>(layout.contentHeight),
+	                                          AV_PIX_FMT_BGRA, SWS_BILINEAR, nullptr, nullptr, nullptr);
 	if (!videoScaleContext_) {
 		logError("Failed to create video conversion context");
 		return;
 	}
 
-	const int outputStride = frame->width * 4;
-	std::vector<uint8_t> output(static_cast<size_t>(outputStride) * static_cast<size_t>(frame->height));
-	uint8_t *dstData[4] = {output.data(), nullptr, nullptr, nullptr};
+	const int outputStride = static_cast<int>(layout.outputWidth) * 4;
+	std::vector<uint8_t> output(static_cast<size_t>(outputStride) * static_cast<size_t>(layout.outputHeight), 0);
+	uint8_t *dstData[4] = {output.data() + (static_cast<size_t>(layout.offsetY) * static_cast<size_t>(outputStride)) +
+	                                      (static_cast<size_t>(layout.offsetX) * 4),
+	                      nullptr, nullptr, nullptr};
 	int dstLinesize[4] = {outputStride, 0, 0, 0};
 
 	const int scaledHeight = sws_scale(videoScaleContext_, frame->data, frame->linesize, 0, frame->height, dstData,
 	                                   dstLinesize);
-	if (scaledHeight <= 0) {
+	if (scaledHeight <= 0 || static_cast<uint32_t>(scaledHeight) != layout.contentHeight) {
 		logWarning("Failed to convert decoded video frame");
 		return;
 	}
 
-	width_ = static_cast<uint32_t>(frame->width);
-	height_ = static_cast<uint32_t>(frame->height);
-
 	obs_source_frame obsFrame = {};
-	obsFrame.width = static_cast<uint32_t>(frame->width);
-	obsFrame.height = static_cast<uint32_t>(frame->height);
+	obsFrame.width = layout.outputWidth;
+	obsFrame.height = layout.outputHeight;
 	obsFrame.format = VIDEO_FORMAT_BGRA;
 	obsFrame.timestamp = timestampNs;
 	obsFrame.full_range = true;
