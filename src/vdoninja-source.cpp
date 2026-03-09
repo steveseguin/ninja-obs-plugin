@@ -21,6 +21,7 @@ extern "C" {
 #include <libavcodec/avcodec.h>
 #include <libavutil/channel_layout.h>
 #include <libavutil/error.h>
+#include <libavutil/hwcontext.h>
 #include <libavutil/imgutils.h>
 #include <libavutil/samplefmt.h>
 #include <libswresample/swresample.h>
@@ -39,7 +40,6 @@ constexpr const char *kInternalNativeSourceId = "vdoninja_native_source_internal
 constexpr const char *kInternalNativeSourceSetting = "internal_native_receiver_source";
 constexpr int kViewRequestTimeoutMs = 15000;
 constexpr int kMinViewRequestGapMs = 1500;
-
 const char *tr(const char *key, const char *fallback)
 {
 	const char *localized = obs_module_text(key);
@@ -93,6 +93,82 @@ std::string ffmpegErrorString(int errorCode)
 	char buffer[AV_ERROR_MAX_STRING_SIZE] = {};
 	av_strerror(errorCode, buffer, sizeof(buffer));
 	return buffer;
+}
+
+const char *hardwareDeviceTypeName(AVHWDeviceType type)
+{
+	const char *name = av_hwdevice_get_type_name(type);
+	return name ? name : "unknown";
+}
+
+enum AVPixelFormat choosePreferredHardwarePixelFormat(AVCodecContext *context, const enum AVPixelFormat *formats)
+{
+	if (!context || !formats) {
+		return AV_PIX_FMT_NONE;
+	}
+
+	const auto preferredPixelFormat = context->opaque ? *static_cast<const int *>(context->opaque) : AV_PIX_FMT_NONE;
+	if (preferredPixelFormat != AV_PIX_FMT_NONE) {
+		for (const enum AVPixelFormat *fmt = formats; *fmt != AV_PIX_FMT_NONE; ++fmt) {
+			if (*fmt == preferredPixelFormat) {
+				return *fmt;
+			}
+		}
+	}
+
+	return avcodec_default_get_format(context, formats);
+}
+
+bool configureVideoHardwareDecoder(AVCodecContext *decoderContext, const AVCodec *codec, int &pixelFormat,
+                                   std::string &deviceName)
+{
+#if defined(_WIN32)
+	constexpr AVHWDeviceType preferredDeviceTypes[] = {AV_HWDEVICE_TYPE_D3D11VA, AV_HWDEVICE_TYPE_DXVA2};
+
+	for (const AVHWDeviceType deviceType : preferredDeviceTypes) {
+		const AVCodecHWConfig *matchingConfig = nullptr;
+		for (int index = 0;; ++index) {
+			const AVCodecHWConfig *config = avcodec_get_hw_config(codec, index);
+			if (!config) {
+				break;
+			}
+			if ((config->methods & AV_CODEC_HW_CONFIG_METHOD_HW_DEVICE_CTX) == 0) {
+				continue;
+			}
+			if (config->device_type != deviceType) {
+				continue;
+			}
+			matchingConfig = config;
+			break;
+		}
+
+		if (!matchingConfig) {
+			continue;
+		}
+
+		AVBufferRef *deviceContext = nullptr;
+		const int createResult = av_hwdevice_ctx_create(&deviceContext, deviceType, nullptr, nullptr, 0);
+		if (createResult < 0) {
+			logWarning("Failed to create %s hardware decode device: %s", hardwareDeviceTypeName(deviceType),
+			           ffmpegErrorString(createResult).c_str());
+			continue;
+		}
+
+		decoderContext->hw_device_ctx = deviceContext;
+		pixelFormat = matchingConfig->pix_fmt;
+		deviceName = hardwareDeviceTypeName(deviceType);
+		decoderContext->get_format = choosePreferredHardwarePixelFormat;
+		decoderContext->opaque = &pixelFormat;
+		return true;
+	}
+#else
+	UNUSED_PARAMETER(decoderContext);
+	UNUSED_PARAMETER(codec);
+	UNUSED_PARAMETER(pixelFormat);
+	UNUSED_PARAMETER(deviceName);
+#endif
+
+	return false;
 }
 
 struct RtpPayloadView {
@@ -1159,15 +1235,34 @@ void VDONinjaSource::onVideoTrack(const std::string &uuid, std::shared_ptr<rtc::
 	logInfo("Attaching native video receive callbacks (mid=%s, direction=%d)", track->mid().c_str(),
 	        static_cast<int>(description.direction()));
 
+	bool replacedExistingTrack = false;
 	{
-		std::lock_guard<std::mutex> stateLock(nativeStateMutex_);
+		std::scoped_lock stateLock(nativeStateMutex_, videoAssemblyMutex_, videoDecodeMutex_);
 		if (videoTrack_ == track) {
 			return;
 		}
+		if (!videoTrackPeerUuid_.empty() && videoTrackPeerUuid_ != uuid) {
+			logWarning("Ignoring native video track from %s while peer %s remains active", uuid.c_str(),
+			           videoTrackPeerUuid_.c_str());
+			return;
+		}
+		replacedExistingTrack = (videoTrack_ != nullptr);
 		clearTrackCallbacks(videoTrack_);
 		videoTrack_ = track;
 		videoTrackPeerUuid_ = uuid;
 		videoRedPayloadTypes_ = redPayloadTypes;
+		videoAssemblyBuffer_.clear();
+		videoAssemblyTimestamp_ = 0;
+		videoAssemblyActive_ = false;
+		if (replacedExistingTrack) {
+			logInfo("Replacing native video track for peer %s; resetting decoder state", uuid.c_str());
+			resetVideoDecoder();
+			loggedFirstVideoRtpPacket_ = false;
+			loggedFirstVideoPacket_ = false;
+			loggedFirstDecodedVideoFrame_ = false;
+			lastVideoTime_ = 0;
+			lastKeyframeRequestTime_ = 0;
+		}
 	}
 	auto rtxFilter = std::make_shared<RtxRepairMediaHandler>();
 	auto receivingSession = std::make_shared<InspectingReceivingSession>([this](const rtc::message_ptr &message) {
@@ -1219,6 +1314,11 @@ void VDONinjaSource::onVideoTrack(const std::string &uuid, std::shared_ptr<rtc::
 		const auto &packet = std::get<rtc::binary>(message);
 		processVideoRtpPacket(reinterpret_cast<const uint8_t *>(packet.data()), packet.size());
 	});
+
+	if (replacedExistingTrack && safeRequestKeyframe(track, "video-track-replaced")) {
+		lastKeyframeRequestTime_ = currentTimeMs();
+		logInfo("Requested video keyframe after replacing native video track");
+	}
 }
 
 void VDONinjaSource::onAudioTrack(const std::string &uuid, std::shared_ptr<rtc::Track> track)
@@ -1240,14 +1340,28 @@ void VDONinjaSource::onAudioTrack(const std::string &uuid, std::shared_ptr<rtc::
 	logInfo("Attaching native audio receive callbacks (mid=%s, direction=%d, rate=%d, channels=%d)",
 	        track->mid().c_str(), static_cast<int>(description.direction()), sampleRate, channels);
 
+	bool replacedExistingTrack = false;
 	{
-		std::lock_guard<std::mutex> stateLock(nativeStateMutex_);
+		std::scoped_lock stateLock(nativeStateMutex_, audioDecodeMutex_);
 		if (audioTrack_ == track) {
 			return;
 		}
+		if (!videoTrackPeerUuid_.empty() && videoTrackPeerUuid_ != uuid) {
+			logWarning("Ignoring native audio track from %s while video peer %s remains active", uuid.c_str(),
+			           videoTrackPeerUuid_.c_str());
+			return;
+		}
+		replacedExistingTrack = (audioTrack_ != nullptr);
 		clearTrackCallbacks(audioTrack_);
 		audioTrack_ = track;
 		audioTrackPeerUuid_ = uuid;
+		if (replacedExistingTrack) {
+			logInfo("Replacing native audio track for peer %s; resetting decoder state", uuid.c_str());
+			resetAudioDecoder();
+			loggedFirstAudioPacket_ = false;
+			loggedFirstDecodedAudioFrame_ = false;
+			lastAudioTime_ = 0;
+		}
 	}
 	auto depacketizer = std::make_shared<rtc::OpusRtpDepacketizer>();
 	audioSampleRate_ = sampleRate > 0 ? sampleRate : 48000;
@@ -1319,8 +1433,38 @@ void VDONinjaSource::processVideoData(const uint8_t *data, size_t size, uint32_t
 			break;
 		}
 
-		outputDecodedVideoFrame(videoFrame_, mapVideoTimestamp(rtpTimestamp));
+		const AVFrame *frameToOutput = videoFrame_;
+		if (videoHwDecodeConfigured_ && videoHwPixelFormat_ != AV_PIX_FMT_NONE && !videoHwStatusLogged_) {
+			if (videoFrame_->format == videoHwPixelFormat_) {
+				logInfo("Native receiver is using hardware video decode via %s", videoHwDeviceName_.c_str());
+			} else {
+				logWarning("Native receiver opened %s hardware decode but decoder is returning software frames",
+				           videoHwDeviceName_.c_str());
+			}
+			videoHwStatusLogged_ = true;
+		}
+		if (videoHwDecodeConfigured_ && videoHwPixelFormat_ != AV_PIX_FMT_NONE && videoFrame_->format == videoHwPixelFormat_) {
+			av_frame_unref(videoTransferFrame_);
+			const int transferResult = av_hwframe_transfer_data(videoTransferFrame_, videoFrame_, 0);
+			if (transferResult < 0) {
+				logWarning("Failed to transfer hardware-decoded H.264 frame from %s: %s; disabling hardware decode for this session",
+				           videoHwDeviceName_.c_str(), ffmpegErrorString(transferResult).c_str());
+				videoHwDecodeDisabled_ = true;
+				resetVideoDecoder();
+				if (safeRequestKeyframe(currentVideoTrack, "hw-transfer-failure")) {
+					lastKeyframeRequestTime_ = currentTimeMs();
+				}
+				return;
+			}
+			av_frame_copy_props(videoTransferFrame_, videoFrame_);
+			frameToOutput = videoTransferFrame_;
+		}
+
+		outputDecodedVideoFrame(frameToOutput, mapVideoTimestamp(rtpTimestamp));
 		av_frame_unref(videoFrame_);
+		if (frameToOutput == videoTransferFrame_) {
+			av_frame_unref(videoTransferFrame_);
+		}
 	}
 
 	lastVideoTime_ = currentTimeMs();
@@ -1589,21 +1733,45 @@ bool VDONinjaSource::initializeVideoDecoder()
 
 	videoDecoder_ = avcodec_alloc_context3(codec);
 	videoFrame_ = av_frame_alloc();
+	videoTransferFrame_ = av_frame_alloc();
 	videoPacket_ = av_packet_alloc();
-	if (!videoDecoder_ || !videoFrame_ || !videoPacket_) {
+	if (!videoDecoder_ || !videoFrame_ || !videoTransferFrame_ || !videoPacket_) {
 		logError("Failed to allocate native H.264 decoder state");
 		resetVideoDecoder();
 		return false;
 	}
 
-	videoDecoder_->thread_count = 0;
-	videoDecoder_->thread_type = FF_THREAD_FRAME | FF_THREAD_SLICE;
+	videoHwDecodeConfigured_ = false;
+	videoHwStatusLogged_ = false;
+	videoHwPixelFormat_ = AV_PIX_FMT_NONE;
+	videoHwDeviceName_.clear();
+	if (!videoHwDecodeDisabled_) {
+		videoHwDecodeConfigured_ =
+		    configureVideoHardwareDecoder(videoDecoder_, codec, videoHwPixelFormat_, videoHwDeviceName_);
+	}
+	if (!videoHwDecodeConfigured_) {
+		videoDecoder_->thread_count = 0;
+		videoDecoder_->thread_type = FF_THREAD_FRAME | FF_THREAD_SLICE;
+	}
 
 	const int openResult = avcodec_open2(videoDecoder_, codec, nullptr);
 	if (openResult < 0) {
+		if (videoHwDecodeConfigured_) {
+			logWarning("Failed to open H.264 decoder with %s hardware acceleration: %s; falling back to software decode",
+			           videoHwDeviceName_.c_str(), ffmpegErrorString(openResult).c_str());
+			videoHwDecodeDisabled_ = true;
+			resetVideoDecoder();
+			return initializeVideoDecoder();
+		}
 		logError("Failed to open H.264 decoder: %s", ffmpegErrorString(openResult).c_str());
 		resetVideoDecoder();
 		return false;
+	}
+
+	if (videoHwDecodeConfigured_) {
+		logInfo("Initialized native H.264 decoder with hardware acceleration backend %s", videoHwDeviceName_.c_str());
+	} else {
+		logInfo("Initialized native H.264 decoder in software mode");
 	}
 
 	return true;
@@ -1652,6 +1820,9 @@ void VDONinjaSource::resetVideoDecoder()
 	if (videoPacket_) {
 		av_packet_free(&videoPacket_);
 	}
+	if (videoTransferFrame_) {
+		av_frame_free(&videoTransferFrame_);
+	}
 	if (videoFrame_) {
 		av_frame_free(&videoFrame_);
 	}
@@ -1667,6 +1838,12 @@ void VDONinjaSource::resetVideoDecoder()
 	videoBaseRtpTimestamp_ = 0;
 	videoBaseTimestampNs_ = 0;
 	lastVideoTimestampNs_ = 0;
+	lastDecodedVideoWidth_ = 0;
+	lastDecodedVideoHeight_ = 0;
+	videoHwDecodeConfigured_ = false;
+	videoHwStatusLogged_ = false;
+	videoHwPixelFormat_ = AV_PIX_FMT_NONE;
+	videoHwDeviceName_.clear();
 }
 
 void VDONinjaSource::resetAudioDecoder()
@@ -1711,6 +1888,7 @@ void VDONinjaSource::resetNativeState()
 	videoAssemblyBuffer_.clear();
 	videoAssemblyTimestamp_ = 0;
 	videoAssemblyActive_ = false;
+	videoHwDecodeDisabled_ = false;
 	resetVideoDecoder();
 	resetAudioDecoder();
 	if (source_) {
@@ -1777,6 +1955,11 @@ void VDONinjaSource::outputDecodedVideoFrame(const AVFrame *frame, uint64_t time
 	if (!loggedFirstDecodedVideoFrame_.exchange(true)) {
 		logInfo("Native receiver decoded first video frame (%dx%d, format=%d)", frame->width, frame->height,
 		        frame->format);
+	}
+	if (frame->width != lastDecodedVideoWidth_ || frame->height != lastDecodedVideoHeight_) {
+		logInfo("Native receiver video resolution changed to %dx%d", frame->width, frame->height);
+		lastDecodedVideoWidth_ = frame->width;
+		lastDecodedVideoHeight_ = frame->height;
 	}
 
 	const AVPixelFormat inputFormat = static_cast<AVPixelFormat>(frame->format);

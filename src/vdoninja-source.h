@@ -17,6 +17,7 @@
 #include "vdoninja-signaling.h"
 
 extern "C" {
+struct AVBufferRef;
 struct AVCodecContext;
 struct AVFrame;
 struct AVPacket;
@@ -133,6 +134,7 @@ private:
 	bool videoAssemblyActive_ = false;
 	AVCodecContext *videoDecoder_ = nullptr;
 	AVFrame *videoFrame_ = nullptr;
+	AVFrame *videoTransferFrame_ = nullptr;
 	AVPacket *videoPacket_ = nullptr;
 	SwsContext *videoScaleContext_ = nullptr;
 	AVCodecContext *audioDecoder_ = nullptr;
@@ -148,6 +150,13 @@ private:
 	uint64_t videoBaseTimestampNs_ = 0;
 	uint64_t lastVideoTimestampNs_ = 0;
 	bool videoTimingInitialized_ = false;
+	int lastDecodedVideoWidth_ = 0;
+	int lastDecodedVideoHeight_ = 0;
+	int videoHwPixelFormat_ = -1;
+	bool videoHwDecodeConfigured_ = false;
+	bool videoHwDecodeDisabled_ = false;
+	bool videoHwStatusLogged_ = false;
+	std::string videoHwDeviceName_;
 	uint32_t audioBaseRtpTimestamp_ = 0;
 	uint64_t audioBaseTimestampNs_ = 0;
 	uint64_t lastAudioTimestampNs_ = 0;
