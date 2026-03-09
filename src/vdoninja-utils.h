@@ -41,6 +41,8 @@ std::string buildViewerPageUrl(const std::string &baseUrl, const std::string &st
                                const std::string &wssHost = "");
 std::string buildInboundViewUrl(const std::string &baseUrl, const std::string &streamId, const std::string &password,
                                 const std::string &roomId, const std::string &salt);
+int chooseViewerTargetBitrateKbps(uint32_t width, uint32_t height);
+std::string buildViewerRequestMessage(uint32_t width, uint32_t height, bool guest);
 
 // Sanitize stream ID (replace non-alphanumeric with underscores)
 std::string sanitizeStreamId(const std::string &streamId);

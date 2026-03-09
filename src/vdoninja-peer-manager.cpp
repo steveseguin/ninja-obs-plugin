@@ -4,6 +4,7 @@
  */
 
 #include "vdoninja-peer-manager.h"
+#include "vdoninja-utils.h"
 
 #include <algorithm>
 #include <cctype>
@@ -24,6 +25,31 @@ constexpr size_t kMaxRtpPayloadSize = 1200;
 std::string viewerSignalingKey(const std::string &uuid, const std::string &session)
 {
 	return session.empty() ? uuid : (uuid + ":" + session);
+}
+
+std::string wrapTargetedPeerMessage(const std::string &uuid, const std::string &session, const std::string &message)
+{
+	const std::string trimmedMessage = trim(message);
+	if (uuid.empty() || trimmedMessage.size() < 2 || trimmedMessage.front() != '{' || trimmedMessage.back() != '}') {
+		return message;
+	}
+
+	JsonBuilder envelope;
+	envelope.add("UUID", uuid);
+	if (!session.empty()) {
+		envelope.add("session", session);
+	}
+
+	std::string wrapped = envelope.build();
+	const std::string body = trim(trimmedMessage.substr(1, trimmedMessage.size() - 2));
+	if (body.empty()) {
+		return wrapped;
+	}
+
+	if (!wrapped.empty() && wrapped.back() == '}') {
+		wrapped.pop_back();
+	}
+	return wrapped + "," + body + "}";
 }
 
 std::string constrainViewerOfferToNativeCodecs(const std::string &sdp)
@@ -879,6 +905,64 @@ void VDONinjaPeerManager::setupPublisherTracks(std::shared_ptr<PeerInfo> peer)
 	logDebug("Set up publisher tracks for %s", peer->uuid.c_str());
 }
 
+void VDONinjaPeerManager::prepareViewerTracks(const std::shared_ptr<PeerInfo> &peer, const std::string &offerSdp)
+{
+	if (!peer || !peer->pc || offerSdp.empty()) {
+		return;
+	}
+
+	rtc::Description description(offerSdp, rtc::Description::Type::Offer);
+	OnTrackCallback trackCallback;
+	{
+		std::lock_guard<std::mutex> callbackLock(callbackMutex_);
+		trackCallback = onTrack_;
+	}
+
+	const int requestedVideoBitrateKbps = std::max(1, bitrate_ / 1000);
+
+	for (int mediaIndex = 0; mediaIndex < description.mediaCount(); ++mediaIndex) {
+		auto mediaVariant = description.media(mediaIndex);
+		auto *media = std::get_if<rtc::Description::Media *>(&mediaVariant);
+		if (!media || !*media) {
+			continue;
+		}
+
+		try {
+			if ((*media)->type() == "video") {
+				if (peer->videoTrack) {
+					continue;
+				}
+
+				rtc::Description::Media receiveVideo = (*media)->reciprocate();
+				receiveVideo.setBitrate(requestedVideoBitrateKbps);
+				auto track = peer->pc->addTrack(receiveVideo);
+				peer->videoTrack = track;
+				logInfo("Prepared native recvonly video track for %s (mid=%s, bitrate=%d kbps)", peer->uuid.c_str(),
+				        track ? track->mid().c_str() : "", requestedVideoBitrateKbps);
+				if (trackCallback && track) {
+					trackCallback(peer->uuid, TrackType::Video, track);
+				}
+			} else if ((*media)->type() == "audio") {
+				if (peer->audioTrack) {
+					continue;
+				}
+
+				rtc::Description::Media receiveAudio = (*media)->reciprocate();
+				auto track = peer->pc->addTrack(receiveAudio);
+				peer->audioTrack = track;
+				logInfo("Prepared native recvonly audio track for %s (mid=%s)", peer->uuid.c_str(),
+				        track ? track->mid().c_str() : "");
+				if (trackCallback && track) {
+					trackCallback(peer->uuid, TrackType::Audio, track);
+				}
+			}
+		} catch (const std::exception &e) {
+			logWarning("Failed to prepare native recvonly %s track for %s: %s", (*media)->type().c_str(),
+			           peer->uuid.c_str(), e.what());
+		}
+	}
+}
+
 void VDONinjaPeerManager::onSignalingOffer(const std::string &uuid, const std::string &sdp, const std::string &session)
 {
 	// We received an offer - this happens when we're viewing a stream
@@ -917,6 +1001,7 @@ void VDONinjaPeerManager::onSignalingOffer(const std::string &uuid, const std::s
 
 	// Set remote description (the offer)
 	const std::string constrainedSdp = constrainViewerOfferToNativeCodecs(sdp);
+	prepareViewerTracks(peer, constrainedSdp);
 	peer->pc->setRemoteDescription(rtc::Description(constrainedSdp, rtc::Description::Type::Offer));
 }
 
@@ -1355,12 +1440,21 @@ void VDONinjaPeerManager::sendDataToPeer(const std::string &uuid, const std::str
 {
 	std::lock_guard<std::mutex> lock(peersMutex_);
 	auto it = peers_.find(uuid);
-	if (it != peers_.end() && it->second->hasDataChannel && it->second->dataChannel) {
-		try {
+	if (it == peers_.end() || !it->second) {
+		return;
+	}
+
+	try {
+		if (it->second->hasDataChannel && it->second->dataChannel) {
 			it->second->dataChannel->send(message);
-		} catch (const std::exception &e) {
-			logError("Failed to send data to %s: %s", uuid.c_str(), e.what());
+			return;
 		}
+		if (it->second->type == ConnectionType::Viewer && it->second->signalingDataChannel) {
+			it->second->signalingDataChannel->send(
+			    wrapTargetedPeerMessage(uuid, it->second->session, message));
+		}
+	} catch (const std::exception &e) {
+		logError("Failed to send data to %s: %s", uuid.c_str(), e.what());
 	}
 }
 

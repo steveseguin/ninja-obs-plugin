@@ -655,6 +655,44 @@ TEST(UtilsVideoLayoutTest, AspectFitPillarboxesTallVideoIntoWideCanvas)
 	EXPECT_EQ(layout.offsetY, 0u);
 }
 
+TEST(ViewerRequestMessageTest, IncludesAudioVideoAndResolutionDefaults)
+{
+	const std::string message = buildViewerRequestMessage(1920, 1080, false);
+	const JsonParser parser(message);
+
+	EXPECT_TRUE(parser.getBool("audio"));
+	EXPECT_TRUE(parser.getBool("video"));
+	EXPECT_FALSE(parser.getBool("allowresources", true));
+	EXPECT_FALSE(parser.getBool("allowchunked", true));
+	EXPECT_FALSE(parser.getBool("guest", false));
+	EXPECT_EQ(parser.getInt("targetBitrate"), 4000);
+
+	const JsonParser resolution(parser.getObject("requestResolution"));
+	EXPECT_EQ(resolution.getInt("w"), 1920);
+	EXPECT_EQ(resolution.getInt("h"), 1080);
+}
+
+TEST(ViewerRequestMessageTest, MarksRoomViewersAsGuests)
+{
+	const std::string message = buildViewerRequestMessage(1280, 720, true);
+	const JsonParser parser(message);
+
+	EXPECT_TRUE(parser.getBool("guest"));
+	EXPECT_EQ(parser.getInt("targetBitrate"), 2500);
+
+	const JsonParser resolution(parser.getObject("requestResolution"));
+	EXPECT_EQ(resolution.getInt("w"), 1280);
+	EXPECT_EQ(resolution.getInt("h"), 720);
+}
+
+TEST(ViewerRequestMessageTest, ChoosesConservativeBitrateForSmallCanvases)
+{
+	EXPECT_EQ(chooseViewerTargetBitrateKbps(640, 360), 800);
+	EXPECT_EQ(chooseViewerTargetBitrateKbps(854, 480), 1200);
+	EXPECT_EQ(chooseViewerTargetBitrateKbps(1280, 720), 2500);
+	EXPECT_EQ(chooseViewerTargetBitrateKbps(1920, 1080), 4000);
+}
+
 // Time Utilities Tests
 class TimeUtilsTest : public ::testing::Test
 {

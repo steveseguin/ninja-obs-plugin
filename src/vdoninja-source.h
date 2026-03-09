@@ -65,6 +65,8 @@ private:
 	void cancelViewRetry();
 	void resetViewRetryState();
 	void serviceViewRetry();
+	void sendViewerPreferencesToPeer(const std::string &uuid, const char *reason);
+	void requestNativeTargetBitrate(const char *reason);
 	void handleSignalingAlert(const std::string &message);
 	void handlePeerCleanupSignal(const std::string &uuid);
 	void handlePeerDisconnected(const std::string &uuid);

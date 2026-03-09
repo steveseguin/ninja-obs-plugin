@@ -125,6 +125,7 @@ private:
 
 	// Setup tracks for publishing
 	void setupPublisherTracks(std::shared_ptr<PeerInfo> peer);
+	void prepareViewerTracks(const std::shared_ptr<PeerInfo> &peer, const std::string &offerSdp);
 	void clearPeerCallbacks(const std::shared_ptr<PeerInfo> &peer) const;
 
 	// ICE candidate bundling

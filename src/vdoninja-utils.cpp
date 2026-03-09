@@ -419,6 +419,56 @@ std::string buildInboundViewUrl(const std::string &baseUrl, const std::string &s
 	return buildViewerPageUrl(normalizedBaseUrl, normalizedStreamId, password, roomId, salt);
 }
 
+int chooseViewerTargetBitrateKbps(uint32_t width, uint32_t height)
+{
+	if (width >= 1920 || height >= 1080) {
+		return 4000;
+	}
+	if (width >= 1280 || height >= 720) {
+		return 2500;
+	}
+	if (width >= 854 || height >= 480) {
+		return 1200;
+	}
+	return 800;
+}
+
+std::string buildViewerRequestMessage(uint32_t width, uint32_t height, bool guest)
+{
+	JsonBuilder request;
+	request.add("downloads", false)
+	    .add("allowmidi", false)
+	    .add("allowdrawing", false)
+	    .add("iframe", false)
+	    .add("widget", false)
+	    .add("audio", true)
+	    .add("video", true)
+	    .add("broadcast", false)
+	    .add("allowwebp", false)
+	    .add("allowscreenaudio", false)
+	    .add("allowscreenvideo", false)
+	    .add("allowchunked", false)
+	    .add("allowresources", false)
+	    .add("targetBitrate", chooseViewerTargetBitrateKbps(width, height));
+
+	if (guest) {
+		request.add("guest", true);
+	}
+
+	if (width > 0 || height > 0) {
+		JsonBuilder resolution;
+		if (width > 0) {
+			resolution.add("w", static_cast<int>(width));
+		}
+		if (height > 0) {
+			resolution.add("h", static_cast<int>(height));
+		}
+		request.addRaw("requestResolution", resolution.build());
+	}
+
+	return request.build();
+}
+
 std::string sanitizeStreamId(const std::string &streamId)
 {
 	return sanitizeIdentifier(streamId, 64);

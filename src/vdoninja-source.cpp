@@ -331,6 +331,23 @@ bool safeRequestKeyframe(const std::shared_ptr<rtc::Track> &track, const char *r
 	return false;
 }
 
+bool safeRequestBitrate(const std::shared_ptr<rtc::Track> &track, unsigned int bitrateBps, const char *reasonTag)
+{
+	if (!track || !track->isOpen() || bitrateBps == 0) {
+		return false;
+	}
+
+	try {
+		return track->requestBitrate(bitrateBps);
+	} catch (const std::exception &e) {
+		logWarning("Failed to request video bitrate (%s): %s", reasonTag, e.what());
+	} catch (...) {
+		logWarning("Failed to request video bitrate (%s): unknown exception", reasonTag);
+	}
+
+	return false;
+}
+
 speaker_layout speakerLayoutForChannels(int channels)
 {
 	return channels <= 1 ? SPEAKERS_MONO : SPEAKERS_STEREO;
@@ -942,10 +959,14 @@ void VDONinjaSource::connectionThread()
 		logInfo("Connected to publisher: %s", uuid.c_str());
 		connected_ = true;
 		cancelViewRetry();
-		std::lock_guard<std::mutex> lock(retryStateMutex_);
-		viewRetryCount_ = 0;
-		awaitingPeerConnection_ = false;
-		suppressViewerRetry_ = false;
+		{
+			std::lock_guard<std::mutex> lock(retryStateMutex_);
+			viewRetryCount_ = 0;
+			awaitingPeerConnection_ = false;
+			suppressViewerRetry_ = false;
+		}
+		sendViewerPreferencesToPeer(uuid, "peer-connected");
+		requestNativeTargetBitrate("peer-connected");
 	});
 
 	peerManager_->setOnPeerDisconnected([this](const std::string &uuid) {
@@ -957,14 +978,7 @@ void VDONinjaSource::connectionThread()
 		if (!dc) {
 			return;
 		}
-
-		const std::string preferences = R"({"audio":true,"video":true})";
-		try {
-			dc->send(preferences);
-			logInfo("Sent viewer preferences to %s: %s", uuid.c_str(), preferences.c_str());
-		} catch (const std::exception &e) {
-			logWarning("Failed to send viewer preferences to %s: %s", uuid.c_str(), e.what());
-		}
+		sendViewerPreferencesToPeer(uuid, "datachannel-open");
 	});
 
 	peerManager_->setOnDataChannelMessage([this](const std::string &uuid, const std::string &message) {
@@ -990,6 +1004,9 @@ void VDONinjaSource::connectionThread()
 		     message.find("\"candidates\"") != std::string::npos || message.find("\"request\"") != std::string::npos ||
 		     message.find("\"bye\"") != std::string::npos)) {
 			signaling_->processIncomingMessage(message);
+			if (!targetUuid.empty()) {
+				sendViewerPreferencesToPeer(targetUuid, "resolved-media-peer");
+			}
 		}
 	});
 
@@ -1036,6 +1053,34 @@ void VDONinjaSource::connectionThread()
 	while (nativeRunning_.load()) {
 		serviceViewRetry();
 		std::this_thread::sleep_for(std::chrono::milliseconds(100));
+	}
+}
+
+void VDONinjaSource::sendViewerPreferencesToPeer(const std::string &uuid, const char *reason)
+{
+	if (uuid.empty() || !peerManager_) {
+		return;
+	}
+
+	const std::string preferences = buildViewerRequestMessage(width_, height_, !settings_.roomId.empty());
+	peerManager_->sendDataToPeer(uuid, preferences);
+	logInfo("Sent viewer preferences to %s (%s): %s", uuid.c_str(), reason ? reason : "unknown",
+	        preferences.c_str());
+}
+
+void VDONinjaSource::requestNativeTargetBitrate(const char *reason)
+{
+	std::shared_ptr<rtc::Track> currentVideoTrack;
+	{
+		std::lock_guard<std::mutex> stateLock(nativeStateMutex_);
+		currentVideoTrack = videoTrack_;
+	}
+
+	const unsigned int targetBitrateBps =
+	    static_cast<unsigned int>(chooseViewerTargetBitrateKbps(width_, height_)) * 1000U;
+	if (safeRequestBitrate(currentVideoTrack, targetBitrateBps, reason)) {
+		logInfo("Requested native video REMB target of %u bps (%s)", targetBitrateBps,
+		        reason ? reason : "unknown");
 	}
 }
 
@@ -1319,6 +1364,7 @@ void VDONinjaSource::onVideoTrack(const std::string &uuid, std::shared_ptr<rtc::
 		lastKeyframeRequestTime_ = currentTimeMs();
 		logInfo("Requested video keyframe after replacing native video track");
 	}
+	requestNativeTargetBitrate("video-track-attached");
 }
 
 void VDONinjaSource::onAudioTrack(const std::string &uuid, std::shared_ptr<rtc::Track> track)
