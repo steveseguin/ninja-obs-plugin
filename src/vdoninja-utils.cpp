@@ -449,6 +449,8 @@ std::string buildViewerRequestMessage(uint32_t width, uint32_t height, bool gues
 	    .add("allowscreenvideo", false)
 	    .add("allowchunked", false)
 	    .add("allowresources", false)
+	    .add("degrade", "maintain-resolution")
+	    .add("bitrate", chooseViewerTargetBitrateKbps(width, height))
 	    .add("targetBitrate", chooseViewerTargetBitrateKbps(width, height));
 
 	if (guest) {

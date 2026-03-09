@@ -665,6 +665,8 @@ TEST(ViewerRequestMessageTest, IncludesAudioVideoAndResolutionDefaults)
 	EXPECT_FALSE(parser.getBool("allowresources", true));
 	EXPECT_FALSE(parser.getBool("allowchunked", true));
 	EXPECT_FALSE(parser.getBool("guest", false));
+	EXPECT_EQ(parser.getString("degrade"), "maintain-resolution");
+	EXPECT_EQ(parser.getInt("bitrate"), 4000);
 	EXPECT_EQ(parser.getInt("targetBitrate"), 4000);
 
 	const JsonParser resolution(parser.getObject("requestResolution"));
@@ -678,6 +680,8 @@ TEST(ViewerRequestMessageTest, MarksRoomViewersAsGuests)
 	const JsonParser parser(message);
 
 	EXPECT_TRUE(parser.getBool("guest"));
+	EXPECT_EQ(parser.getString("degrade"), "maintain-resolution");
+	EXPECT_EQ(parser.getInt("bitrate"), 2500);
 	EXPECT_EQ(parser.getInt("targetBitrate"), 2500);
 
 	const JsonParser resolution(parser.getObject("requestResolution"));
