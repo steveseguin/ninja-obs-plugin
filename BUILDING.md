@@ -10,7 +10,8 @@ Plugin builds (`BUILD_PLUGIN=ON`) require:
 2. OBS SDK headers and libraries
 3. `libdatachannel` CMake package (or equivalent install prefix)
 4. Qt Widgets development files (Qt6 preferred, Qt5 fallback)
-5. OpenSSL development libraries
+5. FFmpeg development libraries (`avcodec`, `avutil`, `swscale`, `swresample`)
+6. OpenSSL development libraries
 
 Unit tests only (`BUILD_PLUGIN=OFF`) do not require OBS SDK, Qt, or `libdatachannel`.
 
@@ -47,6 +48,7 @@ Provide:
 
 1. OBS SDK path with `include/obs/obs-module.h` and `lib/obs.lib`
 2. Qt6 path containing `lib/cmake/Qt6/Qt6Config.cmake` (or pass that folder directly as `Qt6_DIR`)
+3. FFmpeg headers/libraries available through `CMAKE_PREFIX_PATH` (the OBS Windows dependency bundle already includes them)
 
 ### 4. Build and install `libdatachannel` (example)
 
@@ -89,7 +91,8 @@ You need:
 2. OBS development package (`libobs` and frontend headers)
 3. Qt Widgets development package
 4. `libdatachannel` package or custom install prefix
-5. OpenSSL development package
+5. FFmpeg development packages (`libavcodec`, `libavutil`, `libswscale`, `libswresample`)
+6. OpenSSL development package
 
 If your distro packages all dependencies, plugin build is typically:
 
@@ -109,7 +112,8 @@ You need:
 2. OBS SDK/framework path
 3. Qt Widgets dev files
 4. `libdatachannel` install prefix
-5. OpenSSL
+5. FFmpeg
+6. OpenSSL
 
 If not in default lookup paths, pass `OBS_SDK_PATH` and `CMAKE_PREFIX_PATH`.
 
@@ -122,6 +126,11 @@ Set `Qt6_DIR` explicitly and include your Qt prefix in `CMAKE_PREFIX_PATH`.
 ### `libdatachannel not found`
 
 Install `libdatachannel` and pass its prefix through `CMAKE_PREFIX_PATH`.
+
+### `FFmpeg development libraries are required`
+
+Install FFmpeg dev packages and make sure their headers/libraries are reachable through `CMAKE_PREFIX_PATH` or your
+system package configuration.
 
 ### `OBS SDK not found`
 

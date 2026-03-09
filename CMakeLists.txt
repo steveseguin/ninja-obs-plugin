@@ -36,6 +36,61 @@ if(BUILD_PLUGIN)
     endif()
 endif()
 
+if(BUILD_PLUGIN)
+    find_path(FFMPEG_INCLUDE_DIR libavcodec/avcodec.h
+        HINTS ${CMAKE_PREFIX_PATH}
+        PATH_SUFFIXES include
+    )
+    find_library(FFMPEG_AVCODEC_LIBRARY NAMES avcodec libavcodec
+        HINTS ${CMAKE_PREFIX_PATH}
+        PATH_SUFFIXES lib lib64 bin
+    )
+    find_library(FFMPEG_AVUTIL_LIBRARY NAMES avutil libavutil
+        HINTS ${CMAKE_PREFIX_PATH}
+        PATH_SUFFIXES lib lib64 bin
+    )
+    find_library(FFMPEG_SWSCALE_LIBRARY NAMES swscale libswscale
+        HINTS ${CMAKE_PREFIX_PATH}
+        PATH_SUFFIXES lib lib64 bin
+    )
+    find_library(FFMPEG_SWRESAMPLE_LIBRARY NAMES swresample libswresample
+        HINTS ${CMAKE_PREFIX_PATH}
+        PATH_SUFFIXES lib lib64 bin
+    )
+
+    if(NOT FFMPEG_INCLUDE_DIR OR NOT FFMPEG_AVCODEC_LIBRARY OR NOT FFMPEG_AVUTIL_LIBRARY OR
+       NOT FFMPEG_SWSCALE_LIBRARY OR NOT FFMPEG_SWRESAMPLE_LIBRARY)
+        find_package(PkgConfig QUIET)
+        if(PkgConfig_FOUND)
+            pkg_check_modules(FFMPEG_AVCODEC QUIET libavcodec)
+            pkg_check_modules(FFMPEG_AVUTIL QUIET libavutil)
+            pkg_check_modules(FFMPEG_SWSCALE QUIET libswscale)
+            pkg_check_modules(FFMPEG_SWRESAMPLE QUIET libswresample)
+
+            if(NOT FFMPEG_INCLUDE_DIR AND FFMPEG_AVCODEC_INCLUDE_DIRS)
+                list(GET FFMPEG_AVCODEC_INCLUDE_DIRS 0 FFMPEG_INCLUDE_DIR)
+            endif()
+            if(NOT FFMPEG_AVCODEC_LIBRARY AND FFMPEG_AVCODEC_LIBRARIES)
+                list(GET FFMPEG_AVCODEC_LIBRARIES 0 FFMPEG_AVCODEC_LIBRARY)
+            endif()
+            if(NOT FFMPEG_AVUTIL_LIBRARY AND FFMPEG_AVUTIL_LIBRARIES)
+                list(GET FFMPEG_AVUTIL_LIBRARIES 0 FFMPEG_AVUTIL_LIBRARY)
+            endif()
+            if(NOT FFMPEG_SWSCALE_LIBRARY AND FFMPEG_SWSCALE_LIBRARIES)
+                list(GET FFMPEG_SWSCALE_LIBRARIES 0 FFMPEG_SWSCALE_LIBRARY)
+            endif()
+            if(NOT FFMPEG_SWRESAMPLE_LIBRARY AND FFMPEG_SWRESAMPLE_LIBRARIES)
+                list(GET FFMPEG_SWRESAMPLE_LIBRARIES 0 FFMPEG_SWRESAMPLE_LIBRARY)
+            endif()
+        endif()
+    endif()
+
+    if(NOT FFMPEG_INCLUDE_DIR OR NOT FFMPEG_AVCODEC_LIBRARY OR NOT FFMPEG_AVUTIL_LIBRARY OR
+       NOT FFMPEG_SWSCALE_LIBRARY OR NOT FFMPEG_SWRESAMPLE_LIBRARY)
+        message(FATAL_ERROR "FFmpeg development libraries (avcodec, avutil, swscale, swresample) are required")
+    endif()
+endif()
+
 if(DEFINED OBS_SDK_PATH)
     list(PREPEND CMAKE_PREFIX_PATH "${OBS_SDK_PATH}")
     if(EXISTS "${OBS_SDK_PATH}/include/obs/obs-module.h")
@@ -241,6 +296,7 @@ if(BUILD_PLUGIN)
     set(PLUGIN_SOURCES
         src/plugin-main.cpp
         src/vdoninja-output.cpp
+        src/vdoninja-reliability.cpp
         src/vdoninja-source.cpp
         src/vdoninja-signaling.cpp
         src/vdoninja-signaling-protocol.cpp
@@ -256,6 +312,7 @@ if(BUILD_PLUGIN)
         src/plugin-main.h
         src/vdoninja-common.h
         src/vdoninja-output.h
+        src/vdoninja-reliability.h
         src/vdoninja-source.h
         src/vdoninja-signaling.h
         src/vdoninja-signaling-protocol.h
@@ -273,6 +330,7 @@ if(BUILD_PLUGIN)
 
     target_include_directories(${PROJECT_NAME} PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/src
+        ${FFMPEG_INCLUDE_DIR}
     )
 
     if(DEFINED OBS_SDK_PATH)
@@ -286,8 +344,16 @@ if(BUILD_PLUGIN)
 
     # Link libdatachannel
     if(LibDataChannel_FOUND)
+        get_target_property(LIBDATACHANNEL_INCLUDE_DIRS LibDataChannel::LibDataChannel INTERFACE_INCLUDE_DIRECTORIES)
+        if(LIBDATACHANNEL_INCLUDE_DIRS)
+            target_include_directories(${PROJECT_NAME} BEFORE PRIVATE ${LIBDATACHANNEL_INCLUDE_DIRS})
+        endif()
         if(WIN32)
             if(TARGET LibDataChannel::LibDataChannelStatic)
+                get_target_property(LIBDATACHANNEL_STATIC_INCLUDE_DIRS LibDataChannel::LibDataChannelStatic INTERFACE_INCLUDE_DIRECTORIES)
+                if(LIBDATACHANNEL_STATIC_INCLUDE_DIRS)
+                    target_include_directories(${PROJECT_NAME} BEFORE PRIVATE ${LIBDATACHANNEL_STATIC_INCLUDE_DIRS})
+                endif()
                 target_link_libraries(${PROJECT_NAME} PRIVATE LibDataChannel::LibDataChannelStatic)
             else()
                 if(TARGET LibDataChannel::LibDataChannel)
@@ -341,6 +407,12 @@ if(BUILD_PLUGIN)
 
     # Link other dependencies
     target_link_libraries(${PROJECT_NAME} PRIVATE Threads::Threads)
+    target_link_libraries(${PROJECT_NAME} PRIVATE
+        ${FFMPEG_AVCODEC_LIBRARY}
+        ${FFMPEG_AVUTIL_LIBRARY}
+        ${FFMPEG_SWSCALE_LIBRARY}
+        ${FFMPEG_SWRESAMPLE_LIBRARY}
+    )
     if(OpenSSL_FOUND)
         target_link_libraries(${PROJECT_NAME} PRIVATE OpenSSL::SSL OpenSSL::Crypto)
     endif()
@@ -418,6 +490,7 @@ if(BUILD_TESTS)
     # Test sources that don't depend on OBS
     set(TESTABLE_SOURCES
         src/vdoninja-utils.cpp
+        src/vdoninja-reliability.cpp
         src/vdoninja-data-channel.cpp
         src/vdoninja-signaling-protocol.cpp
         src/vdoninja-layout.cpp
@@ -443,6 +516,7 @@ if(BUILD_TESTS)
     # Unit tests
     add_executable(vdoninja-tests
         tests/test-utils.cpp
+        tests/test-reliability.cpp
         tests/test-json.cpp
         tests/test-data-channel.cpp
         tests/test-signaling-protocol.cpp

@@ -22,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Service settings are now applied surgically only when the VDO.Ninja output is active.
 - Streaming start reliability now enforces Opus on the active stream output audio encoder(s) before encoder init.
 - Pre-start validation failures now set a clear last-error without duplicate stop/error loops.
+- `VDO.Ninja Source` now defaults to a browser-backed viewer path, while `Use Native Receiver (Experimental)` switches to an explicit opt-in native H.264/Opus receive path.
 
 ### Added (Installer)
 - Windows GUI installer (`obs-vdoninja-windows-x64-setup.exe`) via Inno Setup, with:

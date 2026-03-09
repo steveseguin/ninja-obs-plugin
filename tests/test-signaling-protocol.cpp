@@ -225,6 +225,28 @@ TEST(SignalingProtocolTest, ParsesAlertRequestMessageField)
 	EXPECT_EQ(parsed.alert, "Room already claimed");
 }
 
+TEST(SignalingProtocolTest, ParsesCleanupRequestMessage)
+{
+	const std::string raw = R"({"request":"cleanup","UUID":"peer-clean"})";
+	ParsedSignalMessage parsed;
+	std::string error;
+
+	EXPECT_TRUE(parseSignalingMessage(raw, parsed, &error));
+	EXPECT_EQ(parsed.kind, ParsedSignalKind::PeerCleanup);
+	EXPECT_EQ(parsed.uuid, "peer-clean");
+}
+
+TEST(SignalingProtocolTest, ParsesByeMessageAsPeerCleanup)
+{
+	const std::string raw = R"({"bye":true,"UUID":"peer-bye"})";
+	ParsedSignalMessage parsed;
+	std::string error;
+
+	EXPECT_TRUE(parseSignalingMessage(raw, parsed, &error));
+	EXPECT_EQ(parsed.kind, ParsedSignalKind::PeerCleanup);
+	EXPECT_EQ(parsed.uuid, "peer-bye");
+}
+
 TEST(SignalingProtocolTest, ParsesCandidateObjectPayload)
 {
 	const std::string raw = R"({

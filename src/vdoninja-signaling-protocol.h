@@ -20,6 +20,7 @@ enum class ParsedSignalKind {
 	CandidatesBundle,
 	Request,
 	Alert,
+	PeerCleanup,
 	VideoAddedToRoom,
 	VideoRemovedFromRoom
 };

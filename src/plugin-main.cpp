@@ -1985,6 +1985,7 @@ bool obs_module_load(void)
 	// Register source
 	obs_register_source(&vdoninja_source_info);
 	logInfo("Registered VDO.Ninja source");
+	obs_register_source(&vdoninja_native_source_info);
 
 	// Register control center source (legacy UI host)
 	obs_register_source(&vdoninja_control_center_source_info);

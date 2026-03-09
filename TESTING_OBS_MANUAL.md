@@ -79,6 +79,30 @@ Pass criteria:
 - Audio/video present
 - Refresh reconnects
 
+## Test 7: VDO.Ninja Source, Browser-Backed Mode
+
+1. Add `VDO.Ninja Source`.
+2. Leave `Use Native Receiver (Experimental)` unchecked.
+3. Set Stream ID/password to match any active publish from tests 1-3.
+
+Pass criteria:
+- Video and audio render inside OBS through the source
+- Hiding/showing or activating/deactivating the source does not break playback
+- OBS logs show the source created in browser-backed mode
+
+## Test 8: VDO.Ninja Source, Native Receiver (Experimental)
+
+1. Add `VDO.Ninja Source`.
+2. Enable `Use Native Receiver (Experimental)`.
+3. Use a publisher that sends H.264 video and Opus audio.
+4. Set Stream ID/password to match that publisher.
+
+Pass criteria:
+- Video and audio render inside OBS through the source without Browser Source fallback
+- Initial playback starts after signaling/view negotiation completes
+- If video stalls, keyframe recovery resumes playback
+- OBS logs show native receiver mode plus received audio/video tracks
+
 ## Capture for Regression Tracking
 
 - OBS log file

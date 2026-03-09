@@ -142,6 +142,11 @@ bool parseSignalingMessage(const std::string &message, ParsedSignalMessage &pars
 			return true;
 		}
 
+		if (requestLower == "cleanup" || requestLower == "bye" || json.hasKey("bye")) {
+			parsed.kind = ParsedSignalKind::PeerCleanup;
+			return true;
+		}
+
 		if (requestLower == "videoaddedtoroom") {
 			parsed.kind = ParsedSignalKind::VideoAddedToRoom;
 			parsed.streamId = getAnyString(json, {"streamID", "streamId", "whep", "whepUrl", "url", "URL"});

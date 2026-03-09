@@ -284,6 +284,26 @@ class BuildInboundViewUrlTest : public ::testing::Test
 {
 };
 
+TEST_F(BuildInboundViewUrlTest, BuildsStandardViewerPageUrl)
+{
+	EXPECT_EQ(buildViewerPageUrl("https://vdo.ninja", "cam_1", "", "", DEFAULT_SALT),
+	          "https://vdo.ninja/?view=cam_1");
+}
+
+TEST_F(BuildInboundViewUrlTest, BuildsViewerPageUrlWithRoomPasswordSaltAndSignaling)
+{
+	EXPECT_EQ(buildViewerPageUrl("https://vdo.ninja/", "cam_5", "hunter2", "greenroom", "custom-salt",
+	                             "wss://example.com:4443"),
+	          "https://vdo.ninja/?view=cam_5&room=greenroom&solo&password=hunter2&salt=custom-salt&wss="
+	          "wss%3a%2f%2fexample.com%3a4443");
+}
+
+TEST_F(BuildInboundViewUrlTest, PreservesDisabledPasswordTokenInViewerPageUrl)
+{
+	EXPECT_EQ(buildViewerPageUrl("https://vdo.ninja", "cam_4", "false", "greenroom", DEFAULT_SALT),
+	          "https://vdo.ninja/?view=cam_4&room=greenroom&solo&password=false");
+}
+
 TEST_F(BuildInboundViewUrlTest, BuildsVdoNinjaViewUrlForPlainStreamId)
 {
 	EXPECT_EQ(buildInboundViewUrl("https://vdo.ninja", "cam_1", "", "", DEFAULT_SALT),

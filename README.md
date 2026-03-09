@@ -66,7 +66,7 @@ In practice, many teams use both: VDO.Ninja workflows for interactive contributi
 - Publishing (`OBS -> VDO.Ninja`) is the primary stable path.
 - Multi-viewer publishing is supported and tested end-to-end.
 - Auto-inbound management can create/update Browser Sources from room/data-channel events.
-- Native decode in `VDO.Ninja Source` is available but still being hardened.
+- `VDO.Ninja Source` defaults to a browser-backed viewer path; `Use Native Receiver (Experimental)` switches to an experimental native H.264/Opus receive path.
 - Plugin injects a `VDO.Ninja` destination into OBS Stream service list via `rtmp-services` catalog compatibility.
 - `Tools -> VDO.Ninja Control Center` is the single in-app setup surface for publish config, service apply/start/stop controls, generated links, and runtime peer stats.
 - Locale fallback to built-in English strings is supported if locale files are missing.
@@ -131,7 +131,7 @@ https://vdo.ninja/?view=<StreamID>&room=<RoomID>&solo&password=<Password>
 ### 3. Ingest a VDO.Ninja stream in OBS
 
 1. Recommended today: use Browser Source or room-based auto-inbound.
-2. `VDO.Ninja Source` exists, but native ingest is still experimental.
+2. `VDO.Ninja Source` defaults to a browser-backed viewer. Enable `Use Native Receiver (Experimental)` only if you want to test the native H.264/Opus receive path.
 3. For room automation, use auto-inbound options in plugin settings.
 
 ## Key Settings

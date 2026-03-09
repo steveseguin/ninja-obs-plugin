@@ -362,6 +362,40 @@ std::string deriveViewStreamId(const std::string &streamId, const std::string &p
 	return viewId;
 }
 
+std::string buildViewerPageUrl(const std::string &baseUrl, const std::string &streamId, const std::string &password,
+                               const std::string &roomId, const std::string &salt, const std::string &wssHost)
+{
+	const std::string normalizedStreamId = trim(streamId);
+	if (normalizedStreamId.empty()) {
+		return "";
+	}
+
+	const std::string normalizedBaseUrl = normalizeBaseBrowserUrl(baseUrl);
+	const std::string normalizedPassword = trim(password);
+	const bool passwordDisabled = isPasswordDisabledToken(normalizedPassword);
+	const std::string viewId = deriveViewStreamId(normalizedStreamId, normalizedPassword, salt);
+
+	std::string url = normalizedBaseUrl + "/?view=" + urlEncode(viewId);
+	if (!roomId.empty()) {
+		url += "&room=" + urlEncode(roomId);
+		url += "&solo";
+	}
+
+	if (!normalizedPassword.empty()) {
+		url += passwordDisabled ? "&password=false" : "&password=" + urlEncode(normalizedPassword);
+	}
+
+	if (!salt.empty() && salt != DEFAULT_SALT) {
+		url += "&salt=" + urlEncode(salt);
+	}
+
+	if (!wssHost.empty() && wssHost != DEFAULT_WSS_HOST) {
+		url += "&wss=" + urlEncode(wssHost);
+	}
+
+	return url;
+}
+
 std::string buildInboundViewUrl(const std::string &baseUrl, const std::string &streamId, const std::string &password,
                                 const std::string &roomId, const std::string &salt)
 {
@@ -381,21 +415,7 @@ std::string buildInboundViewUrl(const std::string &baseUrl, const std::string &s
 		return normalizedBaseUrl + "/?whepplay=" + urlEncode(normalizedStreamId);
 	}
 
-	const std::string normalizedPassword = trim(password);
-	const bool passwordDisabled = isPasswordDisabledToken(normalizedPassword);
-	const std::string viewId = deriveViewStreamId(normalizedStreamId, normalizedPassword, salt);
-
-	std::string url = normalizedBaseUrl + "/?view=" + urlEncode(viewId);
-	if (!roomId.empty()) {
-		url += "&room=" + urlEncode(roomId);
-		url += "&solo";
-	}
-
-	if (!normalizedPassword.empty()) {
-		url += passwordDisabled ? "&password=false" : "&password=" + urlEncode(normalizedPassword);
-	}
-
-	return url;
+	return buildViewerPageUrl(normalizedBaseUrl, normalizedStreamId, password, roomId, salt);
 }
 
 std::string sanitizeStreamId(const std::string &streamId)

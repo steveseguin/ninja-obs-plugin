@@ -75,12 +75,14 @@ struct PeerInfo {
 	bool awaitingVideoKeyframe = true;
 	std::shared_ptr<rtc::PeerConnection> pc;
 	std::shared_ptr<rtc::DataChannel> dataChannel;
+	std::shared_ptr<rtc::DataChannel> signalingDataChannel;
 	std::shared_ptr<rtc::Track> audioTrack;
 	std::shared_ptr<rtc::Track> videoTrack;
 	std::shared_ptr<rtc::RtcpSrReporter> audioSrReporter;
 	std::shared_ptr<rtc::RtcpSrReporter> videoSrReporter;
 	bool useAudioPacketizer = false;
 	bool useVideoPacketizer = false;
+	bool localDescriptionCallbackInstalled = false;
 	uint16_t audioSeq = 0;
 	uint16_t videoSeq = 0;
 	uint32_t audioTimestamp = 0;
@@ -119,6 +121,7 @@ using OnIceCandidateCallback = std::function<void(const std::string &uuid, const
 using OnRoomJoinedCallback = std::function<void(const std::vector<std::string> &members)>;
 using OnStreamAddedCallback = std::function<void(const std::string &streamId, const std::string &uuid)>;
 using OnStreamRemovedCallback = std::function<void(const std::string &streamId, const std::string &uuid)>;
+using OnPeerCleanupCallback = std::function<void(const std::string &uuid)>;
 using OnDataCallback = std::function<void(const std::string &uuid, const std::string &data)>;
 
 // Video codec preferences
@@ -172,6 +175,8 @@ struct SourceSettings {
 	std::string password;
 	std::string wssHost = DEFAULT_WSS_HOST;
 	std::string salt = DEFAULT_SALT;
+	std::string customIceServersText;
+	bool useNativeReceiver = false;
 	bool enableDataChannel = true;
 	bool autoReconnect = true;
 	std::vector<IceServer> customIceServers;

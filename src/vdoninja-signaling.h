@@ -10,6 +10,7 @@
 #include <thread>
 
 #include "vdoninja-common.h"
+#include "vdoninja-reliability.h"
 #include "vdoninja-signaling-protocol.h"
 #include "vdoninja-utils.h"
 
@@ -66,9 +67,17 @@ public:
 	void sendAnswer(const std::string &uuid, const std::string &sdp, const std::string &session);
 	void sendIceCandidate(const std::string &uuid, const std::string &candidate, const std::string &mid,
 	                      const std::string &session);
+	void sendAnswerViaDataChannel(const std::shared_ptr<rtc::DataChannel> &dc, const std::string &uuid,
+	                              const std::string &sdp, const std::string &session);
+	void sendIceCandidateViaDataChannel(const std::shared_ptr<rtc::DataChannel> &dc, const std::string &uuid,
+	                                    const std::string &candidate, const std::string &mid,
+	                                    const std::string &session);
 
 	// Data channel messaging
 	void sendDataMessage(const std::string &uuid, const std::string &data);
+
+	// Reuse signaling parsing for messages received over alternate transports
+	void processIncomingMessage(const std::string &message);
 
 	// Event callbacks
 	void setOnConnected(OnConnectedCallback callback);
@@ -81,6 +90,7 @@ public:
 	void setOnRoomJoined(OnRoomJoinedCallback callback);
 	void setOnStreamAdded(OnStreamAddedCallback callback);
 	void setOnStreamRemoved(OnStreamRemovedCallback callback);
+	void setOnPeerCleanup(OnPeerCleanupCallback callback);
 	void setOnData(OnDataCallback callback);
 
 	// Configuration
@@ -97,6 +107,7 @@ private:
 	void processMessage(const std::string &message);
 	void sendMessage(const std::string &message);
 	void queueMessage(const std::string &message);
+	void applyServerAlertPolicy(const std::string &alert);
 
 	// Message handlers
 	void handleRequest(const ParsedSignalMessage &message);
@@ -121,6 +132,8 @@ private:
 	// Config (protected by stateMutex_)
 	bool autoReconnect_ = true;
 	int maxReconnectAttempts_ = DEFAULT_RECONNECT_ATTEMPTS;
+	bool reconnectSuppressedByServer_ = false;
+	int64_t reconnectDeferredUntilMs_ = 0;
 
 	// Threading
 	std::thread wsThread_;
@@ -149,6 +162,7 @@ private:
 	OnRoomJoinedCallback onRoomJoined_;
 	OnStreamAddedCallback onStreamAdded_;
 	OnStreamRemovedCallback onStreamRemoved_;
+	OnPeerCleanupCallback onPeerCleanup_;
 	OnDataCallback onData_;
 };
 

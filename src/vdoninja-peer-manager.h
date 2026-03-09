@@ -79,10 +79,13 @@ public:
 	// Viewing mode - receive media from publishers
 	bool startViewing(const std::string &streamId);
 	void stopViewing(const std::string &streamId);
+	bool disconnectPeer(const std::string &uuid);
 
 	// Data channel
 	void sendDataToAll(const std::string &message);
 	void sendDataToPeer(const std::string &uuid, const std::string &message);
+	void bindViewerSignalingDataChannel(const std::string &transportPeerUuid, const std::string &targetUuid,
+	                                    const std::string &targetSession);
 
 	// Peer events
 	void setOnPeerConnected(OnPeerConnectedCallback callback);
@@ -118,6 +121,7 @@ private:
 
 	// Setup peer connection callbacks
 	void setupPeerConnectionCallbacks(std::shared_ptr<PeerInfo> peer);
+	void installLocalDescriptionCallback(const std::shared_ptr<PeerInfo> &peer);
 
 	// Setup tracks for publishing
 	void setupPublisherTracks(std::shared_ptr<PeerInfo> peer);
@@ -171,6 +175,8 @@ private:
 	};
 	std::map<std::string, CandidateBundle> candidateBundles_;
 	std::mutex candidateMutex_;
+	std::map<std::string, std::shared_ptr<rtc::DataChannel>> pendingViewerSignalingDataChannels_;
+	mutable std::mutex pendingViewerSignalingMutex_;
 	std::atomic<bool> shuttingDown_{false};
 
 	// Callbacks

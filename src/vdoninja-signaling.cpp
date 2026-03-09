@@ -229,6 +229,8 @@ bool VDONinjaSignaling::connect(const std::string &wssHost)
 	{
 		std::lock_guard<std::mutex> lock(stateMutex_);
 		wssHost_ = wssHost;
+		reconnectSuppressedByServer_ = false;
+		reconnectDeferredUntilMs_ = 0;
 	}
 	shouldRun_ = true;
 	needsReconnect_ = false;
@@ -304,11 +306,15 @@ void VDONinjaSignaling::wsThreadFunc()
 		std::string host;
 		bool autoReconnect;
 		int maxAttempts;
+		bool reconnectSuppressedByServer;
+		int64_t reconnectDeferredUntilMs;
 		{
 			std::lock_guard<std::mutex> lock(stateMutex_);
 			host = wssHost_;
 			autoReconnect = autoReconnect_;
 			maxAttempts = maxReconnectAttempts_;
+			reconnectSuppressedByServer = reconnectSuppressedByServer_;
+			reconnectDeferredUntilMs = reconnectDeferredUntilMs_;
 		}
 
 		logInfo("Connecting to signaling server: %s", host.c_str());
@@ -325,6 +331,11 @@ void VDONinjaSignaling::wsThreadFunc()
 				logInfo("WebSocket connected to signaling server");
 				connected_ = true;
 				reconnectAttempts = 0;
+				{
+					std::lock_guard<std::mutex> lock(stateMutex_);
+					reconnectSuppressedByServer_ = false;
+					reconnectDeferredUntilMs_ = 0;
+				}
 
 				OnConnectedCallback cb;
 				{
@@ -422,6 +433,16 @@ void VDONinjaSignaling::wsThreadFunc()
 			break;
 		}
 
+		{
+			std::lock_guard<std::mutex> lock(stateMutex_);
+			reconnectSuppressedByServer = reconnectSuppressedByServer_;
+			reconnectDeferredUntilMs = reconnectDeferredUntilMs_;
+		}
+		if (reconnectSuppressedByServer) {
+			logWarning("Auto reconnect suppressed due to signaling server alert");
+			break;
+		}
+
 		reconnectAttempts++;
 		if (reconnectAttempts > maxAttempts) {
 			logError("Max reconnection attempts reached");
@@ -436,8 +457,11 @@ void VDONinjaSignaling::wsThreadFunc()
 			break;
 		}
 
-		const int exponentialDelay = std::min(1000 * (1 << reconnectAttempts), 30000);
-		const int delay = std::max(exponentialDelay, MIN_RECONNECT_INTERVAL_MS);
+		int delay = computeSignalingReconnectDelayMs(reconnectAttempts);
+		const int64_t now = currentTimeMs();
+		if (reconnectDeferredUntilMs > now) {
+			delay = static_cast<int>(std::max<int64_t>(delay, reconnectDeferredUntilMs - now));
+		}
 		logInfo("Reconnecting in %d ms (attempt %d/%d)", delay, reconnectAttempts, maxAttempts);
 
 		// Sleep in small increments so we can respond to shouldRun_ going false
@@ -527,6 +551,7 @@ void VDONinjaSignaling::processMessage(const std::string &message)
 			break;
 		case ParsedSignalKind::Alert: {
 			logWarning("Server alert: %s", parsed.alert.c_str());
+			applyServerAlertPolicy(parsed.alert);
 			OnErrorCallback cb;
 			{
 				std::lock_guard<std::mutex> lock(callbackMutex_);
@@ -534,6 +559,18 @@ void VDONinjaSignaling::processMessage(const std::string &message)
 			}
 			if (cb) {
 				cb(parsed.alert);
+			}
+			break;
+		}
+		case ParsedSignalKind::PeerCleanup: {
+			logInfo("Received peer cleanup for %s", parsed.uuid.c_str());
+			OnPeerCleanupCallback cb;
+			{
+				std::lock_guard<std::mutex> lock(callbackMutex_);
+				cb = onPeerCleanup_;
+			}
+			if (cb && !parsed.uuid.empty()) {
+				cb(parsed.uuid);
 			}
 			break;
 		}
@@ -672,6 +709,28 @@ void VDONinjaSignaling::processMessage(const std::string &message)
 		return;
 	}
 	dispatchParsed(parsed);
+}
+
+void VDONinjaSignaling::processIncomingMessage(const std::string &message)
+{
+	processMessage(message);
+}
+
+void VDONinjaSignaling::applyServerAlertPolicy(const std::string &alert)
+{
+	const SignalingAlertPolicy policy = classifySignalingAlert(alert);
+	if (policy.category == SignalingAlertCategory::None) {
+		return;
+	}
+
+	std::lock_guard<std::mutex> lock(stateMutex_);
+	if (policy.suppressAutoReconnect) {
+		reconnectSuppressedByServer_ = true;
+	}
+	if (policy.signalingReconnectDelayMs > 0) {
+		reconnectDeferredUntilMs_ =
+		    std::max(reconnectDeferredUntilMs_, currentTimeMs() + static_cast<int64_t>(policy.signalingReconnectDelayMs));
+	}
 }
 
 void VDONinjaSignaling::handleRequest(const ParsedSignalMessage &message)
@@ -1031,6 +1090,50 @@ void VDONinjaSignaling::sendAnswer(const std::string &uuid, const std::string &s
 	logDebug("Sent answer to %s", uuid.c_str());
 }
 
+void VDONinjaSignaling::sendAnswerViaDataChannel(const std::shared_ptr<rtc::DataChannel> &dc, const std::string &uuid,
+                                                 const std::string &sdp, const std::string &session)
+{
+	if (!dc) {
+		return;
+	}
+
+	JsonBuilder description;
+	description.add("type", "answer");
+	description.add("sdp", sdp);
+
+	std::string salt;
+	{
+		std::lock_guard<std::mutex> lock(stateMutex_);
+		salt = salt_;
+	}
+
+	JsonBuilder msg;
+	msg.add("UUID", uuid);
+	msg.add("session", session);
+
+	const std::string activePassword = getActiveSignalingPassword();
+	if (!activePassword.empty()) {
+		std::string encryptedDescription;
+		std::string vector;
+		if (encryptAesCbcHex(description.build(), activePassword + salt, encryptedDescription, vector)) {
+			msg.add("description", encryptedDescription);
+			msg.add("vector", vector);
+		} else {
+			logWarning("Failed to encrypt answer SDP for datachannel; sending plaintext");
+			msg.addRaw("description", description.build());
+			msg.add("sdp", sdp);
+			msg.add("type", "answer");
+		}
+	} else {
+		msg.addRaw("description", description.build());
+		msg.add("sdp", sdp);
+		msg.add("type", "answer");
+	}
+
+	dc->send(msg.build());
+	logDebug("Sent answer to %s via datachannel", uuid.c_str());
+}
+
 void VDONinjaSignaling::sendIceCandidate(const std::string &uuid, const std::string &candidate, const std::string &mid,
                                          const std::string &session)
 {
@@ -1080,6 +1183,62 @@ void VDONinjaSignaling::sendIceCandidate(const std::string &uuid, const std::str
 
 	sendMessage(msg.build());
 	logDebug("Sent ICE candidate to %s", uuid.c_str());
+}
+
+void VDONinjaSignaling::sendIceCandidateViaDataChannel(const std::shared_ptr<rtc::DataChannel> &dc,
+                                                       const std::string &uuid, const std::string &candidate,
+                                                       const std::string &mid, const std::string &session)
+{
+	if (!dc) {
+		return;
+	}
+
+	std::string salt;
+	{
+		std::lock_guard<std::mutex> lock(stateMutex_);
+		salt = salt_;
+	}
+
+	JsonBuilder msg;
+	msg.add("UUID", uuid);
+	msg.add("type", "local");
+	msg.add("session", session);
+
+	std::string normalizedCandidate = candidate;
+	if (normalizedCandidate.rfind("a=", 0) == 0) {
+		normalizedCandidate.erase(0, 2);
+	}
+
+	const std::string activePassword = getActiveSignalingPassword();
+	if (!activePassword.empty()) {
+		JsonBuilder candidatePayload;
+		candidatePayload.add("candidate", normalizedCandidate);
+		candidatePayload.add("mid", mid);
+		candidatePayload.add("sdpMid", mid);
+
+		std::string encryptedCandidate;
+		std::string vector;
+		if (encryptAesCbcHex(candidatePayload.build(), activePassword + salt, encryptedCandidate, vector)) {
+			msg.add("candidate", encryptedCandidate);
+			msg.add("vector", vector);
+		} else {
+			logWarning("Failed to encrypt ICE candidate for datachannel; sending plaintext");
+			JsonBuilder candidateObj;
+			candidateObj.add("candidate", normalizedCandidate);
+			candidateObj.add("mid", mid);
+			candidateObj.add("sdpMid", mid);
+			msg.addRaw("candidate", candidateObj.build());
+		}
+	} else {
+		JsonBuilder candidateObj;
+		candidateObj.add("candidate", normalizedCandidate);
+		candidateObj.add("mid", mid);
+		candidateObj.add("sdpMid", mid);
+		msg.addRaw("candidate", candidateObj.build());
+	}
+
+	dc->send(msg.build());
+	logDebug("Sent ICE candidate to %s via datachannel", uuid.c_str());
 }
 
 void VDONinjaSignaling::sendDataMessage(const std::string &uuid, const std::string &data)
@@ -1140,6 +1299,11 @@ void VDONinjaSignaling::setOnStreamRemoved(OnStreamRemovedCallback callback)
 {
 	std::lock_guard<std::mutex> lock(callbackMutex_);
 	onStreamRemoved_ = callback;
+}
+void VDONinjaSignaling::setOnPeerCleanup(OnPeerCleanupCallback callback)
+{
+	std::lock_guard<std::mutex> lock(callbackMutex_);
+	onPeerCleanup_ = callback;
 }
 void VDONinjaSignaling::setOnData(OnDataCallback callback)
 {
