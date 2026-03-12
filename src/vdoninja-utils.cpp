@@ -567,15 +567,19 @@ void JsonParser::parse()
 {
 	// Simple JSON parser - handles basic key-value pairs
 	size_t pos = 0;
+	const auto isWhitespace = [](char ch) { return std::isspace(static_cast<unsigned char>(ch)) != 0; };
 
 	// Skip whitespace and opening brace
-	while (pos < json_.size() && (std::isspace(json_[pos]) || json_[pos] == '{'))
+	while (pos < json_.size() && (isWhitespace(json_[pos]) || json_[pos] == '{'))
 		pos++;
 
 	while (pos < json_.size() && json_[pos] != '}') {
 		// Skip whitespace
-		while (pos < json_.size() && std::isspace(json_[pos]))
+		while (pos < json_.size() && isWhitespace(json_[pos]))
 			pos++;
+		if (pos >= json_.size() || json_[pos] == '}') {
+			break;
+		}
 
 		if (json_[pos] != '"')
 			break;
@@ -591,18 +595,24 @@ void JsonParser::parse()
 		// Skip to colon
 		while (pos < json_.size() && json_[pos] != ':')
 			pos++;
+		if (pos >= json_.size()) {
+			break;
+		}
 		pos++; // Skip colon
 
 		// Skip whitespace
-		while (pos < json_.size() && std::isspace(json_[pos]))
+		while (pos < json_.size() && isWhitespace(json_[pos]))
 			pos++;
+		if (pos >= json_.size()) {
+			break;
+		}
 
 		// Extract value
 		std::string value = extractValue(pos);
 		values_[key] = value;
 
 		// Skip comma and whitespace
-		while (pos < json_.size() && (std::isspace(json_[pos]) || json_[pos] == ','))
+		while (pos < json_.size() && (isWhitespace(json_[pos]) || json_[pos] == ','))
 			pos++;
 	}
 }
@@ -610,6 +620,9 @@ void JsonParser::parse()
 std::string JsonParser::extractValue(size_t &pos) const
 {
 	std::string value;
+	if (pos >= json_.size()) {
+		return value;
+	}
 
 	if (json_[pos] == '"') {
 		// String value
@@ -729,14 +742,18 @@ std::vector<std::string> JsonParser::getArray(const std::string &key) const
 {
 	std::vector<std::string> result;
 	std::string arr = getRaw(key);
+	const auto isWhitespace = [](char ch) { return std::isspace(static_cast<unsigned char>(ch)) != 0; };
 
 	if (arr.empty() || arr[0] != '[')
 		return result;
 
 	size_t pos = 1;
 	while (pos < arr.size() && arr[pos] != ']') {
-		while (pos < arr.size() && std::isspace(arr[pos]))
+		while (pos < arr.size() && isWhitespace(arr[pos]))
 			pos++;
+		if (pos >= arr.size()) {
+			break;
+		}
 
 		if (arr[pos] == ']')
 			break;
@@ -765,7 +782,7 @@ std::vector<std::string> JsonParser::getArray(const std::string &key) const
 			result.push_back(value);
 		}
 
-		while (pos < arr.size() && (std::isspace(arr[pos]) || arr[pos] == ','))
+		while (pos < arr.size() && (isWhitespace(arr[pos]) || arr[pos] == ','))
 			pos++;
 	}
 

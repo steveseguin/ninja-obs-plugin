@@ -35,6 +35,31 @@ const char *tr(const char *key, const char *fallback)
 	return localized;
 }
 
+template<typename Fn>
+void runNoexceptCallback(const char *context, Fn &&fn)
+{
+	try {
+		fn();
+	} catch (const std::exception &e) {
+		logError("%s threw exception: %s", context, e.what());
+	} catch (...) {
+		logError("%s threw unknown exception", context);
+	}
+}
+
+template<typename T, typename Fn>
+T runNoexceptCallbackValue(const char *context, T fallback, Fn &&fn)
+{
+	try {
+		return fn();
+	} catch (const std::exception &e) {
+		logError("%s threw exception: %s", context, e.what());
+	} catch (...) {
+		logError("%s threw unknown exception", context);
+	}
+	return fallback;
+}
+
 bool startsWithInsensitive(const std::string &value, const char *prefix)
 {
 	if (!prefix) {
@@ -435,37 +460,50 @@ static void *vdoninja_output_create(obs_data_t *settings, obs_output_t *output)
 	} catch (const std::exception &e) {
 		logError("Failed to create VDO.Ninja output: %s", e.what());
 		return nullptr;
+	} catch (...) {
+		logError("Failed to create VDO.Ninja output: unknown exception");
+		return nullptr;
 	}
 }
 
 static void vdoninja_output_destroy(void *data)
 {
-	auto *vdo = static_cast<VDONinjaOutput *>(data);
-	delete vdo;
+	runNoexceptCallback("vdoninja_output_destroy", [data]() {
+		auto *vdo = static_cast<VDONinjaOutput *>(data);
+		delete vdo;
+	});
 }
 
 static bool vdoninja_output_start(void *data)
 {
-	auto *vdo = static_cast<VDONinjaOutput *>(data);
-	return vdo->start();
+	return runNoexceptCallbackValue<bool>("vdoninja_output_start", false, [data]() {
+		auto *vdo = static_cast<VDONinjaOutput *>(data);
+		return vdo->start();
+	});
 }
 
 static void vdoninja_output_stop(void *data, uint64_t)
 {
-	auto *vdo = static_cast<VDONinjaOutput *>(data);
-	vdo->stop();
+	runNoexceptCallback("vdoninja_output_stop", [data]() {
+		auto *vdo = static_cast<VDONinjaOutput *>(data);
+		vdo->stop();
+	});
 }
 
 static void vdoninja_output_data(void *data, encoder_packet *packet)
 {
-	auto *vdo = static_cast<VDONinjaOutput *>(data);
-	vdo->data(packet);
+	runNoexceptCallback("vdoninja_output_data", [data, packet]() {
+		auto *vdo = static_cast<VDONinjaOutput *>(data);
+		vdo->data(packet);
+	});
 }
 
 static void vdoninja_output_update(void *data, obs_data_t *settings)
 {
-	auto *vdo = static_cast<VDONinjaOutput *>(data);
-	vdo->update(settings);
+	runNoexceptCallback("vdoninja_output_update", [data, settings]() {
+		auto *vdo = static_cast<VDONinjaOutput *>(data);
+		vdo->update(settings);
+	});
 }
 
 static obs_properties_t *vdoninja_output_properties(void *)
@@ -581,14 +619,18 @@ static void vdoninja_output_defaults(obs_data_t *settings)
 
 static uint64_t vdoninja_output_total_bytes(void *data)
 {
-	auto *vdo = static_cast<VDONinjaOutput *>(data);
-	return vdo->getTotalBytes();
+	return runNoexceptCallbackValue<uint64_t>("vdoninja_output_total_bytes", 0, [data]() {
+		auto *vdo = static_cast<VDONinjaOutput *>(data);
+		return vdo->getTotalBytes();
+	});
 }
 
 static int vdoninja_output_connect_time(void *data)
 {
-	auto *vdo = static_cast<VDONinjaOutput *>(data);
-	return vdo->getConnectTime();
+	return runNoexceptCallbackValue<int>("vdoninja_output_connect_time", 0, [data]() {
+		auto *vdo = static_cast<VDONinjaOutput *>(data);
+		return vdo->getConnectTime();
+	});
 }
 
 // Output info structure
@@ -620,6 +662,8 @@ VDONinjaOutput::VDONinjaOutput(obs_data_t *settings, obs_output_t *output) : out
 	signaling_ = std::make_unique<VDONinjaSignaling>();
 	peerManager_ = std::make_unique<VDONinjaPeerManager>();
 	autoSceneManager_ = std::make_unique<VDOAutoSceneManager>();
+	callbackState_ = std::make_shared<AsyncCallbackState<VDONinjaOutput>>();
+	callbackState_->owner.store(this, std::memory_order_release);
 
 	logInfo("VDO.Ninja output created");
 }
@@ -627,6 +671,7 @@ VDONinjaOutput::VDONinjaOutput(obs_data_t *settings, obs_output_t *output) : out
 VDONinjaOutput::~VDONinjaOutput()
 {
 	stop();
+	drainAsyncCallbacks();
 	logInfo("VDO.Ninja output destroyed");
 }
 
@@ -938,19 +983,23 @@ void VDONinjaOutput::queueObsStateToPeer(const std::string &uuid)
 	}
 
 	struct ObsStateTaskData {
-		VDONinjaOutput *self;
+		std::shared_ptr<AsyncCallbackState<VDONinjaOutput>> callbackState;
 		std::string uuid;
 	};
 
-	auto *task = new ObsStateTaskData{this, uuid};
+	auto *task = new ObsStateTaskData{callbackState_, uuid};
 	obs_queue_task(
 	    OBS_TASK_UI,
 	    [](void *param) {
 		    std::unique_ptr<ObsStateTaskData> data(static_cast<ObsStateTaskData *>(param));
-		    if (!data || !data->self) {
+		    if (!data) {
 			    return;
 		    }
-		    data->self->sendObsStateToPeer(data->uuid);
+		    AsyncCallbackGuard<VDONinjaOutput> guard(data->callbackState.get());
+		    if (!guard) {
+			    return;
+		    }
+		    guard.owner()->sendObsStateToPeer(data->uuid);
 	    },
 	    task, false);
 }
@@ -1066,17 +1115,19 @@ bool VDONinjaOutput::start()
 
 void VDONinjaOutput::startThread(OutputSettings settingsSnap)
 {
-	logInfo("Starting VDO.Ninja output...");
+	try {
+		logInfo("Starting VDO.Ninja output...");
+		const auto callbackState = callbackState_;
 
-	// Initialize peer manager
-	peerManager_->initialize(signaling_.get());
-	peerManager_->setVideoCodec(settingsSnap.videoCodec);
-	peerManager_->setAudioCodec(settingsSnap.audioCodec);
-	peerManager_->setBitrate(settingsSnap.quality.bitrate);
-	peerManager_->setEnableDataChannel(settingsSnap.enableDataChannel);
-	peerManager_->setIceServers(settingsSnap.customIceServers);
-	peerManager_->setForceTurn(settingsSnap.forceTurn);
-	signaling_->setSalt(settingsSnap.salt);
+		// Initialize peer manager
+		peerManager_->initialize(signaling_.get());
+		peerManager_->setVideoCodec(settingsSnap.videoCodec);
+		peerManager_->setAudioCodec(settingsSnap.audioCodec);
+		peerManager_->setBitrate(settingsSnap.quality.bitrate);
+		peerManager_->setEnableDataChannel(settingsSnap.enableDataChannel);
+		peerManager_->setIceServers(settingsSnap.customIceServers);
+		peerManager_->setForceTurn(settingsSnap.forceTurn);
+		signaling_->setSalt(settingsSnap.salt);
 
 	if (autoSceneManager_) {
 		autoSceneManager_->configure(settingsSnap.autoInbound);
@@ -1090,7 +1141,12 @@ void VDONinjaOutput::startThread(OutputSettings settingsSnap)
 	}
 
 	// Set up callbacks
-	signaling_->setOnConnected([this, settingsSnap]() {
+	signaling_->setOnConnected([callbackState, settingsSnap]() {
+		AsyncCallbackGuard<VDONinjaOutput> guard(callbackState.get());
+		if (!guard) {
+			return;
+		}
+		VDONinjaOutput *self = guard.owner();
 		logInfo("Connected to signaling server");
 
 		const std::string roomToJoin =
@@ -1100,101 +1156,147 @@ void VDONinjaOutput::startThread(OutputSettings settingsSnap)
 
 		// Join room for inbound orchestration and/or publishing presence.
 		if (!roomToJoin.empty()) {
-			signaling_->joinRoom(roomToJoin, roomPassword);
+			self->signaling_->joinRoom(roomToJoin, roomPassword);
 		}
 
 		// Start publishing
-		signaling_->publishStream(settingsSnap.streamId, settingsSnap.password);
-		peerManager_->startPublishing(settingsSnap.maxViewers);
+		self->signaling_->publishStream(settingsSnap.streamId, settingsSnap.password);
+		self->peerManager_->startPublishing(settingsSnap.maxViewers);
 
-		connected_ = true;
-		connectTimeMs_ = currentTimeMs() - startTimeMs_;
+		self->connected_ = true;
+		self->connectTimeMs_ = currentTimeMs() - self->startTimeMs_;
 
-		if (!capturing_) {
-			if (obs_output_begin_data_capture(output_, 0)) {
-				capturing_ = true;
+		if (!self->capturing_) {
+			if (obs_output_begin_data_capture(self->output_, 0)) {
+				self->capturing_ = true;
 			} else {
 				logError("Failed to begin OBS data capture");
-				obs_output_signal_stop(output_, OBS_OUTPUT_ERROR);
-				running_ = false;
-				connected_ = false;
+				obs_output_signal_stop(self->output_, OBS_OUTPUT_ERROR);
+				self->running_ = false;
+				self->connected_ = false;
 			}
 		}
 	});
 
-	signaling_->setOnDisconnected([this, settingsSnap]() {
+	signaling_->setOnDisconnected([callbackState, settingsSnap]() {
+		AsyncCallbackGuard<VDONinjaOutput> guard(callbackState.get());
+		if (!guard) {
+			return;
+		}
+		VDONinjaOutput *self = guard.owner();
 		logInfo("Disconnected from signaling server");
-		connected_ = false;
+		self->connected_ = false;
 
-		if (running_ && settingsSnap.autoReconnect) {
+		if (self->running_ && settingsSnap.autoReconnect) {
 			logInfo("Will attempt to reconnect...");
 		}
 	});
 
-	signaling_->setOnError([this](const std::string &error) {
+	signaling_->setOnError([callbackState](const std::string &error) {
+		AsyncCallbackGuard<VDONinjaOutput> guard(callbackState.get());
+		if (!guard) {
+			return;
+		}
+		VDONinjaOutput *self = guard.owner();
 		logError("Signaling error: %s", error.c_str());
-		obs_output_set_last_error(output_, error.c_str());
+		obs_output_set_last_error(self->output_, error.c_str());
 
 		const bool streamIdConflict =
 		    containsInsensitive(error, "already in use") || containsInsensitive(error, "already claimed");
-		if (streamIdConflict && running_) {
+		if (streamIdConflict && self->running_) {
 			const std::string conflictMessage =
 			    "Stream ID is already in use. Choose a different Stream ID, then retry Start Streaming.";
-			obs_output_set_last_error(output_, conflictMessage.c_str());
-			signaling_->setAutoReconnect(false, 0);
+			obs_output_set_last_error(self->output_, conflictMessage.c_str());
+			self->signaling_->setAutoReconnect(false, 0);
 			logError("Stopping publish due to signaling conflict (stream/room already claimed)");
-			obs_output_signal_stop(output_, OBS_OUTPUT_ERROR);
+			obs_output_signal_stop(self->output_, OBS_OUTPUT_ERROR);
 		}
 	});
 
-	signaling_->setOnRoomJoined([this, settingsSnap](const std::vector<std::string> &members) {
-		if (autoSceneManager_ && settingsSnap.autoInbound.enabled) {
-			autoSceneManager_->onRoomListing(members);
+	signaling_->setOnRoomJoined([callbackState, settingsSnap](const std::vector<std::string> &members) {
+		AsyncCallbackGuard<VDONinjaOutput> guard(callbackState.get());
+		if (!guard) {
+			return;
+		}
+		VDONinjaOutput *self = guard.owner();
+		if (self->autoSceneManager_ && settingsSnap.autoInbound.enabled) {
+			self->autoSceneManager_->onRoomListing(members);
 		}
 	});
 
-	signaling_->setOnStreamAdded([this, settingsSnap](const std::string &streamId, const std::string &) {
-		if (autoSceneManager_ && settingsSnap.autoInbound.enabled) {
-			autoSceneManager_->onStreamAdded(streamId);
+	signaling_->setOnStreamAdded([callbackState, settingsSnap](const std::string &streamId, const std::string &) {
+		AsyncCallbackGuard<VDONinjaOutput> guard(callbackState.get());
+		if (!guard) {
+			return;
+		}
+		VDONinjaOutput *self = guard.owner();
+		if (self->autoSceneManager_ && settingsSnap.autoInbound.enabled) {
+			self->autoSceneManager_->onStreamAdded(streamId);
 		}
 	});
 
-	signaling_->setOnStreamRemoved([this, settingsSnap](const std::string &streamId, const std::string &) {
-		if (autoSceneManager_ && settingsSnap.autoInbound.enabled) {
-			autoSceneManager_->onStreamRemoved(streamId);
+	signaling_->setOnStreamRemoved([callbackState, settingsSnap](const std::string &streamId, const std::string &) {
+		AsyncCallbackGuard<VDONinjaOutput> guard(callbackState.get());
+		if (!guard) {
+			return;
+		}
+		VDONinjaOutput *self = guard.owner();
+		if (self->autoSceneManager_ && settingsSnap.autoInbound.enabled) {
+			self->autoSceneManager_->onStreamRemoved(streamId);
 		}
 	});
 
-	peerManager_->setOnPeerConnected([this](const std::string &uuid) {
-		logInfo("Viewer connected: %s (total: %d)", uuid.c_str(), peerManager_->getViewerCount());
-		primeViewerWithCachedKeyframe(uuid);
+	peerManager_->setOnPeerConnected([callbackState](const std::string &uuid) {
+		AsyncCallbackGuard<VDONinjaOutput> guard(callbackState.get());
+		if (!guard) {
+			return;
+		}
+		VDONinjaOutput *self = guard.owner();
+		logInfo("Viewer connected: %s (total: %d)", uuid.c_str(), self->peerManager_->getViewerCount());
+		self->primeViewerWithCachedKeyframe(uuid);
 	});
 
-	peerManager_->setOnPeerDisconnected([this](const std::string &uuid) {
+	peerManager_->setOnPeerDisconnected([callbackState](const std::string &uuid) {
+		AsyncCallbackGuard<VDONinjaOutput> guard(callbackState.get());
+		if (!guard) {
+			return;
+		}
+		VDONinjaOutput *self = guard.owner();
 		{
-			std::lock_guard<std::mutex> lock(telemetryMutex_);
-			lastPeerStats_.erase(uuid);
-			lastPeerStatsTimestampMs_.erase(uuid);
+			std::lock_guard<std::mutex> lock(self->telemetryMutex_);
+			self->lastPeerStats_.erase(uuid);
+			self->lastPeerStatsTimestampMs_.erase(uuid);
 		}
-		logInfo("Viewer disconnected: %s (total: %d)", uuid.c_str(), peerManager_->getViewerCount());
+		logInfo("Viewer disconnected: %s (total: %d)", uuid.c_str(), self->peerManager_->getViewerCount());
 	});
 
-	peerManager_->setOnDataChannel(
-	    [this](const std::string &uuid, std::shared_ptr<rtc::DataChannel>) { sendInitialPeerInfo(uuid); });
+	peerManager_->setOnDataChannel([callbackState](const std::string &uuid, std::shared_ptr<rtc::DataChannel>) {
+		AsyncCallbackGuard<VDONinjaOutput> guard(callbackState.get());
+		if (!guard) {
+			return;
+		}
+		guard.owner()->sendInitialPeerInfo(uuid);
+	});
 
-	peerManager_->setOnDataChannelMessage([this, settingsSnap](const std::string &uuid, const std::string &message) {
-		dataChannel_.handleMessage(uuid, message);
+	peerManager_->setOnDataChannelMessage([callbackState, settingsSnap](const std::string &uuid,
+	                                                                     const std::string &message) {
+		AsyncCallbackGuard<VDONinjaOutput> guard(callbackState.get());
+		if (!guard) {
+			return;
+		}
+		VDONinjaOutput *self = guard.owner();
+		self->dataChannel_.handleMessage(uuid, message);
 
-		const DataMessage parsed = dataChannel_.parseMessage(message);
+		const DataMessage parsed = self->dataChannel_.parseMessage(message);
 		if (parsed.type == DataMessageType::RequestKeyframe) {
 			logInfo("Viewer %s requested keyframe over data channel", uuid.c_str());
-			primeViewerWithCachedKeyframe(uuid);
+			self->primeViewerWithCachedKeyframe(uuid);
 		}
 
 		if (parsed.type == DataMessageType::Stats) {
-			std::lock_guard<std::mutex> lock(telemetryMutex_);
-			lastPeerStats_[uuid] = parsed.data.empty() ? message : parsed.data;
-			lastPeerStatsTimestampMs_[uuid] = currentTimeMs();
+			std::lock_guard<std::mutex> lock(self->telemetryMutex_);
+			self->lastPeerStats_[uuid] = parsed.data.empty() ? message : parsed.data;
+			self->lastPeerStatsTimestampMs_[uuid] = currentTimeMs();
 		}
 
 		if (settingsSnap.enableRemote) {
@@ -1208,15 +1310,15 @@ void VDONinjaOutput::startThread(OutputSettings settingsSnap)
 			}
 
 			if (wantsObsState) {
-				queueObsStateToPeer(uuid);
+				self->queueObsStateToPeer(uuid);
 			}
 		}
 
-		if (autoSceneManager_ && settingsSnap.autoInbound.enabled) {
-			const std::string playbackHint = dataChannel_.extractInboundPlaybackHint(message);
+		if (self->autoSceneManager_ && settingsSnap.autoInbound.enabled) {
+			const std::string playbackHint = self->dataChannel_.extractInboundPlaybackHint(message);
 			if (!playbackHint.empty()) {
 				logInfo("Discovered inbound browser-source hint from %s", uuid.c_str());
-				autoSceneManager_->onStreamAdded(playbackHint);
+				self->autoSceneManager_->onStreamAdded(playbackHint);
 			}
 		}
 	});
@@ -1258,20 +1360,33 @@ void VDONinjaOutput::startThread(OutputSettings settingsSnap)
 	}
 
 	// Configure reconnection
-	signaling_->setAutoReconnect(settingsSnap.autoReconnect, DEFAULT_RECONNECT_ATTEMPTS);
+		signaling_->setAutoReconnect(settingsSnap.autoReconnect, DEFAULT_RECONNECT_ATTEMPTS);
 
-	// Connect to signaling server
-	if (!signaling_->connect(settingsSnap.wssHost)) {
-		logError("Failed to connect to signaling server");
-		if (autoSceneManager_) {
-			autoSceneManager_->stop();
+		// Connect to signaling server
+		if (!signaling_->connect(settingsSnap.wssHost)) {
+			logError("Failed to connect to signaling server");
+			if (autoSceneManager_) {
+				autoSceneManager_->stop();
+			}
+			obs_output_signal_stop(output_, OBS_OUTPUT_CONNECT_FAILED);
+			running_ = false;
+			return;
 		}
-		obs_output_signal_stop(output_, OBS_OUTPUT_CONNECT_FAILED);
-		running_ = false;
-		return;
-	}
 
-	logInfo("VDO.Ninja output started successfully");
+		logInfo("VDO.Ninja output started successfully");
+	} catch (const std::exception &e) {
+		logError("VDO.Ninja output start thread crashed: %s", e.what());
+		obs_output_set_last_error(output_, e.what());
+		connected_ = false;
+		running_ = false;
+		obs_output_signal_stop(output_, OBS_OUTPUT_ERROR);
+	} catch (...) {
+		logError("VDO.Ninja output start thread crashed: unknown exception");
+		obs_output_set_last_error(output_, "VDO.Ninja output thread crashed unexpectedly.");
+		connected_ = false;
+		running_ = false;
+		obs_output_signal_stop(output_, OBS_OUTPUT_ERROR);
+	}
 }
 
 void VDONinjaOutput::stop()
@@ -1365,6 +1480,19 @@ void VDONinjaOutput::stop()
 
 	stopping_ = false;
 	logInfo("VDO.Ninja output stopped");
+}
+
+void VDONinjaOutput::drainAsyncCallbacks()
+{
+	if (!callbackState_) {
+		return;
+	}
+
+	AsyncCallbackGuard<VDONinjaOutput>::detach(callbackState_.get());
+	if (!AsyncCallbackGuard<VDONinjaOutput>::waitForIdle(callbackState_.get())) {
+		logWarning("Timed out waiting for VDO.Ninja output callbacks to drain during teardown");
+	}
+	callbackState_.reset();
 }
 
 void VDONinjaOutput::data(encoder_packet *packet)

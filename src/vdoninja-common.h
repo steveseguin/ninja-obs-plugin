@@ -8,12 +8,14 @@
 #pragma once
 
 #include <atomic>
+#include <chrono>
 #include <functional>
 #include <map>
 #include <memory>
 #include <mutex>
 #include <optional>
 #include <string>
+#include <thread>
 #include <vector>
 
 // Forward declarations for libdatachannel
@@ -181,6 +183,110 @@ struct SourceSettings {
 	bool autoReconnect = true;
 	std::vector<IceServer> customIceServers;
 	bool forceTurn = false;
+};
+
+template<typename Owner>
+struct AsyncCallbackState {
+	std::atomic<Owner *> owner{nullptr};
+	std::atomic<uint32_t> inFlight{0};
+};
+
+template<typename Owner>
+class AsyncCallbackGuard
+{
+public:
+	explicit AsyncCallbackGuard(AsyncCallbackState<Owner> *state) : state_(state)
+	{
+		if (!state_) {
+			return;
+		}
+
+		state_->inFlight.fetch_add(1, std::memory_order_acq_rel);
+		owner_ = state_->owner.load(std::memory_order_acquire);
+		if (!owner_) {
+			state_->inFlight.fetch_sub(1, std::memory_order_acq_rel);
+			state_ = nullptr;
+		}
+	}
+
+	AsyncCallbackGuard(const AsyncCallbackGuard &) = delete;
+	AsyncCallbackGuard &operator=(const AsyncCallbackGuard &) = delete;
+
+	AsyncCallbackGuard(AsyncCallbackGuard &&other) noexcept : state_(other.state_), owner_(other.owner_)
+	{
+		other.state_ = nullptr;
+		other.owner_ = nullptr;
+	}
+
+	AsyncCallbackGuard &operator=(AsyncCallbackGuard &&other) noexcept
+	{
+		if (this == &other) {
+			return *this;
+		}
+
+		release();
+		state_ = other.state_;
+		owner_ = other.owner_;
+		other.state_ = nullptr;
+		other.owner_ = nullptr;
+		return *this;
+	}
+
+	~AsyncCallbackGuard()
+	{
+		release();
+	}
+
+	explicit operator bool() const
+	{
+		return owner_ != nullptr;
+	}
+
+	Owner *owner() const
+	{
+		return owner_;
+	}
+
+	static void detach(AsyncCallbackState<Owner> *state)
+	{
+		if (!state) {
+			return;
+		}
+
+		state->owner.store(nullptr, std::memory_order_release);
+	}
+
+	static bool waitForIdle(AsyncCallbackState<Owner> *state, int timeoutMs = 2000)
+	{
+		if (!state) {
+			return true;
+		}
+
+		const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeoutMs);
+		while (state->inFlight.load(std::memory_order_acquire) != 0) {
+			if (std::chrono::steady_clock::now() >= deadline) {
+				return false;
+			}
+			std::this_thread::sleep_for(std::chrono::milliseconds(1));
+		}
+
+		return true;
+	}
+
+private:
+	void release()
+	{
+		if (!state_) {
+			return;
+		}
+
+		state_->inFlight.fetch_sub(1, std::memory_order_acq_rel);
+		state_ = nullptr;
+		owner_ = nullptr;
+	}
+
+	AsyncCallbackState<Owner> *state_ = nullptr;
+	Owner *owner_ = nullptr;
 };
 
 // Utility function declarations (implemented in vdoninja-utils.cpp)

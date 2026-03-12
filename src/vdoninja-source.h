@@ -96,6 +96,7 @@ private:
 	void onChildAudioCaptured(const struct audio_data *audioData, bool muted);
 	void onChildAudioActivated();
 	void onChildAudioDeactivated();
+	void drainAsyncCallbacks();
 	friend void vdoninja_source_child_audio_capture(void *param, obs_source_t *source, const struct audio_data *audioData,
 	                                                bool muted);
 	friend void vdoninja_source_child_audio_activate(void *param, calldata_t *calldata);
@@ -120,6 +121,7 @@ private:
 	obs_source_t *nativeReceiverSource_ = nullptr;
 	std::string browserSourceName_;
 	std::string nativeReceiverSourceName_;
+	std::shared_ptr<AsyncCallbackState<VDONinjaSource>> callbackState_;
 	std::shared_ptr<rtc::Track> videoTrack_;
 	std::shared_ptr<rtc::Track> audioTrack_;
 	std::string videoTrackPeerUuid_;

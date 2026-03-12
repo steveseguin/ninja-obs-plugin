@@ -80,6 +80,7 @@ private:
 	std::string buildObsStateMessage() const;
 	void sendObsStateToPeer(const std::string &uuid);
 	void queueObsStateToPeer(const std::string &uuid);
+	void drainAsyncCallbacks();
 
 	// OBS output handle
 	obs_output_t *output_;
@@ -93,6 +94,7 @@ private:
 	std::unique_ptr<VDONinjaPeerManager> peerManager_;
 	std::unique_ptr<VDOAutoSceneManager> autoSceneManager_;
 	VDONinjaDataChannel dataChannel_;
+	std::shared_ptr<AsyncCallbackState<VDONinjaOutput>> callbackState_;
 
 	// State
 	std::atomic<bool> running_{false};

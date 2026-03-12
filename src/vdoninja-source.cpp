@@ -49,6 +49,31 @@ const char *tr(const char *key, const char *fallback)
 	return localized;
 }
 
+template<typename Fn>
+void runNoexceptCallback(const char *context, Fn &&fn)
+{
+	try {
+		fn();
+	} catch (const std::exception &e) {
+		logError("%s threw exception: %s", context, e.what());
+	} catch (...) {
+		logError("%s threw unknown exception", context);
+	}
+}
+
+template<typename T, typename Fn>
+T runNoexceptCallbackValue(const char *context, T fallback, Fn &&fn)
+{
+	try {
+		return fn();
+	} catch (const std::exception &e) {
+		logError("%s threw exception: %s", context, e.what());
+	} catch (...) {
+		logError("%s threw unknown exception", context);
+	}
+	return fallback;
+}
+
 obs_data_t *createBrowserSourceSettings(const std::string &url, uint32_t width, uint32_t height)
 {
 	obs_data_t *settings = obs_data_create();
@@ -489,7 +514,12 @@ void vdoninja_source_child_audio_capture(void *param, obs_source_t *source, cons
 	if (!param) {
 		return;
 	}
-	static_cast<VDONinjaSource *>(param)->onChildAudioCaptured(audioData, muted);
+	auto *state = static_cast<AsyncCallbackState<VDONinjaSource> *>(param);
+	AsyncCallbackGuard<VDONinjaSource> guard(state);
+	if (!guard) {
+		return;
+	}
+	guard.owner()->onChildAudioCaptured(audioData, muted);
 }
 
 void vdoninja_source_child_audio_activate(void *param, calldata_t *calldata)
@@ -498,7 +528,12 @@ void vdoninja_source_child_audio_activate(void *param, calldata_t *calldata)
 	if (!param) {
 		return;
 	}
-	static_cast<VDONinjaSource *>(param)->onChildAudioActivated();
+	auto *state = static_cast<AsyncCallbackState<VDONinjaSource> *>(param);
+	AsyncCallbackGuard<VDONinjaSource> guard(state);
+	if (!guard) {
+		return;
+	}
+	guard.owner()->onChildAudioActivated();
 }
 
 void vdoninja_source_child_audio_deactivate(void *param, calldata_t *calldata)
@@ -507,7 +542,12 @@ void vdoninja_source_child_audio_deactivate(void *param, calldata_t *calldata)
 	if (!param) {
 		return;
 	}
-	static_cast<VDONinjaSource *>(param)->onChildAudioDeactivated();
+	auto *state = static_cast<AsyncCallbackState<VDONinjaSource> *>(param);
+	AsyncCallbackGuard<VDONinjaSource> guard(state);
+	if (!guard) {
+		return;
+	}
+	guard.owner()->onChildAudioDeactivated();
 }
 
 static const char *vdoninja_source_getname(void *)
@@ -527,66 +567,76 @@ static void *vdoninja_source_create(obs_data_t *settings, obs_source_t *source)
 	} catch (const std::exception &e) {
 		logError("Failed to create VDO.Ninja source: %s", e.what());
 		return nullptr;
+	} catch (...) {
+		logError("Failed to create VDO.Ninja source: unknown exception");
+		return nullptr;
 	}
 }
 
 static void vdoninja_source_destroy(void *data)
 {
-	delete static_cast<VDONinjaSource *>(data);
+	runNoexceptCallback("vdoninja_source_destroy", [data]() { delete static_cast<VDONinjaSource *>(data); });
 }
 
 static void vdoninja_source_update(void *data, obs_data_t *settings)
 {
-	static_cast<VDONinjaSource *>(data)->update(settings);
+	runNoexceptCallback("vdoninja_source_update",
+	                    [data, settings]() { static_cast<VDONinjaSource *>(data)->update(settings); });
 }
 
 static void vdoninja_source_activate(void *data)
 {
-	static_cast<VDONinjaSource *>(data)->activate();
+	runNoexceptCallback("vdoninja_source_activate", [data]() { static_cast<VDONinjaSource *>(data)->activate(); });
 }
 
 static void vdoninja_source_deactivate(void *data)
 {
-	static_cast<VDONinjaSource *>(data)->deactivate();
+	runNoexceptCallback("vdoninja_source_deactivate", [data]() { static_cast<VDONinjaSource *>(data)->deactivate(); });
 }
 
 static void vdoninja_source_show(void *data)
 {
-	static_cast<VDONinjaSource *>(data)->show();
+	runNoexceptCallback("vdoninja_source_show", [data]() { static_cast<VDONinjaSource *>(data)->show(); });
 }
 
 static void vdoninja_source_hide(void *data)
 {
-	static_cast<VDONinjaSource *>(data)->hide();
+	runNoexceptCallback("vdoninja_source_hide", [data]() { static_cast<VDONinjaSource *>(data)->hide(); });
 }
 
 static void vdoninja_source_video_tick(void *data, float seconds)
 {
-	static_cast<VDONinjaSource *>(data)->videoTick(seconds);
+	runNoexceptCallback("vdoninja_source_video_tick",
+	                    [data, seconds]() { static_cast<VDONinjaSource *>(data)->videoTick(seconds); });
 }
 
 static void vdoninja_source_video_render(void *data, gs_effect_t *effect)
 {
-	static_cast<VDONinjaSource *>(data)->videoRender(effect);
+	runNoexceptCallback("vdoninja_source_video_render",
+	                    [data, effect]() { static_cast<VDONinjaSource *>(data)->videoRender(effect); });
 }
 
 static uint32_t vdoninja_source_get_width(void *data)
 {
-	return static_cast<VDONinjaSource *>(data)->getWidth();
+	return runNoexceptCallbackValue<uint32_t>(
+	    "vdoninja_source_get_width", 0, [data]() { return static_cast<VDONinjaSource *>(data)->getWidth(); });
 }
 
 static uint32_t vdoninja_source_get_height(void *data)
 {
-	return static_cast<VDONinjaSource *>(data)->getHeight();
+	return runNoexceptCallbackValue<uint32_t>(
+	    "vdoninja_source_get_height", 0, [data]() { return static_cast<VDONinjaSource *>(data)->getHeight(); });
 }
 
 static void vdoninja_source_enum_active_sources(void *data, obs_source_enum_proc_t cb, void *param)
 {
-	VDONinjaSource *source = static_cast<VDONinjaSource *>(data);
-	obs_source_t *child = source ? source->getActiveChildSource() : nullptr;
-	if (child) {
-		cb(source->obsSourceHandle(), child, param);
-	}
+	runNoexceptCallback("vdoninja_source_enum_active_sources", [data, cb, param]() {
+		VDONinjaSource *source = static_cast<VDONinjaSource *>(data);
+		obs_source_t *child = source ? source->getActiveChildSource() : nullptr;
+		if (child) {
+			cb(source->obsSourceHandle(), child, param);
+		}
+	});
 }
 
 static obs_properties_t *vdoninja_source_properties(void *)
@@ -723,6 +773,8 @@ VDONinjaSource::VDONinjaSource(obs_data_t *settings, obs_source_t *source) : sou
 {
 	browserSourceName_ = "VDO.Ninja Source Child " + generateSessionId();
 	nativeReceiverSourceName_ = "VDO.Ninja Native Child " + generateSessionId();
+	callbackState_ = std::make_shared<AsyncCallbackState<VDONinjaSource>>();
+	callbackState_->owner.store(this, std::memory_order_release);
 	loadSettings(settings);
 	if (isInternalNativeSource()) {
 		signaling_ = std::make_unique<VDONinjaSignaling>();
@@ -746,6 +798,7 @@ VDONinjaSource::~VDONinjaSource()
 	} else {
 		releaseChildSources();
 	}
+	drainAsyncCallbacks();
 
 	logInfo("VDO.Ninja source destroyed");
 }
@@ -939,49 +992,74 @@ void VDONinjaSource::disconnect()
 
 void VDONinjaSource::connectionThread()
 {
-	logInfo("Connecting to VDO.Ninja stream: %s", settings_.streamId.c_str());
+	try {
+		logInfo("Connecting to VDO.Ninja stream: %s", settings_.streamId.c_str());
+		const auto callbackState = callbackState_;
 
-	peerManager_->initialize(signaling_.get());
-	peerManager_->setEnableDataChannel(settings_.enableDataChannel);
-	peerManager_->setIceServers(settings_.customIceServers);
-	peerManager_->setForceTurn(settings_.forceTurn);
-	signaling_->setSalt(settings_.salt);
+		peerManager_->initialize(signaling_.get());
+		peerManager_->setEnableDataChannel(settings_.enableDataChannel);
+		peerManager_->setIceServers(settings_.customIceServers);
+		peerManager_->setForceTurn(settings_.forceTurn);
+		signaling_->setSalt(settings_.salt);
 
-	peerManager_->setOnTrack([this](const std::string &uuid, TrackType type, std::shared_ptr<rtc::Track> track) {
+	peerManager_->setOnTrack([callbackState](const std::string &uuid, TrackType type, std::shared_ptr<rtc::Track> track) {
+		AsyncCallbackGuard<VDONinjaSource> guard(callbackState.get());
+		if (!guard) {
+			return;
+		}
+
 		if (type == TrackType::Video) {
-			onVideoTrack(uuid, track);
+			guard.owner()->onVideoTrack(uuid, track);
 		} else {
-			onAudioTrack(uuid, track);
+			guard.owner()->onAudioTrack(uuid, track);
 		}
 	});
 
-	peerManager_->setOnPeerConnected([this](const std::string &uuid) {
+	peerManager_->setOnPeerConnected([callbackState](const std::string &uuid) {
+		AsyncCallbackGuard<VDONinjaSource> guard(callbackState.get());
+		if (!guard) {
+			return;
+		}
+		VDONinjaSource *self = guard.owner();
 		logInfo("Connected to publisher: %s", uuid.c_str());
-		connected_ = true;
-		cancelViewRetry();
+		self->connected_ = true;
+		self->cancelViewRetry();
 		{
-			std::lock_guard<std::mutex> lock(retryStateMutex_);
-			viewRetryCount_ = 0;
-			awaitingPeerConnection_ = false;
-			suppressViewerRetry_ = false;
+			std::lock_guard<std::mutex> lock(self->retryStateMutex_);
+			self->viewRetryCount_ = 0;
+			self->awaitingPeerConnection_ = false;
+			self->suppressViewerRetry_ = false;
 		}
-		sendViewerPreferencesToPeer(uuid, "peer-connected");
-		requestNativeTargetBitrate("peer-connected");
+		self->sendViewerPreferencesToPeer(uuid, "peer-connected");
+		self->requestNativeTargetBitrate("peer-connected");
 	});
 
-	peerManager_->setOnPeerDisconnected([this](const std::string &uuid) {
+	peerManager_->setOnPeerDisconnected([callbackState](const std::string &uuid) {
+		AsyncCallbackGuard<VDONinjaSource> guard(callbackState.get());
+		if (!guard) {
+			return;
+		}
 		logInfo("Disconnected from publisher: %s", uuid.c_str());
-		handlePeerDisconnected(uuid);
+		guard.owner()->handlePeerDisconnected(uuid);
 	});
 
-	peerManager_->setOnDataChannel([this](const std::string &uuid, std::shared_ptr<rtc::DataChannel> dc) {
+	peerManager_->setOnDataChannel([callbackState](const std::string &uuid, std::shared_ptr<rtc::DataChannel> dc) {
+		AsyncCallbackGuard<VDONinjaSource> guard(callbackState.get());
+		if (!guard) {
+			return;
+		}
 		if (!dc) {
 			return;
 		}
-		sendViewerPreferencesToPeer(uuid, "datachannel-open");
+		guard.owner()->sendViewerPreferencesToPeer(uuid, "datachannel-open");
 	});
 
-	peerManager_->setOnDataChannelMessage([this](const std::string &uuid, const std::string &message) {
+	peerManager_->setOnDataChannelMessage([callbackState](const std::string &uuid, const std::string &message) {
+		AsyncCallbackGuard<VDONinjaSource> guard(callbackState.get());
+		if (!guard) {
+			return;
+		}
+		VDONinjaSource *self = guard.owner();
 		constexpr size_t kMaxPreviewChars = 256;
 		std::string preview = message;
 		if (preview.size() > kMaxPreviewChars) {
@@ -996,63 +1074,94 @@ void VDONinjaSource::connectionThread()
 		}
 		const std::string targetSession = raw.getString("session");
 		if (!targetUuid.empty()) {
-			peerManager_->bindViewerSignalingDataChannel(uuid, targetUuid, targetSession);
+			self->peerManager_->bindViewerSignalingDataChannel(uuid, targetUuid, targetSession);
 		}
 
-		if (signaling_ &&
+		if (self->signaling_ &&
 		    (message.find("\"description\"") != std::string::npos || message.find("\"candidate\"") != std::string::npos ||
 		     message.find("\"candidates\"") != std::string::npos || message.find("\"request\"") != std::string::npos ||
 		     message.find("\"bye\"") != std::string::npos)) {
-			signaling_->processIncomingMessage(message);
+			self->signaling_->processIncomingMessage(message);
 			if (!targetUuid.empty()) {
-				sendViewerPreferencesToPeer(targetUuid, "resolved-media-peer");
+				self->sendViewerPreferencesToPeer(targetUuid, "resolved-media-peer");
 			}
 		}
 	});
 
-	signaling_->setOnConnected([this]() {
+	signaling_->setOnConnected([callbackState]() {
+		AsyncCallbackGuard<VDONinjaSource> guard(callbackState.get());
+		if (!guard) {
+			return;
+		}
+		VDONinjaSource *self = guard.owner();
 		logInfo("Connected to signaling server");
 
-		if (!settings_.roomId.empty()) {
-			signaling_->joinRoom(settings_.roomId, settings_.password);
+		if (!self->settings_.roomId.empty()) {
+			self->signaling_->joinRoom(self->settings_.roomId, self->settings_.password);
 		}
 
-		requestViewStream("signaling-connected", true);
+		self->requestViewStream("signaling-connected", true);
 	});
 
-	signaling_->setOnDisconnected([this]() {
+	signaling_->setOnDisconnected([callbackState]() {
+		AsyncCallbackGuard<VDONinjaSource> guard(callbackState.get());
+		if (!guard) {
+			return;
+		}
 		logInfo("Disconnected from signaling server");
-		connected_ = false;
+		guard.owner()->connected_ = false;
 	});
 
-	signaling_->setOnError([this](const std::string &error) {
+	signaling_->setOnError([callbackState](const std::string &error) {
+		AsyncCallbackGuard<VDONinjaSource> guard(callbackState.get());
+		if (!guard) {
+			return;
+		}
 		logError("Signaling error: %s", error.c_str());
-		handleSignalingAlert(error);
+		guard.owner()->handleSignalingAlert(error);
 	});
 
-	signaling_->setOnStreamAdded([this](const std::string &streamId, const std::string &) {
-		if (streamId == settings_.streamId ||
-		    hashStreamId(settings_.streamId, settings_.password, settings_.salt) == streamId ||
-		    hashStreamId(settings_.streamId, DEFAULT_PASSWORD, settings_.salt) == streamId) {
+	signaling_->setOnStreamAdded([callbackState](const std::string &streamId, const std::string &) {
+		AsyncCallbackGuard<VDONinjaSource> guard(callbackState.get());
+		if (!guard) {
+			return;
+		}
+		VDONinjaSource *self = guard.owner();
+		if (streamId == self->settings_.streamId ||
+		    hashStreamId(self->settings_.streamId, self->settings_.password, self->settings_.salt) == streamId ||
+		    hashStreamId(self->settings_.streamId, DEFAULT_PASSWORD, self->settings_.salt) == streamId) {
 			logInfo("Target stream appeared in room, connecting...");
-			requestViewStream("stream-added", false);
+			self->requestViewStream("stream-added", false);
 		}
 	});
-	signaling_->setOnPeerCleanup([this](const std::string &uuid) {
-		handlePeerCleanupSignal(uuid);
+	signaling_->setOnPeerCleanup([callbackState](const std::string &uuid) {
+		AsyncCallbackGuard<VDONinjaSource> guard(callbackState.get());
+		if (!guard) {
+			return;
+		}
+		guard.owner()->handlePeerCleanupSignal(uuid);
 	});
 
-	signaling_->setAutoReconnect(settings_.autoReconnect, DEFAULT_RECONNECT_ATTEMPTS);
+		signaling_->setAutoReconnect(settings_.autoReconnect, DEFAULT_RECONNECT_ATTEMPTS);
 
-	if (!signaling_->connect(settings_.wssHost)) {
-		logError("Failed to connect to signaling server");
+		if (!signaling_->connect(settings_.wssHost)) {
+			logError("Failed to connect to signaling server");
+			nativeRunning_ = false;
+			return;
+		}
+
+		while (nativeRunning_.load()) {
+			serviceViewRetry();
+			std::this_thread::sleep_for(std::chrono::milliseconds(100));
+		}
+	} catch (const std::exception &e) {
+		logError("Native receiver connection thread crashed: %s", e.what());
+		connected_ = false;
 		nativeRunning_ = false;
-		return;
-	}
-
-	while (nativeRunning_.load()) {
-		serviceViewRetry();
-		std::this_thread::sleep_for(std::chrono::milliseconds(100));
+	} catch (...) {
+		logError("Native receiver connection thread crashed: unknown exception");
+		connected_ = false;
+		nativeRunning_ = false;
 	}
 }
 
@@ -1310,12 +1419,19 @@ void VDONinjaSource::onVideoTrack(const std::string &uuid, std::shared_ptr<rtc::
 		}
 	}
 	auto rtxFilter = std::make_shared<RtxRepairMediaHandler>();
-	auto receivingSession = std::make_shared<InspectingReceivingSession>([this](const rtc::message_ptr &message) {
+	const auto callbackState = callbackState_;
+	auto receivingSession =
+	    std::make_shared<InspectingReceivingSession>([callbackState](const rtc::message_ptr &message) {
+		    AsyncCallbackGuard<VDONinjaSource> guard(callbackState.get());
+		    if (!guard) {
+			    return;
+		    }
+		    VDONinjaSource *self = guard.owner();
 		if (!message || message->type != rtc::Message::Binary || message->size() < sizeof(rtc::RtpHeader)) {
 			return;
 		}
 
-		if (loggedFirstVideoRtpPacket_.exchange(true)) {
+		if (self->loggedFirstVideoRtpPacket_.exchange(true)) {
 			return;
 		}
 
@@ -1340,14 +1456,19 @@ void VDONinjaSource::onVideoTrack(const std::string &uuid, std::shared_ptr<rtc::
 	});
 	track->setMediaHandler(rtxFilter);
 	track->chainMediaHandler(receivingSession);
-	track->onMessage([this, weakTrack = std::weak_ptr<rtc::Track>(track)](rtc::message_variant message) {
+	track->onMessage([callbackState, weakTrack = std::weak_ptr<rtc::Track>(track)](rtc::message_variant message) {
+		AsyncCallbackGuard<VDONinjaSource> guard(callbackState.get());
+		if (!guard) {
+			return;
+		}
+		VDONinjaSource *self = guard.owner();
 		const auto strongTrack = weakTrack.lock();
 		if (!strongTrack) {
 			return;
 		}
 		{
-			std::lock_guard<std::mutex> stateLock(nativeStateMutex_);
-			if (videoTrack_ != strongTrack) {
+			std::lock_guard<std::mutex> stateLock(self->nativeStateMutex_);
+			if (self->videoTrack_ != strongTrack) {
 				return;
 			}
 		}
@@ -1357,7 +1478,7 @@ void VDONinjaSource::onVideoTrack(const std::string &uuid, std::shared_ptr<rtc::
 		}
 
 		const auto &packet = std::get<rtc::binary>(message);
-		processVideoRtpPacket(reinterpret_cast<const uint8_t *>(packet.data()), packet.size());
+		self->processVideoRtpPacket(reinterpret_cast<const uint8_t *>(packet.data()), packet.size());
 	});
 
 	if (replacedExistingTrack && safeRequestKeyframe(track, "video-track-replaced")) {
@@ -1413,18 +1534,25 @@ void VDONinjaSource::onAudioTrack(const std::string &uuid, std::shared_ptr<rtc::
 	audioSampleRate_ = sampleRate > 0 ? sampleRate : 48000;
 	audioChannels_ = channels > 0 ? channels : 2;
 	track->chainMediaHandler(depacketizer);
-	track->onFrame([this, weakTrack = std::weak_ptr<rtc::Track>(track)](rtc::binary data, rtc::FrameInfo frameInfo) {
+	const auto callbackState = callbackState_;
+	track->onFrame([callbackState, weakTrack = std::weak_ptr<rtc::Track>(track)](rtc::binary data,
+	                                                                            rtc::FrameInfo frameInfo) {
+		AsyncCallbackGuard<VDONinjaSource> guard(callbackState.get());
+		if (!guard) {
+			return;
+		}
+		VDONinjaSource *self = guard.owner();
 		const auto strongTrack = weakTrack.lock();
 		if (!strongTrack) {
 			return;
 		}
 		{
-			std::lock_guard<std::mutex> stateLock(nativeStateMutex_);
-			if (audioTrack_ != strongTrack) {
+			std::lock_guard<std::mutex> stateLock(self->nativeStateMutex_);
+			if (self->audioTrack_ != strongTrack) {
 				return;
 			}
 		}
-		processAudioData(reinterpret_cast<const uint8_t *>(data.data()), data.size(), frameInfo.timestamp);
+		self->processAudioData(reinterpret_cast<const uint8_t *>(data.data()), data.size(), frameInfo.timestamp);
 	});
 }
 
@@ -2194,10 +2322,10 @@ void VDONinjaSource::ensureNativeReceiverSource()
 		return;
 	}
 
-	obs_source_add_audio_capture_callback(nativeReceiverSource_, vdoninja_source_child_audio_capture, this);
+	obs_source_add_audio_capture_callback(nativeReceiverSource_, vdoninja_source_child_audio_capture, callbackState_.get());
 	signal_handler_t *sh = obs_source_get_signal_handler(nativeReceiverSource_);
-	signal_handler_connect(sh, "audio_activate", vdoninja_source_child_audio_activate, this);
-	signal_handler_connect(sh, "audio_deactivate", vdoninja_source_child_audio_deactivate, this);
+	signal_handler_connect(sh, "audio_activate", vdoninja_source_child_audio_activate, callbackState_.get());
+	signal_handler_connect(sh, "audio_deactivate", vdoninja_source_child_audio_deactivate, callbackState_.get());
 	obs_source_set_audio_active(source_, obs_source_audio_active(nativeReceiverSource_));
 
 	if (showing_.load()) {
@@ -2217,9 +2345,10 @@ void VDONinjaSource::releaseNativeReceiverSource()
 	}
 
 	signal_handler_t *sh = obs_source_get_signal_handler(nativeReceiverSource_);
-	signal_handler_disconnect(sh, "audio_activate", vdoninja_source_child_audio_activate, this);
-	signal_handler_disconnect(sh, "audio_deactivate", vdoninja_source_child_audio_deactivate, this);
-	obs_source_remove_audio_capture_callback(nativeReceiverSource_, vdoninja_source_child_audio_capture, this);
+	signal_handler_disconnect(sh, "audio_activate", vdoninja_source_child_audio_activate, callbackState_.get());
+	signal_handler_disconnect(sh, "audio_deactivate", vdoninja_source_child_audio_deactivate, callbackState_.get());
+	obs_source_remove_audio_capture_callback(nativeReceiverSource_, vdoninja_source_child_audio_capture,
+	                                         callbackState_.get());
 
 	if (showing_.load()) {
 		obs_source_dec_showing(nativeReceiverSource_);
@@ -2275,10 +2404,10 @@ void VDONinjaSource::ensureBrowserSource()
 		return;
 	}
 
-	obs_source_add_audio_capture_callback(browserSource_, vdoninja_source_child_audio_capture, this);
+	obs_source_add_audio_capture_callback(browserSource_, vdoninja_source_child_audio_capture, callbackState_.get());
 	signal_handler_t *sh = obs_source_get_signal_handler(browserSource_);
-	signal_handler_connect(sh, "audio_activate", vdoninja_source_child_audio_activate, this);
-	signal_handler_connect(sh, "audio_deactivate", vdoninja_source_child_audio_deactivate, this);
+	signal_handler_connect(sh, "audio_activate", vdoninja_source_child_audio_activate, callbackState_.get());
+	signal_handler_connect(sh, "audio_deactivate", vdoninja_source_child_audio_deactivate, callbackState_.get());
 	obs_source_set_audio_active(source_, obs_source_audio_active(browserSource_));
 
 	if (showing_.load()) {
@@ -2298,9 +2427,9 @@ void VDONinjaSource::releaseBrowserSource()
 	}
 
 	signal_handler_t *sh = obs_source_get_signal_handler(browserSource_);
-	signal_handler_disconnect(sh, "audio_activate", vdoninja_source_child_audio_activate, this);
-	signal_handler_disconnect(sh, "audio_deactivate", vdoninja_source_child_audio_deactivate, this);
-	obs_source_remove_audio_capture_callback(browserSource_, vdoninja_source_child_audio_capture, this);
+	signal_handler_disconnect(sh, "audio_activate", vdoninja_source_child_audio_activate, callbackState_.get());
+	signal_handler_disconnect(sh, "audio_deactivate", vdoninja_source_child_audio_deactivate, callbackState_.get());
+	obs_source_remove_audio_capture_callback(browserSource_, vdoninja_source_child_audio_capture, callbackState_.get());
 
 	if (showing_.load()) {
 		obs_source_dec_showing(browserSource_);
@@ -2414,6 +2543,19 @@ void VDONinjaSource::onChildAudioDeactivated()
 	if (source_) {
 		obs_source_set_audio_active(source_, false);
 	}
+}
+
+void VDONinjaSource::drainAsyncCallbacks()
+{
+	if (!callbackState_) {
+		return;
+	}
+
+	AsyncCallbackGuard<VDONinjaSource>::detach(callbackState_.get());
+	if (!AsyncCallbackGuard<VDONinjaSource>::waitForIdle(callbackState_.get())) {
+		logWarning("Timed out waiting for VDO.Ninja source callbacks to drain during teardown");
+	}
+	callbackState_.reset();
 }
 
 } // namespace vdoninja

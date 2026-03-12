@@ -468,6 +468,43 @@ TEST_F(URLEncodeTest, EncodesSlashes)
 	EXPECT_EQ(urlEncode("path/to/file"), "path%2fto%2ffile");
 }
 
+TEST(AsyncCallbackGuardTest, DetachPreventsNewEntriesAndWaitsForInFlightCallbacks)
+{
+	struct Owner {
+		int value = 42;
+	};
+
+	Owner owner;
+	AsyncCallbackState<Owner> state;
+	state.owner.store(&owner, std::memory_order_release);
+
+	std::atomic<bool> releaseGuard{false};
+	std::atomic<bool> guardEntered{false};
+	std::atomic<int> observedValue{0};
+	std::thread worker([&]() {
+		AsyncCallbackGuard<Owner> guard(&state);
+		if (!guard) {
+			return;
+		}
+		guardEntered.store(true, std::memory_order_release);
+		observedValue.store(guard.owner()->value, std::memory_order_release);
+		while (!releaseGuard.load(std::memory_order_acquire)) {
+			std::this_thread::sleep_for(std::chrono::milliseconds(1));
+		}
+	});
+
+	std::this_thread::sleep_for(std::chrono::milliseconds(10));
+	AsyncCallbackGuard<Owner>::detach(&state);
+	AsyncCallbackGuard<Owner> blocked(&state);
+	EXPECT_FALSE(static_cast<bool>(blocked));
+
+	releaseGuard.store(true, std::memory_order_release);
+	EXPECT_TRUE(AsyncCallbackGuard<Owner>::waitForIdle(&state, 500));
+	worker.join();
+	EXPECT_TRUE(guardEntered.load(std::memory_order_acquire));
+	EXPECT_EQ(observedValue.load(std::memory_order_acquire), 42);
+}
+
 // String Trim Tests
 class TrimTest : public ::testing::Test
 {
@@ -506,6 +543,21 @@ TEST_F(TrimTest, HandlesOnlyWhitespace)
 TEST_F(TrimTest, PreservesInternalSpaces)
 {
 	EXPECT_EQ(trim("  hello world  "), "hello world");
+}
+
+TEST(JsonParserHardeningTest, HandlesTruncatedJsonWithoutReadingPastEnd)
+{
+	JsonParser parser("{\"value\":");
+	EXPECT_FALSE(parser.hasKey("missing"));
+	EXPECT_EQ(parser.getString("value", "fallback"), "fallback");
+}
+
+TEST(JsonParserHardeningTest, HandlesUnterminatedArrayWithoutReadingPastEnd)
+{
+	JsonParser parser("{\"items\":[\"alpha\"");
+	const auto items = parser.getArray("items");
+	ASSERT_EQ(items.size(), 1u);
+	EXPECT_EQ(items[0], "alpha");
 }
 
 // String Split Tests
