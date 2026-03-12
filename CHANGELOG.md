@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.34] - 2026-03-12
+
+### Fixed
+- Avoided wrapper-child no-op updates that were forcing unnecessary reconnect churn in `VDO.Ninja Source`, which could make native sources feel sticky while they were connecting or retrying.
+- Added an OBS websocket movement benchmark harness to compare source move responsiveness across baseline, browser-backed, and native loading states.
+
 ## [1.1.33] - 2026-03-11
 
 ### Fixed
