@@ -850,3 +850,67 @@ TEST_F(SDPTest, StripUnsupportedTransportCcFeedbackLeavesOtherSdpUntouched)
 
 	EXPECT_EQ(stripUnsupportedTransportCcFeedback(sdp), sdp);
 }
+
+TEST_F(SDPTest, ParseOfferedMediaSectionsCapturesMidsPayloadsAndFmtp)
+{
+	std::string sdp = "v=0\r\n"
+	                  "m=audio 9 UDP/TLS/RTP/SAVPF 111 126\r\n"
+	                  "a=mid:audio-main\r\n"
+	                  "a=rtpmap:111 opus/48000/2\r\n"
+	                  "a=fmtp:111 minptime=10;useinbandfec=1\r\n"
+	                  "a=rtpmap:126 telephone-event/8000\r\n"
+	                  "m=video 9 UDP/TLS/RTP/SAVPF 96 97 98\r\n"
+	                  "a=mid:video-main\r\n"
+	                  "a=rtpmap:96 H264/90000\r\n"
+	                  "a=fmtp:96 profile-level-id=42e01f;packetization-mode=1\r\n"
+	                  "a=rtpmap:97 rtx/90000\r\n"
+	                  "a=fmtp:97 apt=96\r\n"
+	                  "a=rtpmap:98 VP8/90000\r\n"
+	                  "m=application 9 UDP/DTLS/SCTP webrtc-datachannel\r\n";
+
+	const auto sections = parseOfferedMediaSections(sdp);
+
+	ASSERT_EQ(sections.size(), 2u);
+	EXPECT_EQ(sections[0].type, "audio");
+	EXPECT_EQ(sections[0].mid, "audio-main");
+	ASSERT_EQ(sections[0].payloadTypes.size(), 2u);
+	EXPECT_EQ(sections[0].payloadTypes[0], 111);
+	EXPECT_EQ(sections[0].payloadTypes[1], 126);
+	ASSERT_EQ(sections[0].codecs.size(), 2u);
+	EXPECT_EQ(sections[0].codecs[0].codec, "opus");
+	EXPECT_EQ(sections[0].codecs[0].clockRate, 48000);
+	EXPECT_EQ(sections[0].codecs[0].channels, 2);
+	EXPECT_EQ(sections[0].codecs[0].formatParameters, "minptime=10;useinbandfec=1");
+
+	EXPECT_EQ(sections[1].type, "video");
+	EXPECT_EQ(sections[1].mid, "video-main");
+	ASSERT_EQ(sections[1].payloadTypes.size(), 3u);
+	EXPECT_EQ(sections[1].payloadTypes[0], 96);
+	EXPECT_EQ(sections[1].payloadTypes[1], 97);
+	EXPECT_EQ(sections[1].payloadTypes[2], 98);
+	ASSERT_EQ(sections[1].codecs.size(), 3u);
+	EXPECT_EQ(sections[1].codecs[0].codec, "H264");
+	EXPECT_EQ(sections[1].codecs[0].formatParameters, "profile-level-id=42e01f;packetization-mode=1");
+	EXPECT_EQ(sections[1].codecs[1].codec, "rtx");
+	EXPECT_EQ(sections[1].codecs[1].associatedPayloadType, 96);
+	EXPECT_EQ(sections[1].codecs[2].codec, "VP8");
+}
+
+TEST_F(SDPTest, ParseOfferedMediaSectionsIgnoresUnsupportedMediaBlocks)
+{
+	std::string sdp = "v=0\r\n"
+	                  "m=application 9 UDP/DTLS/SCTP webrtc-datachannel\r\n"
+	                  "a=mid:data\r\n"
+	                  "m=video 9 UDP/TLS/RTP/SAVPF 102\r\n"
+	                  "a=mid:cam\r\n"
+	                  "a=rtpmap:102 H264/90000\r\n";
+
+	const auto sections = parseOfferedMediaSections(sdp);
+
+	ASSERT_EQ(sections.size(), 1u);
+	EXPECT_EQ(sections[0].type, "video");
+	EXPECT_EQ(sections[0].mid, "cam");
+	ASSERT_EQ(sections[0].codecs.size(), 1u);
+	EXPECT_EQ(sections[0].codecs[0].payloadType, 102);
+	EXPECT_EQ(sections[0].codecs[0].codec, "H264");
+}

@@ -52,39 +52,46 @@ std::string wrapTargetedPeerMessage(const std::string &uuid, const std::string &
 	return wrapped + "," + body + "}";
 }
 
-std::string constrainViewerOfferToNativeCodecs(const std::string &sdp)
+std::string codecNameLower(const std::string &codec)
 {
-	rtc::Description description(sdp, rtc::Description::Type::Offer);
-	bool changed = false;
+	std::string lower = codec;
+	std::transform(lower.begin(), lower.end(), lower.begin(),
+	               [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
+	return lower;
+}
 
-	for (int mediaIndex = 0; mediaIndex < description.mediaCount(); ++mediaIndex) {
-		auto mediaVariant = description.media(mediaIndex);
-		auto *media = std::get_if<rtc::Description::Media *>(&mediaVariant);
-		if (!media || !*media) {
+const SdpOfferedCodec *findPreferredOfferedCodec(const SdpOfferedMediaSection &section, const char *codecName)
+{
+	const std::string target = codecNameLower(codecName);
+	const SdpOfferedCodec *fallback = nullptr;
+	for (const auto &codec : section.codecs) {
+		if (codecNameLower(codec.codec) != target) {
 			continue;
 		}
-
-		if ((*media)->type() == "video") {
-			const std::vector<std::string> disallowedFormats = {"VP8", "VP9", "AV1", "H265", "red", "ulpfec"};
-			for (const auto &format : disallowedFormats) {
-				const size_t payloadCountBefore = (*media)->payloadTypes().size();
-				(*media)->removeFormat(format);
-				if ((*media)->payloadTypes().size() != payloadCountBefore) {
-					changed = true;
-				}
-			}
-		} else if ((*media)->type() == "audio") {
-			const size_t payloadCountBefore = (*media)->payloadTypes().size();
-			(*media)->removeFormat("telephone-event");
-			if ((*media)->payloadTypes().size() != payloadCountBefore) {
-				changed = true;
-			}
+		if (!fallback) {
+			fallback = &codec;
+		}
+		if (target == "h264" && codecNameLower(codec.formatParameters).find("packetization-mode=1") != std::string::npos) {
+			return &codec;
 		}
 	}
+	return fallback;
+}
 
-	std::string constrained = changed ? std::string(description) : sdp;
-	std::string filtered = stripUnsupportedTransportCcFeedback(constrained);
-	if (filtered != constrained) {
+const SdpOfferedCodec *findAssociatedRtxCodec(const SdpOfferedMediaSection &section, int primaryPayloadType)
+{
+	for (const auto &codec : section.codecs) {
+		if (codecNameLower(codec.codec) == "rtx" && codec.associatedPayloadType == primaryPayloadType) {
+			return &codec;
+		}
+	}
+	return nullptr;
+}
+
+std::string constrainViewerOfferToNativeCodecs(const std::string &sdp)
+{
+	std::string filtered = stripUnsupportedTransportCcFeedback(sdp);
+	if (filtered != sdp) {
 		logInfo("Stripped transport-cc feedback/extensions from native viewer offer to prefer REMB-compatible feedback");
 	}
 	return filtered;
@@ -916,7 +923,7 @@ void VDONinjaPeerManager::prepareViewerTracks(const std::shared_ptr<PeerInfo> &p
 		return;
 	}
 
-	rtc::Description description(offerSdp, rtc::Description::Type::Offer);
+	const auto offeredSections = parseOfferedMediaSections(offerSdp);
 	OnTrackCallback trackCallback;
 	{
 		std::lock_guard<std::mutex> callbackLock(callbackMutex_);
@@ -925,20 +932,34 @@ void VDONinjaPeerManager::prepareViewerTracks(const std::shared_ptr<PeerInfo> &p
 
 	const int requestedVideoBitrateKbps = std::max(1, bitrate_ / 1000);
 
-	for (int mediaIndex = 0; mediaIndex < description.mediaCount(); ++mediaIndex) {
-		auto mediaVariant = description.media(mediaIndex);
-		auto *media = std::get_if<rtc::Description::Media *>(&mediaVariant);
-		if (!media || !*media) {
-			continue;
-		}
-
+	for (const auto &section : offeredSections) {
 		try {
-			if ((*media)->type() == "video") {
+			if (section.type == "video") {
 				if (peer->videoTrack) {
 					continue;
 				}
 
-				rtc::Description::Media receiveVideo = (*media)->reciprocate();
+				const SdpOfferedCodec *videoCodec = findPreferredOfferedCodec(section, "h264");
+				if (!videoCodec) {
+					logWarning("Remote offer for %s did not include H.264 in video section %s", peer->uuid.c_str(),
+					           section.mid.c_str());
+					continue;
+				}
+
+				rtc::Description::Video receiveVideo(section.mid.empty() ? "video" : section.mid,
+				                                    rtc::Description::Direction::RecvOnly);
+				if (videoCodec->formatParameters.empty()) {
+					receiveVideo.addH264Codec(videoCodec->payloadType);
+				} else {
+					receiveVideo.addH264Codec(videoCodec->payloadType, videoCodec->formatParameters);
+				}
+				if (const SdpOfferedCodec *rtxCodec =
+				        findAssociatedRtxCodec(section, videoCodec->payloadType)) {
+					const unsigned int rtxClockRate = rtxCodec->clockRate > 0
+					                                      ? static_cast<unsigned int>(rtxCodec->clockRate)
+					                                      : 90000u;
+					receiveVideo.addRtxCodec(rtxCodec->payloadType, videoCodec->payloadType, rtxClockRate);
+				}
 				receiveVideo.setBitrate(requestedVideoBitrateKbps);
 				auto track = peer->pc->addTrack(receiveVideo);
 				peer->videoTrack = track;
@@ -947,12 +968,25 @@ void VDONinjaPeerManager::prepareViewerTracks(const std::shared_ptr<PeerInfo> &p
 				if (trackCallback && track) {
 					trackCallback(peer->uuid, TrackType::Video, track);
 				}
-			} else if ((*media)->type() == "audio") {
+			} else if (section.type == "audio") {
 				if (peer->audioTrack) {
 					continue;
 				}
 
-				rtc::Description::Media receiveAudio = (*media)->reciprocate();
+				const SdpOfferedCodec *audioCodec = findPreferredOfferedCodec(section, "opus");
+				if (!audioCodec) {
+					logWarning("Remote offer for %s did not include Opus in audio section %s", peer->uuid.c_str(),
+					           section.mid.c_str());
+					continue;
+				}
+
+				rtc::Description::Audio receiveAudio(section.mid.empty() ? "audio" : section.mid,
+				                                    rtc::Description::Direction::RecvOnly);
+				if (audioCodec->formatParameters.empty()) {
+					receiveAudio.addOpusCodec(audioCodec->payloadType);
+				} else {
+					receiveAudio.addOpusCodec(audioCodec->payloadType, audioCodec->formatParameters);
+				}
 				auto track = peer->pc->addTrack(receiveAudio);
 				peer->audioTrack = track;
 				logInfo("Prepared native recvonly audio track for %s (mid=%s)", peer->uuid.c_str(),
@@ -962,8 +996,8 @@ void VDONinjaPeerManager::prepareViewerTracks(const std::shared_ptr<PeerInfo> &p
 				}
 			}
 		} catch (const std::exception &e) {
-			logWarning("Failed to prepare native recvonly %s track for %s: %s", (*media)->type().c_str(),
-			           peer->uuid.c_str(), e.what());
+			logWarning("Failed to prepare native recvonly %s track for %s: %s", section.type.c_str(), peer->uuid.c_str(),
+			           e.what());
 		}
 	}
 }
@@ -1135,7 +1169,7 @@ void VDONinjaPeerManager::onSignalingOfferRequest(const std::string &uuid, const
 		peer->awaitingVideoKeyframe = true;
 	}
 
-	peer->pc->setLocalDescription(rtc::Description::Type::Offer);
+	peer->pc->setLocalDescription();
 }
 
 void VDONinjaPeerManager::onSignalingIceCandidate(const std::string &uuid, const std::string &candidate,

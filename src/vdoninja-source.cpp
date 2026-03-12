@@ -14,7 +14,6 @@
 #include <util/platform.h>
 #include <util/threading.h>
 
-#include <rtc/rtpdepacketizer.hpp>
 #include <rtc/rtcpreceivingsession.hpp>
 
 extern "C" {
@@ -1530,13 +1529,10 @@ void VDONinjaSource::onAudioTrack(const std::string &uuid, std::shared_ptr<rtc::
 			lastAudioTime_ = 0;
 		}
 	}
-	auto depacketizer = std::make_shared<rtc::OpusRtpDepacketizer>();
 	audioSampleRate_ = sampleRate > 0 ? sampleRate : 48000;
 	audioChannels_ = channels > 0 ? channels : 2;
-	track->chainMediaHandler(depacketizer);
 	const auto callbackState = callbackState_;
-	track->onFrame([callbackState, weakTrack = std::weak_ptr<rtc::Track>(track)](rtc::binary data,
-	                                                                            rtc::FrameInfo frameInfo) {
+	track->onMessage([callbackState, weakTrack = std::weak_ptr<rtc::Track>(track)](rtc::message_variant message) {
 		AsyncCallbackGuard<VDONinjaSource> guard(callbackState.get());
 		if (!guard) {
 			return;
@@ -1552,7 +1548,11 @@ void VDONinjaSource::onAudioTrack(const std::string &uuid, std::shared_ptr<rtc::
 				return;
 			}
 		}
-		self->processAudioData(reinterpret_cast<const uint8_t *>(data.data()), data.size(), frameInfo.timestamp);
+		if (!std::holds_alternative<rtc::binary>(message)) {
+			return;
+		}
+		const auto &packet = std::get<rtc::binary>(message);
+		self->processAudioRtpPacket(reinterpret_cast<const uint8_t *>(packet.data()), packet.size());
 	});
 }
 
@@ -1752,6 +1752,21 @@ void VDONinjaSource::processVideoRtpPacket(const uint8_t *packetData, size_t pac
 			processVideoData(frame.first.data(), frame.first.size(), frame.second);
 		}
 	}
+}
+
+void VDONinjaSource::processAudioRtpPacket(const uint8_t *packetData, size_t packetSize)
+{
+	if (!nativeRunning_.load() || !packetData || packetSize < sizeof(rtc::RtpHeader)) {
+		return;
+	}
+
+	const auto payloadView = parseRtpPayloadView(packetData, packetSize);
+	if (!payloadView || payloadView->size == 0) {
+		return;
+	}
+
+	const auto *rtpHeader = reinterpret_cast<const rtc::RtpHeader *>(packetData);
+	processAudioData(packetData + payloadView->offset, payloadView->size, rtpHeader->timestamp());
 }
 
 void VDONinjaSource::processAudioData(const uint8_t *data, size_t size, uint32_t rtpTimestamp)

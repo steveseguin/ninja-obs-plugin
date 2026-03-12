@@ -24,6 +24,22 @@ struct AspectFitLayout {
 	uint32_t offsetY = 0;
 };
 
+struct SdpOfferedCodec {
+	int payloadType = -1;
+	std::string codec;
+	int clockRate = 0;
+	int channels = 0;
+	std::string formatParameters;
+	int associatedPayloadType = -1;
+};
+
+struct SdpOfferedMediaSection {
+	std::string type;
+	std::string mid;
+	std::vector<int> payloadTypes;
+	std::vector<SdpOfferedCodec> codecs;
+};
+
 // UUID generation
 std::string generateUUID();
 
@@ -107,6 +123,7 @@ std::string modifySdpForCodec(const std::string &sdp, VideoCodec codec);
 std::string modifySdpBitrate(const std::string &sdp, int bitrate);
 std::string extractMid(const std::string &sdp, const std::string &mediaType);
 std::string stripUnsupportedTransportCcFeedback(const std::string &sdp);
+std::vector<SdpOfferedMediaSection> parseOfferedMediaSections(const std::string &sdp);
 
 // Logging helpers
 void logInfo(const char *format, ...);

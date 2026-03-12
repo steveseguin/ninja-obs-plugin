@@ -101,6 +101,41 @@ std::string asciiLowerCopy(std::string value)
 	return value;
 }
 
+std::vector<std::string> splitWhitespace(const std::string &value)
+{
+	std::vector<std::string> tokens;
+	std::istringstream input(value);
+	std::string token;
+	while (input >> token) {
+		tokens.push_back(token);
+	}
+	return tokens;
+}
+
+int parseIntOrDefault(const std::string &value, int defaultValue = -1)
+{
+	try {
+		return std::stoi(value);
+	} catch (...) {
+		return defaultValue;
+	}
+}
+
+bool containsPayloadType(const std::vector<int> &payloadTypes, int payloadType)
+{
+	return std::find(payloadTypes.begin(), payloadTypes.end(), payloadType) != payloadTypes.end();
+}
+
+SdpOfferedCodec *findCodecByPayloadType(std::vector<SdpOfferedCodec> &codecs, int payloadType)
+{
+	for (auto &codec : codecs) {
+		if (codec.payloadType == payloadType) {
+			return &codec;
+		}
+	}
+	return nullptr;
+}
+
 bool containsInsensitive(const std::string &value, const char *needle)
 {
 	return asciiLowerCopy(value).find(asciiLowerCopy(needle)) != std::string::npos;
@@ -1128,6 +1163,120 @@ std::string stripUnsupportedTransportCcFeedback(const std::string &sdp)
 	}
 
 	return stripped ? filtered : sdp;
+}
+
+std::vector<SdpOfferedMediaSection> parseOfferedMediaSections(const std::string &sdp)
+{
+	std::vector<SdpOfferedMediaSection> sections;
+	SdpOfferedMediaSection *current = nullptr;
+
+	std::stringstream input(sdp);
+	std::string line;
+	while (std::getline(input, line)) {
+		if (!line.empty() && line.back() == '\r') {
+			line.pop_back();
+		}
+
+		if (line.rfind("m=", 0) == 0) {
+			const auto tokens = splitWhitespace(line.substr(2));
+			if (tokens.empty()) {
+				current = nullptr;
+				continue;
+			}
+
+			const std::string mediaType = asciiLowerCopy(tokens[0]);
+			if (mediaType != "audio" && mediaType != "video") {
+				current = nullptr;
+				continue;
+			}
+
+			sections.push_back({});
+			current = &sections.back();
+			current->type = mediaType;
+			for (size_t i = 3; i < tokens.size(); ++i) {
+				const int payloadType = parseIntOrDefault(tokens[i]);
+				if (payloadType >= 0) {
+					current->payloadTypes.push_back(payloadType);
+				}
+			}
+			continue;
+		}
+
+		if (!current) {
+			continue;
+		}
+
+		if (line.rfind("a=mid:", 0) == 0) {
+			current->mid = trim(line.substr(6));
+			continue;
+		}
+
+		if (line.rfind("a=rtpmap:", 0) == 0) {
+			const size_t separator = line.find(' ');
+			if (separator == std::string::npos) {
+				continue;
+			}
+
+			const int payloadType = parseIntOrDefault(line.substr(9, separator - 9));
+			if (payloadType < 0 || !containsPayloadType(current->payloadTypes, payloadType)) {
+				continue;
+			}
+
+			SdpOfferedCodec *codec = findCodecByPayloadType(current->codecs, payloadType);
+			if (!codec) {
+				current->codecs.push_back({});
+				codec = &current->codecs.back();
+				codec->payloadType = payloadType;
+			}
+
+			const auto descriptorParts = split(line.substr(separator + 1), '/');
+			if (!descriptorParts.empty()) {
+				codec->codec = descriptorParts[0];
+			}
+			if (descriptorParts.size() > 1) {
+				codec->clockRate = parseIntOrDefault(descriptorParts[1], 0);
+			}
+			if (descriptorParts.size() > 2) {
+				codec->channels = parseIntOrDefault(descriptorParts[2], 0);
+			}
+			continue;
+		}
+
+		if (line.rfind("a=fmtp:", 0) == 0) {
+			const size_t separator = line.find(' ');
+			if (separator == std::string::npos) {
+				continue;
+			}
+
+			const int payloadType = parseIntOrDefault(line.substr(7, separator - 7));
+			if (payloadType < 0 || !containsPayloadType(current->payloadTypes, payloadType)) {
+				continue;
+			}
+
+			SdpOfferedCodec *codec = findCodecByPayloadType(current->codecs, payloadType);
+			if (!codec) {
+				current->codecs.push_back({});
+				codec = &current->codecs.back();
+				codec->payloadType = payloadType;
+			}
+
+			codec->formatParameters = trim(line.substr(separator + 1));
+			const std::string fmtpLower = asciiLowerCopy(codec->formatParameters);
+			const size_t aptPos = fmtpLower.find("apt=");
+			if (aptPos != std::string::npos) {
+				size_t valueStart = aptPos + 4;
+				size_t valueEnd = valueStart;
+				while (valueEnd < codec->formatParameters.size() &&
+				       std::isdigit(static_cast<unsigned char>(codec->formatParameters[valueEnd]))) {
+					++valueEnd;
+				}
+				codec->associatedPayloadType =
+				    parseIntOrDefault(codec->formatParameters.substr(valueStart, valueEnd - valueStart));
+			}
+		}
+	}
+
+	return sections;
 }
 
 // Logging

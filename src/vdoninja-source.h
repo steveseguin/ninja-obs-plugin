@@ -73,6 +73,7 @@ private:
 	void onVideoTrack(const std::string &uuid, std::shared_ptr<rtc::Track> track);
 	void onAudioTrack(const std::string &uuid, std::shared_ptr<rtc::Track> track);
 	void processVideoRtpPacket(const uint8_t *packetData, size_t packetSize);
+	void processAudioRtpPacket(const uint8_t *packetData, size_t packetSize);
 	void processVideoData(const uint8_t *data, size_t size, uint32_t rtpTimestamp);
 	void processAudioData(const uint8_t *data, size_t size, uint32_t rtpTimestamp);
 	bool initializeVideoDecoder();
