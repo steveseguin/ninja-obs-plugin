@@ -163,6 +163,12 @@ jobs:
           cmake --build build
           sudo cmake --install build
 
+      - name: Disable vendored libdatachannel headers
+        run: |
+          if [ -d "${{ github.workspace }}/deps/libdatachannel" ]; then
+            mv "${{ github.workspace }}/deps/libdatachannel" "${{ github.workspace }}/deps/libdatachannel-vendored-disabled"
+          fi
+
       - name: Configure Plugin
         run: |
           echo "=== Checking OBS libraries ==="
@@ -315,6 +321,7 @@ jobs:
           cmake -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_OSX_ARCHITECTURES=${{ matrix.arch }} \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0 \
             -DCMAKE_INSTALL_PREFIX=${{ github.workspace }}/deps \
             -DBUILD_SHARED_LIBS=OFF \
             -DNO_EXAMPLES=ON \
@@ -325,6 +332,12 @@ jobs:
             -DOPENSSL_ROOT_DIR=$(brew --prefix openssl@3)
           cmake --build build
           cmake --install build
+
+      - name: Disable vendored libdatachannel headers
+        run: |
+          if [ -d "${{ github.workspace }}/deps/libdatachannel" ]; then
+            mv "${{ github.workspace }}/deps/libdatachannel" "${{ github.workspace }}/deps/libdatachannel-vendored-disabled"
+          fi
 
       - name: Configure Plugin
         run: |
@@ -567,6 +580,18 @@ jobs:
 
           Write-Host "Generated static LibDataChannel config at: $configPath"
           Get-Content $configPath
+
+      - name: Disable vendored libdatachannel headers
+        shell: pwsh
+        run: |
+          $vendoredDir = "${{ github.workspace }}\deps\libdatachannel"
+          $disabledDir = "${{ github.workspace }}\deps\libdatachannel-vendored-disabled"
+          if (Test-Path $disabledDir) {
+            Remove-Item -Recurse -Force $disabledDir
+          }
+          if (Test-Path $vendoredDir) {
+            Rename-Item -Path $vendoredDir -NewName "libdatachannel-vendored-disabled"
+          }
 
       - name: Configure Plugin
         run: |
