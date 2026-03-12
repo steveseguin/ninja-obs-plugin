@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.31] - 2026-03-11
+
+### Fixed
+- macOS and Windows release builds now resolve FFmpeg development headers and libraries from the correct OBS dependency roots explicitly, avoiding Qt-only prefixes and missing FFmpeg detection during tagged packaging.
+
 ## [1.1.30] - 2026-03-11
 
 ### Fixed

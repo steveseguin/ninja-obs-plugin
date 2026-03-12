@@ -327,17 +327,23 @@ jobs:
 
       - name: Configure Plugin
         run: |
-          obs_deps_root="$(find "${{ github.workspace }}/obs-studio/.deps" -maxdepth 1 -type d -name 'obs-deps-*' | head -1)"
-          if [ -z "$obs_deps_root" ]; then
-            echo "Failed to locate OBS dependency prefix under obs-studio/.deps"
+          obs_deps_dir="${{ github.workspace }}/obs-studio/.deps"
+          obs_sdk_frameworks="${{ github.workspace }}/obs-sdk/OBS.app/Contents/Frameworks"
+          ffmpeg_deps_root="$(find "$obs_deps_dir" -maxdepth 1 -type d -name 'obs-deps-*' ! -name '*qt6*' | head -1)"
+          if [ -z "$ffmpeg_deps_root" ]; then
+            echo "Failed to locate FFmpeg dependency prefix under obs-studio/.deps"
             exit 1
           fi
-          ffmpeg_lib_dir="${obs_deps_root}/lib"
-          ffmpeg_include_dir="${obs_deps_root}/include"
+          ffmpeg_include_dir="${ffmpeg_deps_root}/include"
+          if [ -f "${obs_sdk_frameworks}/libavcodec.dylib" ]; then
+            ffmpeg_lib_dir="${obs_sdk_frameworks}"
+          else
+            ffmpeg_lib_dir="${ffmpeg_deps_root}/lib"
+          fi
           cmake -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_OSX_ARCHITECTURES=${{ matrix.arch }} \
-            -DCMAKE_PREFIX_PATH="${{ github.workspace }}/deps;${{ github.workspace }}/obs-sdk;${obs_deps_root};$(brew --prefix qt@6);$(brew --prefix openssl@3)" \
+            -DCMAKE_PREFIX_PATH="${{ github.workspace }}/deps;${{ github.workspace }}/obs-sdk;${ffmpeg_deps_root};$(brew --prefix qt@6);$(brew --prefix openssl@3)" \
             -DCMAKE_LIBRARY_PATH="${ffmpeg_lib_dir}" \
             -DCMAKE_INCLUDE_PATH="${ffmpeg_include_dir}" \
             -DFFMPEG_INCLUDE_DIR="${ffmpeg_include_dir}" \
@@ -562,6 +568,22 @@ jobs:
 
       - name: Configure Plugin
         run: |
+          function Find-FirstMatch {
+            param(
+              [string]$Directory,
+              [string[]]$Patterns
+            )
+
+            foreach ($pattern in $Patterns) {
+              $match = Get-ChildItem -Path $Directory -Filter $pattern -File -ErrorAction SilentlyContinue | Select-Object -First 1
+              if ($match) {
+                return $match.FullName
+              }
+            }
+
+            return $null
+          }
+
           $qtArg = ""
           if ($env:QT_PACKAGE_NAME -eq "Qt6" -and $env:QT_PACKAGE_DIR) {
             $qtArg = "-DQt6_DIR=$env:QT_PACKAGE_DIR"
@@ -572,13 +594,38 @@ jobs:
             throw "QT_PACKAGE_NAME/QT_PACKAGE_DIR was not set by Locate Qt CMake package step."
           }
 
+          $ffmpegDepsRoot = Get-ChildItem -Path "${{ github.workspace }}\obs-studio\.deps" -Directory -Filter "obs-deps-*" |
+            Where-Object { $_.Name -notmatch "qt6" } |
+            Select-Object -First 1
+          if (-not $ffmpegDepsRoot) {
+            throw "Could not locate non-Qt OBS dependency prefix for FFmpeg."
+          }
+
+          $ffmpegIncludeDir = Join-Path $ffmpegDepsRoot.FullName "include"
+          $ffmpegLibDir = Join-Path $ffmpegDepsRoot.FullName "lib"
+          $ffmpegAvcodec = Find-FirstMatch $ffmpegLibDir @("avcodec*.lib", "libavcodec*.lib")
+          $ffmpegAvutil = Find-FirstMatch $ffmpegLibDir @("avutil*.lib", "libavutil*.lib")
+          $ffmpegSwscale = Find-FirstMatch $ffmpegLibDir @("swscale*.lib", "libswscale*.lib")
+          $ffmpegSwresample = Find-FirstMatch $ffmpegLibDir @("swresample*.lib", "libswresample*.lib")
+
+          if (-not $ffmpegAvcodec -or -not $ffmpegAvutil -or -not $ffmpegSwscale -or -not $ffmpegSwresample) {
+            throw "Could not resolve FFmpeg import libraries from $ffmpegLibDir"
+          }
+
           cmake -B build -G Ninja `
             -DCMAKE_BUILD_TYPE=Release `
-            -DCMAKE_PREFIX_PATH="${{ github.workspace }}\local-libdatachannel;${{ github.workspace }}\deps;${{ github.workspace }}\obs-sdk" `
+            -DCMAKE_PREFIX_PATH="${{ github.workspace }}\local-libdatachannel;${{ github.workspace }}\deps;${{ github.workspace }}\obs-sdk;$($ffmpegDepsRoot.FullName)" `
+            -DCMAKE_LIBRARY_PATH="$ffmpegLibDir" `
+            -DCMAKE_INCLUDE_PATH="$ffmpegIncludeDir" `
             -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT\scripts\buildsystems\vcpkg.cmake" `
             -DVCPKG_TARGET_TRIPLET=x64-windows-static-md `
             -DLibDataChannel_DIR="${{ github.workspace }}\local-libdatachannel" `
             -DOBS_SDK_PATH="${{ github.workspace }}\obs-sdk" `
+            -DFFMPEG_INCLUDE_DIR="$ffmpegIncludeDir" `
+            -DFFMPEG_AVCODEC_LIBRARY="$ffmpegAvcodec" `
+            -DFFMPEG_AVUTIL_LIBRARY="$ffmpegAvutil" `
+            -DFFMPEG_SWSCALE_LIBRARY="$ffmpegSwscale" `
+            -DFFMPEG_SWRESAMPLE_LIBRARY="$ffmpegSwresample" `
             $qtArg
 
       - name: Verify local libdatachannel prefix
