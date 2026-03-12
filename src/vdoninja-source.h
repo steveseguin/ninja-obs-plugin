@@ -132,8 +132,16 @@ private:
 	std::unordered_set<uint8_t> videoRedPayloadTypes_;
 	bool childShowing_ = false;
 	bool childActive_ = false;
+	bool browserSourceConfigApplied_ = false;
+	bool nativeReceiverConfigApplied_ = false;
 	uint32_t width_ = 1920;
 	uint32_t height_ = 1080;
+	uint32_t browserSourceWidth_ = 0;
+	uint32_t browserSourceHeight_ = 0;
+	uint32_t nativeReceiverWidth_ = 0;
+	uint32_t nativeReceiverHeight_ = 0;
+	std::string browserSourceUrl_;
+	SourceSettings nativeReceiverSettings_;
 	std::mutex nativeStateMutex_;
 	std::mutex videoAssemblyMutex_;
 	std::mutex videoDecodeMutex_;

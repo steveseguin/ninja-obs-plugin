@@ -105,6 +105,15 @@ obs_data_t *createNativeReceiverSourceSettings(const SourceSettings &sourceSetti
 	return settings;
 }
 
+bool sourceSettingsEqualForChild(const SourceSettings &left, const SourceSettings &right)
+{
+	return left.streamId == right.streamId && left.roomId == right.roomId && left.password == right.password &&
+	       left.wssHost == right.wssHost && left.salt == right.salt &&
+	       left.customIceServersText == right.customIceServersText &&
+	       left.useNativeReceiver == right.useNativeReceiver && left.enableDataChannel == right.enableDataChannel &&
+	       left.autoReconnect == right.autoReconnect && left.forceTurn == right.forceTurn;
+}
+
 std::string toLowerCopy(std::string value)
 {
 	std::transform(value.begin(), value.end(), value.begin(),
@@ -2340,6 +2349,10 @@ void VDONinjaSource::ensureNativeReceiverSource()
 	signal_handler_connect(sh, "audio_deactivate", vdoninja_source_child_audio_deactivate, callbackState_.get());
 	obs_source_set_audio_active(source_, obs_source_audio_active(nativeReceiverSource_));
 	syncChildLifecycleState(nativeReceiverSource_);
+	nativeReceiverSettings_ = settings_;
+	nativeReceiverWidth_ = width_;
+	nativeReceiverHeight_ = height_;
+	nativeReceiverConfigApplied_ = true;
 
 	logInfo("Created internal native receiver source for VDO.Ninja Source");
 }
@@ -2360,6 +2373,10 @@ void VDONinjaSource::releaseNativeReceiverSource()
 	obs_source_set_audio_active(source_, false);
 	obs_source_release(nativeReceiverSource_);
 	nativeReceiverSource_ = nullptr;
+	nativeReceiverConfigApplied_ = false;
+	nativeReceiverWidth_ = 0;
+	nativeReceiverHeight_ = 0;
+	nativeReceiverSettings_ = SourceSettings{};
 }
 
 void VDONinjaSource::updateNativeReceiverSource()
@@ -2379,9 +2396,19 @@ void VDONinjaSource::updateNativeReceiverSource()
 		return;
 	}
 
+	if (nativeReceiverConfigApplied_ && nativeReceiverWidth_ == width_ && nativeReceiverHeight_ == height_ &&
+	    sourceSettingsEqualForChild(nativeReceiverSettings_, settings_)) {
+		syncChildLifecycleState(nativeReceiverSource_);
+		return;
+	}
+
 	obs_data_t *nativeSettings = createNativeReceiverSourceSettings(settings_, width_, height_);
 	obs_source_update(nativeReceiverSource_, nativeSettings);
 	obs_data_release(nativeSettings);
+	nativeReceiverSettings_ = settings_;
+	nativeReceiverWidth_ = width_;
+	nativeReceiverHeight_ = height_;
+	nativeReceiverConfigApplied_ = true;
 	syncChildLifecycleState(nativeReceiverSource_);
 }
 
@@ -2411,6 +2438,10 @@ void VDONinjaSource::ensureBrowserSource()
 	signal_handler_connect(sh, "audio_deactivate", vdoninja_source_child_audio_deactivate, callbackState_.get());
 	obs_source_set_audio_active(source_, obs_source_audio_active(browserSource_));
 	syncChildLifecycleState(browserSource_);
+	browserSourceUrl_ = url;
+	browserSourceWidth_ = width_;
+	browserSourceHeight_ = height_;
+	browserSourceConfigApplied_ = true;
 
 	logInfo("Created internal Browser Source for VDO.Ninja Source");
 }
@@ -2430,6 +2461,10 @@ void VDONinjaSource::releaseBrowserSource()
 	obs_source_set_audio_active(source_, false);
 	obs_source_release(browserSource_);
 	browserSource_ = nullptr;
+	browserSourceConfigApplied_ = false;
+	browserSourceWidth_ = 0;
+	browserSourceHeight_ = 0;
+	browserSourceUrl_.clear();
 }
 
 void VDONinjaSource::updateBrowserSource()
@@ -2450,9 +2485,19 @@ void VDONinjaSource::updateBrowserSource()
 		return;
 	}
 
+	if (browserSourceConfigApplied_ && browserSourceWidth_ == width_ && browserSourceHeight_ == height_ &&
+	    browserSourceUrl_ == url) {
+		syncChildLifecycleState(browserSource_);
+		return;
+	}
+
 	obs_data_t *browserSettings = createBrowserSourceSettings(url, width_, height_);
 	obs_source_update(browserSource_, browserSettings);
 	obs_data_release(browserSettings);
+	browserSourceUrl_ = url;
+	browserSourceWidth_ = width_;
+	browserSourceHeight_ = height_;
+	browserSourceConfigApplied_ = true;
 	syncChildLifecycleState(browserSource_);
 }
 
