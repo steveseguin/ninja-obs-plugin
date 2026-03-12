@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.29] - 2026-03-11
+
+### Fixed
+- GitHub release builds now use `libdatachannel v0.24.0` across Linux, macOS, and Windows so CI matches the native receiver headers used by the plugin.
+- macOS release builds now pass the OBS-bundled FFmpeg development prefix through to plugin configure, restoring tagged release packaging after the native source work.
+
 ## [1.1.28] - 2026-03-11
 
 ### Added

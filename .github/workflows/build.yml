@@ -8,6 +8,7 @@ on:
 
 env:
   PLUGIN_NAME: obs-vdoninja
+  LIBDATACHANNEL_VERSION: v0.24.0
   # Build against the oldest supported OBS 32.x baseline so one release artifact
   # works across the widest range of current OBS 32 installs.
   # Do not bump this to a newer OBS SDK unless we intentionally drop support
@@ -148,7 +149,7 @@ jobs:
 
       - name: Build libdatachannel
         run: |
-          git clone --depth 1 --branch v0.20.2 https://github.com/paullouisageneau/libdatachannel.git
+          git clone --depth 1 --branch ${{ env.LIBDATACHANNEL_VERSION }} https://github.com/paullouisageneau/libdatachannel.git
           cd libdatachannel
           git submodule update --init --recursive --depth 1
           cmake -B build -G Ninja \
@@ -308,7 +309,7 @@ jobs:
 
       - name: Build libdatachannel
         run: |
-          git clone --depth 1 --branch v0.20.2 https://github.com/paullouisageneau/libdatachannel.git
+          git clone --depth 1 --branch ${{ env.LIBDATACHANNEL_VERSION }} https://github.com/paullouisageneau/libdatachannel.git
           cd libdatachannel
           git submodule update --init --recursive --depth 1
           cmake -B build -G Ninja \
@@ -326,10 +327,17 @@ jobs:
 
       - name: Configure Plugin
         run: |
+          obs_deps_root="$(find "${{ github.workspace }}/obs-studio/.deps" -maxdepth 1 -type d -name 'obs-deps-*' | head -1)"
+          if [ -z "$obs_deps_root" ]; then
+            echo "Failed to locate OBS dependency prefix under obs-studio/.deps"
+            exit 1
+          fi
           cmake -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_OSX_ARCHITECTURES=${{ matrix.arch }} \
-            -DCMAKE_PREFIX_PATH="${{ github.workspace }}/deps;${{ github.workspace }}/obs-sdk;$(brew --prefix qt@6);$(brew --prefix openssl@3)" \
+            -DCMAKE_PREFIX_PATH="${{ github.workspace }}/deps;${{ github.workspace }}/obs-sdk;${obs_deps_root};$(brew --prefix qt@6);$(brew --prefix openssl@3)" \
+            -DCMAKE_LIBRARY_PATH="${obs_deps_root}/lib" \
+            -DCMAKE_INCLUDE_PATH="${obs_deps_root}/include" \
             -DOBS_SDK_PATH="${{ github.workspace }}/obs-sdk" \
             -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0
 
@@ -464,7 +472,7 @@ jobs:
 
       - name: Build libdatachannel
         run: |
-          git clone --depth 1 --branch v0.20.2 https://github.com/paullouisageneau/libdatachannel.git
+          git clone --depth 1 --branch ${{ env.LIBDATACHANNEL_VERSION }} https://github.com/paullouisageneau/libdatachannel.git
           cd libdatachannel
           git submodule update --init --recursive --depth 1
           cmake -B build -G Ninja `
