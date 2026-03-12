@@ -384,10 +384,6 @@ void clearTrackCallbacks(const std::shared_ptr<rtc::Track> &track)
 	}
 
 	try {
-		track->onFrame(nullptr);
-	} catch (const std::exception &) {
-	}
-	try {
 		track->onMessage(std::function<void(rtc::message_variant)> {});
 	} catch (const std::exception &) {
 	}

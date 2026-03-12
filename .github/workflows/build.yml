@@ -315,10 +315,8 @@ jobs:
 
       - name: Build libdatachannel
         run: |
-          git clone --depth 1 --branch ${{ env.LIBDATACHANNEL_VERSION }} https://github.com/paullouisageneau/libdatachannel.git
-          cd libdatachannel
-          git submodule update --init --recursive --depth 1
-          cmake -B build -G Ninja \
+          git -C "${{ github.workspace }}/deps/libdatachannel" submodule update --init --recursive --depth 1
+          cmake -S "${{ github.workspace }}/deps/libdatachannel" -B "${{ github.workspace }}/libdatachannel-build" -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_OSX_ARCHITECTURES=${{ matrix.arch }} \
             -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0 \
@@ -330,14 +328,8 @@ jobs:
             -DUSE_NICE=OFF \
             -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
             -DOPENSSL_ROOT_DIR=$(brew --prefix openssl@3)
-          cmake --build build
-          cmake --install build
-
-      - name: Disable vendored libdatachannel headers
-        run: |
-          if [ -d "${{ github.workspace }}/deps/libdatachannel" ]; then
-            mv "${{ github.workspace }}/deps/libdatachannel" "${{ github.workspace }}/deps/libdatachannel-vendored-disabled"
-          fi
+          cmake --build "${{ github.workspace }}/libdatachannel-build"
+          cmake --install "${{ github.workspace }}/libdatachannel-build"
 
       - name: Configure Plugin
         run: |
@@ -500,10 +492,8 @@ jobs:
 
       - name: Build libdatachannel
         run: |
-          git clone --depth 1 --branch ${{ env.LIBDATACHANNEL_VERSION }} https://github.com/paullouisageneau/libdatachannel.git
-          cd libdatachannel
-          git submodule update --init --recursive --depth 1
-          cmake -B build -G Ninja `
+          git -C "${{ github.workspace }}\\deps\\libdatachannel" submodule update --init --recursive --depth 1
+          cmake -S "${{ github.workspace }}\\deps\\libdatachannel" -B "${{ github.workspace }}\\libdatachannel-build" -G Ninja `
             -DCMAKE_BUILD_TYPE=Release `
             -DBUILD_SHARED_LIBS=OFF `
             -DNO_EXAMPLES=ON `
@@ -513,11 +503,11 @@ jobs:
             "-DCMAKE_POLICY_VERSION_MINIMUM=3.5.0" `
             -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT\scripts\buildsystems\vcpkg.cmake" `
             -DVCPKG_TARGET_TRIPLET=x64-windows-static-md
-          cmake --build build --target datachannel-static
+          cmake --build "${{ github.workspace }}\\libdatachannel-build" --target datachannel-static
 
           function Find-FirstLib([string[]]$patterns) {
             foreach ($pattern in $patterns) {
-              $match = Get-ChildItem -Path "build" -Recurse -File -Filter $pattern | Select-Object -First 1
+              $match = Get-ChildItem -Path "${{ github.workspace }}\\libdatachannel-build" -Recurse -File -Filter $pattern | Select-Object -First 1
               if ($match) {
                 return $match.FullName.Replace('\', '/')
               }
@@ -554,7 +544,7 @@ jobs:
             $linkLibs.Add($sysLib)
           }
 
-          $includeDir = (Resolve-Path ".\include").Path.Replace('\', '/')
+          $includeDir = (Resolve-Path "${{ github.workspace }}\deps\libdatachannel\include").Path.Replace('\', '/')
           $configDir = "${{ github.workspace }}\local-libdatachannel"
           New-Item -ItemType Directory -Force -Path $configDir | Out-Null
           $configPath = Join-Path $configDir "LibDataChannelConfig.cmake"
@@ -580,18 +570,6 @@ jobs:
 
           Write-Host "Generated static LibDataChannel config at: $configPath"
           Get-Content $configPath
-
-      - name: Disable vendored libdatachannel headers
-        shell: pwsh
-        run: |
-          $vendoredDir = "${{ github.workspace }}\deps\libdatachannel"
-          $disabledDir = "${{ github.workspace }}\deps\libdatachannel-vendored-disabled"
-          if (Test-Path $disabledDir) {
-            Remove-Item -Recurse -Force $disabledDir
-          }
-          if (Test-Path $vendoredDir) {
-            Rename-Item -Path $vendoredDir -NewName "libdatachannel-vendored-disabled"
-          }
 
       - name: Configure Plugin
         run: |

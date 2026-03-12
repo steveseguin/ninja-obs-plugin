@@ -312,7 +312,6 @@ void clearTrackCallbacks(const std::shared_ptr<rtc::Track> &track)
 	}
 
 	try {
-		track->onFrame(nullptr);
 		track->resetCallbacks();
 		track->setMediaHandler(nullptr);
 	} catch (const std::exception &) {
