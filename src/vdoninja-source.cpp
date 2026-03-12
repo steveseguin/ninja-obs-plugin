@@ -878,7 +878,7 @@ void VDONinjaSource::activate()
 		updateWrapperChildSource();
 		obs_source_t *child = getActiveChildSource();
 		if (child) {
-			obs_source_inc_active(child);
+			syncChildLifecycleState(child);
 		}
 	}
 }
@@ -894,7 +894,7 @@ void VDONinjaSource::deactivate()
 	} else {
 		obs_source_t *child = getActiveChildSource();
 		if (child) {
-			obs_source_dec_active(child);
+			syncChildLifecycleState(child);
 		}
 	}
 }
@@ -909,7 +909,7 @@ void VDONinjaSource::show()
 		updateWrapperChildSource();
 		obs_source_t *child = getActiveChildSource();
 		if (child) {
-			obs_source_inc_showing(child);
+			syncChildLifecycleState(child);
 		}
 	}
 }
@@ -923,7 +923,7 @@ void VDONinjaSource::hide()
 	if (!isInternalNativeSource()) {
 		obs_source_t *child = getActiveChildSource();
 		if (child) {
-			obs_source_dec_showing(child);
+			syncChildLifecycleState(child);
 		}
 	}
 }
@@ -1846,6 +1846,7 @@ void VDONinjaSource::videoRender(gs_effect_t *effect)
 		child = getActiveChildSource();
 	}
 	if (child) {
+		syncChildLifecycleState(child);
 		obs_source_video_render(child);
 	}
 }
@@ -2327,13 +2328,7 @@ void VDONinjaSource::ensureNativeReceiverSource()
 	signal_handler_connect(sh, "audio_activate", vdoninja_source_child_audio_activate, callbackState_.get());
 	signal_handler_connect(sh, "audio_deactivate", vdoninja_source_child_audio_deactivate, callbackState_.get());
 	obs_source_set_audio_active(source_, obs_source_audio_active(nativeReceiverSource_));
-
-	if (showing_.load()) {
-		obs_source_inc_showing(nativeReceiverSource_);
-	}
-	if (active_.load()) {
-		obs_source_inc_active(nativeReceiverSource_);
-	}
+	syncChildLifecycleState(nativeReceiverSource_);
 
 	logInfo("Created internal native receiver source for VDO.Ninja Source");
 }
@@ -2349,13 +2344,7 @@ void VDONinjaSource::releaseNativeReceiverSource()
 	signal_handler_disconnect(sh, "audio_deactivate", vdoninja_source_child_audio_deactivate, callbackState_.get());
 	obs_source_remove_audio_capture_callback(nativeReceiverSource_, vdoninja_source_child_audio_capture,
 	                                         callbackState_.get());
-
-	if (showing_.load()) {
-		obs_source_dec_showing(nativeReceiverSource_);
-	}
-	if (active_.load()) {
-		obs_source_dec_active(nativeReceiverSource_);
-	}
+	detachChildLifecycleState(nativeReceiverSource_);
 
 	obs_source_set_audio_active(source_, false);
 	obs_source_release(nativeReceiverSource_);
@@ -2382,6 +2371,7 @@ void VDONinjaSource::updateNativeReceiverSource()
 	obs_data_t *nativeSettings = createNativeReceiverSourceSettings(settings_, width_, height_);
 	obs_source_update(nativeReceiverSource_, nativeSettings);
 	obs_data_release(nativeSettings);
+	syncChildLifecycleState(nativeReceiverSource_);
 }
 
 void VDONinjaSource::ensureBrowserSource()
@@ -2409,13 +2399,7 @@ void VDONinjaSource::ensureBrowserSource()
 	signal_handler_connect(sh, "audio_activate", vdoninja_source_child_audio_activate, callbackState_.get());
 	signal_handler_connect(sh, "audio_deactivate", vdoninja_source_child_audio_deactivate, callbackState_.get());
 	obs_source_set_audio_active(source_, obs_source_audio_active(browserSource_));
-
-	if (showing_.load()) {
-		obs_source_inc_showing(browserSource_);
-	}
-	if (active_.load()) {
-		obs_source_inc_active(browserSource_);
-	}
+	syncChildLifecycleState(browserSource_);
 
 	logInfo("Created internal Browser Source for VDO.Ninja Source");
 }
@@ -2430,13 +2414,7 @@ void VDONinjaSource::releaseBrowserSource()
 	signal_handler_disconnect(sh, "audio_activate", vdoninja_source_child_audio_activate, callbackState_.get());
 	signal_handler_disconnect(sh, "audio_deactivate", vdoninja_source_child_audio_deactivate, callbackState_.get());
 	obs_source_remove_audio_capture_callback(browserSource_, vdoninja_source_child_audio_capture, callbackState_.get());
-
-	if (showing_.load()) {
-		obs_source_dec_showing(browserSource_);
-	}
-	if (active_.load()) {
-		obs_source_dec_active(browserSource_);
-	}
+	detachChildLifecycleState(browserSource_);
 
 	obs_source_set_audio_active(source_, false);
 	obs_source_release(browserSource_);
@@ -2464,6 +2442,7 @@ void VDONinjaSource::updateBrowserSource()
 	obs_data_t *browserSettings = createBrowserSourceSettings(url, width_, height_);
 	obs_source_update(browserSource_, browserSettings);
 	obs_data_release(browserSettings);
+	syncChildLifecycleState(browserSource_);
 }
 
 void VDONinjaSource::releaseChildSources()
@@ -2484,6 +2463,49 @@ void VDONinjaSource::updateWrapperChildSource()
 	} else {
 		releaseNativeReceiverSource();
 		updateBrowserSource();
+	}
+}
+
+void VDONinjaSource::syncChildLifecycleState(obs_source_t *child)
+{
+	if (!child) {
+		return;
+	}
+
+	const bool shouldShow = showing_.load() || (source_ && obs_source_showing(source_));
+	if (shouldShow && !childShowing_) {
+		obs_source_inc_showing(child);
+		childShowing_ = true;
+	} else if (!shouldShow && childShowing_) {
+		obs_source_dec_showing(child);
+		childShowing_ = false;
+	}
+
+	const bool shouldBeActive = active_.load() || (source_ && obs_source_active(source_));
+	if (shouldBeActive && !childActive_) {
+		obs_source_inc_active(child);
+		childActive_ = true;
+	} else if (!shouldBeActive && childActive_) {
+		obs_source_dec_active(child);
+		childActive_ = false;
+	}
+}
+
+void VDONinjaSource::detachChildLifecycleState(obs_source_t *child)
+{
+	if (!child) {
+		childShowing_ = false;
+		childActive_ = false;
+		return;
+	}
+
+	if (childShowing_) {
+		obs_source_dec_showing(child);
+		childShowing_ = false;
+	}
+	if (childActive_) {
+		obs_source_dec_active(child);
+		childActive_ = false;
 	}
 }
 

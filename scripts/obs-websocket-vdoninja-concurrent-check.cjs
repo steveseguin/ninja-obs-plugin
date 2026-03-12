@@ -172,6 +172,7 @@ function parseSources() {
 }
 
 async function captureScreenshot(client, sourceName, outputPath) {
+  const minScreenshotBytes = Number(process.env.VDONINJA_MIN_SCREENSHOT_BYTES || 10000);
   const response = await client.request("GetSourceScreenshot", {
     sourceName,
     imageFormat: "png",
@@ -187,7 +188,7 @@ async function captureScreenshot(client, sourceName, outputPath) {
   }
 
   const buffer = Buffer.from(imageData.slice(prefix.length), "base64");
-  if (buffer.length < 15000) {
+  if (buffer.length < minScreenshotBytes) {
     throw new Error(`Screenshot for ${sourceName} was unexpectedly small (${buffer.length} bytes)`);
   }
 

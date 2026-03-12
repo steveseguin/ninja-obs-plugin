@@ -92,6 +92,8 @@ private:
 	void updateBrowserSource();
 	void releaseChildSources();
 	void updateWrapperChildSource();
+	void syncChildLifecycleState(obs_source_t *child);
+	void detachChildLifecycleState(obs_source_t *child);
 	std::string buildViewerUrl() const;
 	void onChildAudioCaptured(const struct audio_data *audioData, bool muted);
 	void onChildAudioActivated();
@@ -127,6 +129,8 @@ private:
 	std::string videoTrackPeerUuid_;
 	std::string audioTrackPeerUuid_;
 	std::unordered_set<uint8_t> videoRedPayloadTypes_;
+	bool childShowing_ = false;
+	bool childActive_ = false;
 	uint32_t width_ = 1920;
 	uint32_t height_ = 1080;
 	std::mutex nativeStateMutex_;
