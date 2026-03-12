@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.32] - 2026-03-11
+
+### Fixed
+- macOS release builds now install libdatachannel as a static library for tagged packaging, avoiding the unresolved-symbol link failure from the shared dylib export surface.
+- Windows release builds now install the PowerShell Core version required by vcpkg before dependency resolution, avoiding transient GitHub download failures during tagged packaging.
+
 ## [1.1.31] - 2026-03-11
 
 ### Fixed

@@ -316,6 +316,7 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_OSX_ARCHITECTURES=${{ matrix.arch }} \
             -DCMAKE_INSTALL_PREFIX=${{ github.workspace }}/deps \
+            -DBUILD_SHARED_LIBS=OFF \
             -DNO_EXAMPLES=ON \
             -DNO_TESTS=ON \
             -DUSE_GNUTLS=OFF \
@@ -404,7 +405,8 @@ jobs:
 
       - name: Install Dependencies
         run: |
-          choco install cmake ninja 7zip git innosetup -y
+          choco install powershell-core --version=7.5.4 --allow-downgrade -y --no-progress
+          choco install cmake ninja 7zip git innosetup -y --no-progress
           vcpkg install openssl:x64-windows-static-md pthreads:x64-windows-static-md
 
       - name: Build OBS SDK
