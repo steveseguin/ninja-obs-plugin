@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.28] - 2026-03-11
+
 ### Added
 - **VDO.Ninja Studio Dock**: A new persistent Qt-based dockable panel for OBS (Qt6 preferred, Qt5 fallback).
   - Dedicated fields for Stream ID, Room ID, and Password (no more piped stream keys).
@@ -23,6 +25,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Streaming start reliability now enforces Opus on the active stream output audio encoder(s) before encoder init.
 - Pre-start validation failures now set a clear last-error without duplicate stop/error loops.
 - `VDO.Ninja Source` now defaults to a browser-backed viewer path, while `Use Native Receiver (Experimental)` switches to an explicit opt-in native H.264/Opus receive path.
+- Hardened source/output async teardown, malformed JSON parsing, and exception boundaries to reduce silent OBS crashes during shutdown and callback races.
+- Browser-backed `VDO.Ninja Source` now reliably syncs lifecycle state to its internal child source, preventing blank default-mode renders in OBS smoke tests and real use.
 
 ### Added (Installer)
 - Windows GUI installer (`obs-vdoninja-windows-x64-setup.exe`) via Inno Setup, with:
