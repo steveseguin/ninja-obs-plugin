@@ -8,7 +8,7 @@ on:
 
 env:
   PLUGIN_NAME: obs-vdoninja
-  LIBDATACHANNEL_VERSION: v0.24.0
+  LIBDATACHANNEL_VERSION: v0.20.2
   # Build against the oldest supported OBS 32.x baseline so one release artifact
   # works across the widest range of current OBS 32 installs.
   # Do not bump this to a newer OBS SDK unless we intentionally drop support
@@ -315,12 +315,13 @@ jobs:
 
       - name: Build libdatachannel
         run: |
-          git -C "${{ github.workspace }}/deps/libdatachannel" submodule update --init --recursive --depth 1
-          cmake -S "${{ github.workspace }}/deps/libdatachannel" -B "${{ github.workspace }}/libdatachannel-build" -G Ninja \
+          git clone --depth 1 --branch ${{ env.LIBDATACHANNEL_VERSION }} https://github.com/paullouisageneau/libdatachannel.git libdatachannel-src
+          git -C "${{ github.workspace }}/libdatachannel-src" submodule update --init --recursive --depth 1
+          cmake -S "${{ github.workspace }}/libdatachannel-src" -B "${{ github.workspace }}/libdatachannel-build" -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_OSX_ARCHITECTURES=${{ matrix.arch }} \
             -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0 \
-            -DCMAKE_INSTALL_PREFIX=${{ github.workspace }}/deps \
+            -DCMAKE_INSTALL_PREFIX=${{ github.workspace }}/libdatachannel-install \
             -DBUILD_SHARED_LIBS=OFF \
             -DNO_EXAMPLES=ON \
             -DNO_TESTS=ON \
@@ -349,7 +350,7 @@ jobs:
           cmake -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_OSX_ARCHITECTURES=${{ matrix.arch }} \
-            -DCMAKE_PREFIX_PATH="${{ github.workspace }}/deps;${{ github.workspace }}/obs-sdk;${ffmpeg_deps_root};$(brew --prefix qt@6);$(brew --prefix openssl@3)" \
+            -DCMAKE_PREFIX_PATH="${{ github.workspace }}/libdatachannel-install;${{ github.workspace }}/obs-sdk;${ffmpeg_deps_root};$(brew --prefix qt@6);$(brew --prefix openssl@3)" \
             -DCMAKE_LIBRARY_PATH="${ffmpeg_lib_dir}" \
             -DCMAKE_INCLUDE_PATH="${ffmpeg_include_dir}" \
             -DFFMPEG_INCLUDE_DIR="${ffmpeg_include_dir}" \
@@ -492,8 +493,9 @@ jobs:
 
       - name: Build libdatachannel
         run: |
-          git -C "${{ github.workspace }}\\deps\\libdatachannel" submodule update --init --recursive --depth 1
-          cmake -S "${{ github.workspace }}\\deps\\libdatachannel" -B "${{ github.workspace }}\\libdatachannel-build" -G Ninja `
+          git clone --depth 1 --branch ${{ env.LIBDATACHANNEL_VERSION }} https://github.com/paullouisageneau/libdatachannel.git libdatachannel-src
+          git -C "${{ github.workspace }}\\libdatachannel-src" submodule update --init --recursive --depth 1
+          cmake -S "${{ github.workspace }}\\libdatachannel-src" -B "${{ github.workspace }}\\libdatachannel-build" -G Ninja `
             -DCMAKE_BUILD_TYPE=Release `
             -DBUILD_SHARED_LIBS=OFF `
             -DNO_EXAMPLES=ON `
@@ -544,7 +546,7 @@ jobs:
             $linkLibs.Add($sysLib)
           }
 
-          $includeDir = (Resolve-Path "${{ github.workspace }}\deps\libdatachannel\include").Path.Replace('\', '/')
+          $includeDir = (Resolve-Path "${{ github.workspace }}\libdatachannel-src\include").Path.Replace('\', '/')
           $configDir = "${{ github.workspace }}\local-libdatachannel"
           New-Item -ItemType Directory -Force -Path $configDir | Out-Null
           $configPath = Join-Path $configDir "LibDataChannelConfig.cmake"
@@ -619,7 +621,7 @@ jobs:
 
           cmake -B build -G Ninja `
             -DCMAKE_BUILD_TYPE=Release `
-            -DCMAKE_PREFIX_PATH="${{ github.workspace }}\local-libdatachannel;${{ github.workspace }}\deps;${{ github.workspace }}\obs-sdk;$($ffmpegDepsRoot.FullName)" `
+            -DCMAKE_PREFIX_PATH="${{ github.workspace }}\local-libdatachannel;${{ github.workspace }}\obs-sdk;$($ffmpegDepsRoot.FullName)" `
             -DCMAKE_LIBRARY_PATH="$ffmpegLibDir" `
             -DCMAKE_INCLUDE_PATH="$ffmpegIncludeDir" `
             -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT\scripts\buildsystems\vcpkg.cmake" `
