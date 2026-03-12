@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.33] - 2026-03-11
+
+### Fixed
+- Release builds now use a single explicit libdatachannel clone/build path on macOS and Windows, instead of assuming an untracked vendored checkout is present in CI.
+- Release CI is pinned back to the `v0.20.2` libdatachannel baseline that matches the locally validated native-receiver build path, restoring green Linux, macOS, and Windows packaging jobs.
+
 ## [1.1.32] - 2026-03-11
 
 ### Fixed
