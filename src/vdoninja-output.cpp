@@ -35,8 +35,7 @@ const char *tr(const char *key, const char *fallback)
 	return localized;
 }
 
-template<typename Fn>
-void runNoexceptCallback(const char *context, Fn &&fn)
+template <typename Fn> void runNoexceptCallback(const char *context, Fn &&fn)
 {
 	try {
 		fn();
@@ -47,8 +46,7 @@ void runNoexceptCallback(const char *context, Fn &&fn)
 	}
 }
 
-template<typename T, typename Fn>
-T runNoexceptCallbackValue(const char *context, T fallback, Fn &&fn)
+template <typename T, typename Fn> T runNoexceptCallbackValue(const char *context, T fallback, Fn &&fn)
 {
 	try {
 		return fn();
@@ -1129,237 +1127,237 @@ void VDONinjaOutput::startThread(OutputSettings settingsSnap)
 		peerManager_->setForceTurn(settingsSnap.forceTurn);
 		signaling_->setSalt(settingsSnap.salt);
 
-	if (autoSceneManager_) {
-		autoSceneManager_->configure(settingsSnap.autoInbound);
-		std::vector<std::string> ownIds = {
-		    settingsSnap.streamId, hashStreamId(settingsSnap.streamId, settingsSnap.password, settingsSnap.salt),
-		    hashStreamId(settingsSnap.streamId, DEFAULT_PASSWORD, settingsSnap.salt)};
-		autoSceneManager_->setOwnStreamIds(ownIds);
-		if (settingsSnap.autoInbound.enabled) {
-			autoSceneManager_->start();
-		}
-	}
-
-	// Set up callbacks
-	signaling_->setOnConnected([callbackState, settingsSnap]() {
-		AsyncCallbackGuard<VDONinjaOutput> guard(callbackState.get());
-		if (!guard) {
-			return;
-		}
-		VDONinjaOutput *self = guard.owner();
-		logInfo("Connected to signaling server");
-
-		const std::string roomToJoin =
-		    !settingsSnap.autoInbound.roomId.empty() ? settingsSnap.autoInbound.roomId : settingsSnap.roomId;
-		const std::string roomPassword =
-		    !settingsSnap.autoInbound.password.empty() ? settingsSnap.autoInbound.password : settingsSnap.password;
-
-		// Join room for inbound orchestration and/or publishing presence.
-		if (!roomToJoin.empty()) {
-			self->signaling_->joinRoom(roomToJoin, roomPassword);
-		}
-
-		// Start publishing
-		self->signaling_->publishStream(settingsSnap.streamId, settingsSnap.password);
-		self->peerManager_->startPublishing(settingsSnap.maxViewers);
-
-		self->connected_ = true;
-		self->connectTimeMs_ = currentTimeMs() - self->startTimeMs_;
-
-		if (!self->capturing_) {
-			if (obs_output_begin_data_capture(self->output_, 0)) {
-				self->capturing_ = true;
-			} else {
-				logError("Failed to begin OBS data capture");
-				obs_output_signal_stop(self->output_, OBS_OUTPUT_ERROR);
-				self->running_ = false;
-				self->connected_ = false;
+		if (autoSceneManager_) {
+			autoSceneManager_->configure(settingsSnap.autoInbound);
+			std::vector<std::string> ownIds = {
+			    settingsSnap.streamId, hashStreamId(settingsSnap.streamId, settingsSnap.password, settingsSnap.salt),
+			    hashStreamId(settingsSnap.streamId, DEFAULT_PASSWORD, settingsSnap.salt)};
+			autoSceneManager_->setOwnStreamIds(ownIds);
+			if (settingsSnap.autoInbound.enabled) {
+				autoSceneManager_->start();
 			}
 		}
-	});
 
-	signaling_->setOnDisconnected([callbackState, settingsSnap]() {
-		AsyncCallbackGuard<VDONinjaOutput> guard(callbackState.get());
-		if (!guard) {
-			return;
-		}
-		VDONinjaOutput *self = guard.owner();
-		logInfo("Disconnected from signaling server");
-		self->connected_ = false;
+		// Set up callbacks
+		signaling_->setOnConnected([callbackState, settingsSnap]() {
+			AsyncCallbackGuard<VDONinjaOutput> guard(callbackState.get());
+			if (!guard) {
+				return;
+			}
+			VDONinjaOutput *self = guard.owner();
+			logInfo("Connected to signaling server");
 
-		if (self->running_ && settingsSnap.autoReconnect) {
-			logInfo("Will attempt to reconnect...");
-		}
-	});
+			const std::string roomToJoin =
+			    !settingsSnap.autoInbound.roomId.empty() ? settingsSnap.autoInbound.roomId : settingsSnap.roomId;
+			const std::string roomPassword =
+			    !settingsSnap.autoInbound.password.empty() ? settingsSnap.autoInbound.password : settingsSnap.password;
 
-	signaling_->setOnError([callbackState](const std::string &error) {
-		AsyncCallbackGuard<VDONinjaOutput> guard(callbackState.get());
-		if (!guard) {
-			return;
-		}
-		VDONinjaOutput *self = guard.owner();
-		logError("Signaling error: %s", error.c_str());
-		obs_output_set_last_error(self->output_, error.c_str());
+			// Join room for inbound orchestration and/or publishing presence.
+			if (!roomToJoin.empty()) {
+				self->signaling_->joinRoom(roomToJoin, roomPassword);
+			}
 
-		const bool streamIdConflict =
-		    containsInsensitive(error, "already in use") || containsInsensitive(error, "already claimed");
-		if (streamIdConflict && self->running_) {
-			const std::string conflictMessage =
-			    "Stream ID is already in use. Choose a different Stream ID, then retry Start Streaming.";
-			obs_output_set_last_error(self->output_, conflictMessage.c_str());
-			self->signaling_->setAutoReconnect(false, 0);
-			logError("Stopping publish due to signaling conflict (stream/room already claimed)");
-			obs_output_signal_stop(self->output_, OBS_OUTPUT_ERROR);
-		}
-	});
+			// Start publishing
+			self->signaling_->publishStream(settingsSnap.streamId, settingsSnap.password);
+			self->peerManager_->startPublishing(settingsSnap.maxViewers);
 
-	signaling_->setOnRoomJoined([callbackState, settingsSnap](const std::vector<std::string> &members) {
-		AsyncCallbackGuard<VDONinjaOutput> guard(callbackState.get());
-		if (!guard) {
-			return;
-		}
-		VDONinjaOutput *self = guard.owner();
-		if (self->autoSceneManager_ && settingsSnap.autoInbound.enabled) {
-			self->autoSceneManager_->onRoomListing(members);
-		}
-	});
+			self->connected_ = true;
+			self->connectTimeMs_ = currentTimeMs() - self->startTimeMs_;
 
-	signaling_->setOnStreamAdded([callbackState, settingsSnap](const std::string &streamId, const std::string &) {
-		AsyncCallbackGuard<VDONinjaOutput> guard(callbackState.get());
-		if (!guard) {
-			return;
-		}
-		VDONinjaOutput *self = guard.owner();
-		if (self->autoSceneManager_ && settingsSnap.autoInbound.enabled) {
-			self->autoSceneManager_->onStreamAdded(streamId);
-		}
-	});
-
-	signaling_->setOnStreamRemoved([callbackState, settingsSnap](const std::string &streamId, const std::string &) {
-		AsyncCallbackGuard<VDONinjaOutput> guard(callbackState.get());
-		if (!guard) {
-			return;
-		}
-		VDONinjaOutput *self = guard.owner();
-		if (self->autoSceneManager_ && settingsSnap.autoInbound.enabled) {
-			self->autoSceneManager_->onStreamRemoved(streamId);
-		}
-	});
-
-	peerManager_->setOnPeerConnected([callbackState](const std::string &uuid) {
-		AsyncCallbackGuard<VDONinjaOutput> guard(callbackState.get());
-		if (!guard) {
-			return;
-		}
-		VDONinjaOutput *self = guard.owner();
-		logInfo("Viewer connected: %s (total: %d)", uuid.c_str(), self->peerManager_->getViewerCount());
-		self->primeViewerWithCachedKeyframe(uuid);
-	});
-
-	peerManager_->setOnPeerDisconnected([callbackState](const std::string &uuid) {
-		AsyncCallbackGuard<VDONinjaOutput> guard(callbackState.get());
-		if (!guard) {
-			return;
-		}
-		VDONinjaOutput *self = guard.owner();
-		{
-			std::lock_guard<std::mutex> lock(self->telemetryMutex_);
-			self->lastPeerStats_.erase(uuid);
-			self->lastPeerStatsTimestampMs_.erase(uuid);
-		}
-		logInfo("Viewer disconnected: %s (total: %d)", uuid.c_str(), self->peerManager_->getViewerCount());
-	});
-
-	peerManager_->setOnDataChannel([callbackState](const std::string &uuid, std::shared_ptr<rtc::DataChannel>) {
-		AsyncCallbackGuard<VDONinjaOutput> guard(callbackState.get());
-		if (!guard) {
-			return;
-		}
-		guard.owner()->sendInitialPeerInfo(uuid);
-	});
-
-	peerManager_->setOnDataChannelMessage([callbackState, settingsSnap](const std::string &uuid,
-	                                                                     const std::string &message) {
-		AsyncCallbackGuard<VDONinjaOutput> guard(callbackState.get());
-		if (!guard) {
-			return;
-		}
-		VDONinjaOutput *self = guard.owner();
-		self->dataChannel_.handleMessage(uuid, message);
-
-		const DataMessage parsed = self->dataChannel_.parseMessage(message);
-		if (parsed.type == DataMessageType::RequestKeyframe) {
-			logInfo("Viewer %s requested keyframe over data channel", uuid.c_str());
-			self->primeViewerWithCachedKeyframe(uuid);
-		}
-
-		if (parsed.type == DataMessageType::Stats) {
-			std::lock_guard<std::mutex> lock(self->telemetryMutex_);
-			self->lastPeerStats_[uuid] = parsed.data.empty() ? message : parsed.data;
-			self->lastPeerStatsTimestampMs_[uuid] = currentTimeMs();
-		}
-
-		if (settingsSnap.enableRemote) {
-			bool wantsObsState = parsed.type == DataMessageType::RemoteControl;
-			try {
-				JsonParser json(message);
-				if (json.hasKey("getOBSState") && json.getBool("getOBSState")) {
-					wantsObsState = true;
+			if (!self->capturing_) {
+				if (obs_output_begin_data_capture(self->output_, 0)) {
+					self->capturing_ = true;
+				} else {
+					logError("Failed to begin OBS data capture");
+					obs_output_signal_stop(self->output_, OBS_OUTPUT_ERROR);
+					self->running_ = false;
+					self->connected_ = false;
 				}
-			} catch (const std::exception &) {
 			}
+		});
 
-			if (wantsObsState) {
-				self->queueObsStateToPeer(uuid);
+		signaling_->setOnDisconnected([callbackState, settingsSnap]() {
+			AsyncCallbackGuard<VDONinjaOutput> guard(callbackState.get());
+			if (!guard) {
+				return;
 			}
-		}
+			VDONinjaOutput *self = guard.owner();
+			logInfo("Disconnected from signaling server");
+			self->connected_ = false;
 
-		if (self->autoSceneManager_ && settingsSnap.autoInbound.enabled) {
-			const std::string playbackHint = self->dataChannel_.extractInboundPlaybackHint(message);
-			if (!playbackHint.empty()) {
-				logInfo("Discovered inbound browser-source hint from %s", uuid.c_str());
-				self->autoSceneManager_->onStreamAdded(playbackHint);
+			if (self->running_ && settingsSnap.autoReconnect) {
+				logInfo("Will attempt to reconnect...");
 			}
-		}
-	});
+		});
 
-	// Set up chat callback to forward to dock
-	dataChannel_.setOnChatMessage([](const std::string &senderId, const std::string &message) {
-		struct ChatData {
-			std::string sender;
-			std::string message;
-		};
-		auto *data = new ChatData{senderId, message};
-		obs_queue_task(
-		    OBS_TASK_UI,
-		    [](void *param) {
-			    auto *cd = static_cast<ChatData *>(param);
-			    vdo_dock_show_chat(cd->sender.c_str(), cd->message.c_str());
-			    delete cd;
-		    },
-		    data, false);
-	});
+		signaling_->setOnError([callbackState](const std::string &error) {
+			AsyncCallbackGuard<VDONinjaOutput> guard(callbackState.get());
+			if (!guard) {
+				return;
+			}
+			VDONinjaOutput *self = guard.owner();
+			logError("Signaling error: %s", error.c_str());
+			obs_output_set_last_error(self->output_, error.c_str());
 
-	// Set up remote control callback
-	if (settingsSnap.enableRemote) {
-		dataChannel_.setOnRemoteControl([](const std::string &action, const std::string &value) {
-			struct RemoteData {
-				std::string action;
-				std::string value;
+			const bool streamIdConflict =
+			    containsInsensitive(error, "already in use") || containsInsensitive(error, "already claimed");
+			if (streamIdConflict && self->running_) {
+				const std::string conflictMessage =
+				    "Stream ID is already in use. Choose a different Stream ID, then retry Start Streaming.";
+				obs_output_set_last_error(self->output_, conflictMessage.c_str());
+				self->signaling_->setAutoReconnect(false, 0);
+				logError("Stopping publish due to signaling conflict (stream/room already claimed)");
+				obs_output_signal_stop(self->output_, OBS_OUTPUT_ERROR);
+			}
+		});
+
+		signaling_->setOnRoomJoined([callbackState, settingsSnap](const std::vector<std::string> &members) {
+			AsyncCallbackGuard<VDONinjaOutput> guard(callbackState.get());
+			if (!guard) {
+				return;
+			}
+			VDONinjaOutput *self = guard.owner();
+			if (self->autoSceneManager_ && settingsSnap.autoInbound.enabled) {
+				self->autoSceneManager_->onRoomListing(members);
+			}
+		});
+
+		signaling_->setOnStreamAdded([callbackState, settingsSnap](const std::string &streamId, const std::string &) {
+			AsyncCallbackGuard<VDONinjaOutput> guard(callbackState.get());
+			if (!guard) {
+				return;
+			}
+			VDONinjaOutput *self = guard.owner();
+			if (self->autoSceneManager_ && settingsSnap.autoInbound.enabled) {
+				self->autoSceneManager_->onStreamAdded(streamId);
+			}
+		});
+
+		signaling_->setOnStreamRemoved([callbackState, settingsSnap](const std::string &streamId, const std::string &) {
+			AsyncCallbackGuard<VDONinjaOutput> guard(callbackState.get());
+			if (!guard) {
+				return;
+			}
+			VDONinjaOutput *self = guard.owner();
+			if (self->autoSceneManager_ && settingsSnap.autoInbound.enabled) {
+				self->autoSceneManager_->onStreamRemoved(streamId);
+			}
+		});
+
+		peerManager_->setOnPeerConnected([callbackState](const std::string &uuid) {
+			AsyncCallbackGuard<VDONinjaOutput> guard(callbackState.get());
+			if (!guard) {
+				return;
+			}
+			VDONinjaOutput *self = guard.owner();
+			logInfo("Viewer connected: %s (total: %d)", uuid.c_str(), self->peerManager_->getViewerCount());
+			self->primeViewerWithCachedKeyframe(uuid);
+		});
+
+		peerManager_->setOnPeerDisconnected([callbackState](const std::string &uuid) {
+			AsyncCallbackGuard<VDONinjaOutput> guard(callbackState.get());
+			if (!guard) {
+				return;
+			}
+			VDONinjaOutput *self = guard.owner();
+			{
+				std::lock_guard<std::mutex> lock(self->telemetryMutex_);
+				self->lastPeerStats_.erase(uuid);
+				self->lastPeerStatsTimestampMs_.erase(uuid);
+			}
+			logInfo("Viewer disconnected: %s (total: %d)", uuid.c_str(), self->peerManager_->getViewerCount());
+		});
+
+		peerManager_->setOnDataChannel([callbackState](const std::string &uuid, std::shared_ptr<rtc::DataChannel>) {
+			AsyncCallbackGuard<VDONinjaOutput> guard(callbackState.get());
+			if (!guard) {
+				return;
+			}
+			guard.owner()->sendInitialPeerInfo(uuid);
+		});
+
+		peerManager_->setOnDataChannelMessage(
+		    [callbackState, settingsSnap](const std::string &uuid, const std::string &message) {
+			    AsyncCallbackGuard<VDONinjaOutput> guard(callbackState.get());
+			    if (!guard) {
+				    return;
+			    }
+			    VDONinjaOutput *self = guard.owner();
+			    self->dataChannel_.handleMessage(uuid, message);
+
+			    const DataMessage parsed = self->dataChannel_.parseMessage(message);
+			    if (parsed.type == DataMessageType::RequestKeyframe) {
+				    logInfo("Viewer %s requested keyframe over data channel", uuid.c_str());
+				    self->primeViewerWithCachedKeyframe(uuid);
+			    }
+
+			    if (parsed.type == DataMessageType::Stats) {
+				    std::lock_guard<std::mutex> lock(self->telemetryMutex_);
+				    self->lastPeerStats_[uuid] = parsed.data.empty() ? message : parsed.data;
+				    self->lastPeerStatsTimestampMs_[uuid] = currentTimeMs();
+			    }
+
+			    if (settingsSnap.enableRemote) {
+				    bool wantsObsState = parsed.type == DataMessageType::RemoteControl;
+				    try {
+					    JsonParser json(message);
+					    if (json.hasKey("getOBSState") && json.getBool("getOBSState")) {
+						    wantsObsState = true;
+					    }
+				    } catch (const std::exception &) {
+				    }
+
+				    if (wantsObsState) {
+					    self->queueObsStateToPeer(uuid);
+				    }
+			    }
+
+			    if (self->autoSceneManager_ && settingsSnap.autoInbound.enabled) {
+				    const std::string playbackHint = self->dataChannel_.extractInboundPlaybackHint(message);
+				    if (!playbackHint.empty()) {
+					    logInfo("Discovered inbound browser-source hint from %s", uuid.c_str());
+					    self->autoSceneManager_->onStreamAdded(playbackHint);
+				    }
+			    }
+		    });
+
+		// Set up chat callback to forward to dock
+		dataChannel_.setOnChatMessage([](const std::string &senderId, const std::string &message) {
+			struct ChatData {
+				std::string sender;
+				std::string message;
 			};
-			auto *data = new RemoteData{action, value};
+			auto *data = new ChatData{senderId, message};
 			obs_queue_task(
 			    OBS_TASK_UI,
 			    [](void *param) {
-				    auto *rd = static_cast<RemoteData *>(param);
-				    vdo_handle_remote_control(rd->action.c_str(), rd->value.c_str());
-				    delete rd;
+				    auto *cd = static_cast<ChatData *>(param);
+				    vdo_dock_show_chat(cd->sender.c_str(), cd->message.c_str());
+				    delete cd;
 			    },
 			    data, false);
 		});
-	}
 
-	// Configure reconnection
+		// Set up remote control callback
+		if (settingsSnap.enableRemote) {
+			dataChannel_.setOnRemoteControl([](const std::string &action, const std::string &value) {
+				struct RemoteData {
+					std::string action;
+					std::string value;
+				};
+				auto *data = new RemoteData{action, value};
+				obs_queue_task(
+				    OBS_TASK_UI,
+				    [](void *param) {
+					    auto *rd = static_cast<RemoteData *>(param);
+					    vdo_handle_remote_control(rd->action.c_str(), rd->value.c_str());
+					    delete rd;
+				    },
+				    data, false);
+			});
+		}
+
+		// Configure reconnection
 		signaling_->setAutoReconnect(settingsSnap.autoReconnect, DEFAULT_RECONNECT_ATTEMPTS);
 
 		// Connect to signaling server

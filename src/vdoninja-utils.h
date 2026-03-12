@@ -53,8 +53,7 @@ std::string hashStreamId(const std::string &streamId, const std::string &passwor
 std::string hashRoomId(const std::string &roomId, const std::string &password, const std::string &salt);
 std::string deriveViewStreamId(const std::string &streamId, const std::string &password, const std::string &salt);
 std::string buildViewerPageUrl(const std::string &baseUrl, const std::string &streamId, const std::string &password,
-                               const std::string &roomId, const std::string &salt,
-                               const std::string &wssHost = "");
+                               const std::string &roomId, const std::string &salt, const std::string &wssHost = "");
 std::string buildInboundViewUrl(const std::string &baseUrl, const std::string &streamId, const std::string &password,
                                 const std::string &roomId, const std::string &salt);
 int chooseViewerTargetBitrateKbps(uint32_t width, uint32_t height);

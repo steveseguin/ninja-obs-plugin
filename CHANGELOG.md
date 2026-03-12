@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.35] - 2026-03-12
+
+### Fixed
+- Normalized formatting in `vdoninja-output.cpp` and `vdoninja-utils.h` so the release branch passes the enforced `clang-format` check again.
+
 ## [1.1.34] - 2026-03-12
 
 ### Fixed
