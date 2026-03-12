@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.30] - 2026-03-11
+
+### Fixed
+- macOS release builds now cache the OBS-bundled FFmpeg include and library paths explicitly during plugin configure, resolving the remaining tagged-build failure after the native source packaging changes.
+
 ## [1.1.29] - 2026-03-11
 
 ### Fixed

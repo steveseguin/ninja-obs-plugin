@@ -332,12 +332,19 @@ jobs:
             echo "Failed to locate OBS dependency prefix under obs-studio/.deps"
             exit 1
           fi
+          ffmpeg_lib_dir="${obs_deps_root}/lib"
+          ffmpeg_include_dir="${obs_deps_root}/include"
           cmake -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_OSX_ARCHITECTURES=${{ matrix.arch }} \
             -DCMAKE_PREFIX_PATH="${{ github.workspace }}/deps;${{ github.workspace }}/obs-sdk;${obs_deps_root};$(brew --prefix qt@6);$(brew --prefix openssl@3)" \
-            -DCMAKE_LIBRARY_PATH="${obs_deps_root}/lib" \
-            -DCMAKE_INCLUDE_PATH="${obs_deps_root}/include" \
+            -DCMAKE_LIBRARY_PATH="${ffmpeg_lib_dir}" \
+            -DCMAKE_INCLUDE_PATH="${ffmpeg_include_dir}" \
+            -DFFMPEG_INCLUDE_DIR="${ffmpeg_include_dir}" \
+            -DFFMPEG_AVCODEC_LIBRARY="${ffmpeg_lib_dir}/libavcodec.dylib" \
+            -DFFMPEG_AVUTIL_LIBRARY="${ffmpeg_lib_dir}/libavutil.dylib" \
+            -DFFMPEG_SWSCALE_LIBRARY="${ffmpeg_lib_dir}/libswscale.dylib" \
+            -DFFMPEG_SWRESAMPLE_LIBRARY="${ffmpeg_lib_dir}/libswresample.dylib" \
             -DOBS_SDK_PATH="${{ github.workspace }}/obs-sdk" \
             -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0
 
