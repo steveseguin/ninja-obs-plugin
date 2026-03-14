@@ -286,8 +286,7 @@ class BuildInboundViewUrlTest : public ::testing::Test
 
 TEST_F(BuildInboundViewUrlTest, BuildsStandardViewerPageUrl)
 {
-	EXPECT_EQ(buildViewerPageUrl("https://vdo.ninja", "cam_1", "", "", DEFAULT_SALT),
-	          "https://vdo.ninja/?view=cam_1");
+	EXPECT_EQ(buildViewerPageUrl("https://vdo.ninja", "cam_1", "", "", DEFAULT_SALT), "https://vdo.ninja/?view=cam_1");
 }
 
 TEST_F(BuildInboundViewUrlTest, BuildsViewerPageUrlWithRoomPasswordSaltAndSignaling)
@@ -306,8 +305,7 @@ TEST_F(BuildInboundViewUrlTest, PreservesDisabledPasswordTokenInViewerPageUrl)
 
 TEST_F(BuildInboundViewUrlTest, BuildsVdoNinjaViewUrlForPlainStreamId)
 {
-	EXPECT_EQ(buildInboundViewUrl("https://vdo.ninja", "cam_1", "", "", DEFAULT_SALT),
-	          "https://vdo.ninja/?view=cam_1");
+	EXPECT_EQ(buildInboundViewUrl("https://vdo.ninja", "cam_1", "", "", DEFAULT_SALT), "https://vdo.ninja/?view=cam_1");
 }
 
 TEST_F(BuildInboundViewUrlTest, WrapsDirectPlaybackUrlForBrowserSourceAutoAdd)
@@ -331,17 +329,17 @@ TEST_F(BuildInboundViewUrlTest, DoesNotTreatWhepPrefixedStreamIdAsDirectUrl)
 TEST_F(BuildInboundViewUrlTest, PreservesDirectVdoNinjaViewerPageUrl)
 {
 	EXPECT_EQ(buildInboundViewUrl("https://vdo.ninja", "https://vdo.ninja/?view=cam_2&room=greenroom&solo", "", "",
-	                             DEFAULT_SALT),
+	                              DEFAULT_SALT),
 	          "https://vdo.ninja/?view=cam_2&room=greenroom&solo");
 }
 
 TEST_F(BuildInboundViewUrlTest, PreservesDirectVdoNinjaWhepplayPageUrl)
 {
-	EXPECT_EQ(
-	    buildInboundViewUrl("https://vdo.ninja",
-	                        "https://vdo.ninja/?whepplay=https%3A%2F%2Fsomewhip.co%2Fasdf&whepwait=2000&whepplaytoken=tok",
-	                        "", "", DEFAULT_SALT),
-	    "https://vdo.ninja/?whepplay=https%3A%2F%2Fsomewhip.co%2Fasdf&whepwait=2000&whepplaytoken=tok");
+	EXPECT_EQ(buildInboundViewUrl(
+	              "https://vdo.ninja",
+	              "https://vdo.ninja/?whepplay=https%3A%2F%2Fsomewhip.co%2Fasdf&whepwait=2000&whepplaytoken=tok", "",
+	              "", DEFAULT_SALT),
+	          "https://vdo.ninja/?whepplay=https%3A%2F%2Fsomewhip.co%2Fasdf&whepwait=2000&whepplaytoken=tok");
 }
 
 TEST_F(BuildInboundViewUrlTest, ConvertsPseudoWhepSchemeToHttpsEndpoint)
@@ -529,7 +527,8 @@ TEST_F(VdoNinjaHashCompatTest, StreamHashMatchesVdoNinjaForSpecialCharPassword)
 
 TEST_F(VdoNinjaHashCompatTest, RoomHashMatchesVdoNinjaForSpecialCharPassword)
 {
-	// VDO.Ninja JS: sha256("myroom" + encodeURIComponent("Test@Room#1!") + "vdo.ninja").substr(0, 16) = "97dd633996a146ff"
+	// VDO.Ninja JS: sha256("myroom" + encodeURIComponent("Test@Room#1!") + "vdo.ninja").substr(0, 16) =
+	// "97dd633996a146ff"
 	std::string result = hashRoomId("myroom", "Test@Room#1!", "vdo.ninja");
 	EXPECT_EQ(result, "97dd633996a146ff");
 }

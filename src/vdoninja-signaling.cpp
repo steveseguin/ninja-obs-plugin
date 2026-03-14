@@ -728,8 +728,8 @@ void VDONinjaSignaling::applyServerAlertPolicy(const std::string &alert)
 		reconnectSuppressedByServer_ = true;
 	}
 	if (policy.signalingReconnectDelayMs > 0) {
-		reconnectDeferredUntilMs_ =
-		    std::max(reconnectDeferredUntilMs_, currentTimeMs() + static_cast<int64_t>(policy.signalingReconnectDelayMs));
+		reconnectDeferredUntilMs_ = std::max(reconnectDeferredUntilMs_,
+		                                     currentTimeMs() + static_cast<int64_t>(policy.signalingReconnectDelayMs));
 	}
 }
 

@@ -10,9 +10,9 @@
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <cmath>
 #include <cstdarg>
 #include <cstdint>
-#include <cmath>
 #include <iomanip>
 #include <random>
 #include <regex>
@@ -912,8 +912,8 @@ std::string jsEncodeURIComponent(const std::string &value)
 
 	for (char c : value) {
 		// JS encodeURIComponent preserves: A-Z a-z 0-9 - _ . ! ~ * ' ( )
-		if (std::isalnum(static_cast<unsigned char>(c)) || c == '-' || c == '_' || c == '.' || c == '!' ||
-		    c == '~' || c == '*' || c == '\'' || c == '(' || c == ')') {
+		if (std::isalnum(static_cast<unsigned char>(c)) || c == '-' || c == '_' || c == '.' || c == '!' || c == '~' ||
+		    c == '*' || c == '\'' || c == '(' || c == ')') {
 			escaped << c;
 		} else {
 			escaped << '%' << std::setw(2) << int(static_cast<unsigned char>(c));
