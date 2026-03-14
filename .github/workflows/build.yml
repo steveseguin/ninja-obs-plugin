@@ -356,11 +356,22 @@ jobs:
             echo "OBS Qt6 deps not found, falling back to Homebrew Qt"
             qt_deps_root="$(brew --prefix qt@6)"
           fi
+          # Point Qt6_DIR explicitly so CMake uses the OBS-matched Qt for
+          # both headers AND tools (moc).  Without this, Homebrew's moc
+          # (potentially a newer version) runs but generates code that is
+          # incompatible with the older OBS-Qt headers.
+          qt6_cmake_dir="$(find "${qt_deps_root}" -path '*/cmake/Qt6/Qt6Config.cmake' -print -quit 2>/dev/null | xargs dirname 2>/dev/null || true)"
+          qt6_flag=""
+          if [ -n "$qt6_cmake_dir" ]; then
+            echo "Using Qt6 cmake dir: $qt6_cmake_dir"
+            qt6_flag="-DQt6_DIR=${qt6_cmake_dir}"
+          fi
           cmake -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_OSX_ARCHITECTURES=${{ matrix.arch }} \
             -DCMAKE_PREFIX_PATH="${{ github.workspace }}/libdatachannel-install;${{ github.workspace }}/obs-sdk;${ffmpeg_deps_root};${qt_deps_root};$(brew --prefix openssl@3)" \
             -DCMAKE_FRAMEWORK_PATH="${obs_sdk_frameworks}" \
+            ${qt6_flag} \
             -DCMAKE_LIBRARY_PATH="${ffmpeg_lib_dir}" \
             -DCMAKE_INCLUDE_PATH="${ffmpeg_include_dir}" \
             -DFFMPEG_INCLUDE_DIR="${ffmpeg_include_dir}" \
