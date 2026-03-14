@@ -132,8 +132,24 @@ Remove plugin + data:
 
 If scripts are not usable:
 
+**Linux / Windows:**
 - Copy plugin binaries from `obs-plugins/64bit` or `lib/obs-plugins` into your OBS plugin binary path.
 - Copy `data/obs-plugins/obs-vdoninja` or `share/obs/obs-plugins/obs-vdoninja` into your OBS data path.
+
+**macOS:**
+OBS on macOS requires a `.plugin` bundle. Create this structure under `~/Library/Application Support/obs-studio/plugins/`:
+```
+obs-vdoninja.plugin/
+  Contents/
+    Info.plist
+    MacOS/
+      obs-vdoninja    (the .so binary, renamed without extension)
+    Resources/
+      data/
+        locale/
+          en-US.ini
+          ...
+```
 
 ## Verify in OBS
 

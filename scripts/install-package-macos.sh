@@ -29,17 +29,62 @@ else
   exit 1
 fi
 
-DST_PLUGIN_DIR="${HOME}/Library/Application Support/obs-studio/plugins/obs-vdoninja/bin/64bit"
-DST_DATA_DIR="${HOME}/Library/Application Support/obs-studio/plugins/obs-vdoninja/data"
+# macOS OBS requires a .plugin bundle structure
+BUNDLE_DIR="${HOME}/Library/Application Support/obs-studio/plugins/obs-vdoninja.plugin"
+DST_PLUGIN_DIR="$BUNDLE_DIR/Contents/MacOS"
+DST_DATA_DIR="$BUNDLE_DIR/Contents/Resources/data"
 
 echo "Installing OBS VDO.Ninja plugin from package..."
 echo "Source:      $PKG_ROOT"
-echo "Plugin dst:  $DST_PLUGIN_DIR"
-echo "Data dst:    $DST_DATA_DIR"
+echo "Bundle dst:  $BUNDLE_DIR"
+
+# Remove legacy flat layout if present (from older installer versions)
+LEGACY_DIR="${HOME}/Library/Application Support/obs-studio/plugins/obs-vdoninja"
+if [[ -d "$LEGACY_DIR" && ! -d "$LEGACY_DIR/Contents" ]]; then
+  echo "Removing legacy flat layout at $LEGACY_DIR ..."
+  rm -rf "$LEGACY_DIR"
+fi
 
 mkdir -p "$DST_PLUGIN_DIR" "$DST_DATA_DIR"
-cp -a "$SRC_PLUGIN_DIR"/. "$DST_PLUGIN_DIR"/
+
+# Copy plugin binary — rename .so to plain executable name for the bundle
+PLUGIN_BIN=""
+for candidate in obs-vdoninja.so libobs-vdoninja.so obs-vdoninja.dylib obs-vdoninja; do
+  if [[ -f "$SRC_PLUGIN_DIR/$candidate" ]]; then
+    PLUGIN_BIN="$SRC_PLUGIN_DIR/$candidate"
+    break
+  fi
+done
+if [[ -z "$PLUGIN_BIN" ]]; then
+  echo "Could not find plugin binary in $SRC_PLUGIN_DIR"
+  exit 1
+fi
+cp -a "$PLUGIN_BIN" "$DST_PLUGIN_DIR/obs-vdoninja"
+
+# Copy data files
 cp -a "$SRC_DATA_DIR"/. "$DST_DATA_DIR"/
+
+# Create Info.plist (required for macOS bundle loading)
+cat > "$BUNDLE_DIR/Contents/Info.plist" << 'PLIST'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleName</key>
+    <string>obs-vdoninja</string>
+    <key>CFBundleIdentifier</key>
+    <string>com.vdoninja.obs-plugin</string>
+    <key>CFBundleVersion</key>
+    <string>1</string>
+    <key>CFBundleShortVersionString</key>
+    <string>1.0</string>
+    <key>CFBundleExecutable</key>
+    <string>obs-vdoninja</string>
+    <key>CFBundlePackageType</key>
+    <string>BNDL</string>
+</dict>
+</plist>
+PLIST
 
 QUICKSTART_PATH="$PKG_ROOT/QUICKSTART.md"
 echo
