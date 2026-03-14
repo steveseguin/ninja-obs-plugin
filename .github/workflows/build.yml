@@ -347,31 +347,11 @@ jobs:
           else
             ffmpeg_lib_dir="${ffmpeg_deps_root}/lib"
           fi
-          # Use Qt from OBS's own deps (not Homebrew) so the plugin is built
-          # against the same Qt version that OBS bundles.  This prevents
-          # symbol-not-found errors when the Homebrew Qt is newer than what
-          # OBS ships (e.g. _qt_version_tag_6_10 missing in Qt 6.8).
-          qt_deps_root="$(find "$obs_deps_dir" -maxdepth 1 -type d -name '*qt6*' | head -1)"
-          if [ -z "$qt_deps_root" ]; then
-            echo "OBS Qt6 deps not found, falling back to Homebrew Qt"
-            qt_deps_root="$(brew --prefix qt@6)"
-          fi
-          # Point Qt6_DIR explicitly so CMake uses the OBS-matched Qt for
-          # both headers AND tools (moc).  Without this, Homebrew's moc
-          # (potentially a newer version) runs but generates code that is
-          # incompatible with the older OBS-Qt headers.
-          qt6_cmake_dir="$(find "${qt_deps_root}" -path '*/cmake/Qt6/Qt6Config.cmake' -print -quit 2>/dev/null | xargs dirname 2>/dev/null || true)"
-          qt6_flag=""
-          if [ -n "$qt6_cmake_dir" ]; then
-            echo "Using Qt6 cmake dir: $qt6_cmake_dir"
-            qt6_flag="-DQt6_DIR=${qt6_cmake_dir}"
-          fi
           cmake -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_OSX_ARCHITECTURES=${{ matrix.arch }} \
-            -DCMAKE_PREFIX_PATH="${{ github.workspace }}/libdatachannel-install;${{ github.workspace }}/obs-sdk;${ffmpeg_deps_root};${qt_deps_root};$(brew --prefix openssl@3)" \
+            -DCMAKE_PREFIX_PATH="${{ github.workspace }}/libdatachannel-install;${{ github.workspace }}/obs-sdk;${ffmpeg_deps_root};$(brew --prefix qt@6);$(brew --prefix openssl@3)" \
             -DCMAKE_FRAMEWORK_PATH="${obs_sdk_frameworks}" \
-            ${qt6_flag} \
             -DCMAKE_LIBRARY_PATH="${ffmpeg_lib_dir}" \
             -DCMAKE_INCLUDE_PATH="${ffmpeg_include_dir}" \
             -DFFMPEG_INCLUDE_DIR="${ffmpeg_include_dir}" \
