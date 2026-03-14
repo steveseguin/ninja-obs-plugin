@@ -367,6 +367,14 @@ jobs:
       - name: Package
         run: |
           cmake --install build --prefix install
+          # Ad-hoc codesign the plugin binary so the ZIP ships a valid
+          # Mach-O signature.  The install script will re-sign after
+          # copying into the .plugin bundle, but signing here also
+          # covers manual installs that skip the script.
+          if [ -f install/lib/obs-plugins/obs-vdoninja.so ]; then
+            codesign --force --sign - install/lib/obs-plugins/obs-vdoninja.so
+            codesign -vvv install/lib/obs-plugins/obs-vdoninja.so
+          fi
           cp LICENSE install/
           cp INSTALL.md install/
           cp QUICKSTART.md install/
