@@ -140,6 +140,12 @@ cat > "$INSTALL_DIR/Contents/Info.plist" << EOF
 </plist>
 EOF
 
+# Strip macOS quarantine attribute in case any source files carried it
+xattr -dr com.apple.quarantine "$INSTALL_DIR" 2>/dev/null || true
+
+# Ad-hoc codesign the bundle so macOS treats it as a valid loadable bundle
+codesign --force --deep --sign - "$INSTALL_DIR" 2>/dev/null || true
+
 echo ""
 echo "========================================"
 echo "Installation complete!"

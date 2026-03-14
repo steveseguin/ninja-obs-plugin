@@ -86,6 +86,15 @@ cat > "$BUNDLE_DIR/Contents/Info.plist" << 'PLIST'
 </plist>
 PLIST
 
+# Strip macOS quarantine attribute (set when downloaded via a browser)
+# Without this, Gatekeeper silently prevents OBS from loading the plugin.
+xattr -dr com.apple.quarantine "$BUNDLE_DIR" 2>/dev/null || true
+
+# Ad-hoc codesign the bundle so macOS treats it as a valid loadable bundle.
+# The original signature (if any) references resources that no longer match
+# the on-disk layout after copying into the .plugin bundle.
+codesign --force --deep --sign - "$BUNDLE_DIR" 2>/dev/null || true
+
 QUICKSTART_PATH="$PKG_ROOT/QUICKSTART.md"
 echo
 echo "Install complete."
