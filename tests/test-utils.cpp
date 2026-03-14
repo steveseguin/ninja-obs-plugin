@@ -435,6 +435,177 @@ TEST_F(Base64Test, RoundTripBinaryData)
 	EXPECT_EQ(decoded, data);
 }
 
+// jsEncodeURIComponent Tests (matching JavaScript's encodeURIComponent)
+class JsEncodeURIComponentTest : public ::testing::Test
+{
+};
+
+TEST_F(JsEncodeURIComponentTest, PreservesAlphanumeric)
+{
+	EXPECT_EQ(jsEncodeURIComponent("abc123XYZ"), "abc123XYZ");
+}
+
+TEST_F(JsEncodeURIComponentTest, PreservesJsUnreservedChars)
+{
+	// JS encodeURIComponent preserves: A-Z a-z 0-9 - _ . ! ~ * ' ( )
+	EXPECT_EQ(jsEncodeURIComponent("-_.!~*'()"), "-_.!~*'()");
+}
+
+TEST_F(JsEncodeURIComponentTest, EncodesSpaces)
+{
+	EXPECT_EQ(jsEncodeURIComponent("hello world"), "hello%20world");
+}
+
+TEST_F(JsEncodeURIComponentTest, EncodesSpecialCharsWithUppercaseHex)
+{
+	EXPECT_EQ(jsEncodeURIComponent("$"), "%24");
+	EXPECT_EQ(jsEncodeURIComponent("["), "%5B");
+	EXPECT_EQ(jsEncodeURIComponent("]"), "%5D");
+	EXPECT_EQ(jsEncodeURIComponent("#"), "%23");
+	EXPECT_EQ(jsEncodeURIComponent("&"), "%26");
+	EXPECT_EQ(jsEncodeURIComponent("+"), "%2B");
+	EXPECT_EQ(jsEncodeURIComponent("="), "%3D");
+	EXPECT_EQ(jsEncodeURIComponent("@"), "%40");
+	EXPECT_EQ(jsEncodeURIComponent("/"), "%2F");
+}
+
+TEST_F(JsEncodeURIComponentTest, EncodesComplexPassword)
+{
+	// Matches: node -e 'console.log(encodeURIComponent("Test@Room#1!"))'
+	EXPECT_EQ(jsEncodeURIComponent("Test@Room#1!"), "Test%40Room%231!");
+}
+
+TEST_F(JsEncodeURIComponentTest, AlphanumericPasswordUnchanged)
+{
+	EXPECT_EQ(jsEncodeURIComponent("password123"), "password123");
+}
+
+TEST_F(JsEncodeURIComponentTest, PreservesExclamationMark)
+{
+	// JS encodeURIComponent does NOT encode '!'
+	// Our urlEncode DOES encode '!' — this is a key difference
+	EXPECT_EQ(jsEncodeURIComponent("foo!bar"), "foo!bar");
+}
+
+TEST_F(JsEncodeURIComponentTest, EncodesEmptyString)
+{
+	EXPECT_EQ(jsEncodeURIComponent(""), "");
+}
+
+TEST_F(JsEncodeURIComponentTest, DiffersFromUrlEncodeForJsUnreserved)
+{
+	// jsEncodeURIComponent preserves !*'() but urlEncode does not
+	EXPECT_EQ(jsEncodeURIComponent("!"), "!");
+	EXPECT_NE(urlEncode("!"), "!");
+
+	EXPECT_EQ(jsEncodeURIComponent("*"), "*");
+	EXPECT_NE(urlEncode("*"), "*");
+
+	// jsEncodeURIComponent uses uppercase hex, urlEncode uses lowercase
+	EXPECT_EQ(jsEncodeURIComponent("["), "%5B");
+	EXPECT_EQ(urlEncode("["), "%5b");
+}
+
+TEST_F(JsEncodeURIComponentTest, EncodesAllSpecialCharsPassword)
+{
+	// Verified: node -e 'console.log(encodeURIComponent("$#@!&+="))'
+	EXPECT_EQ(jsEncodeURIComponent("$#@!&+="), "%24%23%40!%26%2B%3D");
+}
+
+// Verify hash functions produce VDO.Ninja-compatible hashes for special-char passwords.
+// Expected values computed with Node.js using VDO.Ninja's algorithm:
+//   sha256(encodeURIComponent(password) + salt) for stream suffix
+//   sha256(roomId + encodeURIComponent(password) + salt) for room hash
+class VdoNinjaHashCompatTest : public ::testing::Test
+{
+};
+
+TEST_F(VdoNinjaHashCompatTest, StreamHashMatchesVdoNinjaForSpecialCharPassword)
+{
+	// VDO.Ninja JS: sha256(encodeURIComponent("Test@Room#1!") + "vdo.ninja").substr(0, 6) = "932512"
+	std::string result = hashStreamId("mystream", "Test@Room#1!", "vdo.ninja");
+	EXPECT_EQ(result, "mystream932512");
+}
+
+TEST_F(VdoNinjaHashCompatTest, RoomHashMatchesVdoNinjaForSpecialCharPassword)
+{
+	// VDO.Ninja JS: sha256("myroom" + encodeURIComponent("Test@Room#1!") + "vdo.ninja").substr(0, 16) = "97dd633996a146ff"
+	std::string result = hashRoomId("myroom", "Test@Room#1!", "vdo.ninja");
+	EXPECT_EQ(result, "97dd633996a146ff");
+}
+
+TEST_F(VdoNinjaHashCompatTest, DollarSignPasswordMatchesVdoNinja)
+{
+	// encodeURIComponent("GamerTime420$") = "GamerTime420%24"
+	std::string result = hashStreamId("mystream", "GamerTime420$", "vdo.ninja");
+	EXPECT_EQ(result, "mystreamaa7509");
+
+	std::string room = hashRoomId("myroom", "GamerTime420$", "vdo.ninja");
+	EXPECT_EQ(room, "34df00f43a2509ca");
+}
+
+TEST_F(VdoNinjaHashCompatTest, AllSpecialCharsPasswordMatchesVdoNinja)
+{
+	// encodeURIComponent("$#@!&+=") = "%24%23%40!%26%2B%3D"
+	std::string result = hashStreamId("mystream", "$#@!&+=", "vdo.ninja");
+	EXPECT_EQ(result, "mystream313ca5");
+
+	std::string room = hashRoomId("myroom", "$#@!&+=", "vdo.ninja");
+	EXPECT_EQ(room, "9d9b4f5f2a9a31d8");
+}
+
+TEST_F(VdoNinjaHashCompatTest, AlphanumericPasswordStillWorks)
+{
+	// encodeURIComponent("password123") === "password123" — no change
+	std::string streamResult = hashStreamId("mystream", "password123", "vdo.ninja");
+	EXPECT_EQ(streamResult, "mystream" + sha256("password123" + std::string("vdo.ninja")).substr(0, 6));
+
+	std::string roomResult = hashRoomId("myroom", "password123", "vdo.ninja");
+	EXPECT_EQ(roomResult, sha256("myroom" + std::string("password123") + "vdo.ninja").substr(0, 16));
+}
+
+TEST_F(VdoNinjaHashCompatTest, DefaultPasswordUnaffectedByEncoding)
+{
+	// DEFAULT_PASSWORD is "someEncryptionKey123" — all alphanumeric, no encoding change
+	std::string result = hashStreamId("HLBKRuy", std::string(DEFAULT_PASSWORD), "vdo.ninja");
+	EXPECT_EQ(result, "HLBKRuy808d64");
+}
+
+TEST_F(VdoNinjaHashCompatTest, DeriveViewStreamIdStripsSpecialCharPasswordSuffix)
+{
+	std::string hashed = hashStreamId("mystream", "Test@Room#1!", "vdo.ninja");
+	std::string derived = deriveViewStreamId(hashed, "Test@Room#1!", "vdo.ninja");
+	EXPECT_EQ(derived, "mystream");
+}
+
+TEST_F(VdoNinjaHashCompatTest, DeriveViewStreamIdStripsDefaultPasswordSuffix)
+{
+	// Default password suffix should still be strippable
+	std::string hashed = hashStreamId("cam_1", std::string(DEFAULT_PASSWORD), "vdo.ninja");
+	std::string derived = deriveViewStreamId(hashed, std::string(DEFAULT_PASSWORD), "vdo.ninja");
+	EXPECT_EQ(derived, "cam_1");
+}
+
+TEST_F(VdoNinjaHashCompatTest, ViewerPageUrlEncodesSpecialCharPassword)
+{
+	// URL should contain the urlEncoded password (for the browser), not the jsEncoded version
+	std::string url = buildViewerPageUrl("https://vdo.ninja", "cam_1", "GamerTime420$", "testroom", "vdo.ninja");
+	// Password in URL must be percent-encoded for correct URL parsing
+	EXPECT_NE(url.find("password=GamerTime420%24"), std::string::npos);
+	// Room and solo must be present
+	EXPECT_NE(url.find("room=testroom"), std::string::npos);
+	EXPECT_NE(url.find("&solo"), std::string::npos);
+}
+
+TEST_F(VdoNinjaHashCompatTest, ViewerPageUrlStripsHashSuffixFromViewId)
+{
+	// The view= param should show the base stream ID, not the hashed version
+	std::string url = buildViewerPageUrl("https://vdo.ninja", "cam_1aa7509", "GamerTime420$", "", "vdo.ninja");
+	// hashStreamId("cam_1", "GamerTime420$", "vdo.ninja") appends "aa7509"
+	// deriveViewStreamId should strip it, so view= shows "cam_1"
+	EXPECT_NE(url.find("view=cam_1&"), std::string::npos) << "URL was: " << url;
+}
+
 // URL Encoding Tests
 class URLEncodeTest : public ::testing::Test
 {

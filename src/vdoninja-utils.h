@@ -106,6 +106,7 @@ private:
 std::string base64Encode(const std::vector<uint8_t> &data);
 std::vector<uint8_t> base64Decode(const std::string &encoded);
 std::string urlEncode(const std::string &value);
+std::string jsEncodeURIComponent(const std::string &value);
 std::string trim(const std::string &str);
 std::vector<std::string> split(const std::string &str, char delimiter);
 std::vector<IceServer> parseIceServers(const std::string &config);

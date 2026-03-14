@@ -794,7 +794,9 @@ bool VDONinjaSignaling::joinRoom(const std::string &roomId, const std::string &p
 		std::lock_guard<std::mutex> lock(stateMutex_);
 		currentRoom_.roomId = roomId;
 		currentRoom_.hashedRoomId = hashedRoom;
-		currentRoom_.password = passwordDisabled ? "" : effectivePassword;
+		// VDO.Ninja JS stores encodeURIComponent(password) as session.password,
+		// which is then used for AES encryption/decryption of SDP and ICE.
+		currentRoom_.password = passwordDisabled ? "" : jsEncodeURIComponent(effectivePassword);
 	}
 
 	JsonBuilder msg;
@@ -869,7 +871,7 @@ bool VDONinjaSignaling::publishStream(const std::string &streamId, const std::st
 		std::lock_guard<std::mutex> lock(stateMutex_);
 		publishedStream_.streamId = streamId;
 		publishedStream_.hashedStreamId = hashedStream;
-		publishedStream_.password = passwordDisabled ? "" : effectivePassword;
+		publishedStream_.password = passwordDisabled ? "" : jsEncodeURIComponent(effectivePassword);
 		publishedStream_.isViewing = false;
 		publishedStream_.isPublishing = true;
 	}
@@ -944,7 +946,7 @@ bool VDONinjaSignaling::viewStream(const std::string &streamId, const std::strin
 	StreamInfo stream;
 	stream.streamId = streamId;
 	stream.hashedStreamId = hashedStream;
-	stream.password = passwordDisabled ? "" : effectivePassword;
+	stream.password = passwordDisabled ? "" : jsEncodeURIComponent(effectivePassword);
 	stream.isViewing = true;
 
 	{

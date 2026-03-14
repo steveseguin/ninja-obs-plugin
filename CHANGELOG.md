@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.36] - 2026-03-13
+
+### Fixed
+- Special-character passwords (containing `$`, `#`, `@`, `&`, `+`, `[`, etc.) now produce the same room/stream hashes as VDO.Ninja's browser JS. Previously, our C++ used the raw password for SHA-256 hashing while VDO.Ninja runs `encodeURIComponent()` first, causing the two sides to land in different signaling rooms and never see each other.
+- AES encryption/decryption of SDP and ICE candidates now uses the URI-encoded password to match VDO.Ninja's key derivation, fixing encrypted-session failures with special-character passwords.
+
 ## [1.1.35] - 2026-03-12
 
 ### Fixed

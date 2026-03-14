@@ -352,8 +352,10 @@ std::string hashStreamId(const std::string &streamId, const std::string &passwor
 		return sanitized;
 	}
 
-	// SDK convention: streamID + first 6 hex chars of sha256(password + salt).
-	std::string passwordHash = sha256(normalizedPassword + salt).substr(0, 6);
+	// VDO.Ninja's JS runs encodeURIComponent() on the password before hashing
+	// (sanitizePassword in lib.js). We must do the same to produce matching hashes.
+	std::string encodedPassword = jsEncodeURIComponent(normalizedPassword);
+	std::string passwordHash = sha256(encodedPassword + salt).substr(0, 6);
 	return sanitized + passwordHash;
 }
 
@@ -366,7 +368,9 @@ std::string hashRoomId(const std::string &roomId, const std::string &password, c
 		return sanitized;
 	}
 
-	std::string combined = sanitized + normalizedPassword + salt;
+	// VDO.Ninja's JS runs encodeURIComponent() on the password before hashing
+	std::string encodedPassword = jsEncodeURIComponent(normalizedPassword);
+	std::string combined = sanitized + encodedPassword + salt;
 	std::string fullHash = sha256(combined);
 	return fullHash.substr(0, 16);
 }
@@ -383,9 +387,9 @@ std::string deriveViewStreamId(const std::string &streamId, const std::string &p
 
 	std::vector<std::string> suffixes;
 	if (!normalizedPassword.empty() && !passwordDisabled) {
-		suffixes.push_back(sha256(normalizedPassword + salt).substr(0, 6));
+		suffixes.push_back(sha256(jsEncodeURIComponent(normalizedPassword) + salt).substr(0, 6));
 	}
-	suffixes.push_back(sha256(std::string(DEFAULT_PASSWORD) + salt).substr(0, 6));
+	suffixes.push_back(sha256(jsEncodeURIComponent(std::string(DEFAULT_PASSWORD)) + salt).substr(0, 6));
 
 	for (const auto &suffix : suffixes) {
 		if (!suffix.empty() && viewId.size() > suffix.size() &&
@@ -891,6 +895,25 @@ std::string urlEncode(const std::string &value)
 
 	for (char c : value) {
 		if (std::isalnum(static_cast<unsigned char>(c)) || c == '-' || c == '_' || c == '.' || c == '~') {
+			escaped << c;
+		} else {
+			escaped << '%' << std::setw(2) << int(static_cast<unsigned char>(c));
+		}
+	}
+
+	return escaped.str();
+}
+
+std::string jsEncodeURIComponent(const std::string &value)
+{
+	std::ostringstream escaped;
+	escaped.fill('0');
+	escaped << std::hex << std::uppercase;
+
+	for (char c : value) {
+		// JS encodeURIComponent preserves: A-Z a-z 0-9 - _ . ! ~ * ' ( )
+		if (std::isalnum(static_cast<unsigned char>(c)) || c == '-' || c == '_' || c == '.' || c == '!' ||
+		    c == '~' || c == '*' || c == '\'' || c == '(' || c == ')') {
 			escaped << c;
 		} else {
 			escaped << '%' << std::setw(2) << int(static_cast<unsigned char>(c));
