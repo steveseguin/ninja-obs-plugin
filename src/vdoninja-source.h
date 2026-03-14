@@ -8,8 +8,8 @@
 #include <obs-module.h>
 
 #include <atomic>
-#include <unordered_set>
 #include <thread>
+#include <unordered_set>
 
 #include "vdoninja-common.h"
 #include "vdoninja-peer-manager.h"
@@ -100,8 +100,8 @@ private:
 	void onChildAudioActivated();
 	void onChildAudioDeactivated();
 	void drainAsyncCallbacks();
-	friend void vdoninja_source_child_audio_capture(void *param, obs_source_t *source, const struct audio_data *audioData,
-	                                                bool muted);
+	friend void vdoninja_source_child_audio_capture(void *param, obs_source_t *source,
+	                                                const struct audio_data *audioData, bool muted);
 	friend void vdoninja_source_child_audio_activate(void *param, calldata_t *calldata);
 	friend void vdoninja_source_child_audio_deactivate(void *param, calldata_t *calldata);
 

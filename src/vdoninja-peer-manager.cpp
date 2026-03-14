@@ -4,13 +4,14 @@
  */
 
 #include "vdoninja-peer-manager.h"
-#include "vdoninja-utils.h"
 
 #include <algorithm>
 #include <cctype>
 #include <cstdint>
 #include <cstring>
 #include <random>
+
+#include "vdoninja-utils.h"
 
 namespace vdoninja
 {
@@ -71,7 +72,8 @@ const SdpOfferedCodec *findPreferredOfferedCodec(const SdpOfferedMediaSection &s
 		if (!fallback) {
 			fallback = &codec;
 		}
-		if (target == "h264" && codecNameLower(codec.formatParameters).find("packetization-mode=1") != std::string::npos) {
+		if (target == "h264" &&
+		    codecNameLower(codec.formatParameters).find("packetization-mode=1") != std::string::npos) {
 			return &codec;
 		}
 	}
@@ -92,7 +94,8 @@ std::string constrainViewerOfferToNativeCodecs(const std::string &sdp)
 {
 	std::string filtered = stripUnsupportedTransportCcFeedback(sdp);
 	if (filtered != sdp) {
-		logInfo("Stripped transport-cc feedback/extensions from native viewer offer to prefer REMB-compatible feedback");
+		logInfo(
+		    "Stripped transport-cc feedback/extensions from native viewer offer to prefer REMB-compatible feedback");
 	}
 	return filtered;
 }
@@ -946,17 +949,15 @@ void VDONinjaPeerManager::prepareViewerTracks(const std::shared_ptr<PeerInfo> &p
 				}
 
 				rtc::Description::Video receiveVideo(section.mid.empty() ? "video" : section.mid,
-				                                    rtc::Description::Direction::RecvOnly);
+				                                     rtc::Description::Direction::RecvOnly);
 				if (videoCodec->formatParameters.empty()) {
 					receiveVideo.addH264Codec(videoCodec->payloadType);
 				} else {
 					receiveVideo.addH264Codec(videoCodec->payloadType, videoCodec->formatParameters);
 				}
-				if (const SdpOfferedCodec *rtxCodec =
-				        findAssociatedRtxCodec(section, videoCodec->payloadType)) {
-					const unsigned int rtxClockRate = rtxCodec->clockRate > 0
-					                                      ? static_cast<unsigned int>(rtxCodec->clockRate)
-					                                      : 90000u;
+				if (const SdpOfferedCodec *rtxCodec = findAssociatedRtxCodec(section, videoCodec->payloadType)) {
+					const unsigned int rtxClockRate =
+					    rtxCodec->clockRate > 0 ? static_cast<unsigned int>(rtxCodec->clockRate) : 90000u;
 					receiveVideo.addRtxCodec(rtxCodec->payloadType, videoCodec->payloadType, rtxClockRate);
 				}
 				receiveVideo.setBitrate(requestedVideoBitrateKbps);
@@ -980,7 +981,7 @@ void VDONinjaPeerManager::prepareViewerTracks(const std::shared_ptr<PeerInfo> &p
 				}
 
 				rtc::Description::Audio receiveAudio(section.mid.empty() ? "audio" : section.mid,
-				                                    rtc::Description::Direction::RecvOnly);
+				                                     rtc::Description::Direction::RecvOnly);
 				if (audioCodec->formatParameters.empty()) {
 					receiveAudio.addOpusCodec(audioCodec->payloadType);
 				} else {
@@ -995,8 +996,8 @@ void VDONinjaPeerManager::prepareViewerTracks(const std::shared_ptr<PeerInfo> &p
 				}
 			}
 		} catch (const std::exception &e) {
-			logWarning("Failed to prepare native recvonly %s track for %s: %s", section.type.c_str(), peer->uuid.c_str(),
-			           e.what());
+			logWarning("Failed to prepare native recvonly %s track for %s: %s", section.type.c_str(),
+			           peer->uuid.c_str(), e.what());
 		}
 	}
 }
@@ -1226,8 +1227,8 @@ void VDONinjaPeerManager::bundleAndSendCandidates(const std::string &uuid)
 	// Send all bundled candidates
 	for (const auto &cand : bundle.candidates) {
 		if (signalingDataChannel) {
-			signaling_->sendIceCandidateViaDataChannel(signalingDataChannel, uuid, std::get<0>(cand),
-			                                           std::get<1>(cand), bundle.session);
+			signaling_->sendIceCandidateViaDataChannel(signalingDataChannel, uuid, std::get<0>(cand), std::get<1>(cand),
+			                                           bundle.session);
 		} else {
 			signaling_->sendIceCandidate(uuid, std::get<0>(cand), std::get<1>(cand), bundle.session);
 		}
@@ -1488,8 +1489,7 @@ void VDONinjaPeerManager::sendDataToPeer(const std::string &uuid, const std::str
 			return;
 		}
 		if (it->second->type == ConnectionType::Viewer && it->second->signalingDataChannel) {
-			it->second->signalingDataChannel->send(
-			    wrapTargetedPeerMessage(uuid, it->second->session, message));
+			it->second->signalingDataChannel->send(wrapTargetedPeerMessage(uuid, it->second->session, message));
 		}
 	} catch (const std::exception &e) {
 		logError("Failed to send data to %s: %s", uuid.c_str(), e.what());
@@ -1520,7 +1520,8 @@ void VDONinjaPeerManager::bindViewerSignalingDataChannel(const std::string &tran
 		std::lock_guard<std::mutex> lock(peersMutex_);
 		auto targetIt = peers_.find(targetUuid);
 		if (targetIt != peers_.end() && targetIt->second) {
-			if (targetSession.empty() || targetIt->second->session.empty() || targetIt->second->session == targetSession) {
+			if (targetSession.empty() || targetIt->second->session.empty() ||
+			    targetIt->second->session == targetSession) {
 				targetIt->second->signalingDataChannel = transportDataChannel;
 				return;
 			}

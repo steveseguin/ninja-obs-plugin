@@ -5,6 +5,8 @@
 
 #include "vdoninja-source.h"
 
+#include <rtc/rtcpreceivingsession.hpp>
+
 #include <algorithm>
 #include <cctype>
 #include <cstring>
@@ -13,8 +15,6 @@
 
 #include <util/platform.h>
 #include <util/threading.h>
-
-#include <rtc/rtcpreceivingsession.hpp>
 
 extern "C" {
 #include <libavcodec/avcodec.h>
@@ -48,8 +48,7 @@ const char *tr(const char *key, const char *fallback)
 	return localized;
 }
 
-template<typename Fn>
-void runNoexceptCallback(const char *context, Fn &&fn)
+template <typename Fn> void runNoexceptCallback(const char *context, Fn &&fn)
 {
 	try {
 		fn();
@@ -60,8 +59,7 @@ void runNoexceptCallback(const char *context, Fn &&fn)
 	}
 }
 
-template<typename T, typename Fn>
-T runNoexceptCallbackValue(const char *context, T fallback, Fn &&fn)
+template <typename T, typename Fn> T runNoexceptCallbackValue(const char *context, T fallback, Fn &&fn)
 {
 	try {
 		return fn();
@@ -235,9 +233,8 @@ std::optional<RtpPayloadView> parseRtpPayloadView(const uint8_t *packetData, siz
 		if (headerSize + 4 > packetSize) {
 			return std::nullopt;
 		}
-		const size_t extensionWords =
-		    static_cast<size_t>((static_cast<uint16_t>(packetData[headerSize + 2]) << 8) |
-		                        static_cast<uint16_t>(packetData[headerSize + 3]));
+		const size_t extensionWords = static_cast<size_t>((static_cast<uint16_t>(packetData[headerSize + 2]) << 8) |
+		                                                  static_cast<uint16_t>(packetData[headerSize + 3]));
 		headerSize += 4 + (extensionWords * 4);
 		if (headerSize > packetSize) {
 			return std::nullopt;
@@ -393,7 +390,7 @@ void clearTrackCallbacks(const std::shared_ptr<rtc::Track> &track)
 	}
 
 	try {
-		track->onMessage(std::function<void(rtc::message_variant)> {});
+		track->onMessage(std::function<void(rtc::message_variant)>{});
 	} catch (const std::exception &) {
 	}
 	try {
@@ -434,7 +431,8 @@ bool vdoninja_source_native_mode_modified(obs_properties_t *props, obs_property_
 	return true;
 }
 
-class InspectingReceivingSession : public rtc::RtcpReceivingSession {
+class InspectingReceivingSession : public rtc::RtcpReceivingSession
+{
 public:
 	using InspectCallback = std::function<void(const rtc::message_ptr &)>;
 
@@ -454,7 +452,8 @@ private:
 	InspectCallback callback_;
 };
 
-class RtxRepairMediaHandler : public rtc::MediaHandler {
+class RtxRepairMediaHandler : public rtc::MediaHandler
+{
 public:
 	void media(const rtc::Description::Media &description) override
 	{
@@ -471,8 +470,7 @@ public:
 					}
 					try {
 						const int originalPayloadType = std::stoi(fmtp.substr(4));
-						rtxPayloadTypes_[static_cast<uint8_t>(payloadType)] =
-						    static_cast<uint8_t>(originalPayloadType);
+						rtxPayloadTypes_[static_cast<uint8_t>(payloadType)] = static_cast<uint8_t>(originalPayloadType);
 					} catch (const std::exception &) {
 					}
 				}
@@ -622,14 +620,14 @@ static void vdoninja_source_video_render(void *data, gs_effect_t *effect)
 
 static uint32_t vdoninja_source_get_width(void *data)
 {
-	return runNoexceptCallbackValue<uint32_t>(
-	    "vdoninja_source_get_width", 0, [data]() { return static_cast<VDONinjaSource *>(data)->getWidth(); });
+	return runNoexceptCallbackValue<uint32_t>("vdoninja_source_get_width", 0,
+	                                          [data]() { return static_cast<VDONinjaSource *>(data)->getWidth(); });
 }
 
 static uint32_t vdoninja_source_get_height(void *data)
 {
-	return runNoexceptCallbackValue<uint32_t>(
-	    "vdoninja_source_get_height", 0, [data]() { return static_cast<VDONinjaSource *>(data)->getHeight(); });
+	return runNoexceptCallbackValue<uint32_t>("vdoninja_source_get_height", 0,
+	                                          [data]() { return static_cast<VDONinjaSource *>(data)->getHeight(); });
 }
 
 static void vdoninja_source_enum_active_sources(void *data, obs_source_enum_proc_t cb, void *param)
@@ -656,9 +654,8 @@ static obs_properties_t *vdoninja_source_properties(void *)
 	obs_property_text_set_info_type(note, OBS_TEXT_INFO_NORMAL);
 	obs_property_text_set_info_word_wrap(note, true);
 
-	obs_property_t *useNative =
-	    obs_properties_add_bool(props, "use_native_receiver",
-	                            tr("VDONinjaSource.UseNativeReceiver", "Use Native Receiver (Experimental)"));
+	obs_property_t *useNative = obs_properties_add_bool(
+	    props, "use_native_receiver", tr("VDONinjaSource.UseNativeReceiver", "Use Native Receiver (Experimental)"));
 	obs_property_set_long_description(
 	    useNative,
 	    tr("VDONinjaSource.UseNativeReceiver.Description",
@@ -1006,145 +1003,147 @@ void VDONinjaSource::connectionThread()
 		peerManager_->setForceTurn(settings_.forceTurn);
 		signaling_->setSalt(settings_.salt);
 
-	peerManager_->setOnTrack([callbackState](const std::string &uuid, TrackType type, std::shared_ptr<rtc::Track> track) {
-		AsyncCallbackGuard<VDONinjaSource> guard(callbackState.get());
-		if (!guard) {
-			return;
-		}
+		peerManager_->setOnTrack(
+		    [callbackState](const std::string &uuid, TrackType type, std::shared_ptr<rtc::Track> track) {
+			    AsyncCallbackGuard<VDONinjaSource> guard(callbackState.get());
+			    if (!guard) {
+				    return;
+			    }
 
-		if (type == TrackType::Video) {
-			guard.owner()->onVideoTrack(uuid, track);
-		} else {
-			guard.owner()->onAudioTrack(uuid, track);
-		}
-	});
+			    if (type == TrackType::Video) {
+				    guard.owner()->onVideoTrack(uuid, track);
+			    } else {
+				    guard.owner()->onAudioTrack(uuid, track);
+			    }
+		    });
 
-	peerManager_->setOnPeerConnected([callbackState](const std::string &uuid) {
-		AsyncCallbackGuard<VDONinjaSource> guard(callbackState.get());
-		if (!guard) {
-			return;
-		}
-		VDONinjaSource *self = guard.owner();
-		logInfo("Connected to publisher: %s", uuid.c_str());
-		self->connected_ = true;
-		self->cancelViewRetry();
-		{
-			std::lock_guard<std::mutex> lock(self->retryStateMutex_);
-			self->viewRetryCount_ = 0;
-			self->awaitingPeerConnection_ = false;
-			self->suppressViewerRetry_ = false;
-		}
-		self->sendViewerPreferencesToPeer(uuid, "peer-connected");
-		self->requestNativeTargetBitrate("peer-connected");
-	});
-
-	peerManager_->setOnPeerDisconnected([callbackState](const std::string &uuid) {
-		AsyncCallbackGuard<VDONinjaSource> guard(callbackState.get());
-		if (!guard) {
-			return;
-		}
-		logInfo("Disconnected from publisher: %s", uuid.c_str());
-		guard.owner()->handlePeerDisconnected(uuid);
-	});
-
-	peerManager_->setOnDataChannel([callbackState](const std::string &uuid, std::shared_ptr<rtc::DataChannel> dc) {
-		AsyncCallbackGuard<VDONinjaSource> guard(callbackState.get());
-		if (!guard) {
-			return;
-		}
-		if (!dc) {
-			return;
-		}
-		guard.owner()->sendViewerPreferencesToPeer(uuid, "datachannel-open");
-	});
-
-	peerManager_->setOnDataChannelMessage([callbackState](const std::string &uuid, const std::string &message) {
-		AsyncCallbackGuard<VDONinjaSource> guard(callbackState.get());
-		if (!guard) {
-			return;
-		}
-		VDONinjaSource *self = guard.owner();
-		constexpr size_t kMaxPreviewChars = 256;
-		std::string preview = message;
-		if (preview.size() > kMaxPreviewChars) {
-			preview = preview.substr(0, kMaxPreviewChars) + "...(truncated)";
-		}
-		logInfo("Received source datachannel message from %s: %s", uuid.c_str(), preview.c_str());
-
-		JsonParser raw(message);
-		std::string targetUuid = raw.getString("UUID");
-		if (targetUuid.empty()) {
-			targetUuid = raw.getString("uuid");
-		}
-		const std::string targetSession = raw.getString("session");
-		if (!targetUuid.empty()) {
-			self->peerManager_->bindViewerSignalingDataChannel(uuid, targetUuid, targetSession);
-		}
-
-		if (self->signaling_ &&
-		    (message.find("\"description\"") != std::string::npos || message.find("\"candidate\"") != std::string::npos ||
-		     message.find("\"candidates\"") != std::string::npos || message.find("\"request\"") != std::string::npos ||
-		     message.find("\"bye\"") != std::string::npos)) {
-			self->signaling_->processIncomingMessage(message);
-			if (!targetUuid.empty()) {
-				self->sendViewerPreferencesToPeer(targetUuid, "resolved-media-peer");
+		peerManager_->setOnPeerConnected([callbackState](const std::string &uuid) {
+			AsyncCallbackGuard<VDONinjaSource> guard(callbackState.get());
+			if (!guard) {
+				return;
 			}
-		}
-	});
+			VDONinjaSource *self = guard.owner();
+			logInfo("Connected to publisher: %s", uuid.c_str());
+			self->connected_ = true;
+			self->cancelViewRetry();
+			{
+				std::lock_guard<std::mutex> lock(self->retryStateMutex_);
+				self->viewRetryCount_ = 0;
+				self->awaitingPeerConnection_ = false;
+				self->suppressViewerRetry_ = false;
+			}
+			self->sendViewerPreferencesToPeer(uuid, "peer-connected");
+			self->requestNativeTargetBitrate("peer-connected");
+		});
 
-	signaling_->setOnConnected([callbackState]() {
-		AsyncCallbackGuard<VDONinjaSource> guard(callbackState.get());
-		if (!guard) {
-			return;
-		}
-		VDONinjaSource *self = guard.owner();
-		logInfo("Connected to signaling server");
+		peerManager_->setOnPeerDisconnected([callbackState](const std::string &uuid) {
+			AsyncCallbackGuard<VDONinjaSource> guard(callbackState.get());
+			if (!guard) {
+				return;
+			}
+			logInfo("Disconnected from publisher: %s", uuid.c_str());
+			guard.owner()->handlePeerDisconnected(uuid);
+		});
 
-		if (!self->settings_.roomId.empty()) {
-			self->signaling_->joinRoom(self->settings_.roomId, self->settings_.password);
-		}
+		peerManager_->setOnDataChannel([callbackState](const std::string &uuid, std::shared_ptr<rtc::DataChannel> dc) {
+			AsyncCallbackGuard<VDONinjaSource> guard(callbackState.get());
+			if (!guard) {
+				return;
+			}
+			if (!dc) {
+				return;
+			}
+			guard.owner()->sendViewerPreferencesToPeer(uuid, "datachannel-open");
+		});
 
-		self->requestViewStream("signaling-connected", true);
-	});
+		peerManager_->setOnDataChannelMessage([callbackState](const std::string &uuid, const std::string &message) {
+			AsyncCallbackGuard<VDONinjaSource> guard(callbackState.get());
+			if (!guard) {
+				return;
+			}
+			VDONinjaSource *self = guard.owner();
+			constexpr size_t kMaxPreviewChars = 256;
+			std::string preview = message;
+			if (preview.size() > kMaxPreviewChars) {
+				preview = preview.substr(0, kMaxPreviewChars) + "...(truncated)";
+			}
+			logInfo("Received source datachannel message from %s: %s", uuid.c_str(), preview.c_str());
 
-	signaling_->setOnDisconnected([callbackState]() {
-		AsyncCallbackGuard<VDONinjaSource> guard(callbackState.get());
-		if (!guard) {
-			return;
-		}
-		logInfo("Disconnected from signaling server");
-		guard.owner()->connected_ = false;
-	});
+			JsonParser raw(message);
+			std::string targetUuid = raw.getString("UUID");
+			if (targetUuid.empty()) {
+				targetUuid = raw.getString("uuid");
+			}
+			const std::string targetSession = raw.getString("session");
+			if (!targetUuid.empty()) {
+				self->peerManager_->bindViewerSignalingDataChannel(uuid, targetUuid, targetSession);
+			}
 
-	signaling_->setOnError([callbackState](const std::string &error) {
-		AsyncCallbackGuard<VDONinjaSource> guard(callbackState.get());
-		if (!guard) {
-			return;
-		}
-		logError("Signaling error: %s", error.c_str());
-		guard.owner()->handleSignalingAlert(error);
-	});
+			if (self->signaling_ &&
+			    (message.find("\"description\"") != std::string::npos ||
+			     message.find("\"candidate\"") != std::string::npos ||
+			     message.find("\"candidates\"") != std::string::npos ||
+			     message.find("\"request\"") != std::string::npos || message.find("\"bye\"") != std::string::npos)) {
+				self->signaling_->processIncomingMessage(message);
+				if (!targetUuid.empty()) {
+					self->sendViewerPreferencesToPeer(targetUuid, "resolved-media-peer");
+				}
+			}
+		});
 
-	signaling_->setOnStreamAdded([callbackState](const std::string &streamId, const std::string &) {
-		AsyncCallbackGuard<VDONinjaSource> guard(callbackState.get());
-		if (!guard) {
-			return;
-		}
-		VDONinjaSource *self = guard.owner();
-		if (streamId == self->settings_.streamId ||
-		    hashStreamId(self->settings_.streamId, self->settings_.password, self->settings_.salt) == streamId ||
-		    hashStreamId(self->settings_.streamId, DEFAULT_PASSWORD, self->settings_.salt) == streamId) {
-			logInfo("Target stream appeared in room, connecting...");
-			self->requestViewStream("stream-added", false);
-		}
-	});
-	signaling_->setOnPeerCleanup([callbackState](const std::string &uuid) {
-		AsyncCallbackGuard<VDONinjaSource> guard(callbackState.get());
-		if (!guard) {
-			return;
-		}
-		guard.owner()->handlePeerCleanupSignal(uuid);
-	});
+		signaling_->setOnConnected([callbackState]() {
+			AsyncCallbackGuard<VDONinjaSource> guard(callbackState.get());
+			if (!guard) {
+				return;
+			}
+			VDONinjaSource *self = guard.owner();
+			logInfo("Connected to signaling server");
+
+			if (!self->settings_.roomId.empty()) {
+				self->signaling_->joinRoom(self->settings_.roomId, self->settings_.password);
+			}
+
+			self->requestViewStream("signaling-connected", true);
+		});
+
+		signaling_->setOnDisconnected([callbackState]() {
+			AsyncCallbackGuard<VDONinjaSource> guard(callbackState.get());
+			if (!guard) {
+				return;
+			}
+			logInfo("Disconnected from signaling server");
+			guard.owner()->connected_ = false;
+		});
+
+		signaling_->setOnError([callbackState](const std::string &error) {
+			AsyncCallbackGuard<VDONinjaSource> guard(callbackState.get());
+			if (!guard) {
+				return;
+			}
+			logError("Signaling error: %s", error.c_str());
+			guard.owner()->handleSignalingAlert(error);
+		});
+
+		signaling_->setOnStreamAdded([callbackState](const std::string &streamId, const std::string &) {
+			AsyncCallbackGuard<VDONinjaSource> guard(callbackState.get());
+			if (!guard) {
+				return;
+			}
+			VDONinjaSource *self = guard.owner();
+			if (streamId == self->settings_.streamId ||
+			    hashStreamId(self->settings_.streamId, self->settings_.password, self->settings_.salt) == streamId ||
+			    hashStreamId(self->settings_.streamId, DEFAULT_PASSWORD, self->settings_.salt) == streamId) {
+				logInfo("Target stream appeared in room, connecting...");
+				self->requestViewStream("stream-added", false);
+			}
+		});
+		signaling_->setOnPeerCleanup([callbackState](const std::string &uuid) {
+			AsyncCallbackGuard<VDONinjaSource> guard(callbackState.get());
+			if (!guard) {
+				return;
+			}
+			guard.owner()->handlePeerCleanupSignal(uuid);
+		});
 
 		signaling_->setAutoReconnect(settings_.autoReconnect, DEFAULT_RECONNECT_ATTEMPTS);
 
@@ -1177,8 +1176,7 @@ void VDONinjaSource::sendViewerPreferencesToPeer(const std::string &uuid, const 
 
 	const std::string preferences = buildViewerRequestMessage(width_, height_, !settings_.roomId.empty());
 	peerManager_->sendDataToPeer(uuid, preferences);
-	logInfo("Sent viewer preferences to %s (%s): %s", uuid.c_str(), reason ? reason : "unknown",
-	        preferences.c_str());
+	logInfo("Sent viewer preferences to %s (%s): %s", uuid.c_str(), reason ? reason : "unknown", preferences.c_str());
 }
 
 void VDONinjaSource::requestNativeTargetBitrate(const char *reason)
@@ -1192,14 +1190,14 @@ void VDONinjaSource::requestNativeTargetBitrate(const char *reason)
 	const unsigned int targetBitrateBps =
 	    static_cast<unsigned int>(chooseViewerTargetBitrateKbps(width_, height_)) * 1000U;
 	if (safeRequestBitrate(currentVideoTrack, targetBitrateBps, reason)) {
-		logInfo("Requested native video REMB target of %u bps (%s)", targetBitrateBps,
-		        reason ? reason : "unknown");
+		logInfo("Requested native video REMB target of %u bps (%s)", targetBitrateBps, reason ? reason : "unknown");
 	}
 }
 
 void VDONinjaSource::requestViewStream(const char *reason, bool resetRetryCount)
 {
-	if (!nativeRunning_.load() || !signaling_ || !peerManager_ || settings_.streamId.empty() || !signaling_->isConnected()) {
+	if (!nativeRunning_.load() || !signaling_ || !peerManager_ || settings_.streamId.empty() ||
+	    !signaling_->isConnected()) {
 		return;
 	}
 
@@ -1297,7 +1295,8 @@ void VDONinjaSource::serviceViewRetry()
 			nextViewRetryTimeMs_ = now + computeViewerRetryDelayMs(viewRetryCount_);
 			pendingViewRetryReason_ = "no-offer-timeout";
 			awaitingPeerConnection_ = false;
-			logWarning("Native receiver did not get a peer within %d ms; backing off before retry", kViewRequestTimeoutMs);
+			logWarning("Native receiver did not get a peer within %d ms; backing off before retry",
+			           kViewRequestTimeoutMs);
 		}
 		if (nextViewRetryTimeMs_ != 0 && now >= nextViewRetryTimeMs_ && signaling_ && signaling_->isConnected()) {
 			nextViewRetryTimeMs_ = 0;
@@ -1431,33 +1430,33 @@ void VDONinjaSource::onVideoTrack(const std::string &uuid, std::shared_ptr<rtc::
 			    return;
 		    }
 		    VDONinjaSource *self = guard.owner();
-		if (!message || message->type != rtc::Message::Binary || message->size() < sizeof(rtc::RtpHeader)) {
-			return;
-		}
+		    if (!message || message->type != rtc::Message::Binary || message->size() < sizeof(rtc::RtpHeader)) {
+			    return;
+		    }
 
-		if (self->loggedFirstVideoRtpPacket_.exchange(true)) {
-			return;
-		}
+		    if (self->loggedFirstVideoRtpPacket_.exchange(true)) {
+			    return;
+		    }
 
-		const auto *rtpHeader = reinterpret_cast<const rtc::RtpHeader *>(message->data());
-		size_t headerSize = rtpHeader->getSize() + rtpHeader->getExtensionHeaderSize();
-		if (message->size() < headerSize) {
-			return;
-		}
+		    const auto *rtpHeader = reinterpret_cast<const rtc::RtpHeader *>(message->data());
+		    size_t headerSize = rtpHeader->getSize() + rtpHeader->getExtensionHeaderSize();
+		    if (message->size() < headerSize) {
+			    return;
+		    }
 
-		size_t paddingSize = 0;
-		if (rtpHeader->padding() && !message->empty()) {
-			paddingSize = std::to_integer<uint8_t>(message->back());
-		}
-		if (message->size() <= headerSize + paddingSize) {
-			return;
-		}
+		    size_t paddingSize = 0;
+		    if (rtpHeader->padding() && !message->empty()) {
+			    paddingSize = std::to_integer<uint8_t>(message->back());
+		    }
+		    if (message->size() <= headerSize + paddingSize) {
+			    return;
+		    }
 
-		const size_t payloadSize = message->size() - headerSize - paddingSize;
-		logInfo("Native receiver got first video RTP packet (pt=%u, bytes=%zu, marker=%u, rtp ts=%u)",
-		        static_cast<unsigned>(rtpHeader->payloadType()), payloadSize, static_cast<unsigned>(rtpHeader->marker()),
-		        rtpHeader->timestamp());
-	});
+		    const size_t payloadSize = message->size() - headerSize - paddingSize;
+		    logInfo("Native receiver got first video RTP packet (pt=%u, bytes=%zu, marker=%u, rtp ts=%u)",
+		            static_cast<unsigned>(rtpHeader->payloadType()), payloadSize,
+		            static_cast<unsigned>(rtpHeader->marker()), rtpHeader->timestamp());
+	    });
 	track->setMediaHandler(rtxFilter);
 	track->chainMediaHandler(receivingSession);
 	track->onMessage([callbackState, weakTrack = std::weak_ptr<rtc::Track>(track)](rtc::message_variant message) {
@@ -1622,11 +1621,13 @@ void VDONinjaSource::processVideoData(const uint8_t *data, size_t size, uint32_t
 			}
 			videoHwStatusLogged_ = true;
 		}
-		if (videoHwDecodeConfigured_ && videoHwPixelFormat_ != AV_PIX_FMT_NONE && videoFrame_->format == videoHwPixelFormat_) {
+		if (videoHwDecodeConfigured_ && videoHwPixelFormat_ != AV_PIX_FMT_NONE &&
+		    videoFrame_->format == videoHwPixelFormat_) {
 			av_frame_unref(videoTransferFrame_);
 			const int transferResult = av_hwframe_transfer_data(videoTransferFrame_, videoFrame_, 0);
 			if (transferResult < 0) {
-				logWarning("Failed to transfer hardware-decoded H.264 frame from %s: %s; disabling hardware decode for this session",
+				logWarning("Failed to transfer hardware-decoded H.264 frame from %s: %s; disabling hardware decode for "
+				           "this session",
 				           videoHwDeviceName_.c_str(), ffmpegErrorString(transferResult).c_str());
 				videoHwDecodeDisabled_ = true;
 				resetVideoDecoder();
@@ -1693,8 +1694,8 @@ void VDONinjaSource::processVideoRtpPacket(const uint8_t *packetData, size_t pac
 		if (nalType == 24) {
 			size_t offset = 1;
 			while (offset + sizeof(uint16_t) <= payloadSize) {
-				const size_t naluSize = (static_cast<size_t>(payload[offset]) << 8) |
-				                        static_cast<size_t>(payload[offset + 1]);
+				const size_t naluSize =
+				    (static_cast<size_t>(payload[offset]) << 8) | static_cast<size_t>(payload[offset + 1]);
 				offset += sizeof(uint16_t);
 				if (offset + naluSize > payloadSize) {
 					return false;
@@ -1952,8 +1953,9 @@ bool VDONinjaSource::initializeVideoDecoder()
 	const int openResult = avcodec_open2(videoDecoder_, codec, nullptr);
 	if (openResult < 0) {
 		if (videoHwDecodeConfigured_) {
-			logWarning("Failed to open H.264 decoder with %s hardware acceleration: %s; falling back to software decode",
-			           videoHwDeviceName_.c_str(), ffmpegErrorString(openResult).c_str());
+			logWarning(
+			    "Failed to open H.264 decoder with %s hardware acceleration: %s; falling back to software decode",
+			    videoHwDeviceName_.c_str(), ffmpegErrorString(openResult).c_str());
 			videoHwDecodeDisabled_ = true;
 			resetVideoDecoder();
 			return initializeVideoDecoder();
@@ -2158,11 +2160,11 @@ void VDONinjaSource::outputDecodedVideoFrame(const AVFrame *frame, uint64_t time
 	}
 
 	const AVPixelFormat inputFormat = static_cast<AVPixelFormat>(frame->format);
-	const AspectFitLayout layout =
-	    computeAspectFitLayout(static_cast<uint32_t>(frame->width), static_cast<uint32_t>(frame->height), width_, height_);
-	videoScaleContext_ = sws_getCachedContext(videoScaleContext_, frame->width, frame->height, inputFormat,
-	                                          static_cast<int>(layout.contentWidth), static_cast<int>(layout.contentHeight),
-	                                          AV_PIX_FMT_BGRA, SWS_BILINEAR, nullptr, nullptr, nullptr);
+	const AspectFitLayout layout = computeAspectFitLayout(static_cast<uint32_t>(frame->width),
+	                                                      static_cast<uint32_t>(frame->height), width_, height_);
+	videoScaleContext_ = sws_getCachedContext(
+	    videoScaleContext_, frame->width, frame->height, inputFormat, static_cast<int>(layout.contentWidth),
+	    static_cast<int>(layout.contentHeight), AV_PIX_FMT_BGRA, SWS_BILINEAR, nullptr, nullptr, nullptr);
 	if (!videoScaleContext_) {
 		logError("Failed to create video conversion context");
 		return;
@@ -2171,12 +2173,12 @@ void VDONinjaSource::outputDecodedVideoFrame(const AVFrame *frame, uint64_t time
 	const int outputStride = static_cast<int>(layout.outputWidth) * 4;
 	std::vector<uint8_t> output(static_cast<size_t>(outputStride) * static_cast<size_t>(layout.outputHeight), 0);
 	uint8_t *dstData[4] = {output.data() + (static_cast<size_t>(layout.offsetY) * static_cast<size_t>(outputStride)) +
-	                                      (static_cast<size_t>(layout.offsetX) * 4),
-	                      nullptr, nullptr, nullptr};
+	                           (static_cast<size_t>(layout.offsetX) * 4),
+	                       nullptr, nullptr, nullptr};
 	int dstLinesize[4] = {outputStride, 0, 0, 0};
 
-	const int scaledHeight = sws_scale(videoScaleContext_, frame->data, frame->linesize, 0, frame->height, dstData,
-	                                   dstLinesize);
+	const int scaledHeight =
+	    sws_scale(videoScaleContext_, frame->data, frame->linesize, 0, frame->height, dstData, dstLinesize);
 	if (scaledHeight <= 0 || static_cast<uint32_t>(scaledHeight) != layout.contentHeight) {
 		logWarning("Failed to convert decoded video frame");
 		return;
@@ -2204,8 +2206,8 @@ void VDONinjaSource::outputDecodedAudioFrame(const AVFrame *frame, uint64_t time
 		        frame->format, frame->sample_rate);
 	}
 
-	const int inputChannels = frame->ch_layout.nb_channels > 0 ? static_cast<int>(frame->ch_layout.nb_channels)
-	                                                           : audioChannels_;
+	const int inputChannels =
+	    frame->ch_layout.nb_channels > 0 ? static_cast<int>(frame->ch_layout.nb_channels) : audioChannels_;
 	const int outputChannels = inputChannels <= 1 ? 1 : 2;
 	AVChannelLayout outputLayout;
 	av_channel_layout_default(&outputLayout, outputChannels);
@@ -2259,9 +2261,8 @@ void VDONinjaSource::outputDecodedAudioFrame(const AVFrame *frame, uint64_t time
 		return;
 	}
 
-	const int convertedSamples =
-	    swr_convert(audioResampleContext_, dstData, outputSamples,
-	                const_cast<const uint8_t **>(frame->extended_data), frame->nb_samples);
+	const int convertedSamples = swr_convert(audioResampleContext_, dstData, outputSamples,
+	                                         const_cast<const uint8_t **>(frame->extended_data), frame->nb_samples);
 	if (convertedSamples < 0) {
 		logError("Failed to convert decoded audio frame: %s", ffmpegErrorString(convertedSamples).c_str());
 		av_freep(&dstData[0]);
@@ -2334,8 +2335,8 @@ void VDONinjaSource::ensureNativeReceiverSource()
 	}
 
 	obs_data_t *nativeSettings = createNativeReceiverSourceSettings(settings_, width_, height_);
-	nativeReceiverSource_ = obs_source_create_private(kInternalNativeSourceId, nativeReceiverSourceName_.c_str(),
-	                                                  nativeSettings);
+	nativeReceiverSource_ =
+	    obs_source_create_private(kInternalNativeSourceId, nativeReceiverSourceName_.c_str(), nativeSettings);
 	obs_data_release(nativeSettings);
 
 	if (!nativeReceiverSource_) {
@@ -2343,7 +2344,8 @@ void VDONinjaSource::ensureNativeReceiverSource()
 		return;
 	}
 
-	obs_source_add_audio_capture_callback(nativeReceiverSource_, vdoninja_source_child_audio_capture, callbackState_.get());
+	obs_source_add_audio_capture_callback(nativeReceiverSource_, vdoninja_source_child_audio_capture,
+	                                      callbackState_.get());
 	signal_handler_t *sh = obs_source_get_signal_handler(nativeReceiverSource_);
 	signal_handler_connect(sh, "audio_activate", vdoninja_source_child_audio_activate, callbackState_.get());
 	signal_handler_connect(sh, "audio_deactivate", vdoninja_source_child_audio_deactivate, callbackState_.get());

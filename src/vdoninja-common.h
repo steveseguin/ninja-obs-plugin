@@ -185,14 +185,12 @@ struct SourceSettings {
 	bool forceTurn = false;
 };
 
-template<typename Owner>
-struct AsyncCallbackState {
+template <typename Owner> struct AsyncCallbackState {
 	std::atomic<Owner *> owner{nullptr};
 	std::atomic<uint32_t> inFlight{0};
 };
 
-template<typename Owner>
-class AsyncCallbackGuard
+template <typename Owner> class AsyncCallbackGuard
 {
 public:
 	explicit AsyncCallbackGuard(AsyncCallbackState<Owner> *state) : state_(state)
@@ -232,20 +230,11 @@ public:
 		return *this;
 	}
 
-	~AsyncCallbackGuard()
-	{
-		release();
-	}
+	~AsyncCallbackGuard() { release(); }
 
-	explicit operator bool() const
-	{
-		return owner_ != nullptr;
-	}
+	explicit operator bool() const { return owner_ != nullptr; }
 
-	Owner *owner() const
-	{
-		return owner_;
-	}
+	Owner *owner() const { return owner_; }
 
 	static void detach(AsyncCallbackState<Owner> *state)
 	{
