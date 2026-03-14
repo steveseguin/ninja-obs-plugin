@@ -347,10 +347,20 @@ jobs:
           else
             ffmpeg_lib_dir="${ffmpeg_deps_root}/lib"
           fi
+          # Use Qt from OBS's own deps (not Homebrew) so the plugin is built
+          # against the same Qt version that OBS bundles.  This prevents
+          # symbol-not-found errors when the Homebrew Qt is newer than what
+          # OBS ships (e.g. _qt_version_tag_6_10 missing in Qt 6.8).
+          qt_deps_root="$(find "$obs_deps_dir" -maxdepth 1 -type d -name '*qt6*' | head -1)"
+          if [ -z "$qt_deps_root" ]; then
+            echo "OBS Qt6 deps not found, falling back to Homebrew Qt"
+            qt_deps_root="$(brew --prefix qt@6)"
+          fi
           cmake -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_OSX_ARCHITECTURES=${{ matrix.arch }} \
-            -DCMAKE_PREFIX_PATH="${{ github.workspace }}/libdatachannel-install;${{ github.workspace }}/obs-sdk;${ffmpeg_deps_root};$(brew --prefix qt@6);$(brew --prefix openssl@3)" \
+            -DCMAKE_PREFIX_PATH="${{ github.workspace }}/libdatachannel-install;${{ github.workspace }}/obs-sdk;${ffmpeg_deps_root};${qt_deps_root};$(brew --prefix openssl@3)" \
+            -DCMAKE_FRAMEWORK_PATH="${obs_sdk_frameworks}" \
             -DCMAKE_LIBRARY_PATH="${ffmpeg_lib_dir}" \
             -DCMAKE_INCLUDE_PATH="${ffmpeg_include_dir}" \
             -DFFMPEG_INCLUDE_DIR="${ffmpeg_include_dir}" \
@@ -367,14 +377,64 @@ jobs:
       - name: Package
         run: |
           cmake --install build --prefix install
-          # Ad-hoc codesign the plugin binary so the ZIP ships a valid
-          # Mach-O signature.  The install script will re-sign after
-          # copying into the .plugin bundle, but signing here also
-          # covers manual installs that skip the script.
-          if [ -f install/lib/obs-plugins/obs-vdoninja.so ]; then
-            codesign --force --sign - install/lib/obs-plugins/obs-vdoninja.so
-            codesign -vvv install/lib/obs-plugins/obs-vdoninja.so
+          PLUGIN_SO="install/lib/obs-plugins/obs-vdoninja.so"
+          PLUGIN_DIR="install/lib/obs-plugins"
+
+          if [ -f "$PLUGIN_SO" ]; then
+            # --- Fix dylib load paths before packaging ---
+            # Rewrite absolute Homebrew Qt framework paths to @rpath.
+            # OBS ships Qt in its Frameworks/ directory and sets
+            # @rpath = @executable_path/../Frameworks.
+            otool -L "$PLUGIN_SO" | awk '{print $1}' | while read -r dep; do
+              case "$dep" in
+                */Qt*.framework/*)
+                  fw_rel="${dep##*/lib/}"
+                  [ -n "$fw_rel" ] && \
+                    install_name_tool -change "$dep" "@rpath/$fw_rel" "$PLUGIN_SO" || true
+                  ;;
+              esac
+            done
+
+            # Bundle non-system dylibs (OpenSSL, libdatachannel) next to the
+            # plugin binary so the install script can copy them into the
+            # .plugin bundle.  Rewrite their load paths to @loader_path.
+            otool -L "$PLUGIN_SO" | awk '{print $1}' | while read -r dep; do
+              case "$dep" in @*|/usr/lib/*|/System/*) continue ;; esac
+              if [ -f "$dep" ]; then
+                libname="$(basename "$dep")"
+                cp -a "$dep" "$PLUGIN_DIR/$libname"
+                install_name_tool -change "$dep" "@loader_path/$libname" "$PLUGIN_SO" || true
+              fi
+            done
+
+            # Fix internal cross-references within bundled dylibs
+            # (e.g. libssl references libcrypto via a Cellar absolute path)
+            for dylib in "$PLUGIN_DIR"/*.dylib; do
+              [ -f "$dylib" ] || continue
+              libbase="$(basename "$dylib")"
+              install_name_tool -id "@loader_path/$libbase" "$dylib" || true
+              otool -L "$dylib" | awk '{print $1}' | while read -r dep; do
+                case "$dep" in @*|/usr/lib/*|/System/*) continue ;; esac
+                sibling="$(basename "$dep")"
+                if [ -f "$PLUGIN_DIR/$sibling" ]; then
+                  install_name_tool -change "$dep" "@loader_path/$sibling" "$dylib" || true
+                fi
+              done
+            done
+
+            # Show final link state for CI logs
+            echo "=== Final dylib references ==="
+            otool -L "$PLUGIN_SO"
+            for dylib in "$PLUGIN_DIR"/*.dylib; do
+              [ -f "$dylib" ] && echo "--- $(basename "$dylib") ---" && otool -L "$dylib"
+            done
+
+            # Ad-hoc codesign the plugin binary and any bundled dylibs
+            for f in "$PLUGIN_DIR"/*.so "$PLUGIN_DIR"/*.dylib; do
+              [ -f "$f" ] && codesign --force --sign - "$f"
+            done
           fi
+
           cp LICENSE install/
           cp INSTALL.md install/
           cp QUICKSTART.md install/

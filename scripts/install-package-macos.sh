@@ -61,8 +61,69 @@ if [[ -z "$PLUGIN_BIN" ]]; then
 fi
 cp -a "$PLUGIN_BIN" "$DST_PLUGIN_DIR/obs-vdoninja"
 
+# Copy any bundled dylibs shipped alongside the plugin binary (e.g. OpenSSL,
+# libdatachannel) so they live next to it inside Contents/MacOS/.
+for dylib in "$SRC_PLUGIN_DIR"/*.dylib; do
+  [ -f "$dylib" ] && cp -a "$dylib" "$DST_PLUGIN_DIR/"
+done
+
 # Copy data files
 cp -a "$SRC_DATA_DIR"/. "$DST_DATA_DIR"/
+
+# --- Fix up dylib load paths ------------------------------------------------
+# The CI-built binary may contain hardcoded Homebrew paths for Qt and OpenSSL.
+# OBS ships Qt inside its Frameworks/ dir (resolved via @rpath), so rewrite
+# absolute Qt paths to @rpath.  For any remaining non-system dylibs (OpenSSL,
+# libdatachannel) that are bundled alongside the binary, rewrite to
+# @loader_path so they are found in the same directory.
+
+PLUGIN="$DST_PLUGIN_DIR/obs-vdoninja"
+if command -v install_name_tool &>/dev/null && command -v otool &>/dev/null; then
+  # Rewrite hardcoded Qt framework paths → @rpath (OBS provides these)
+  otool -L "$PLUGIN" 2>/dev/null | awk '{print $1}' | while read -r dep; do
+    case "$dep" in
+      */Qt*.framework/*)
+        framework_rel="${dep##*/lib/}"        # e.g. QtWidgets.framework/Versions/A/QtWidgets
+        if [ -z "$framework_rel" ]; then continue; fi
+        new_path="@rpath/$framework_rel"
+        if [ "$dep" != "$new_path" ]; then
+          install_name_tool -change "$dep" "$new_path" "$PLUGIN" 2>/dev/null || true
+        fi
+        ;;
+    esac
+  done
+
+  # Rewrite any remaining non-system absolute paths to @loader_path if the
+  # dylib was bundled next to the binary.
+  otool -L "$PLUGIN" 2>/dev/null | awk '{print $1}' | while read -r dep; do
+    case "$dep" in
+      @*|/usr/lib/*|/System/*) continue ;;  # already relocatable or system
+    esac
+    libname="$(basename "$dep")"
+    if [ -f "$DST_PLUGIN_DIR/$libname" ]; then
+      install_name_tool -change "$dep" "@loader_path/$libname" "$PLUGIN" 2>/dev/null || true
+    fi
+  done
+
+  # Fix internal cross-references and install names within bundled dylibs
+  # (e.g. libssl references libcrypto via an absolute Homebrew/Cellar path).
+  for dylib in "$DST_PLUGIN_DIR"/*.dylib; do
+    [ -f "$dylib" ] || continue
+    libbase="$(basename "$dylib")"
+    # Set the dylib's own install name to @loader_path
+    install_name_tool -id "@loader_path/$libbase" "$dylib" 2>/dev/null || true
+    # Rewrite any absolute references to sibling dylibs
+    otool -L "$dylib" 2>/dev/null | awk '{print $1}' | while read -r dep; do
+      case "$dep" in
+        @*|/usr/lib/*|/System/*) continue ;;
+      esac
+      sibling="$(basename "$dep")"
+      if [ -f "$DST_PLUGIN_DIR/$sibling" ]; then
+        install_name_tool -change "$dep" "@loader_path/$sibling" "$dylib" 2>/dev/null || true
+      fi
+    done
+  done
+fi
 
 # Create Info.plist (required for macOS bundle loading)
 cat > "$BUNDLE_DIR/Contents/Info.plist" << 'PLIST'
@@ -93,7 +154,16 @@ xattr -dr com.apple.quarantine "$BUNDLE_DIR" 2>/dev/null || true
 # Ad-hoc codesign the bundle so macOS treats it as a valid loadable bundle.
 # The original signature (if any) references resources that no longer match
 # the on-disk layout after copying into the .plugin bundle.
-codesign --force --deep --sign - "$BUNDLE_DIR" 2>/dev/null || true
+# If a Developer ID identity is available, prefer it so the plugin loads in
+# OBS builds that enforce library validation (matching Team ID).
+CODESIGN_IDENTITY="-"
+if security find-identity -v -p codesigning 2>/dev/null | grep -q "Developer ID Application"; then
+  CODESIGN_IDENTITY="$(security find-identity -v -p codesigning 2>/dev/null \
+    | grep "Developer ID Application" | head -1 \
+    | sed 's/.*"\(.*\)"/\1/')"
+  echo "Signing with: $CODESIGN_IDENTITY"
+fi
+codesign --force --deep --sign "$CODESIGN_IDENTITY" "$BUNDLE_DIR" 2>/dev/null || true
 
 QUICKSTART_PATH="$PKG_ROOT/QUICKSTART.md"
 echo
