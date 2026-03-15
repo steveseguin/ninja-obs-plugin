@@ -226,7 +226,7 @@ jobs:
 
       - name: Install Dependencies
         run: |
-          brew install cmake ninja openssl@3 qt@6
+          brew install cmake ninja openssl@3
 
       - name: Build OBS SDK
         run: |
@@ -248,25 +248,36 @@ jobs:
               print("OBSShader.swift hotfix not required for this OBS ref")
           PY
           export DEVELOPER_DIR=$(ls -d /Applications/Xcode_*.app 2>/dev/null | sort -V | tail -1)/Contents/Developer
+          # OBS's macos-ci preset downloads its own Qt from obs-deps.
+          # Do NOT pass Homebrew Qt here — it would override the deps Qt
+          # and cause version mismatches with the plugin build.
+          qt_deps="$(find .deps -maxdepth 1 -type d -name '*qt6*' | head -1)"
+          qt_prefix=""
+          if [ -n "$qt_deps" ]; then
+            qt_prefix="-DCMAKE_PREFIX_PATH=$(pwd)/$qt_deps"
+          fi
           cmake --preset macos-ci -B build_macos \
             -DCMAKE_OSX_ARCHITECTURES=${{ matrix.arch }} \
-            -DCMAKE_PREFIX_PATH="$(brew --prefix qt@6)" \
+            ${qt_prefix} \
             -DENABLE_BROWSER=OFF \
             -DENABLE_SCRIPTING=OFF \
             -DOBS_VERSION_OVERRIDE=${{ env.OBS_VERSION }}
           cmake --build build_macos --config RelWithDebInfo
           cmake --install build_macos --prefix ${{ github.workspace }}/obs-sdk --config RelWithDebInfo
-          # OBS app frameworks may omit Qt headers; provide them so framework-based include
-          # resolution remains valid when plugin compile picks OBS framework search paths first.
-          qt_framework_root="$(brew --prefix qt@6)/lib"
+          # OBS app frameworks may omit Qt headers; provide them from the
+          # OBS deps Qt (same version used to build OBS).
+          qt_deps="$(find .deps -maxdepth 1 -type d -name '*qt6*' | head -1)"
           obs_framework_root="${{ github.workspace }}/obs-sdk/OBS.app/Contents/Frameworks"
-          for fw in QtCore QtGui QtWidgets QtNetwork QtSvg QtXml; do
-            src_headers="$qt_framework_root/${fw}.framework/Headers"
-            dst_framework="$obs_framework_root/${fw}.framework"
-            if [ -d "$dst_framework" ] && [ -d "$src_headers" ] && [ ! -e "$dst_framework/Headers" ]; then
-              ln -s "$src_headers" "$dst_framework/Headers" 2>/dev/null || cp -R "$src_headers" "$dst_framework/"
-            fi
-          done
+          if [ -n "$qt_deps" ]; then
+            qt_framework_root="$qt_deps/lib"
+            for fw in QtCore QtGui QtWidgets QtNetwork QtSvg QtXml; do
+              src_headers="$qt_framework_root/${fw}.framework/Headers"
+              dst_framework="$obs_framework_root/${fw}.framework"
+              if [ -d "$dst_framework" ] && [ -d "$src_headers" ] && [ ! -e "$dst_framework/Headers" ]; then
+                ln -s "$src_headers" "$dst_framework/Headers" 2>/dev/null || cp -R "$src_headers" "$dst_framework/"
+              fi
+            done
+          fi
           echo "=== OBS SDK install tree ==="
           find ${{ github.workspace }}/obs-sdk -type f | head -100
           # Create versioned symlinks for macOS
@@ -347,16 +358,13 @@ jobs:
           else
             ffmpeg_lib_dir="${ffmpeg_deps_root}/lib"
           fi
-          # Use OBS's own Qt deps so the plugin matches OBS's Qt version.
-          # Remove Homebrew Qt from PATH so cmake finds the correct moc too.
+          # Use Qt from OBS's own deps (same version OBS was built with).
           qt_deps_root="$(find "$obs_deps_dir" -maxdepth 1 -type d -name '*qt6*' | head -1)"
-          if [ -n "$qt_deps_root" ]; then
-            echo "Using OBS Qt deps: $qt_deps_root"
-            brew unlink qt@6 2>/dev/null || true
-          else
-            echo "OBS Qt deps not found, using Homebrew Qt"
-            qt_deps_root="$(brew --prefix qt@6)"
+          if [ -z "$qt_deps_root" ]; then
+            echo "ERROR: OBS Qt6 deps not found"
+            exit 1
           fi
+          echo "Using OBS Qt deps: $qt_deps_root"
           cmake -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_OSX_ARCHITECTURES=${{ matrix.arch }} \
