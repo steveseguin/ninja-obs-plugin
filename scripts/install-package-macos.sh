@@ -79,16 +79,16 @@ cp -a "$SRC_DATA_DIR"/. "$DST_DATA_DIR"/
 
 PLUGIN="$DST_PLUGIN_DIR/obs-vdoninja"
 if command -v install_name_tool &>/dev/null && command -v otool &>/dev/null; then
-  # Rewrite hardcoded Qt framework paths → @rpath (OBS provides these)
+  # Rewrite Qt framework paths → @rpath (OBS provides these)
   otool -L "$PLUGIN" 2>/dev/null | awk '{print $1}' | while read -r dep; do
     case "$dep" in
-      */Qt*.framework/*)
-        framework_rel="${dep##*/lib/}"        # e.g. QtWidgets.framework/Versions/A/QtWidgets
+      @rpath/Qt*.framework/*) continue ;;  # already correct
+      *Qt*.framework/*)
+        # Extract e.g. "QtWidgets.framework/Versions/A/QtWidgets"
+        framework_rel="$(echo "$dep" | sed 's|.*/\(Qt[^/]*\.framework/.*\)|\1|')"
         if [ -z "$framework_rel" ]; then continue; fi
         new_path="@rpath/$framework_rel"
-        if [ "$dep" != "$new_path" ]; then
-          install_name_tool -change "$dep" "$new_path" "$PLUGIN" 2>/dev/null || true
-        fi
+        install_name_tool -change "$dep" "$new_path" "$PLUGIN" 2>/dev/null || true
         ;;
     esac
   done

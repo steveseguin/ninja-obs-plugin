@@ -403,8 +403,10 @@ jobs:
             # @rpath = @executable_path/../Frameworks.
             otool -L "$PLUGIN_SO" | awk '{print $1}' | while read -r dep; do
               case "$dep" in
+                @rpath/Qt*.framework/*) continue ;;  # already correct
                 */Qt*.framework/*)
-                  fw_rel="${dep##*/lib/}"
+                  # Extract e.g. "QtWidgets.framework/Versions/A/QtWidgets"
+                  fw_rel="$(echo "$dep" | sed 's|.*/\(Qt[^/]*\.framework/.*\)|\1|')"
                   [ -n "$fw_rel" ] && \
                     install_name_tool -change "$dep" "@rpath/$fw_rel" "$PLUGIN_SO" || true
                   ;;
