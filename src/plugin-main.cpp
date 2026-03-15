@@ -14,7 +14,7 @@
 #include "vdoninja-dock.h"
 
 OBS_DECLARE_MODULE()
-OBS_MODULE_USE_DEFAULT_LOCALE("obs-vdoninja", "en")
+OBS_MODULE_USE_DEFAULT_LOCALE("obs-vdoninja", "en-US")
 
 #include <obs-frontend-api.h>
 

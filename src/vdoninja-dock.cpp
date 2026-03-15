@@ -84,6 +84,7 @@ void VDONinjaDock::setupUi()
 	spinMaxViewers = new QSpinBox(grpCreds);
 	spinMaxViewers->setRange(1, 50);
 	spinMaxViewers->setValue(10);
+	spinMaxViewers->setMinimumWidth(60);
 	spinMaxViewers->setToolTip(obs_module_text_vdo("MaxViewers.Description"));
 
 	QPushButton *btnGen = new QPushButton(obs_module_text_vdo("VDONinja.Dock.GenerateID"), grpCreds);

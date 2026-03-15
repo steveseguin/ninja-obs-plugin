@@ -70,6 +70,12 @@ done
 # Copy data files
 cp -a "$SRC_DATA_DIR"/. "$DST_DATA_DIR"/
 
+# OBS resolves module locale files relative to Contents/Resources/locale/.
+# Our data is at Contents/Resources/data/locale/, so add a symlink.
+if [[ ! -e "$BUNDLE_DIR/Contents/Resources/locale" ]]; then
+  ln -s data/locale "$BUNDLE_DIR/Contents/Resources/locale"
+fi
+
 # --- Fix up dylib load paths ------------------------------------------------
 # The CI-built binary may contain hardcoded Homebrew paths for Qt and OpenSSL.
 # OBS ships Qt inside its Frameworks/ dir (resolved via @rpath), so rewrite
