@@ -365,6 +365,12 @@ jobs:
             exit 1
           fi
           echo "Using OBS Qt deps: $qt_deps_root"
+          # Create include-style symlinks so <QtWidgets/foo.h> resolves
+          # when CMake uses -isystem instead of -iframework.
+          mkdir -p /tmp/qt-includes
+          for fw in QtWidgets QtCore QtGui; do
+            ln -sf "${qt_deps_root}/lib/${fw}.framework/Versions/A/Headers" "/tmp/qt-includes/${fw}"
+          done
           cmake -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_OSX_ARCHITECTURES=${{ matrix.arch }} \
@@ -372,6 +378,7 @@ jobs:
             -DCMAKE_FRAMEWORK_PATH="${obs_sdk_frameworks};${qt_deps_root}/lib" \
             -DCMAKE_LIBRARY_PATH="${ffmpeg_lib_dir}" \
             -DCMAKE_INCLUDE_PATH="${ffmpeg_include_dir}" \
+            -DCMAKE_CXX_FLAGS="-I/tmp/qt-includes" \
             -DFFMPEG_INCLUDE_DIR="${ffmpeg_include_dir}" \
             -DFFMPEG_AVCODEC_LIBRARY="${ffmpeg_lib_dir}/libavcodec.dylib" \
             -DFFMPEG_AVUTIL_LIBRARY="${ffmpeg_lib_dir}/libavutil.dylib" \
