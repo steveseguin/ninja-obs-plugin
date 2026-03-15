@@ -347,11 +347,21 @@ jobs:
           else
             ffmpeg_lib_dir="${ffmpeg_deps_root}/lib"
           fi
+          # Use OBS's own Qt deps so the plugin matches OBS's Qt version.
+          # Remove Homebrew Qt from PATH so cmake finds the correct moc too.
+          qt_deps_root="$(find "$obs_deps_dir" -maxdepth 1 -type d -name '*qt6*' | head -1)"
+          if [ -n "$qt_deps_root" ]; then
+            echo "Using OBS Qt deps: $qt_deps_root"
+            brew unlink qt@6 2>/dev/null || true
+          else
+            echo "OBS Qt deps not found, using Homebrew Qt"
+            qt_deps_root="$(brew --prefix qt@6)"
+          fi
           cmake -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_OSX_ARCHITECTURES=${{ matrix.arch }} \
-            -DCMAKE_PREFIX_PATH="${{ github.workspace }}/libdatachannel-install;${{ github.workspace }}/obs-sdk;${ffmpeg_deps_root};$(brew --prefix qt@6);$(brew --prefix openssl@3)" \
-            -DCMAKE_FRAMEWORK_PATH="${obs_sdk_frameworks}" \
+            -DCMAKE_PREFIX_PATH="${{ github.workspace }}/libdatachannel-install;${{ github.workspace }}/obs-sdk;${ffmpeg_deps_root};${qt_deps_root};$(brew --prefix openssl@3)" \
+            -DCMAKE_FRAMEWORK_PATH="${obs_sdk_frameworks};${qt_deps_root}/lib" \
             -DCMAKE_LIBRARY_PATH="${ffmpeg_lib_dir}" \
             -DCMAKE_INCLUDE_PATH="${ffmpeg_include_dir}" \
             -DFFMPEG_INCLUDE_DIR="${ffmpeg_include_dir}" \
@@ -390,12 +400,29 @@ jobs:
             # plugin binary so the install script can copy them into the
             # .plugin bundle.  Rewrite their load paths to @loader_path.
             otool -L "$PLUGIN_SO" | awk '{print $1}' | while read -r dep; do
-              case "$dep" in @*|/usr/lib/*|/System/*) continue ;; esac
-              if [ -f "$dep" ]; then
-                libname="$(basename "$dep")"
-                cp -a "$dep" "$PLUGIN_DIR/$libname"
-                install_name_tool -change "$dep" "@loader_path/$libname" "$PLUGIN_SO" || true
-              fi
+              case "$dep" in /usr/lib/*|/System/*) continue ;; esac
+              case "$dep" in
+                @rpath/libdatachannel*)
+                  # Find and bundle libdatachannel from the build prefix
+                  libname="$(basename "$dep")"
+                  for search in "${{ github.workspace }}/libdatachannel-install/lib" "${{ github.workspace }}/obs-studio/.deps"/obs-deps-*/lib; do
+                    if [ -f "$search/$libname" ]; then
+                      cp -a "$search/$libname" "$PLUGIN_DIR/"
+                      install_name_tool -change "$dep" "@loader_path/$libname" "$PLUGIN_SO" || true
+                      break
+                    fi
+                  done
+                  ;;
+                @*) continue ;;  # other @rpath deps (Qt, OBS, ffmpeg) provided by OBS
+                *)
+                  # Absolute path — bundle if the file exists
+                  if [ -f "$dep" ]; then
+                    libname="$(basename "$dep")"
+                    cp -a "$dep" "$PLUGIN_DIR/$libname"
+                    install_name_tool -change "$dep" "@loader_path/$libname" "$PLUGIN_SO" || true
+                  fi
+                  ;;
+              esac
             done
 
             # Fix internal cross-references within bundled dylibs
