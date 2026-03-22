@@ -220,6 +220,7 @@ jobs:
           cp LICENSE install/
           cp INSTALL.md install/
           cp QUICKSTART.md install/
+          cp README.md install/
           cp THIRD_PARTY_LICENSES.md install/
           cp RELEASE_COMPLIANCE.md install/
           cp scripts/install-package-linux.sh install/install.sh
@@ -499,6 +500,7 @@ jobs:
           cp LICENSE install/
           cp INSTALL.md install/
           cp QUICKSTART.md install/
+          cp README.md install/
           cp THIRD_PARTY_LICENSES.md install/
           cp RELEASE_COMPLIANCE.md install/
           cp scripts/install-package-macos.sh install/install.sh
