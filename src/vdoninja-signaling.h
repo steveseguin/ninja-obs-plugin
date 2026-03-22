@@ -115,9 +115,12 @@ private:
 
 	// Internal state
 	std::string wssHost_;
+	std::vector<std::string> wssHosts_;
+	size_t activeWssHostIndex_ = 0;
 	std::string salt_ = DEFAULT_SALT;
 	std::string defaultPassword_ = DEFAULT_PASSWORD;
 	std::string localUUID_;
+	std::string deferredConnectionError_;
 
 	// Room state (protected by stateMutex_)
 	RoomInfo currentRoom_;
@@ -128,6 +131,7 @@ private:
 	std::atomic<bool> connected_{false};
 	std::atomic<bool> shouldRun_{false};
 	std::atomic<bool> needsReconnect_{false};
+	std::atomic<bool> initialConnectionFinished_{false};
 
 	// Config (protected by stateMutex_)
 	bool autoReconnect_ = true;

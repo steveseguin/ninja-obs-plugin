@@ -1095,6 +1095,72 @@ AspectFitLayout computeAspectFitLayout(uint32_t sourceWidth, uint32_t sourceHeig
 	return layout;
 }
 
+SignalingConnectErrorCategory classifySignalingConnectError(const std::string &error)
+{
+	const std::string normalized = trim(error);
+	if (normalized.empty()) {
+		return SignalingConnectErrorCategory::Unknown;
+	}
+
+	if (containsInsensitive(normalized, "tls connection failed") || containsInsensitive(normalized, "certificate") ||
+	    containsInsensitive(normalized, "x509") || containsInsensitive(normalized, "unknown ca") ||
+	    containsInsensitive(normalized, "hostname mismatch") ||
+	    containsInsensitive(normalized, "handshake failure")) {
+		return SignalingConnectErrorCategory::Tls;
+	}
+
+	if (containsInsensitive(normalized, "tcp connection failed") || containsInsensitive(normalized, "timed out") ||
+	    containsInsensitive(normalized, "timeout") || containsInsensitive(normalized, "connection refused") ||
+	    containsInsensitive(normalized, "network is unreachable") ||
+	    containsInsensitive(normalized, "no route to host") ||
+	    containsInsensitive(normalized, "name or service not known") ||
+	    containsInsensitive(normalized, "temporary failure in name resolution") ||
+	    containsInsensitive(normalized, "nodename nor servname")) {
+		return SignalingConnectErrorCategory::Tcp;
+	}
+
+	if (containsInsensitive(normalized, "websocket connection failed") || containsInsensitive(normalized, "upgrade") ||
+	    containsInsensitive(normalized, "unexpected http response") ||
+	    containsInsensitive(normalized, "bad http response") || containsInsensitive(normalized, "http status")) {
+		return SignalingConnectErrorCategory::WebSocketHandshake;
+	}
+
+	return SignalingConnectErrorCategory::Unknown;
+}
+
+const char *signalingConnectErrorCategoryName(SignalingConnectErrorCategory category)
+{
+	switch (category) {
+	case SignalingConnectErrorCategory::Tcp:
+		return "tcp";
+	case SignalingConnectErrorCategory::Tls:
+		return "tls";
+	case SignalingConnectErrorCategory::WebSocketHandshake:
+		return "websocket-handshake";
+	case SignalingConnectErrorCategory::Unknown:
+	default:
+		return "unknown";
+	}
+}
+
+const char *signalingConnectErrorLikelyCauses(SignalingConnectErrorCategory category)
+{
+	switch (category) {
+	case SignalingConnectErrorCategory::Tcp:
+		return "DNS failure, bad route, firewall/VPN/proxy blocking port 443, or the server/edge being unreachable";
+	case SignalingConnectErrorCategory::Tls:
+		return "wrong system clock, outdated CA bundle/OpenSSL, HTTPS interception, wrong IP/edge on port 443, or a "
+		       "server/network device closing during TLS handshake";
+	case SignalingConnectErrorCategory::WebSocketHandshake:
+		return "HTTP upgrade rejected by a reverse proxy/WAF, a non-WebSocket endpoint, or a middlebox altering the "
+		       "WebSocket request";
+	case SignalingConnectErrorCategory::Unknown:
+	default:
+		return "check the surrounding [VDO.Ninja/RTC] lines; likely candidates are DNS/routing issues, TLS "
+		       "interception, or the remote closing before WebSocket open";
+	}
+}
+
 // Time utilities
 int64_t currentTimeMs()
 {

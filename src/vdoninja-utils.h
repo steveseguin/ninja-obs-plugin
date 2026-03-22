@@ -114,6 +114,17 @@ bool countsTowardViewerLimit(ConnectionState state);
 AspectFitLayout computeAspectFitLayout(uint32_t sourceWidth, uint32_t sourceHeight, uint32_t outputWidth,
                                        uint32_t outputHeight);
 
+enum class SignalingConnectErrorCategory {
+	Unknown,
+	Tcp,
+	Tls,
+	WebSocketHandshake,
+};
+
+SignalingConnectErrorCategory classifySignalingConnectError(const std::string &error);
+const char *signalingConnectErrorCategoryName(SignalingConnectErrorCategory category);
+const char *signalingConnectErrorLikelyCauses(SignalingConnectErrorCategory category);
+
 // Time utilities
 int64_t currentTimeMs();
 std::string formatTimestamp(int64_t ms);

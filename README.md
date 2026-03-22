@@ -103,7 +103,7 @@ Portable OBS note: if launching from terminal, start `obs64.exe` from `bin\64bit
 
 1. OBS -> `Settings` -> `Stream`
 2. Service: `VDO.Ninja`
-3. `Server` should stay at default (`wss://wss.vdo.ninja:443`) unless self-hosting.
+3. `Server` should stay at default (`wss://wss.vdo.ninja:443`) unless self-hosting or troubleshooting signaling; `wss://proxywss.rtc.ninja:443` is available as a fallback.
 4. Use OBS -> `Tools` -> `VDO.Ninja Control Center` for full setup (stream ID, password, room, salt, signaling).
    - `Signaling Server` and `Salt` are optional; leave blank to use defaults.
 5. `Stream Key` remains visible in OBS for compatibility; if you use it directly, set your stream ID or an advanced envelope:
@@ -139,7 +139,7 @@ https://vdo.ninja/?view=<StreamID>&room=<RoomID>&solo&password=<Password>
 - `Stream ID`: Primary stream identifier.
 - `Password`: Uses VDO.Ninja-compatible hashing behavior.
 - `Salt`: Optional; leave blank for default `vdo.ninja` or set for self-hosted/domain-specific setups.
-- `Signaling Server`: Optional; leave blank for default `wss://wss.vdo.ninja:443` or set custom signaling.
+- `Signaling Server`: Optional; leave blank for default `wss://wss.vdo.ninja:443`, try `wss://proxywss.rtc.ninja:443` as a fallback, or set custom signaling.
 - `Custom ICE Servers`: Optional custom STUN/TURN list. Use `;` to separate entries.
   - Example: `stun:stun.l.google.com:19302; turn:turn.example.com:3478|user|pass`
 - `Force TURN`: Use relay-only path for difficult network environments. Requires at least one TURN server entry.

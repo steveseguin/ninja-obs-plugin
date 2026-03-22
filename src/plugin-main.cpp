@@ -17,6 +17,7 @@ OBS_DECLARE_MODULE()
 OBS_MODULE_USE_DEFAULT_LOCALE("obs-vdoninja", "en-US")
 
 #include <obs-frontend-api.h>
+#include <rtc/global.hpp>
 
 #include <cctype>
 #include <cstring>
@@ -56,6 +57,7 @@ constexpr const char *kVdoNinjaControlCenterSourceId = "vdoninja_control_center"
 constexpr const char *kVdoNinjaControlCenterSourceName = "VDO.Ninja Control Center";
 constexpr const char *kVdoNinjaDocsHomeLink = "https://steveseguin.github.io/ninja-obs-plugin/";
 constexpr const char *kVdoNinjaQuickStartLink = "https://steveseguin.github.io/ninja-obs-plugin/#quick-start";
+constexpr const char *kVdoNinjaProxyServerUrl = "wss://proxywss.rtc.ninja:443";
 constexpr const char *kVdoNinjaServerDisplayName =
     "wss://wss.vdo.ninja:443 (open Tools -> VDO.Ninja Studio for stream ID/password/room)";
 
@@ -87,6 +89,10 @@ constexpr const char *kVdoNinjaRtmpServiceEntry = R"VDOJSON(
                 {
                     "name": "wss://wss.vdo.ninja:443 (open Tools -> VDO.Ninja Studio for stream ID/password/room)",
                     "url": "wss://wss.vdo.ninja:443"
+                },
+                {
+                    "name": "wss://proxywss.rtc.ninja:443 (fallback proxy; use if default fails)",
+                    "url": "wss://proxywss.rtc.ninja:443"
                 }
             ],
             "supported video codecs": [
@@ -110,6 +116,33 @@ const char *tr(const char *key, const char *fallback)
 		return fallback;
 	}
 	return localized;
+}
+
+void initRtcLogger()
+{
+	rtc::InitLogger(rtc::LogLevel::Warning, [](rtc::LogLevel level, rtc::string message) {
+		int obsLevel = LOG_INFO;
+		switch (level) {
+		case rtc::LogLevel::Fatal:
+		case rtc::LogLevel::Error:
+			obsLevel = LOG_ERROR;
+			break;
+		case rtc::LogLevel::Warning:
+			obsLevel = LOG_WARNING;
+			break;
+		case rtc::LogLevel::Info:
+			obsLevel = LOG_INFO;
+			break;
+		case rtc::LogLevel::Debug:
+		case rtc::LogLevel::Verbose:
+			obsLevel = LOG_DEBUG;
+			break;
+		case rtc::LogLevel::None:
+			return;
+		}
+
+		blog(obsLevel, "[VDO.Ninja/RTC] %s", message.c_str());
+	});
 }
 
 std::string findAudioEncoderIdForCodec(const char *codec)
@@ -320,6 +353,67 @@ bool serviceEntryContainsToken(const std::string &json, const char *serviceName,
 	return tokenPos != std::string::npos && tokenPos < entryEnd;
 }
 
+bool injectServerIntoServiceEntry(std::string &json, const char *serviceName, const char *serverUrl,
+                                  const char *serverEntry)
+{
+	if (!serviceName || !*serviceName || !serverUrl || !*serverUrl || !serverEntry || !*serverEntry) {
+		return false;
+	}
+
+	size_t servicePos = json.find(std::string("\"name\": \"") + serviceName + "\"");
+	if (servicePos == std::string::npos) {
+		servicePos = json.find(std::string("\"name\":\"") + serviceName + "\"");
+		if (servicePos == std::string::npos) {
+			return false;
+		}
+	}
+
+	const size_t entryStart = json.rfind('{', servicePos);
+	if (entryStart == std::string::npos) {
+		return false;
+	}
+
+	const size_t entryEnd = findMatchingClosingBrace(json, entryStart);
+	if (entryEnd == std::string::npos || entryEnd <= entryStart) {
+		return false;
+	}
+
+	const size_t existingServerPos = json.find(serverUrl, entryStart);
+	if (existingServerPos != std::string::npos && existingServerPos < entryEnd) {
+		return false;
+	}
+
+	const size_t serversKey = json.find("\"servers\"", entryStart);
+	if (serversKey == std::string::npos || serversKey > entryEnd) {
+		return false;
+	}
+
+	const size_t serversArrayStart = json.find('[', serversKey);
+	if (serversArrayStart == std::string::npos || serversArrayStart > entryEnd) {
+		return false;
+	}
+
+	const size_t serversArrayEnd = findMatchingClosingBracket(json, serversArrayStart);
+	if (serversArrayEnd == std::string::npos || serversArrayEnd > entryEnd) {
+		return false;
+	}
+
+	bool hasExistingEntries = false;
+	for (size_t i = serversArrayStart + 1; i < serversArrayEnd; ++i) {
+		const char c = json[i];
+		if (!std::isspace(static_cast<unsigned char>(c))) {
+			hasExistingEntries = true;
+			break;
+		}
+	}
+
+	std::string insertion = hasExistingEntries ? ",\n" : "\n";
+	insertion += serverEntry;
+	insertion += "\n";
+	json.insert(serversArrayEnd, insertion);
+	return true;
+}
+
 bool injectServiceIntoCatalog(std::string &catalogJson, const char *serviceEntry)
 {
 	if (!serviceEntry || !*serviceEntry) {
@@ -462,6 +556,12 @@ void ensureRtmpCatalogHasVdoNinjaEntry(void)
 		updatedExistingEntry |= replaceFirst(
 		    catalogJson, "\"name\":\"wss://wss.vdo.ninja:443 (default; use Tools -> Configure VDO.Ninja)\"",
 		    std::string("\"name\":\"") + kVdoNinjaServerDisplayName + "\"");
+		updatedExistingEntry |= injectServerIntoServiceEntry(
+		    catalogJson, kVdoCatalogServiceName, kVdoNinjaProxyServerUrl,
+		    "                {\n"
+		    "                    \"name\": \"wss://proxywss.rtc.ninja:443 (fallback proxy; use if default fails)\",\n"
+		    "                    \"url\": \"wss://proxywss.rtc.ninja:443\"\n"
+		    "                }");
 	}
 
 	bool injectedEntry = false;
@@ -992,7 +1092,8 @@ static obs_properties_t *vdoninja_service_properties(void *)
 	    tr("ServiceSetupHint",
 	       "Tip: Use Tools -> VDO.Ninja Studio for full setup (stream ID, password, room, salt, signaling). "
 	       "VDO.Ninja publishing uses OBS Start Streaming and cannot run in parallel with another stream destination. "
-	       "Signaling Server and Salt are optional; leave blank for defaults."),
+	       "Signaling Server and Salt are optional; leave blank for defaults. "
+	       "If the default signaling server has routing issues, try wss://proxywss.rtc.ninja:443."),
 	    OBS_TEXT_INFO);
 	obs_property_text_set_info_type(serviceHint, OBS_TEXT_INFO_NORMAL);
 	obs_property_text_set_info_word_wrap(serviceHint, true);
@@ -1012,7 +1113,8 @@ static obs_properties_t *vdoninja_service_properties(void *)
 	    obs_properties_add_text(advanced, "wss_host", tr("SignalingServer", "Signaling Server"), OBS_TEXT_DEFAULT);
 	obs_property_set_long_description(
 	    wssHost, tr("SignalingServer.OptionalHelp",
-	                "Optional. Leave blank to use default signaling server: wss://wss.vdo.ninja:443"));
+	                "Optional. Leave blank to use default signaling server: wss://wss.vdo.ninja:443. "
+	                "Alternate fallback: wss://proxywss.rtc.ninja:443"));
 	obs_property_t *salt = obs_properties_add_text(advanced, "salt", tr("Salt", "Salt"), OBS_TEXT_DEFAULT);
 	obs_property_set_long_description(salt,
 	                                  tr("Salt.OptionalHelp", "Optional. Leave blank to use default salt: vdo.ninja"));
@@ -1751,7 +1853,8 @@ static obs_properties_t *vdoninja_control_center_properties(void *data)
 	    obs_properties_add_text(advanced, "wss_host", tr("SignalingServer", "Signaling Server"), OBS_TEXT_DEFAULT);
 	obs_property_set_long_description(
 	    wssHost, tr("SignalingServer.OptionalHelp",
-	                "Optional. Leave blank to use default signaling server: wss://wss.vdo.ninja:443"));
+	                "Optional. Leave blank to use default signaling server: wss://wss.vdo.ninja:443. "
+	                "Alternate fallback: wss://proxywss.rtc.ninja:443"));
 	salt = obs_properties_add_text(advanced, "salt", tr("Salt", "Salt"), OBS_TEXT_DEFAULT);
 	obs_property_set_long_description(salt,
 	                                  tr("Salt.OptionalHelp", "Optional. Leave blank to use default salt: vdo.ninja"));
@@ -1977,6 +2080,8 @@ void vdo_handle_remote_control(const char *action, const char *value)
 bool obs_module_load(void)
 {
 	logInfo("Loading VDO.Ninja plugin v%s", PLUGIN_VERSION);
+	initRtcLogger();
+	logInfo("Initialized libdatachannel logger");
 
 	// Register output
 	obs_register_output(&vdoninja_output_info);

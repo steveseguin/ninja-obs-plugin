@@ -31,6 +31,11 @@ namespace vdoninja
 namespace
 {
 
+constexpr const char *kDefaultSignalingHostWithPort = "wss://wss.vdo.ninja:443";
+constexpr const char *kProxySignalingHost = "wss://proxywss.rtc.ninja:443";
+constexpr int kInitialConnectWaitMs = 12000;
+constexpr int kSignalingConnectionTimeoutMs = 4000;
+
 std::string getAnyString(const JsonParser &json, const std::initializer_list<const char *> &keys)
 {
 	for (const char *key : keys) {
@@ -202,6 +207,47 @@ std::string asciiLower(std::string value)
 	return value;
 }
 
+std::string normalizeSignalingHostForCompare(std::string host)
+{
+	host = asciiLower(trim(host));
+	while (host.size() > 1 && host.back() == '/') {
+		host.pop_back();
+	}
+	return host;
+}
+
+bool isDefaultSignalingHost(const std::string &host)
+{
+	const std::string normalized = normalizeSignalingHostForCompare(host);
+	return normalized.empty() || normalized == normalizeSignalingHostForCompare(DEFAULT_WSS_HOST) ||
+	       normalized == normalizeSignalingHostForCompare(kDefaultSignalingHostWithPort);
+}
+
+std::vector<std::string> buildSignalingHosts(const std::string &configuredHost)
+{
+	std::string primary = trim(configuredHost);
+	if (primary.empty()) {
+		primary = DEFAULT_WSS_HOST;
+	}
+
+	std::vector<std::string> hosts;
+	hosts.push_back(primary);
+	if (isDefaultSignalingHost(primary) &&
+	    normalizeSignalingHostForCompare(primary) != normalizeSignalingHostForCompare(kProxySignalingHost)) {
+		hosts.push_back(kProxySignalingHost);
+	}
+	return hosts;
+}
+
+void logSignalingConnectDiagnostic(const std::string &host, const std::string &error, bool fallbackRemaining)
+{
+	const SignalingConnectErrorCategory category = classifySignalingConnectError(error);
+	logWarning("Signaling diagnostic: host=%s phase=connect category=%s fallback_remaining=%s clock=%s",
+	           host.c_str(), signalingConnectErrorCategoryName(category), fallbackRemaining ? "yes" : "no",
+	           formatTimestamp(currentTimeMs()).c_str());
+	logWarning("Signaling diagnostic: likely causes: %s", signalingConnectErrorLikelyCauses(category));
+}
+
 } // namespace
 
 VDONinjaSignaling::VDONinjaSignaling()
@@ -228,18 +274,23 @@ bool VDONinjaSignaling::connect(const std::string &wssHost)
 
 	{
 		std::lock_guard<std::mutex> lock(stateMutex_);
-		wssHost_ = wssHost;
+		wssHosts_ = buildSignalingHosts(wssHost);
+		activeWssHostIndex_ = 0;
+		wssHost_ = wssHosts_.empty() ? DEFAULT_WSS_HOST : wssHosts_.front();
+		deferredConnectionError_.clear();
 		reconnectSuppressedByServer_ = false;
 		reconnectDeferredUntilMs_ = 0;
 	}
 	shouldRun_ = true;
 	needsReconnect_ = false;
+	initialConnectionFinished_ = false;
 
 	// Start WebSocket thread
 	wsThread_ = std::thread(&VDONinjaSignaling::wsThreadFunc, this);
 
-	// Wait briefly for connection
-	for (int i = 0; i < 50 && !connected_; i++) {
+	// Wait for initial connect/failover cycle to complete
+	for (int waited = 0; waited < kInitialConnectWaitMs && !connected_ && !initialConnectionFinished_;
+	     waited += 100) {
 		std::this_thread::sleep_for(std::chrono::milliseconds(100));
 	}
 
@@ -310,7 +361,12 @@ void VDONinjaSignaling::wsThreadFunc()
 		int64_t reconnectDeferredUntilMs;
 		{
 			std::lock_guard<std::mutex> lock(stateMutex_);
-			host = wssHost_;
+			if (!wssHosts_.empty() && activeWssHostIndex_ < wssHosts_.size()) {
+				host = wssHosts_[activeWssHostIndex_];
+			} else {
+				host = wssHost_;
+			}
+			wssHost_ = host;
 			autoReconnect = autoReconnect_;
 			maxAttempts = maxReconnectAttempts_;
 			reconnectSuppressedByServer = reconnectSuppressedByServer_;
@@ -319,20 +375,26 @@ void VDONinjaSignaling::wsThreadFunc()
 
 		logInfo("Connecting to signaling server: %s", host.c_str());
 		needsReconnect_ = false;
+		auto opened = std::make_shared<std::atomic<bool>>(false);
 
 		try {
-			auto ws = std::make_shared<rtc::WebSocket>();
+			rtc::WebSocket::Configuration wsConfig;
+			wsConfig.connectionTimeout = std::chrono::milliseconds(kSignalingConnectionTimeoutMs);
+			auto ws = std::make_shared<rtc::WebSocket>(wsConfig);
 			{
 				std::lock_guard<std::mutex> lock(handleMutex_);
 				wsHandle_ = new std::shared_ptr<rtc::WebSocket>(ws);
 			}
 
-			ws->onOpen([this, &reconnectAttempts]() {
-				logInfo("WebSocket connected to signaling server");
+			ws->onOpen([this, &reconnectAttempts, host, opened]() {
+				logInfo("WebSocket connected to signaling server: %s", host.c_str());
+				opened->store(true);
 				connected_ = true;
+				initialConnectionFinished_ = true;
 				reconnectAttempts = 0;
 				{
 					std::lock_guard<std::mutex> lock(stateMutex_);
+					deferredConnectionError_.clear();
 					reconnectSuppressedByServer_ = false;
 					reconnectDeferredUntilMs_ = 0;
 				}
@@ -347,8 +409,12 @@ void VDONinjaSignaling::wsThreadFunc()
 				}
 			});
 
-			ws->onClosed([this]() {
-				logInfo("WebSocket closed");
+			ws->onClosed([this, host, opened]() {
+				if (opened->load()) {
+					logInfo("WebSocket closed: %s", host.c_str());
+				} else {
+					logWarning("WebSocket closed before opening: %s", host.c_str());
+				}
 				connected_ = false;
 				needsReconnect_ = true;
 				// Wake send loop so it can exit
@@ -356,15 +422,37 @@ void VDONinjaSignaling::wsThreadFunc()
 				sendCv_.notify_all();
 			});
 
-			ws->onError([this](const std::string &error) {
-				logError("WebSocket error: %s", error.c_str());
+			ws->onError([this, host, opened](const std::string &error) {
+				logError("WebSocket error from %s: %s", host.c_str(), error.c_str());
+				bool tryFallback = false;
+				std::string report = error;
+				bool hasNextHost = false;
+				{
+					std::lock_guard<std::mutex> lock(stateMutex_);
+					hasNextHost = activeWssHostIndex_ + 1 < wssHosts_.size();
+					if (!opened->load() && hasNextHost) {
+						deferredConnectionError_ = error;
+						tryFallback = true;
+					} else if (!deferredConnectionError_.empty()) {
+						report = "Built-in signaling server fallback failed; primary error: " + deferredConnectionError_ +
+						         "; fallback error: " + error;
+						deferredConnectionError_.clear();
+					}
+				}
+				if (!opened->load()) {
+					logSignalingConnectDiagnostic(host, error, hasNextHost);
+				}
+				if (tryFallback) {
+					logWarning("Signaling connect to %s failed before open; trying fallback server", host.c_str());
+					return;
+				}
 				OnErrorCallback cb;
 				{
 					std::lock_guard<std::mutex> lock(callbackMutex_);
 					cb = onError_;
 				}
 				if (cb) {
-					cb(error);
+					cb(report);
 				}
 			});
 
@@ -408,16 +496,36 @@ void VDONinjaSignaling::wsThreadFunc()
 				}
 			}
 		} catch (const std::exception &e) {
-			logError("WebSocket thread error: %s", e.what());
+			logError("WebSocket thread error from %s: %s", host.c_str(), e.what());
 			connected_ = false;
-
-			OnErrorCallback cb;
+			bool tryFallback = false;
+			std::string report = e.what();
+			bool hasNextHost = false;
 			{
-				std::lock_guard<std::mutex> lock(callbackMutex_);
-				cb = onError_;
+				std::lock_guard<std::mutex> lock(stateMutex_);
+				hasNextHost = activeWssHostIndex_ + 1 < wssHosts_.size();
+				if (!opened->load() && hasNextHost) {
+					deferredConnectionError_ = e.what();
+					tryFallback = true;
+				} else if (!deferredConnectionError_.empty()) {
+					report = "Built-in signaling server fallback failed; primary error: " + deferredConnectionError_ +
+					         "; fallback error: " + std::string(e.what());
+					deferredConnectionError_.clear();
+				}
 			}
-			if (cb) {
-				cb(e.what());
+			if (!opened->load()) {
+				logSignalingConnectDiagnostic(host, e.what(), hasNextHost);
+			}
+
+			if (!tryFallback) {
+				OnErrorCallback cb;
+				{
+					std::lock_guard<std::mutex> lock(callbackMutex_);
+					cb = onError_;
+				}
+				if (cb) {
+					cb(report);
+				}
 			}
 
 			std::lock_guard<std::mutex> lock(handleMutex_);
@@ -426,6 +534,29 @@ void VDONinjaSignaling::wsThreadFunc()
 				delete stored;
 				wsHandle_ = nullptr;
 			}
+		}
+
+		const bool attemptOpened = opened->load();
+		bool tryFallbackHost = false;
+		std::string nextHost;
+		{
+			std::lock_guard<std::mutex> lock(stateMutex_);
+			if (!attemptOpened && !connected_ && activeWssHostIndex_ + 1 < wssHosts_.size()) {
+				++activeWssHostIndex_;
+				wssHost_ = wssHosts_[activeWssHostIndex_];
+				nextHost = wssHost_;
+				tryFallbackHost = true;
+			}
+		}
+		if (tryFallbackHost) {
+			logWarning("Trying fallback signaling server: %s", nextHost.c_str());
+			needsReconnect_ = false;
+			continue;
+		}
+
+		if (!connected_ && !initialConnectionFinished_) {
+			initialConnectionFinished_ = true;
+			break;
 		}
 
 		// Reconnect logic (iterative, not recursive)

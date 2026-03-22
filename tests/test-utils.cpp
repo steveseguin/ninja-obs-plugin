@@ -360,6 +360,39 @@ TEST_F(BuildInboundViewUrlTest, IncludesRoomSoloAndDisabledPasswordToken)
 	          "https://vdo.ninja/?view=cam_4&room=greenroom&solo&password=false");
 }
 
+TEST(SignalingConnectErrorTest, ClassifiesTlsErrors)
+{
+	EXPECT_EQ(classifySignalingConnectError("TLS connection failed"), SignalingConnectErrorCategory::Tls);
+	EXPECT_EQ(classifySignalingConnectError("certificate verify failed"), SignalingConnectErrorCategory::Tls);
+	EXPECT_STREQ(signalingConnectErrorCategoryName(SignalingConnectErrorCategory::Tls), "tls");
+}
+
+TEST(SignalingConnectErrorTest, ClassifiesTcpErrors)
+{
+	EXPECT_EQ(classifySignalingConnectError("TCP connection failed"), SignalingConnectErrorCategory::Tcp);
+	EXPECT_EQ(classifySignalingConnectError("nodename nor servname provided, or not known"),
+	          SignalingConnectErrorCategory::Tcp);
+	EXPECT_STREQ(signalingConnectErrorCategoryName(SignalingConnectErrorCategory::Tcp), "tcp");
+}
+
+TEST(SignalingConnectErrorTest, ClassifiesWebSocketUpgradeErrors)
+{
+	EXPECT_EQ(classifySignalingConnectError("WebSocket connection failed"),
+	          SignalingConnectErrorCategory::WebSocketHandshake);
+	EXPECT_EQ(classifySignalingConnectError("unexpected HTTP response during upgrade"),
+	          SignalingConnectErrorCategory::WebSocketHandshake);
+	EXPECT_STREQ(signalingConnectErrorCategoryName(SignalingConnectErrorCategory::WebSocketHandshake),
+	             "websocket-handshake");
+}
+
+TEST(SignalingConnectErrorTest, FallsBackToUnknownForUnclassifiedErrors)
+{
+	EXPECT_EQ(classifySignalingConnectError("something odd happened"), SignalingConnectErrorCategory::Unknown);
+	EXPECT_STREQ(signalingConnectErrorLikelyCauses(SignalingConnectErrorCategory::Unknown),
+	             "check the surrounding [VDO.Ninja/RTC] lines; likely candidates are DNS/routing issues, TLS "
+	             "interception, or the remote closing before WebSocket open");
+}
+
 // Base64 Encoding/Decoding Tests
 class Base64Test : public ::testing::Test
 {

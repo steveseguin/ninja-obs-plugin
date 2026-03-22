@@ -676,7 +676,8 @@ static obs_properties_t *vdoninja_source_properties(void *)
 	    obs_properties_add_text(advanced, "wss_host", tr("SignalingServer", "Signaling Server"), OBS_TEXT_DEFAULT);
 	obs_property_set_long_description(
 	    wssHost, tr("SignalingServer.OptionalHelp",
-	                "Optional. Leave blank to use default signaling server: wss://wss.vdo.ninja:443"));
+	                "Optional. Leave blank to use default signaling server: wss://wss.vdo.ninja:443. "
+	                "Alternate fallback: wss://proxywss.rtc.ninja:443"));
 	obs_property_t *salt = obs_properties_add_text(advanced, "salt", tr("Salt", "Salt"), OBS_TEXT_DEFAULT);
 	obs_property_set_long_description(salt,
 	                                  tr("Salt.OptionalHelp", "Optional. Leave blank to use default salt: vdo.ninja"));
