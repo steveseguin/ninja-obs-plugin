@@ -242,8 +242,8 @@ std::vector<std::string> buildSignalingHosts(const std::string &configuredHost)
 void logSignalingConnectDiagnostic(const std::string &host, const std::string &error, bool fallbackRemaining)
 {
 	const SignalingConnectErrorCategory category = classifySignalingConnectError(error);
-	logWarning("Signaling diagnostic: host=%s phase=connect category=%s fallback_remaining=%s clock=%s",
-	           host.c_str(), signalingConnectErrorCategoryName(category), fallbackRemaining ? "yes" : "no",
+	logWarning("Signaling diagnostic: host=%s phase=connect category=%s fallback_remaining=%s clock=%s", host.c_str(),
+	           signalingConnectErrorCategoryName(category), fallbackRemaining ? "yes" : "no",
 	           formatTimestamp(currentTimeMs()).c_str());
 	logWarning("Signaling diagnostic: likely causes: %s", signalingConnectErrorLikelyCauses(category));
 }
@@ -289,8 +289,7 @@ bool VDONinjaSignaling::connect(const std::string &wssHost)
 	wsThread_ = std::thread(&VDONinjaSignaling::wsThreadFunc, this);
 
 	// Wait for initial connect/failover cycle to complete
-	for (int waited = 0; waited < kInitialConnectWaitMs && !connected_ && !initialConnectionFinished_;
-	     waited += 100) {
+	for (int waited = 0; waited < kInitialConnectWaitMs && !connected_ && !initialConnectionFinished_; waited += 100) {
 		std::this_thread::sleep_for(std::chrono::milliseconds(100));
 	}
 
@@ -434,8 +433,9 @@ void VDONinjaSignaling::wsThreadFunc()
 						deferredConnectionError_ = error;
 						tryFallback = true;
 					} else if (!deferredConnectionError_.empty()) {
-						report = "Built-in signaling server fallback failed; primary error: " + deferredConnectionError_ +
-						         "; fallback error: " + error;
+						report =
+						    "Built-in signaling server fallback failed; primary error: " + deferredConnectionError_ +
+						    "; fallback error: " + error;
 						deferredConnectionError_.clear();
 					}
 				}

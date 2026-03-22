@@ -17,6 +17,7 @@ OBS_DECLARE_MODULE()
 OBS_MODULE_USE_DEFAULT_LOCALE("obs-vdoninja", "en-US")
 
 #include <obs-frontend-api.h>
+
 #include <rtc/global.hpp>
 
 #include <cctype>

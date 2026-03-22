@@ -1104,8 +1104,7 @@ SignalingConnectErrorCategory classifySignalingConnectError(const std::string &e
 
 	if (containsInsensitive(normalized, "tls connection failed") || containsInsensitive(normalized, "certificate") ||
 	    containsInsensitive(normalized, "x509") || containsInsensitive(normalized, "unknown ca") ||
-	    containsInsensitive(normalized, "hostname mismatch") ||
-	    containsInsensitive(normalized, "handshake failure")) {
+	    containsInsensitive(normalized, "hostname mismatch") || containsInsensitive(normalized, "handshake failure")) {
 		return SignalingConnectErrorCategory::Tls;
 	}
 
