@@ -267,6 +267,9 @@ bool VDONinjaSignaling::connect(const std::string &wssHost)
 		logWarning("Already connected to signaling server");
 		return true;
 	}
+	if (wsThread_.joinable() && !shouldRun_) {
+		wsThread_.join();
+	}
 	if (shouldRun_) {
 		logWarning("Signaling connection thread is already running");
 		return connected_;
@@ -425,11 +428,12 @@ void VDONinjaSignaling::wsThreadFunc()
 				logError("WebSocket error from %s: %s", host.c_str(), error.c_str());
 				bool tryFallback = false;
 				std::string report = error;
+				const bool failedBeforeOpen = !opened->load();
 				bool hasNextHost = false;
 				{
 					std::lock_guard<std::mutex> lock(stateMutex_);
 					hasNextHost = activeWssHostIndex_ + 1 < wssHosts_.size();
-					if (!opened->load() && hasNextHost) {
+					if (failedBeforeOpen && hasNextHost) {
 						deferredConnectionError_ = error;
 						tryFallback = true;
 					} else if (!deferredConnectionError_.empty()) {
@@ -439,8 +443,20 @@ void VDONinjaSignaling::wsThreadFunc()
 						deferredConnectionError_.clear();
 					}
 				}
-				if (!opened->load()) {
+				if (failedBeforeOpen) {
 					logSignalingConnectDiagnostic(host, error, hasNextHost);
+					needsReconnect_ = true;
+					sendCv_.notify_all();
+					std::lock_guard<std::mutex> lock(handleMutex_);
+					if (wsHandle_) {
+						auto stored = static_cast<std::shared_ptr<rtc::WebSocket> *>(wsHandle_);
+						try {
+							(*stored)->close();
+						} catch (const std::exception &closeError) {
+							logWarning("WebSocket close after pre-open error failed for %s: %s", host.c_str(),
+							           closeError.what());
+						}
+					}
 				}
 				if (tryFallback) {
 					logWarning("Signaling connect to %s failed before open; trying fallback server", host.c_str());
@@ -600,6 +616,9 @@ void VDONinjaSignaling::wsThreadFunc()
 			std::this_thread::sleep_for(std::chrono::milliseconds(100));
 		}
 	}
+
+	shouldRun_ = false;
+	needsReconnect_ = false;
 }
 
 void VDONinjaSignaling::processMessage(const std::string &message)
