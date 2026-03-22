@@ -178,9 +178,9 @@ private:
 	uint64_t audioBaseTimestampNs_ = 0;
 	uint64_t lastAudioTimestampNs_ = 0;
 	bool audioTimingInitialized_ = false;
-	int64_t lastVideoTime_ = 0;
-	int64_t lastAudioTime_ = 0;
-	int64_t lastKeyframeRequestTime_ = 0;
+	std::atomic<int64_t> lastVideoTime_{0};
+	std::atomic<int64_t> lastAudioTime_{0};
+	std::atomic<int64_t> lastKeyframeRequestTime_{0};
 	std::mutex retryStateMutex_;
 	int viewRetryCount_ = 0;
 	int64_t lastViewRequestTimeMs_ = 0;

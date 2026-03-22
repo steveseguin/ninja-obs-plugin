@@ -696,30 +696,55 @@ std::string JsonParser::extractValue(size_t &pos) const
 		}
 		pos++; // Skip closing quote
 	} else if (json_[pos] == '{') {
-		// Object - capture the whole thing
+		// Object - capture the whole thing, skipping over string literals
 		int depth = 1;
 		value += json_[pos++];
 		while (pos < json_.size() && depth > 0) {
-			if (json_[pos] == '{')
-				depth++;
-			else if (json_[pos] == '}')
-				depth--;
-			value += json_[pos++];
+			if (json_[pos] == '"') {
+				value += json_[pos++];
+				while (pos < json_.size() && json_[pos] != '"') {
+					if (json_[pos] == '\\' && pos + 1 < json_.size()) {
+						value += json_[pos++];
+					}
+					value += json_[pos++];
+				}
+				if (pos < json_.size())
+					value += json_[pos++];
+			} else {
+				if (json_[pos] == '{')
+					depth++;
+				else if (json_[pos] == '}')
+					depth--;
+				value += json_[pos++];
+			}
 		}
 	} else if (json_[pos] == '[') {
-		// Array - capture the whole thing
+		// Array - capture the whole thing, skipping over string literals
 		int depth = 1;
 		value += json_[pos++];
 		while (pos < json_.size() && depth > 0) {
-			if (json_[pos] == '[')
-				depth++;
-			else if (json_[pos] == ']')
-				depth--;
-			value += json_[pos++];
+			if (json_[pos] == '"') {
+				value += json_[pos++];
+				while (pos < json_.size() && json_[pos] != '"') {
+					if (json_[pos] == '\\' && pos + 1 < json_.size()) {
+						value += json_[pos++];
+					}
+					value += json_[pos++];
+				}
+				if (pos < json_.size())
+					value += json_[pos++];
+			} else {
+				if (json_[pos] == '[')
+					depth++;
+				else if (json_[pos] == ']')
+					depth--;
+				value += json_[pos++];
+			}
 		}
 	} else {
 		// Number, boolean, or null
-		while (pos < json_.size() && json_[pos] != ',' && json_[pos] != '}' && !std::isspace(json_[pos])) {
+		while (pos < json_.size() && json_[pos] != ',' && json_[pos] != '}' &&
+		       !std::isspace(static_cast<unsigned char>(json_[pos]))) {
 			value += json_[pos++];
 		}
 	}
@@ -809,11 +834,23 @@ std::vector<std::string> JsonParser::getArray(const std::string &key) const
 			int depth = 1;
 			value += arr[pos++];
 			while (pos < arr.size() && depth > 0) {
-				if (arr[pos] == '{')
-					depth++;
-				else if (arr[pos] == '}')
-					depth--;
-				value += arr[pos++];
+				if (arr[pos] == '"') {
+					value += arr[pos++];
+					while (pos < arr.size() && arr[pos] != '"') {
+						if (arr[pos] == '\\' && pos + 1 < arr.size()) {
+							value += arr[pos++];
+						}
+						value += arr[pos++];
+					}
+					if (pos < arr.size())
+						value += arr[pos++];
+				} else {
+					if (arr[pos] == '{')
+						depth++;
+					else if (arr[pos] == '}')
+						depth--;
+					value += arr[pos++];
+				}
 			}
 		}
 

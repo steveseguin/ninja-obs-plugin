@@ -310,14 +310,21 @@ void VDONinjaSignaling::disconnect()
 		sendCv_.notify_all();
 	}
 
-	// Close WebSocket
+	// Close WebSocket -- extract handle under the lock, then close outside it.
+	// ws->close() can fire onError/onClosed synchronously, which also
+	// acquire handleMutex_, so we must not hold it during close().
 	{
-		std::lock_guard<std::mutex> lock(handleMutex_);
-		if (wsHandle_) {
-			auto ws = static_cast<std::shared_ptr<rtc::WebSocket> *>(wsHandle_);
-			(*ws)->close();
-			delete ws;
-			wsHandle_ = nullptr;
+		std::shared_ptr<rtc::WebSocket> *extracted = nullptr;
+		{
+			std::lock_guard<std::mutex> lock(handleMutex_);
+			if (wsHandle_) {
+				extracted = static_cast<std::shared_ptr<rtc::WebSocket> *>(wsHandle_);
+				wsHandle_ = nullptr;
+			}
+		}
+		if (extracted) {
+			(*extracted)->close();
+			delete extracted;
 		}
 	}
 
@@ -353,7 +360,7 @@ bool VDONinjaSignaling::isConnected() const
 
 void VDONinjaSignaling::wsThreadFunc()
 {
-	int reconnectAttempts = 0;
+	auto reconnectAttempts = std::make_shared<std::atomic<int>>(0);
 
 	while (shouldRun_) {
 		std::string host;
@@ -388,12 +395,12 @@ void VDONinjaSignaling::wsThreadFunc()
 				wsHandle_ = new std::shared_ptr<rtc::WebSocket>(ws);
 			}
 
-			ws->onOpen([this, &reconnectAttempts, host, opened]() {
+			ws->onOpen([this, reconnectAttempts, host, opened]() {
 				logInfo("WebSocket connected to signaling server: %s", host.c_str());
 				opened->store(true);
 				connected_ = true;
 				initialConnectionFinished_ = true;
-				reconnectAttempts = 0;
+				reconnectAttempts->store(0, std::memory_order_relaxed);
 				{
 					std::lock_guard<std::mutex> lock(stateMutex_);
 					deferredConnectionError_.clear();
@@ -590,8 +597,8 @@ void VDONinjaSignaling::wsThreadFunc()
 			break;
 		}
 
-		reconnectAttempts++;
-		if (reconnectAttempts > maxAttempts) {
+		const int attempt = reconnectAttempts->fetch_add(1, std::memory_order_relaxed) + 1;
+		if (attempt > maxAttempts) {
 			logError("Max reconnection attempts reached");
 			OnErrorCallback cb;
 			{
@@ -604,12 +611,12 @@ void VDONinjaSignaling::wsThreadFunc()
 			break;
 		}
 
-		int delay = computeSignalingReconnectDelayMs(reconnectAttempts);
+		int delay = computeSignalingReconnectDelayMs(attempt);
 		const int64_t now = currentTimeMs();
 		if (reconnectDeferredUntilMs > now) {
 			delay = static_cast<int>(std::max<int64_t>(delay, reconnectDeferredUntilMs - now));
 		}
-		logInfo("Reconnecting in %d ms (attempt %d/%d)", delay, reconnectAttempts, maxAttempts);
+		logInfo("Reconnecting in %d ms (attempt %d/%d)", delay, attempt, maxAttempts);
 
 		// Sleep in small increments so we can respond to shouldRun_ going false
 		for (int waited = 0; waited < delay && shouldRun_; waited += 100) {

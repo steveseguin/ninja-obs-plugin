@@ -1443,15 +1443,6 @@ void VDONinjaOutput::stop()
 		lastPeerStats_.clear();
 		lastPeerStatsTimestampMs_.clear();
 	}
-	{
-		std::lock_guard<std::mutex> lock(keyframeCacheMutex_);
-		cachedKeyframe_.clear();
-		cachedKeyframeTimestamp_ = 0;
-	}
-	hasLastVideoRtpTimestamp_ = false;
-	lastVideoRtpTimestamp_ = 0;
-	hasLastAudioRtpTimestamp_ = false;
-	lastAudioRtpTimestamp_ = 0;
 
 	// Unpublish stream
 	if (signaling_->isPublishing()) {
@@ -1476,6 +1467,15 @@ void VDONinjaOutput::stop()
 		obs_output_end_data_capture(output_);
 		capturing_ = false;
 	}
+	{
+		std::lock_guard<std::mutex> lock(keyframeCacheMutex_);
+		cachedKeyframe_.clear();
+		cachedKeyframeTimestamp_ = 0;
+	}
+	hasLastVideoRtpTimestamp_ = false;
+	lastVideoRtpTimestamp_ = 0;
+	hasLastAudioRtpTimestamp_ = false;
+	lastAudioRtpTimestamp_ = 0;
 
 	stopping_ = false;
 	logInfo("VDO.Ninja output stopped");

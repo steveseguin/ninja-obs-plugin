@@ -219,6 +219,16 @@ TEST_F(JsonParserTest, ParsesNestedObject)
 	EXPECT_EQ(innerParser.getString("inner"), "value");
 }
 
+TEST_F(JsonParserTest, ParsesNestedObjectWithBraceCharactersInsideString)
+{
+	JsonParser parser("{\"outer\":{\"text\":\"brace } and bracket ] inside string\",\"inner\":\"value\"}}");
+
+	std::string nested = parser.getObject("outer");
+	JsonParser innerParser(nested);
+	EXPECT_EQ(innerParser.getString("text"), "brace } and bracket ] inside string");
+	EXPECT_EQ(innerParser.getString("inner"), "value");
+}
+
 TEST_F(JsonParserTest, ParsesArray)
 {
 	JsonParser parser("{\"items\":[\"a\",\"b\",\"c\"]}");
@@ -242,6 +252,30 @@ TEST_F(JsonParserTest, ParsesArrayOfObjects)
 
 	JsonParser second(list[1]);
 	EXPECT_EQ(second.getInt("id"), 2);
+}
+
+TEST_F(JsonParserTest, ParsesArrayWithBracketCharactersInsideStrings)
+{
+	JsonParser parser("{\"items\":[\"alpha ] } beta\",\"gamma\"]}");
+
+	auto items = parser.getArray("items");
+	ASSERT_EQ(items.size(), 2u);
+	EXPECT_EQ(items[0], "alpha ] } beta");
+	EXPECT_EQ(items[1], "gamma");
+}
+
+TEST_F(JsonParserTest, ParsesArrayOfObjectsWithBraceCharactersInsideStrings)
+{
+	JsonParser parser("{\"list\":[{\"text\":\"brace } in string\"},{\"text\":\"second\"}]}");
+
+	auto list = parser.getArray("list");
+	ASSERT_EQ(list.size(), 2u);
+
+	JsonParser first(list[0]);
+	EXPECT_EQ(first.getString("text"), "brace } in string");
+
+	JsonParser second(list[1]);
+	EXPECT_EQ(second.getString("text"), "second");
 }
 
 TEST_F(JsonParserTest, HandlesWhitespace)

@@ -1382,20 +1382,28 @@ bool VDONinjaPeerManager::startViewing(const std::string &streamId)
 
 void VDONinjaPeerManager::stopViewing(const std::string &streamId)
 {
-	// Find and close connections associated with this stream
-	std::lock_guard<std::mutex> lock(peersMutex_);
-	auto it = peers_.begin();
-	while (it != peers_.end()) {
-		if (it->second->type == ConnectionType::Viewer && it->second->streamId == streamId) {
-			clearPeerCallbacks(it->second);
-			it->second->audioTrack.reset();
-			it->second->videoTrack.reset();
-			it->second->dataChannel.reset();
-			it->second->pc.reset();
-			it = peers_.erase(it);
-		} else {
-			++it;
+	// Collect peers to close outside the lock to avoid deadlock:
+	// pc->close() triggers onStateChange callback which also acquires peersMutex_.
+	std::vector<std::shared_ptr<PeerInfo>> toClose;
+	{
+		std::lock_guard<std::mutex> lock(peersMutex_);
+		auto it = peers_.begin();
+		while (it != peers_.end()) {
+			if (it->second->type == ConnectionType::Viewer && it->second->streamId == streamId) {
+				toClose.push_back(it->second);
+				it = peers_.erase(it);
+			} else {
+				++it;
+			}
 		}
+	}
+
+	for (auto &peer : toClose) {
+		clearPeerCallbacks(peer);
+		peer->audioTrack.reset();
+		peer->videoTrack.reset();
+		peer->dataChannel.reset();
+		peer->pc.reset();
 	}
 	logInfo("Stopped viewing stream: %s", streamId.c_str());
 }

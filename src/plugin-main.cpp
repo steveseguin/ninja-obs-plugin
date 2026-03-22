@@ -1542,6 +1542,7 @@ static void updateControlCenterStatus(obs_data_t *settings, ControlCenterContext
 
 	obs_data_set_string(settings, "cc_status", status.str().c_str());
 	obs_data_set_string(settings, "cc_peer_stats", peers.str().c_str());
+	obs_output_release(output);
 }
 
 static bool controlCenterFieldModified(void *priv, obs_properties_t *, obs_property_t *, obs_data_t *settings)

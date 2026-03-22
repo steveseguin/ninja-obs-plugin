@@ -411,15 +411,29 @@ function Invoke-CheckedCommand {
 }
 
 function Resolve-ClangFormat {
-    $candidates = @("clang-format-14", "clang-format")
-    foreach ($candidate in $candidates) {
+    # Check PATH first
+    foreach ($candidate in @("clang-format-14", "clang-format")) {
         $command = Get-Command $candidate -ErrorAction SilentlyContinue
         if ($command) {
             return $command.Source
         }
     }
 
-    throw "Unable to find clang-format-14 or clang-format in PATH."
+    # Check MSVC/LLVM bundled clang-format (Windows)
+    if ($IsWindows -or $env:OS -eq "Windows_NT") {
+        $vsWhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+        if (Test-Path $vsWhere) {
+            $vsPath = & $vsWhere -latest -property installationPath 2>$null
+            if ($vsPath) {
+                $msvcCf = Join-Path $vsPath "VC\Tools\Llvm\x64\bin\clang-format.exe"
+                if (Test-Path $msvcCf) {
+                    return $msvcCf
+                }
+            }
+        }
+    }
+
+    throw "Unable to find clang-format-14 or clang-format in PATH or MSVC."
 }
 
 function Invoke-FormatCheck {

@@ -948,9 +948,9 @@ void VDONinjaSource::connect()
 	resetNativeState();
 	resetViewRetryState();
 	nativeRunning_ = true;
-	lastVideoTime_ = 0;
-	lastAudioTime_ = 0;
-	lastKeyframeRequestTime_ = 0;
+	lastVideoTime_.store(0, std::memory_order_relaxed);
+	lastAudioTime_.store(0, std::memory_order_relaxed);
+	lastKeyframeRequestTime_.store(0, std::memory_order_relaxed);
 	logWarning("Use Native Receiver (Experimental) is enabled");
 	connectionThread_ = std::thread(&VDONinjaSource::connectionThread, this);
 }
@@ -1418,8 +1418,8 @@ void VDONinjaSource::onVideoTrack(const std::string &uuid, std::shared_ptr<rtc::
 			loggedFirstVideoRtpPacket_ = false;
 			loggedFirstVideoPacket_ = false;
 			loggedFirstDecodedVideoFrame_ = false;
-			lastVideoTime_ = 0;
-			lastKeyframeRequestTime_ = 0;
+			lastVideoTime_.store(0, std::memory_order_relaxed);
+			lastKeyframeRequestTime_.store(0, std::memory_order_relaxed);
 		}
 	}
 	auto rtxFilter = std::make_shared<RtxRepairMediaHandler>();
@@ -1486,7 +1486,7 @@ void VDONinjaSource::onVideoTrack(const std::string &uuid, std::shared_ptr<rtc::
 	});
 
 	if (replacedExistingTrack && safeRequestKeyframe(track, "video-track-replaced")) {
-		lastKeyframeRequestTime_ = currentTimeMs();
+		lastKeyframeRequestTime_.store(currentTimeMs(), std::memory_order_relaxed);
 		logInfo("Requested video keyframe after replacing native video track");
 	}
 	requestNativeTargetBitrate("video-track-attached");
@@ -1531,7 +1531,7 @@ void VDONinjaSource::onAudioTrack(const std::string &uuid, std::shared_ptr<rtc::
 			resetAudioDecoder();
 			loggedFirstAudioPacket_ = false;
 			loggedFirstDecodedAudioFrame_ = false;
-			lastAudioTime_ = 0;
+			lastAudioTime_.store(0, std::memory_order_relaxed);
 		}
 	}
 	audioSampleRate_ = sampleRate > 0 ? sampleRate : 48000;
@@ -1594,7 +1594,7 @@ void VDONinjaSource::processVideoData(const uint8_t *data, size_t size, uint32_t
 	if (sendResult < 0 && sendResult != AVERROR(EAGAIN)) {
 		logWarning("Failed to submit H.264 packet: %s", ffmpegErrorString(sendResult).c_str());
 		if (safeRequestKeyframe(currentVideoTrack, "send-packet-failure")) {
-			lastKeyframeRequestTime_ = currentTimeMs();
+			lastKeyframeRequestTime_.store(currentTimeMs(), std::memory_order_relaxed);
 		}
 		return;
 	}
@@ -1607,7 +1607,7 @@ void VDONinjaSource::processVideoData(const uint8_t *data, size_t size, uint32_t
 		if (receiveResult < 0) {
 			logWarning("Failed to decode H.264 frame: %s", ffmpegErrorString(receiveResult).c_str());
 			if (safeRequestKeyframe(currentVideoTrack, "decode-failure")) {
-				lastKeyframeRequestTime_ = currentTimeMs();
+				lastKeyframeRequestTime_.store(currentTimeMs(), std::memory_order_relaxed);
 			}
 			break;
 		}
@@ -1633,7 +1633,7 @@ void VDONinjaSource::processVideoData(const uint8_t *data, size_t size, uint32_t
 				videoHwDecodeDisabled_ = true;
 				resetVideoDecoder();
 				if (safeRequestKeyframe(currentVideoTrack, "hw-transfer-failure")) {
-					lastKeyframeRequestTime_ = currentTimeMs();
+					lastKeyframeRequestTime_.store(currentTimeMs(), std::memory_order_relaxed);
 				}
 				return;
 			}
@@ -1648,7 +1648,7 @@ void VDONinjaSource::processVideoData(const uint8_t *data, size_t size, uint32_t
 		}
 	}
 
-	lastVideoTime_ = currentTimeMs();
+	lastVideoTime_.store(currentTimeMs(), std::memory_order_relaxed);
 }
 
 void VDONinjaSource::processVideoRtpPacket(const uint8_t *packetData, size_t packetSize)
@@ -1819,7 +1819,7 @@ void VDONinjaSource::processAudioData(const uint8_t *data, size_t size, uint32_t
 		av_frame_unref(audioFrame_);
 	}
 
-	lastAudioTime_ = currentTimeMs();
+	lastAudioTime_.store(currentTimeMs(), std::memory_order_relaxed);
 }
 
 void VDONinjaSource::videoTick(float seconds)
@@ -1841,15 +1841,17 @@ void VDONinjaSource::videoTick(float seconds)
 	}
 
 	const int64_t now = currentTimeMs();
-	if (lastVideoTime_ != 0 && now - lastVideoTime_ < 1500) {
+	const int64_t lastVideoTime = lastVideoTime_.load(std::memory_order_relaxed);
+	if (lastVideoTime != 0 && now - lastVideoTime < 1500) {
 		return;
 	}
-	if (lastKeyframeRequestTime_ != 0 && now - lastKeyframeRequestTime_ < 1000) {
+	const int64_t lastKeyframeRequestTime = lastKeyframeRequestTime_.load(std::memory_order_relaxed);
+	if (lastKeyframeRequestTime != 0 && now - lastKeyframeRequestTime < 1000) {
 		return;
 	}
 
 	if (safeRequestKeyframe(videoTrack, "video-tick")) {
-		lastKeyframeRequestTime_ = now;
+		lastKeyframeRequestTime_.store(now, std::memory_order_relaxed);
 		logInfo("Requested video keyframe for native receiver");
 	}
 }
