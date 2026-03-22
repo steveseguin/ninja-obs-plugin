@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.39] - 2026-03-22
+
 ### Added
 - Structured release automation via `scripts/release.ps1` to align version files, promote `CHANGELOG.md`, generate release notes, run format/tests, and optionally commit/tag/push a release.
 

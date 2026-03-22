@@ -596,8 +596,8 @@ function Cut-Release {
         throw "No release changes were staged."
     }
 
-    Invoke-Git commit -m "Release $($VersionInfo.Tag)"
-    Invoke-Git tag -a $VersionInfo.Tag -m "Release $($VersionInfo.Tag)"
+    Invoke-CheckedCommand -FilePath "git" -Arguments @("commit", "-m", "Release $($VersionInfo.Tag)")
+    Invoke-CheckedCommand -FilePath "git" -Arguments @("tag", "-a", $VersionInfo.Tag, "-m", "Release $($VersionInfo.Tag)")
 
     if ($Push) {
         $branch = (Invoke-Git rev-parse --abbrev-ref HEAD | Select-Object -First 1).Trim()
