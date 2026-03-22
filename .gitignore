@@ -53,6 +53,7 @@ vdoninja-tests.exe
 
 # Local development artifacts
 build-plugin/
+build-plugin-review*/
 build-verify/
 build-tests/
 local-libdatachannel/
