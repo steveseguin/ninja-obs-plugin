@@ -12,7 +12,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - Signaling fallback recovery no longer wedges after an initial pre-open signaling failure. The signaling thread now clears its stale run state on exit, and the pre-open error path actively advances fallback instead of waiting passively for a close callback.
-- Source, runtime, and package version metadata are back in sync, and `main` now advances to `1.1.39` so the working tree is no longer behind the released `v1.1.38` tag.
+- Fixed JSON parser silently corrupting nested objects/arrays when string values contained braces or brackets (e.g. in SDP descriptions), which could cause intermittent WebRTC connection failures.
+- Fixed `stopViewing()` deadlock where `peersMutex_` was held while destroying peer connections, which could trigger re-entrant state-change callbacks.
+- Fixed `disconnect()` deadlock where WebSocket `close()` was called under `handleMutex_`, but synchronous close callbacks also tried to acquire it.
+- Fixed use-after-free risk in WebSocket `onOpen` callback that captured a stack variable (`reconnectAttempts`) by reference.
+- Fixed output reference leak in Control Center status updates that prevented proper cleanup on stream stop.
+- Fixed `std::isspace()` undefined behavior on non-ASCII input in JSON parser.
+- Fixed data races on RTP timestamp state during output stop and on keyframe request timing in the native source receiver.
 
 ### Docs
 - Documented the validated Windows OBS 32.x build recipe, DLL provenance gotchas, portable-OBS test flow, fallback fault-injection test, and the limits of proving phone-side `srflx` from OBS logs alone.
