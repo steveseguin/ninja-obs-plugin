@@ -109,3 +109,43 @@ Pass criteria:
 - VDO.Ninja stats snapshot (codec, bitrate, packet loss, RTT)
 - Stream URL pattern used (room/password/no-password)
 - Approximate test duration and failure timestamp
+
+## Test 9: Signaling Fallback Regression
+
+Use portable OBS for this test so you know exactly which DLL is under test.
+
+1. Back up `C:\Windows\System32\drivers\etc\hosts`.
+2. Add:
+   - `127.0.0.1 wss.vdo.ninja # ninja-plugin fallback test`
+3. Launch portable OBS and start streaming with:
+   - Stream ID: `steve12345`
+   - Room ID: empty
+4. Open a viewer URL:
+   - `https://vdo.ninja/?view=steve12345`
+5. Restore the original `hosts` file after the test.
+
+Pass criteria:
+- OBS log shows a primary signaling failure before open
+- OBS log shows `Trying fallback signaling server: wss://proxywss.rtc.ninja:443`
+- OBS log shows successful connection to the proxy host
+- Streaming still starts
+- A viewer still connects
+
+See [`docs/windows-obs32-build-and-validation.md`](docs/windows-obs32-build-and-validation.md) for the exact
+validated log sequence from `2026-03-21`.
+
+## Test 10: Cellular Viewer / Candidate Proof
+
+1. Start a publish from OBS with no room ID.
+2. Put the phone on cellular, not Wi-Fi.
+3. Open the viewer link on the phone.
+4. Capture phone-side `RTCPeerConnection.getStats()` if you want hard candidate proof.
+
+Pass criteria:
+- Phone receives stable audio/video
+- If candidate proof is required for release, phone-side stats show the selected candidate pair and transport
+
+Important:
+- OBS/plugin logs alone do not prove the phone's exact selected ICE candidate type.
+- If the release note says "`srflx` works on cellular", capture phone-side stats or add temporary candidate-pair
+  logging before release.

@@ -59,3 +59,17 @@ find src tests -name "*.cpp" -o -name "*.h" | xargs clang-format-14 --dry-run --
 - Keep each commit scoped to one logical change.
 - PRs should include: problem summary, key changes, commands run locally, and platform-specific notes when relevant.
 - Ensure CI is green (unit tests + format check) before merge.
+
+## Windows Build/Test Memory
+- On this machine, do not assume regular OBS is testing the repo DLL. Validate with portable OBS and verify the loaded module path from the running `obs64` process.
+- Portable OBS should be launched with working directory `C:\Users\steve\Code\ninja-plugin\_obs-portable\bin\64bit`, otherwise startup can exit early.
+- When building against the local OBS source/build tree, include both:
+  - `C:\Users\steve\Code\obs-studio\build_x64\config`
+  - `C:\Users\steve\Code\obs-studio\deps\w32-pthreads`
+- Keep libdatachannel headers and libraries from the same build family. During the `2026-03-21` validation, the working local pairing was:
+  - package config / static library: `C:\Users\steve\.codex\memories\ldc-static-config`
+  - header override during build: `C:\Users\steve\Code\gpt\vst\build\webrtc_vst_win\_deps\libdatachannel-src\include`
+- After changing libdatachannel config, header precedence, or Windows include flags, rebuild with `--clean-first` to avoid stale objects hiding ABI/header mismatches.
+- The normal-path TLS warning `TLS certificate verification with root CA is not supported on Windows` was observed during successful connects. Treat it as informational unless the signaling connection actually fails.
+- Fallback regression should be verified with the hosts-file fault injection documented in `docs/windows-obs32-build-and-validation.md`, not just by reading the code.
+- OBS/plugin logs do not prove the phone's selected ICE candidate type. For hard cellular / `srflx` proof, capture phone-side `getStats()` or add temporary candidate-pair logging.

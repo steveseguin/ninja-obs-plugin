@@ -119,6 +119,9 @@ If not in default lookup paths, pass `OBS_SDK_PATH` and `CMAKE_PREFIX_PATH`.
 
 ## Troubleshooting
 
+For the validated OBS 32.x Windows troubleshooting and fallback validation note from `2026-03-21`, see
+[`docs/windows-obs32-build-and-validation.md`](docs/windows-obs32-build-and-validation.md).
+
 ### `Qt5Config.cmake` / `Qt6Config.cmake` not found
 
 Set `Qt6_DIR` explicitly and include your Qt prefix in `CMAKE_PREFIX_PATH`.
@@ -135,6 +138,31 @@ system package configuration.
 ### `OBS SDK not found`
 
 Set `OBS_SDK_PATH` to the SDK root with `include` and `lib`.
+
+### `obsconfig.h` or `pthread.h` not found when using a local OBS source/build tree on Windows
+
+If you are building against a local OBS checkout instead of a packaged SDK, also add:
+
+- the generated config include directory containing `obsconfig.h`
+- the OBS `w32-pthreads` directory containing `pthread.h`
+
+On Steve's Windows machine these were:
+
+- `C:\Users\steve\Code\obs-studio\build_x64\config`
+- `C:\Users\steve\Code\obs-studio\deps\w32-pthreads`
+
+The validated local commands are captured in
+[`docs/windows-obs32-build-and-validation.md`](docs/windows-obs32-build-and-validation.md).
+
+### Windows build succeeds, but OBS cannot load the plugin
+
+Check the built DLL's runtime imports and make sure they match the OBS runtime you are testing against. During the
+`2026-03-21` investigation, older local builds imported FFmpeg 60/58/7/4 while OBS 32.x required 61/59/8/5.
+
+### `rtc::PeerConnection::setLocalDescription` unresolved symbol on Windows
+
+Do not mix libdatachannel headers and libraries from different installs. Keep the header include path and the linked
+library from the same libdatachannel build family, then rebuild with `--clean-first`.
 
 ### It worked before, now it fails after cleaning build folders
 

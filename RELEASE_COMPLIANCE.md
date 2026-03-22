@@ -17,6 +17,13 @@ Use this checklist before publishing a GitHub release.
 6. Sync release-signing secrets before tagging:
 - Run `scripts/sync-release-secrets-windows.ps1` to set `WIN_SIGN_CERT_B64` and `WIN_CSC_KEY_PASSWORD` from local `code-signing` repo.
 - Confirm `gh secret list --repo steveseguin/ninja-obs-plugin` contains required secrets.
+7. Sync version metadata before release:
+- `CMakeLists.txt`
+- `src/plugin-main.h`
+- `CHANGELOG.md`
+- release notes/tag text
+8. For Windows release validation, use the current portable OBS checklist and fallback note in:
+- `docs/windows-obs32-build-and-validation.md`
 
 ## Recommended
 
@@ -27,6 +34,8 @@ Use this checklist before publishing a GitHub release.
 2. Include reproducible build instructions link:
 - `README.md` build section
 3. Include checksum files for release artifacts.
+4. Run both a normal publish test and a forced-primary-failure fallback test in portable OBS before tagging a Windows release.
+5. If release notes claim cellular / `srflx` success, capture phone-side WebRTC stats or equivalent candidate-pair evidence.
 
 ## Quick Commands
 
