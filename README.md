@@ -197,6 +197,11 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\check-build-requir
 - `main` pushes run `CI`, `Code Quality`, and `GitHub Pages`.
 - Tag pushes matching `v*` run cross-platform build/release packaging.
 - Current release workflow auto-builds Linux x86_64, Windows x64 ZIP + setup `.exe`, and macOS arm64.
+- Use `powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\release.ps1 -Action status` to inspect release readiness.
+- Supported staged flow: `status` -> `prepare` -> `verify` -> `cut`.
+- `prepare` promotes `CHANGELOG.md` and aligns version files for the target release; `verify` runs the release checks against that prepared version; `cut` repeats the full path, then commits/tags/pushes.
+- Use `powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\release.ps1 -Action cut -Bump patch -Push` to align version files, promote `CHANGELOG.md`, run release checks, commit, tag, and push in one supported flow.
+- The release script owns `CMakeLists.txt`, `src/plugin-main.h`, `package.json`, `package-lock.json`, and `CHANGELOG.md`; tag CI now rejects mismatches instead of building a broken release.
 - Before tagging, sync signing secrets with `powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\sync-release-secrets-windows.ps1`.
 - Optional nightly live internet e2e matrix is in `.github/workflows/live-e2e.yml`.
 

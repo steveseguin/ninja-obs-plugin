@@ -39,6 +39,12 @@ Use `scripts/install-linux.sh`, `scripts/install-macos.sh`, or `scripts/install-
 - Prefer one obvious Windows installer/ZIP pair for users unless a real compatibility split is technically necessary.
 - When changing OBS targets, update `.github/workflows/build.yml`, release notes, and install/docs text together.
 
+## Release Flow
+- Use `scripts/release.ps1` as the supported release entrypoint instead of hand-editing version files or hand-cutting tags.
+- The release script must keep `CMakeLists.txt`, `src/plugin-main.h`, `package.json`, `package-lock.json`, and `CHANGELOG.md` aligned.
+- `scripts/release.ps1 -Action cut -Bump patch -Push` is the default path for a normal release after validation is complete.
+- Tag CI should fail fast on version/changelog mismatches before spending time on cross-platform packaging.
+
 ## Coding Style & Naming Conventions
 - Language level: C++17 (non-MSVC), C++20 (MSVC).
 - Format with `.clang-format` (LLVM-based, tabs for indentation, 120-column limit, Linux brace style).

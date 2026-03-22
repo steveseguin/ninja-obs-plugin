@@ -7,12 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Structured release automation via `scripts/release.ps1` to align version files, promote `CHANGELOG.md`, generate release notes, run format/tests, and optionally commit/tag/push a release.
+
 ### Fixed
 - Signaling fallback recovery no longer wedges after an initial pre-open signaling failure. The signaling thread now clears its stale run state on exit, and the pre-open error path actively advances fallback instead of waiting passively for a close callback.
-- Runtime version logging is back in sync with the project version metadata, and `main` now advances to `1.1.39` so the working tree is no longer behind the released `v1.1.38` tag.
+- Source, runtime, and package version metadata are back in sync, and `main` now advances to `1.1.39` so the working tree is no longer behind the released `v1.1.38` tag.
 
 ### Docs
 - Documented the validated Windows OBS 32.x build recipe, DLL provenance gotchas, portable-OBS test flow, fallback fault-injection test, and the limits of proving phone-side `srflx` from OBS logs alone.
+
+### Changed
+- Tagged GitHub release builds now fail fast if the tag, source/package version files, and changelog entry do not match.
 
 ## [1.1.36] - 2026-03-13
 

@@ -52,8 +52,10 @@ vdoninja-tests.exe
 *.msi
 
 # Local development artifacts
+build-ldc/
 build-plugin/
 build-plugin-review*/
+build-release-tests/
 build-verify/
 build-tests/
 local-libdatachannel/
