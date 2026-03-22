@@ -970,7 +970,7 @@ jobs:
           for file in "${files[@]}"; do
             echo "Submitting $file to VirusTotal..."
             response_file="virustotal-${file}.json"
-            curl --fail --silent --show-error \
+            curl --fail --silent --show-error --max-time 300 \
               --request POST \
               --url "https://www.virustotal.com/api/v3/files" \
               --header "x-apikey: ${VT_API_KEY}" \
@@ -984,7 +984,7 @@ jobs:
           done
 
       - name: Create Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
           draft: false
           prerelease: ${{ contains(github.ref, '-beta') || contains(github.ref, '-alpha') || contains(github.ref, '-rc') }}
