@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - Signaling fallback recovery no longer wedges after an initial pre-open signaling failure. The signaling thread now clears its stale run state on exit, and the pre-open error path actively advances fallback instead of waiting passively for a close callback.
-- Runtime version logging is back in sync with the project version metadata (`1.1.37`).
+- Runtime version logging is back in sync with the project version metadata, and `main` now advances to `1.1.39` so the working tree is no longer behind the released `v1.1.38` tag.
 
 ### Docs
 - Documented the validated Windows OBS 32.x build recipe, DLL provenance gotchas, portable-OBS test flow, fallback fault-injection test, and the limits of proving phone-side `srflx` from OBS logs alone.
