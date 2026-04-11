@@ -28,6 +28,12 @@ struct SwrContext;
 namespace vdoninja
 {
 
+// Video codec used by the native receiver.
+enum class NativeVideoCodec {
+	H264,
+	VP9,
+};
+
 void vdoninja_source_child_audio_capture(void *param, obs_source_t *source, const struct audio_data *audioData,
                                          bool muted);
 void vdoninja_source_child_audio_activate(void *param, calldata_t *calldata);
@@ -71,14 +77,21 @@ private:
 	void handlePeerCleanupSignal(const std::string &uuid);
 	void handlePeerDisconnected(const std::string &uuid);
 	void onVideoTrack(const std::string &uuid, std::shared_ptr<rtc::Track> track);
+	void onAlphaVideoTrack(const std::string &uuid, std::shared_ptr<rtc::Track> track);
 	void onAudioTrack(const std::string &uuid, std::shared_ptr<rtc::Track> track);
 	void processVideoRtpPacket(const uint8_t *packetData, size_t packetSize);
+	void processVP9RtpPacket(const uint8_t *payload, size_t payloadSize, uint32_t rtpTimestamp);
+	void processAlphaRtpPacket(const uint8_t *packetData, size_t packetSize);
+	void processAlphaVP9RtpPacket(const uint8_t *payload, size_t payloadSize, uint32_t rtpTimestamp);
 	void processAudioRtpPacket(const uint8_t *packetData, size_t packetSize);
 	void processVideoData(const uint8_t *data, size_t size, uint32_t rtpTimestamp);
+	void processAlphaVideoData(const uint8_t *data, size_t size, uint32_t rtpTimestamp);
 	void processAudioData(const uint8_t *data, size_t size, uint32_t rtpTimestamp);
 	bool initializeVideoDecoder();
+	bool initializeAlphaDecoder();
 	bool initializeAudioDecoder(int sampleRate, int channels);
 	void resetVideoDecoder();
+	void resetAlphaDecoder();
 	void resetAudioDecoder();
 	void resetNativeState();
 	void outputDecodedVideoFrame(const AVFrame *frame, uint64_t timestampNs);
@@ -126,8 +139,10 @@ private:
 	std::string nativeReceiverSourceName_;
 	std::shared_ptr<AsyncCallbackState<VDONinjaSource>> callbackState_;
 	std::shared_ptr<rtc::Track> videoTrack_;
+	std::shared_ptr<rtc::Track> alphaVideoTrack_;
 	std::shared_ptr<rtc::Track> audioTrack_;
 	std::string videoTrackPeerUuid_;
+	std::string alphaVideoTrackPeerUuid_;
 	std::string audioTrackPeerUuid_;
 	std::unordered_set<uint8_t> videoRedPayloadTypes_;
 	bool childShowing_ = false;
@@ -145,7 +160,11 @@ private:
 	std::mutex nativeStateMutex_;
 	std::mutex videoAssemblyMutex_;
 	std::mutex videoDecodeMutex_;
+	std::mutex alphaAssemblyMutex_;
+	std::mutex alphaDecodeMutex_;
+	std::mutex pendingAlphaMutex_;
 	std::mutex audioDecodeMutex_;
+	NativeVideoCodec nativeVideoCodec_ = NativeVideoCodec::H264;
 	std::vector<uint8_t> videoAssemblyBuffer_;
 	uint32_t videoAssemblyTimestamp_ = 0;
 	bool videoAssemblyActive_ = false;
@@ -154,6 +173,21 @@ private:
 	AVFrame *videoTransferFrame_ = nullptr;
 	AVPacket *videoPacket_ = nullptr;
 	SwsContext *videoScaleContext_ = nullptr;
+	// Alpha channel VP9 decode state
+	std::atomic<bool> loggedFirstAlphaRtpPacket_{false};
+	std::vector<uint8_t> alphaAssemblyBuffer_;
+	uint32_t alphaAssemblyTimestamp_ = 0;
+	bool alphaAssemblyActive_ = false;
+	AVCodecContext *alphaDecoder_ = nullptr;
+	AVFrame *alphaFrame_ = nullptr;
+	AVPacket *alphaPacket_ = nullptr;
+	// Most-recently decoded alpha Y-plane (pending combination with primary)
+	std::vector<uint8_t> pendingAlphaYData_;
+	int pendingAlphaWidth_ = 0;
+	int pendingAlphaHeight_ = 0;
+	int pendingAlphaYLinesize_ = 0;
+	uint32_t pendingAlphaTimestamp_ = 0;
+	bool pendingAlphaValid_ = false;
 	AVCodecContext *audioDecoder_ = nullptr;
 	AVFrame *audioFrame_ = nullptr;
 	AVPacket *audioPacket_ = nullptr;

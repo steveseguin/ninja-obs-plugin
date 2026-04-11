@@ -80,6 +80,7 @@ struct PeerInfo {
 	std::shared_ptr<rtc::DataChannel> signalingDataChannel;
 	std::shared_ptr<rtc::Track> audioTrack;
 	std::shared_ptr<rtc::Track> videoTrack;
+	std::shared_ptr<rtc::Track> alphaVideoTrack;
 	std::shared_ptr<rtc::RtcpSrReporter> audioSrReporter;
 	std::shared_ptr<rtc::RtcpSrReporter> videoSrReporter;
 	bool useAudioPacketizer = false;

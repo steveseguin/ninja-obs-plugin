@@ -97,6 +97,7 @@ constexpr const char *kVdoNinjaRtmpServiceEntry = R"VDOJSON(
                 }
             ],
             "supported video codecs": [
+                "vp9",
                 "h264"
             ],
             "supported audio codecs": [
@@ -1005,6 +1006,7 @@ void ensureActiveVdoNinjaServiceConfigured(void)
 
 	if (isVdoNinjaService(currentService)) {
 		configureProfileForVdoNinjaStreaming();
+		logInfo("Ensured VDO.Ninja streaming profile settings before streaming start");
 	}
 }
 
@@ -1215,7 +1217,7 @@ static void vdoninja_service_apply_encoder_settings(void *, obs_data_t *video_se
 	}
 }
 
-static const char *vdoninja_video_codecs[] = {"h264", nullptr};
+static const char *vdoninja_video_codecs[] = {"vp9", "h264", nullptr};
 static const char *vdoninja_audio_codecs[] = {"opus", nullptr};
 
 static bool vdoninja_service_can_try_connect(void *data)
@@ -1972,7 +1974,6 @@ static void frontend_event_callback(enum obs_frontend_event event, void *)
 	switch (event) {
 	case OBS_FRONTEND_EVENT_STREAMING_STARTING:
 		ensureActiveVdoNinjaServiceConfigured();
-		logInfo("Ensured VDO.Ninja streaming profile settings before streaming start");
 		break;
 	case OBS_FRONTEND_EVENT_VIRTUALCAM_STARTED:
 		logInfo("Virtual camera started");

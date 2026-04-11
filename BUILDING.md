@@ -117,6 +117,36 @@ You need:
 
 If not in default lookup paths, pass `OBS_SDK_PATH` and `CMAKE_PREFIX_PATH`.
 
+## VP9 Alpha Publisher Test Tool
+
+`vp9-alpha-publisher` is a standalone CLI that connects to VDO.Ninja signaling as a
+publisher and sends two VP9 video tracks (primary YUV + alpha-as-Y) so you can
+validate the native receiver's alpha decode path end-to-end.
+
+It requires the same dependencies as the plugin (libdatachannel static lib + FFmpeg).
+Add `-DBUILD_PUBLISHER_TOOL=ON` alongside `-DBUILD_PLUGIN=ON`:
+
+```powershell
+cmake -S . -B build-plugin -G "Visual Studio 17 2022" -A x64 `
+  -DBUILD_PLUGIN=ON `
+  -DBUILD_PUBLISHER_TOOL=ON `
+  -DCMAKE_PREFIX_PATH="..." `
+  ...
+
+cmake --build build-plugin --config Release --target vp9-alpha-publisher
+```
+
+Usage:
+```
+vp9-alpha-publisher --stream-id <id> [--password <pwd>]
+                    [--wss wss://wss.vdo.ninja]
+                    [--width 320] [--height 240] [--fps 30]
+```
+
+The tool generates an animated test pattern where a moving circle is fully opaque and
+the background is 50% transparent. Open the stream in OBS with the native receiver
+enabled — the background should be transparent in BGRA output.
+
 ## Troubleshooting
 
 For the validated OBS 32.x Windows troubleshooting and fallback validation note from `2026-03-21`, see

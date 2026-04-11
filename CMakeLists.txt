@@ -11,6 +11,7 @@ set(PLUGIN_LICENSE "AGPL-3.0-only")
 # Options
 option(BUILD_TESTS "Build unit tests" OFF)
 option(BUILD_PLUGIN "Build the OBS plugin (requires OBS SDK)" ON)
+option(BUILD_PUBLISHER_TOOL "Build the VP9 alpha publisher test tool (requires BUILD_PLUGIN deps)" OFF)
 
 # Build configuration
 # Use C++20 on Windows for designated initializers support (MSVC requires /std:c++20)
@@ -297,6 +298,7 @@ if(BUILD_PLUGIN)
         src/plugin-main.cpp
         src/vdoninja-output.cpp
         src/vdoninja-reliability.cpp
+        src/vdoninja-rtp-utils.cpp
         src/vdoninja-source.cpp
         src/vdoninja-signaling.cpp
         src/vdoninja-signaling-protocol.cpp
@@ -489,6 +491,7 @@ if(BUILD_TESTS)
 
     # Test sources that don't depend on OBS
     set(TESTABLE_SOURCES
+        src/vdoninja-rtp-utils.cpp
         src/vdoninja-utils.cpp
         src/vdoninja-reliability.cpp
         src/vdoninja-data-channel.cpp
@@ -521,6 +524,7 @@ if(BUILD_TESTS)
         tests/test-data-channel.cpp
         tests/test-signaling-protocol.cpp
         tests/test-layout.cpp
+        tests/test-vp9-rtp.cpp
     )
 
     target_include_directories(vdoninja-tests PRIVATE
@@ -536,4 +540,91 @@ if(BUILD_TESTS)
 
     include(GoogleTest)
     gtest_discover_tests(vdoninja-tests)
+endif()
+
+# ---------------------------------------------------------------------------
+# VP9 alpha publisher test tool
+# Requires the same dependency set as the plugin (libdatachannel + FFmpeg).
+# Configure with: cmake -DBUILD_PUBLISHER_TOOL=ON -DBUILD_PLUGIN=ON ...
+# ---------------------------------------------------------------------------
+if(BUILD_PUBLISHER_TOOL)
+    if(NOT BUILD_PLUGIN)
+        message(FATAL_ERROR "BUILD_PUBLISHER_TOOL requires BUILD_PLUGIN=ON (needs libdatachannel + FFmpeg)")
+    endif()
+
+    add_executable(vp9-alpha-publisher
+        tests/tools/vp9-alpha-publisher/main.cpp
+        src/vdoninja-signaling.cpp
+        src/vdoninja-utils.cpp
+        src/vdoninja-signaling-protocol.cpp
+        src/vdoninja-reliability.cpp
+        src/vdoninja-rtp-utils.cpp
+        tests/stubs/obs-stubs.cpp
+    )
+
+    # Regular includes (no rtc/ collision)
+    target_include_directories(vp9-alpha-publisher PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
+        ${CMAKE_CURRENT_SOURCE_DIR}/tests/stubs
+        ${FFMPEG_INCLUDE_DIR}
+    )
+
+    # The local deps/libdatachannel headers must shadow the older rtc/ copy
+    # that lives inside FFMPEG_INCLUDE_DIR (OBS deps include/).  cmake always
+    # puts INTERFACE includes from linked targets as /external:I after the
+    # target's own /I paths, so we cannot fix the order via normal cmake
+    # include APIs.  Use a per-source forced /I flag (via COMPILE_OPTIONS)
+    # which is emitted BEFORE AdditionalIncludeDirectories in the cl.exe
+    # command line, winning the header search race.
+    if(MSVC)
+        set(_ldc_inc "${CMAKE_CURRENT_SOURCE_DIR}/deps/libdatachannel/include")
+        foreach(_src
+            tests/tools/vp9-alpha-publisher/main.cpp
+            src/vdoninja-signaling.cpp
+            src/vdoninja-utils.cpp
+            src/vdoninja-signaling-protocol.cpp
+            src/vdoninja-reliability.cpp
+            src/vdoninja-rtp-utils.cpp
+            tests/stubs/obs-stubs.cpp
+        )
+            set_source_files_properties(${_src} PROPERTIES
+                COMPILE_OPTIONS "/I${_ldc_inc}"
+            )
+        endforeach()
+    endif()
+
+    # Re-use exactly the same libdatachannel link target resolved by the plugin section
+    if(LibDataChannel_FOUND)
+        if(TARGET LibDataChannel::LibDataChannelStatic)
+            target_link_libraries(vp9-alpha-publisher PRIVATE LibDataChannel::LibDataChannelStatic)
+        else()
+            target_link_libraries(vp9-alpha-publisher PRIVATE LibDataChannel::LibDataChannel)
+        endif()
+    endif()
+
+    target_link_libraries(vp9-alpha-publisher PRIVATE
+        ${FFMPEG_AVCODEC_LIBRARY}
+        ${FFMPEG_AVUTIL_LIBRARY}
+        ${FFMPEG_SWSCALE_LIBRARY}
+        Threads::Threads
+    )
+
+    if(OpenSSL_FOUND)
+        target_link_libraries(vp9-alpha-publisher PRIVATE OpenSSL::SSL OpenSSL::Crypto)
+    endif()
+
+    if(MSVC)
+        target_compile_options(vp9-alpha-publisher PRIVATE /W3 /wd4201)
+        # Force the local deps/libdatachannel headers ahead of the OBS deps
+        # include dir.  Without this, cmake adds the local path as /external:I
+        # (because it comes from an IMPORTED target's INTERFACE_INCLUDE_DIRECTORIES)
+        # while FFMPEG_INCLUDE_DIR is a direct /I path; /I paths are searched
+        # before /external:I, so the older OBS rtc headers win and produce
+        # symbol mismatches with the newer local static lib.
+        # Adding /I via AdditionalOptions places it first on the command line.
+        # Static libdatachannel can cause COMDAT symbol conflicts with non-inline virtuals.
+        target_link_options(vp9-alpha-publisher PRIVATE /FORCE:MULTIPLE)
+    endif()
+
+    message(STATUS "VP9 alpha publisher tool enabled")
 endif()

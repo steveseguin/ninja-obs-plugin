@@ -22,7 +22,7 @@ namespace vdoninja
 {
 
 // Track types
-enum class TrackType { Audio, Video };
+enum class TrackType { Audio, Video, AlphaVideo };
 
 // Media track info
 struct MediaTrack {

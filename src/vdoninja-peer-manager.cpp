@@ -938,19 +938,42 @@ void VDONinjaPeerManager::prepareViewerTracks(const std::shared_ptr<PeerInfo> &p
 		try {
 			if (section.type == "video") {
 				if (peer->videoTrack) {
+					// Second video section: treat as alpha track if VP9 and no alpha track yet.
+					if (!peer->alphaVideoTrack) {
+						const SdpOfferedCodec *alphaCodec = findPreferredOfferedCodec(section, "vp9");
+						if (alphaCodec) {
+							rtc::Description::Video receiveAlpha(section.mid.empty() ? "video-alpha" : section.mid,
+							                                     rtc::Description::Direction::RecvOnly);
+							receiveAlpha.addVP9Codec(alphaCodec->payloadType);
+							auto alphaTrack = peer->pc->addTrack(receiveAlpha);
+							peer->alphaVideoTrack = alphaTrack;
+							logInfo("Prepared native recvonly VP9 alpha video track for %s (mid=%s)",
+							        peer->uuid.c_str(), alphaTrack ? alphaTrack->mid().c_str() : "");
+							if (trackCallback && alphaTrack) {
+								trackCallback(peer->uuid, TrackType::AlphaVideo, alphaTrack);
+							}
+						}
+					}
 					continue;
 				}
 
-				const SdpOfferedCodec *videoCodec = findPreferredOfferedCodec(section, "h264");
+				// Prefer VP9 for alpha-capable decoding; fall back to H.264.
+				const SdpOfferedCodec *videoCodec = findPreferredOfferedCodec(section, "vp9");
+				const bool useVP9 = (videoCodec != nullptr);
 				if (!videoCodec) {
-					logWarning("Remote offer for %s did not include H.264 in video section %s", peer->uuid.c_str(),
-					           section.mid.c_str());
+					videoCodec = findPreferredOfferedCodec(section, "h264");
+				}
+				if (!videoCodec) {
+					logWarning("Remote offer for %s did not include VP9 or H.264 in video section %s",
+					           peer->uuid.c_str(), section.mid.c_str());
 					continue;
 				}
 
 				rtc::Description::Video receiveVideo(section.mid.empty() ? "video" : section.mid,
 				                                     rtc::Description::Direction::RecvOnly);
-				if (videoCodec->formatParameters.empty()) {
+				if (useVP9) {
+					receiveVideo.addVP9Codec(videoCodec->payloadType);
+				} else if (videoCodec->formatParameters.empty()) {
 					receiveVideo.addH264Codec(videoCodec->payloadType);
 				} else {
 					receiveVideo.addH264Codec(videoCodec->payloadType, videoCodec->formatParameters);
@@ -963,8 +986,9 @@ void VDONinjaPeerManager::prepareViewerTracks(const std::shared_ptr<PeerInfo> &p
 				receiveVideo.setBitrate(requestedVideoBitrateKbps);
 				auto track = peer->pc->addTrack(receiveVideo);
 				peer->videoTrack = track;
-				logInfo("Prepared native recvonly video track for %s (mid=%s, bitrate=%d kbps)", peer->uuid.c_str(),
-				        track ? track->mid().c_str() : "", requestedVideoBitrateKbps);
+				logInfo("Prepared native recvonly %s video track for %s (mid=%s, bitrate=%d kbps)",
+				        useVP9 ? "VP9" : "H.264", peer->uuid.c_str(), track ? track->mid().c_str() : "",
+				        requestedVideoBitrateKbps);
 				if (trackCallback && track) {
 					trackCallback(peer->uuid, TrackType::Video, track);
 				}

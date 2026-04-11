@@ -27,6 +27,7 @@ extern "C" {
 #include <libswscale/swscale.h>
 }
 
+#include "vdoninja-rtp-utils.h"
 #include "vdoninja-utils.h"
 
 namespace vdoninja
@@ -151,7 +152,7 @@ enum AVPixelFormat choosePreferredHardwarePixelFormat(AVCodecContext *context, c
 }
 
 bool configureVideoHardwareDecoder(AVCodecContext *decoderContext, const AVCodec *codec, int &pixelFormat,
-                                   std::string &deviceName)
+                                   std::string &deviceName, bool isVP9)
 {
 #if defined(_WIN32)
 	constexpr AVHWDeviceType preferredDeviceTypes[] = {AV_HWDEVICE_TYPE_D3D11VA, AV_HWDEVICE_TYPE_DXVA2};
@@ -190,6 +191,13 @@ bool configureVideoHardwareDecoder(AVCodecContext *decoderContext, const AVCodec
 		deviceName = hardwareDeviceTypeName(deviceType);
 		decoderContext->get_format = choosePreferredHardwarePixelFormat;
 		decoderContext->opaque = &pixelFormat;
+
+		// VP9 with D3D11VA/DXVA2 allocates too few surfaces by default and hits
+		// "Static surface pool size exceeded" (FFmpeg trac #10608). Extra frames fix this.
+		if (isVP9) {
+			decoderContext->extra_hw_frames = 6;
+		}
+
 		return true;
 	}
 #else
@@ -197,6 +205,7 @@ bool configureVideoHardwareDecoder(AVCodecContext *decoderContext, const AVCodec
 	UNUSED_PARAMETER(codec);
 	UNUSED_PARAMETER(pixelFormat);
 	UNUSED_PARAMETER(deviceName);
+	UNUSED_PARAMETER(isVP9);
 #endif
 
 	return false;
@@ -1013,6 +1022,8 @@ void VDONinjaSource::connectionThread()
 
 			    if (type == TrackType::Video) {
 				    guard.owner()->onVideoTrack(uuid, track);
+			    } else if (type == TrackType::AlphaVideo) {
+				    guard.owner()->onAlphaVideoTrack(uuid, track);
 			    } else {
 				    guard.owner()->onAudioTrack(uuid, track);
 			    }
@@ -1362,11 +1373,14 @@ void VDONinjaSource::onVideoTrack(const std::string &uuid, std::shared_ptr<rtc::
 	}
 
 	const rtc::Description::Media description = track->description();
-	if (!mediaDescriptionHasCodec(description, "h264")) {
-		logError("Native receiver only supports H.264 video today; offered codecs: %s",
+	const bool hasH264 = mediaDescriptionHasCodec(description, "h264");
+	const bool hasVP9 = mediaDescriptionHasCodec(description, "vp9");
+	if (!hasH264 && !hasVP9) {
+		logError("Native receiver requires H.264 or VP9 video; offered codecs: %s",
 		         describeMediaCodecs(description).c_str());
 		return;
 	}
+	const NativeVideoCodec negotiatedCodec = hasVP9 ? NativeVideoCodec::VP9 : NativeVideoCodec::H264;
 
 	std::string payloadSummary;
 	std::unordered_set<uint8_t> redPayloadTypes;
@@ -1409,6 +1423,7 @@ void VDONinjaSource::onVideoTrack(const std::string &uuid, std::shared_ptr<rtc::
 		videoTrack_ = track;
 		videoTrackPeerUuid_ = uuid;
 		videoRedPayloadTypes_ = redPayloadTypes;
+		nativeVideoCodec_ = negotiatedCodec;
 		videoAssemblyBuffer_.clear();
 		videoAssemblyTimestamp_ = 0;
 		videoAssemblyActive_ = false;
@@ -1490,6 +1505,61 @@ void VDONinjaSource::onVideoTrack(const std::string &uuid, std::shared_ptr<rtc::
 		logInfo("Requested video keyframe after replacing native video track");
 	}
 	requestNativeTargetBitrate("video-track-attached");
+}
+
+void VDONinjaSource::onAlphaVideoTrack(const std::string &uuid, std::shared_ptr<rtc::Track> track)
+{
+	logInfo("Received VP9 alpha video track from %s", uuid.c_str());
+
+	if (!track) {
+		return;
+	}
+
+	{
+		std::scoped_lock stateLock(nativeStateMutex_, alphaAssemblyMutex_, alphaDecodeMutex_);
+		if (alphaVideoTrack_ == track) {
+			return;
+		}
+		if (!alphaVideoTrackPeerUuid_.empty() && alphaVideoTrackPeerUuid_ != uuid) {
+			logWarning("Ignoring alpha video track from %s while peer %s remains active", uuid.c_str(),
+			           alphaVideoTrackPeerUuid_.c_str());
+			return;
+		}
+		clearTrackCallbacks(alphaVideoTrack_);
+		alphaVideoTrack_ = track;
+		alphaVideoTrackPeerUuid_ = uuid;
+		alphaAssemblyBuffer_.clear();
+		alphaAssemblyTimestamp_ = 0;
+		alphaAssemblyActive_ = false;
+		resetAlphaDecoder();
+		loggedFirstAlphaRtpPacket_ = false;
+	}
+
+	logInfo("Attaching native VP9 alpha video receive callbacks (mid=%s)", track->mid().c_str());
+
+	const auto callbackState = callbackState_;
+	track->onMessage([callbackState, weakTrack = std::weak_ptr<rtc::Track>(track)](rtc::message_variant message) {
+		AsyncCallbackGuard<VDONinjaSource> guard(callbackState.get());
+		if (!guard) {
+			return;
+		}
+		VDONinjaSource *self = guard.owner();
+		const auto strongTrack = weakTrack.lock();
+		if (!strongTrack) {
+			return;
+		}
+		{
+			std::lock_guard<std::mutex> stateLock(self->nativeStateMutex_);
+			if (self->alphaVideoTrack_ != strongTrack) {
+				return;
+			}
+		}
+		if (!std::holds_alternative<rtc::binary>(message)) {
+			return;
+		}
+		const auto &packet = std::get<rtc::binary>(message);
+		self->processAlphaRtpPacket(reinterpret_cast<const uint8_t *>(packet.data()), packet.size());
+	});
 }
 
 void VDONinjaSource::onAudioTrack(const std::string &uuid, std::shared_ptr<rtc::Track> track)
@@ -1666,8 +1736,10 @@ void VDONinjaSource::processVideoRtpPacket(const uint8_t *packetData, size_t pac
 	const uint8_t *payload = packetData + payloadView->offset;
 	size_t payloadSize = payloadView->size;
 	std::vector<uint8_t> redPrimaryPayload;
+	NativeVideoCodec codec;
 	{
 		std::lock_guard<std::mutex> stateLock(nativeStateMutex_);
+		codec = nativeVideoCodec_;
 		if (videoRedPayloadTypes_.count(payloadView->payloadType) != 0) {
 			auto primaryPayload = extractRedPrimaryPayload(payload, payloadSize);
 			if (!primaryPayload || primaryPayload->empty()) {
@@ -1677,6 +1749,11 @@ void VDONinjaSource::processVideoRtpPacket(const uint8_t *packetData, size_t pac
 			payload = redPrimaryPayload.data();
 			payloadSize = redPrimaryPayload.size();
 		}
+	}
+
+	if (codec == NativeVideoCodec::VP9) {
+		processVP9RtpPacket(payload, payloadSize, rtpHeader->timestamp());
+		return;
 	}
 
 	const auto appendSeparator = [](std::vector<uint8_t> &accessUnit) {
@@ -1757,6 +1834,126 @@ void VDONinjaSource::processVideoRtpPacket(const uint8_t *packetData, size_t pac
 	for (const auto &frame : completedFrames) {
 		if (!frame.first.empty()) {
 			processVideoData(frame.first.data(), frame.first.size(), frame.second);
+		}
+	}
+}
+
+void VDONinjaSource::processVP9RtpPacket(const uint8_t *payload, size_t payloadSize, uint32_t rtpTimestamp)
+{
+	if (payloadSize == 0) {
+		return;
+	}
+
+	const auto desc = parseVP9PayloadDescriptor(payload, payloadSize);
+	if (!desc.valid) {
+		return;
+	}
+
+	const uint8_t *vpData = payload + desc.payloadOffset;
+	const size_t vpSize = payloadSize - desc.payloadOffset;
+
+	std::vector<std::pair<std::vector<uint8_t>, uint32_t>> completedFrames;
+
+	{
+		std::lock_guard<std::mutex> lock(videoAssemblyMutex_);
+
+		// Start of frame: discard any incomplete prior frame and begin fresh.
+		if (desc.startOfFrame) {
+			if (videoAssemblyActive_ && !videoAssemblyBuffer_.empty()) {
+				logWarning("VP9 B=1 received before E=1 for previous frame; discarding %zu bytes",
+				           videoAssemblyBuffer_.size());
+			}
+			videoAssemblyBuffer_.clear();
+			videoAssemblyActive_ = true;
+			videoAssemblyTimestamp_ = rtpTimestamp;
+		}
+
+		if (!videoAssemblyActive_) {
+			// Mid-frame packet arrived before we saw a B=1 — skip until next keyframe.
+			return;
+		}
+
+		videoAssemblyBuffer_.insert(videoAssemblyBuffer_.end(), vpData, vpData + vpSize);
+
+		if (desc.endOfFrame && !videoAssemblyBuffer_.empty()) {
+			completedFrames.emplace_back(std::move(videoAssemblyBuffer_), videoAssemblyTimestamp_);
+			videoAssemblyBuffer_.clear();
+			videoAssemblyActive_ = false;
+		}
+	}
+
+	for (const auto &frame : completedFrames) {
+		if (!frame.first.empty()) {
+			processVideoData(frame.first.data(), frame.first.size(), frame.second);
+		}
+	}
+}
+
+void VDONinjaSource::processAlphaRtpPacket(const uint8_t *packetData, size_t packetSize)
+{
+	if (!nativeRunning_.load() || !packetData || packetSize < sizeof(rtc::RtpHeader)) {
+		return;
+	}
+
+	const auto *rtpHeader = reinterpret_cast<const rtc::RtpHeader *>(packetData);
+	const auto payloadView = parseRtpPayloadView(packetData, packetSize);
+	if (!payloadView || payloadView->size == 0) {
+		return;
+	}
+
+	if (!loggedFirstAlphaRtpPacket_.exchange(true)) {
+		logInfo("Native receiver got first alpha video RTP packet (pt=%u, bytes=%zu, rtp ts=%u)",
+		        static_cast<unsigned>(rtpHeader->payloadType()), payloadView->size, rtpHeader->timestamp());
+	}
+
+	processAlphaVP9RtpPacket(packetData + payloadView->offset, payloadView->size, rtpHeader->timestamp());
+}
+
+void VDONinjaSource::processAlphaVP9RtpPacket(const uint8_t *payload, size_t payloadSize, uint32_t rtpTimestamp)
+{
+	if (payloadSize == 0) {
+		return;
+	}
+
+	const auto desc = parseVP9PayloadDescriptor(payload, payloadSize);
+	if (!desc.valid) {
+		return;
+	}
+
+	const uint8_t *vpData = payload + desc.payloadOffset;
+	const size_t vpSize = payloadSize - desc.payloadOffset;
+
+	std::vector<std::pair<std::vector<uint8_t>, uint32_t>> completedFrames;
+
+	{
+		std::lock_guard<std::mutex> lock(alphaAssemblyMutex_);
+
+		if (desc.startOfFrame) {
+			if (alphaAssemblyActive_ && !alphaAssemblyBuffer_.empty()) {
+				logWarning("VP9 alpha B=1 received before E=1 for previous frame; discarding %zu bytes",
+				           alphaAssemblyBuffer_.size());
+			}
+			alphaAssemblyBuffer_.clear();
+			alphaAssemblyActive_ = true;
+			alphaAssemblyTimestamp_ = rtpTimestamp;
+		}
+
+		if (!alphaAssemblyActive_) {
+			return;
+		}
+
+		alphaAssemblyBuffer_.insert(alphaAssemblyBuffer_.end(), vpData, vpData + vpSize);
+
+		if (desc.endOfFrame && !alphaAssemblyBuffer_.empty()) {
+			completedFrames.emplace_back(std::move(alphaAssemblyBuffer_), alphaAssemblyTimestamp_);
+			alphaAssemblyBuffer_.clear();
+			alphaAssemblyActive_ = false;
+		}
+	}
+
+	for (const auto &frame : completedFrames) {
+		if (!frame.first.empty()) {
+			processAlphaVideoData(frame.first.data(), frame.first.size(), frame.second);
 		}
 	}
 }
@@ -1924,9 +2121,13 @@ bool VDONinjaSource::initializeVideoDecoder()
 		return true;
 	}
 
-	const AVCodec *codec = avcodec_find_decoder(AV_CODEC_ID_H264);
+	const bool isVP9 = (nativeVideoCodec_ == NativeVideoCodec::VP9);
+	const AVCodecID codecId = isVP9 ? AV_CODEC_ID_VP9 : AV_CODEC_ID_H264;
+	const char *codecName = isVP9 ? "VP9" : "H.264";
+
+	const AVCodec *codec = avcodec_find_decoder(codecId);
 	if (!codec) {
-		logError("FFmpeg H.264 decoder is unavailable");
+		logError("FFmpeg %s decoder is unavailable", codecName);
 		return false;
 	}
 
@@ -1935,7 +2136,7 @@ bool VDONinjaSource::initializeVideoDecoder()
 	videoTransferFrame_ = av_frame_alloc();
 	videoPacket_ = av_packet_alloc();
 	if (!videoDecoder_ || !videoFrame_ || !videoTransferFrame_ || !videoPacket_) {
-		logError("Failed to allocate native H.264 decoder state");
+		logError("Failed to allocate native %s decoder state", codecName);
 		resetVideoDecoder();
 		return false;
 	}
@@ -1946,7 +2147,7 @@ bool VDONinjaSource::initializeVideoDecoder()
 	videoHwDeviceName_.clear();
 	if (!videoHwDecodeDisabled_) {
 		videoHwDecodeConfigured_ =
-		    configureVideoHardwareDecoder(videoDecoder_, codec, videoHwPixelFormat_, videoHwDeviceName_);
+		    configureVideoHardwareDecoder(videoDecoder_, codec, videoHwPixelFormat_, videoHwDeviceName_, isVP9);
 	}
 	if (!videoHwDecodeConfigured_) {
 		videoDecoder_->thread_count = 0;
@@ -1956,22 +2157,22 @@ bool VDONinjaSource::initializeVideoDecoder()
 	const int openResult = avcodec_open2(videoDecoder_, codec, nullptr);
 	if (openResult < 0) {
 		if (videoHwDecodeConfigured_) {
-			logWarning(
-			    "Failed to open H.264 decoder with %s hardware acceleration: %s; falling back to software decode",
-			    videoHwDeviceName_.c_str(), ffmpegErrorString(openResult).c_str());
+			logWarning("Failed to open %s decoder with %s hardware acceleration: %s; falling back to software decode",
+			           codecName, videoHwDeviceName_.c_str(), ffmpegErrorString(openResult).c_str());
 			videoHwDecodeDisabled_ = true;
 			resetVideoDecoder();
 			return initializeVideoDecoder();
 		}
-		logError("Failed to open H.264 decoder: %s", ffmpegErrorString(openResult).c_str());
+		logError("Failed to open %s decoder: %s", codecName, ffmpegErrorString(openResult).c_str());
 		resetVideoDecoder();
 		return false;
 	}
 
 	if (videoHwDecodeConfigured_) {
-		logInfo("Initialized native H.264 decoder with hardware acceleration backend %s", videoHwDeviceName_.c_str());
+		logInfo("Initialized native %s decoder with hardware acceleration backend %s", codecName,
+		        videoHwDeviceName_.c_str());
 	} else {
-		logInfo("Initialized native H.264 decoder in software mode");
+		logInfo("Initialized native %s decoder in software mode", codecName);
 	}
 
 	return true;
@@ -2046,6 +2247,113 @@ void VDONinjaSource::resetVideoDecoder()
 	videoHwDeviceName_.clear();
 }
 
+void VDONinjaSource::resetAlphaDecoder()
+{
+	if (alphaPacket_) {
+		av_packet_free(&alphaPacket_);
+	}
+	if (alphaFrame_) {
+		av_frame_free(&alphaFrame_);
+	}
+	if (alphaDecoder_) {
+		avcodec_free_context(&alphaDecoder_);
+	}
+	{
+		std::lock_guard<std::mutex> lock(pendingAlphaMutex_);
+		pendingAlphaYData_.clear();
+		pendingAlphaWidth_ = 0;
+		pendingAlphaHeight_ = 0;
+		pendingAlphaYLinesize_ = 0;
+		pendingAlphaTimestamp_ = 0;
+		pendingAlphaValid_ = false;
+	}
+}
+
+bool VDONinjaSource::initializeAlphaDecoder()
+{
+	if (alphaDecoder_) {
+		return true;
+	}
+
+	// Alpha channel is always decoded in software: HW decoders output NV12 and
+	// do not expose a separate Y plane suitable for alpha extraction.
+	const AVCodec *codec = avcodec_find_decoder(AV_CODEC_ID_VP9);
+	if (!codec) {
+		logError("FFmpeg VP9 decoder unavailable for alpha channel");
+		return false;
+	}
+
+	alphaDecoder_ = avcodec_alloc_context3(codec);
+	alphaFrame_ = av_frame_alloc();
+	alphaPacket_ = av_packet_alloc();
+	if (!alphaDecoder_ || !alphaFrame_ || !alphaPacket_) {
+		logError("Failed to allocate VP9 alpha decoder state");
+		resetAlphaDecoder();
+		return false;
+	}
+
+	const int openResult = avcodec_open2(alphaDecoder_, codec, nullptr);
+	if (openResult < 0) {
+		logError("Failed to open VP9 alpha decoder: %s", ffmpegErrorString(openResult).c_str());
+		resetAlphaDecoder();
+		return false;
+	}
+
+	logInfo("VP9 alpha decoder initialized (software libvpx-vp9)");
+	return true;
+}
+
+void VDONinjaSource::processAlphaVideoData(const uint8_t *data, size_t size, uint32_t rtpTimestamp)
+{
+	if (!nativeRunning_.load() || !data || size == 0) {
+		return;
+	}
+
+	std::lock_guard<std::mutex> lock(alphaDecodeMutex_);
+	if (!initializeAlphaDecoder()) {
+		return;
+	}
+
+	av_packet_unref(alphaPacket_);
+	const int allocResult = av_new_packet(alphaPacket_, static_cast<int>(size));
+	if (allocResult < 0) {
+		return;
+	}
+
+	std::memcpy(alphaPacket_->data, data, size);
+	const int sendResult = avcodec_send_packet(alphaDecoder_, alphaPacket_);
+	if (sendResult < 0 && sendResult != AVERROR(EAGAIN)) {
+		return;
+	}
+
+	while (true) {
+		const int receiveResult = avcodec_receive_frame(alphaDecoder_, alphaFrame_);
+		if (receiveResult == AVERROR(EAGAIN) || receiveResult == AVERROR_EOF) {
+			break;
+		}
+		if (receiveResult < 0) {
+			break;
+		}
+
+		// We only need the Y plane — it carries the alpha values.
+		const int w = alphaFrame_->width;
+		const int h = alphaFrame_->height;
+		const int linesize = alphaFrame_->linesize[0];
+		if (w > 0 && h > 0 && linesize > 0 && alphaFrame_->data[0]) {
+			std::lock_guard<std::mutex> alphaLock(pendingAlphaMutex_);
+			pendingAlphaYData_.resize(static_cast<size_t>(linesize) * static_cast<size_t>(h));
+			std::memcpy(pendingAlphaYData_.data(), alphaFrame_->data[0],
+			            static_cast<size_t>(linesize) * static_cast<size_t>(h));
+			pendingAlphaWidth_ = w;
+			pendingAlphaHeight_ = h;
+			pendingAlphaYLinesize_ = linesize;
+			pendingAlphaTimestamp_ = rtpTimestamp;
+			pendingAlphaValid_ = true;
+		}
+		av_frame_unref(alphaFrame_);
+	}
+}
+
 void VDONinjaSource::resetAudioDecoder()
 {
 	if (audioPacket_) {
@@ -2072,24 +2380,33 @@ void VDONinjaSource::resetAudioDecoder()
 
 void VDONinjaSource::resetNativeState()
 {
-	std::scoped_lock nativeLock(nativeStateMutex_, videoAssemblyMutex_, videoDecodeMutex_, audioDecodeMutex_);
+	std::scoped_lock nativeLock(nativeStateMutex_, videoAssemblyMutex_, videoDecodeMutex_, alphaAssemblyMutex_,
+	                            alphaDecodeMutex_, audioDecodeMutex_);
 	clearTrackCallbacks(videoTrack_);
+	clearTrackCallbacks(alphaVideoTrack_);
 	clearTrackCallbacks(audioTrack_);
 	loggedFirstVideoRtpPacket_ = false;
 	loggedFirstVideoPacket_ = false;
 	loggedFirstDecodedVideoFrame_ = false;
+	loggedFirstAlphaRtpPacket_ = false;
 	loggedFirstAudioPacket_ = false;
 	loggedFirstDecodedAudioFrame_ = false;
 	videoTrack_.reset();
+	alphaVideoTrack_.reset();
 	audioTrack_.reset();
 	videoTrackPeerUuid_.clear();
+	alphaVideoTrackPeerUuid_.clear();
 	audioTrackPeerUuid_.clear();
 	videoRedPayloadTypes_.clear();
 	videoAssemblyBuffer_.clear();
 	videoAssemblyTimestamp_ = 0;
 	videoAssemblyActive_ = false;
+	alphaAssemblyBuffer_.clear();
+	alphaAssemblyTimestamp_ = 0;
+	alphaAssemblyActive_ = false;
 	videoHwDecodeDisabled_ = false;
 	resetVideoDecoder();
+	resetAlphaDecoder();
 	resetAudioDecoder();
 	if (source_) {
 		obs_source_set_audio_active(source_, false);
@@ -2103,7 +2420,8 @@ void VDONinjaSource::handlePeerDisconnected(const std::string &uuid)
 	bool audioRemoved = false;
 
 	{
-		std::scoped_lock nativeLock(nativeStateMutex_, videoAssemblyMutex_, videoDecodeMutex_, audioDecodeMutex_);
+		std::scoped_lock nativeLock(nativeStateMutex_, videoAssemblyMutex_, videoDecodeMutex_, alphaAssemblyMutex_,
+		                            alphaDecodeMutex_, audioDecodeMutex_);
 
 		if (!uuid.empty() && uuid == videoTrackPeerUuid_) {
 			clearTrackCallbacks(videoTrack_);
@@ -2115,6 +2433,16 @@ void VDONinjaSource::handlePeerDisconnected(const std::string &uuid)
 			videoAssemblyActive_ = false;
 			resetVideoDecoder();
 			videoRemoved = true;
+		}
+
+		if (!uuid.empty() && uuid == alphaVideoTrackPeerUuid_) {
+			clearTrackCallbacks(alphaVideoTrack_);
+			alphaVideoTrack_.reset();
+			alphaVideoTrackPeerUuid_.clear();
+			alphaAssemblyBuffer_.clear();
+			alphaAssemblyTimestamp_ = 0;
+			alphaAssemblyActive_ = false;
+			resetAlphaDecoder();
 		}
 
 		if (!uuid.empty() && uuid == audioTrackPeerUuid_) {
@@ -2162,12 +2490,49 @@ void VDONinjaSource::outputDecodedVideoFrame(const AVFrame *frame, uint64_t time
 		lastDecodedVideoHeight_ = frame->height;
 	}
 
-	const AVPixelFormat inputFormat = static_cast<AVPixelFormat>(frame->format);
-	const AspectFitLayout layout = computeAspectFitLayout(static_cast<uint32_t>(frame->width),
-	                                                      static_cast<uint32_t>(frame->height), width_, height_);
-	videoScaleContext_ = sws_getCachedContext(
-	    videoScaleContext_, frame->width, frame->height, inputFormat, static_cast<int>(layout.contentWidth),
-	    static_cast<int>(layout.contentHeight), AV_PIX_FMT_BGRA, SWS_BILINEAR, nullptr, nullptr, nullptr);
+	// Check for a pending alpha Y-plane (VP9 alpha dual-track support).
+	// If available and dimensions match, construct a YUVA420P view for sws_scale so
+	// the alpha channel is preserved in the BGRA output.
+	std::vector<uint8_t> alphaYCopy;
+	int alphaYLinesize = 0;
+	bool hasAlpha = false;
+	{
+		std::lock_guard<std::mutex> alphaLock(pendingAlphaMutex_);
+		if (pendingAlphaValid_ && pendingAlphaWidth_ == frame->width && pendingAlphaHeight_ == frame->height) {
+			alphaYCopy = pendingAlphaYData_;
+			alphaYLinesize = pendingAlphaYLinesize_;
+			hasAlpha = true;
+		}
+	}
+
+	// Build a synthetic YUVA420P view from the primary YUV planes + alpha Y plane.
+	// We only do this for planar YUV420P output (the typical SW decode result).
+	AVFrame yuvaView = {};
+	const AVFrame *frameToScale = frame;
+	const AVPixelFormat primaryFmt = static_cast<AVPixelFormat>(frame->format);
+	if (hasAlpha && (primaryFmt == AV_PIX_FMT_YUV420P || primaryFmt == AV_PIX_FMT_YUVJ420P) && frame->data[0] &&
+	    frame->data[1] && frame->data[2]) {
+		yuvaView.width = frame->width;
+		yuvaView.height = frame->height;
+		yuvaView.format = AV_PIX_FMT_YUVA420P;
+		yuvaView.data[0] = frame->data[0];
+		yuvaView.data[1] = frame->data[1];
+		yuvaView.data[2] = frame->data[2];
+		yuvaView.data[3] = alphaYCopy.data();
+		yuvaView.linesize[0] = frame->linesize[0];
+		yuvaView.linesize[1] = frame->linesize[1];
+		yuvaView.linesize[2] = frame->linesize[2];
+		yuvaView.linesize[3] = alphaYLinesize;
+		frameToScale = &yuvaView;
+	}
+
+	const AVPixelFormat inputFormat = static_cast<AVPixelFormat>(frameToScale->format);
+	const AspectFitLayout layout = computeAspectFitLayout(static_cast<uint32_t>(frameToScale->width),
+	                                                      static_cast<uint32_t>(frameToScale->height), width_, height_);
+	videoScaleContext_ =
+	    sws_getCachedContext(videoScaleContext_, frameToScale->width, frameToScale->height, inputFormat,
+	                         static_cast<int>(layout.contentWidth), static_cast<int>(layout.contentHeight),
+	                         AV_PIX_FMT_BGRA, SWS_BILINEAR, nullptr, nullptr, nullptr);
 	if (!videoScaleContext_) {
 		logError("Failed to create video conversion context");
 		return;
@@ -2180,8 +2545,8 @@ void VDONinjaSource::outputDecodedVideoFrame(const AVFrame *frame, uint64_t time
 	                       nullptr, nullptr, nullptr};
 	int dstLinesize[4] = {outputStride, 0, 0, 0};
 
-	const int scaledHeight =
-	    sws_scale(videoScaleContext_, frame->data, frame->linesize, 0, frame->height, dstData, dstLinesize);
+	const int scaledHeight = sws_scale(videoScaleContext_, frameToScale->data, frameToScale->linesize, 0,
+	                                   frameToScale->height, dstData, dstLinesize);
 	if (scaledHeight <= 0 || static_cast<uint32_t>(scaledHeight) != layout.contentHeight) {
 		logWarning("Failed to convert decoded video frame");
 		return;

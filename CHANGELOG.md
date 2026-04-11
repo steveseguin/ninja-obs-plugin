@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- VP9 native receiver support: plugin now negotiates VP9 (preferred) with H.264 fallback when receiving streams via the native receiver path.
+- RFC 9628 VP9 RTP payload descriptor parser (`vdoninja-rtp-utils`) with full unit test coverage (B/E frame reassembly, PictureID 7-bit and 15-bit, layer indices, flexible mode P_DIFFs, scalability structure).
+- VP9 hardware decode via D3D11VA/DXVA2 with `extra_hw_frames` surface pool workaround (FFmpeg trac #10608); software fallback via `libvpx-vp9`.
+- VP9 alpha channel support via dual-track convention: when the publisher sends a second VP9 video m-line, the plugin treats it as the alpha track. The Y-plane of the alpha stream carries 8-bit alpha values; the native receiver combines the primary YUV planes with the alpha Y-plane into YUVA420P before `sws_scale`, producing correct BGRA transparency in OBS.
+- Alpha VP9 decode always runs in software (`libvpx-vp9`) so the Y-plane is directly accessible; the primary stream continues to use hardware acceleration.
+- `TrackType::AlphaVideo` added to peer-manager; second VP9 video m-line in the remote offer is accepted and routed through the dedicated alpha decode path.
+- 6 additional unit tests covering alpha-stream VP9 RTP descriptor scenarios (single-packet frame, first/last fragment, 15-bit PID, Z-flag, scalability structure with V=1).
+- `vp9-alpha-publisher` test tool (`tests/tools/vp9-alpha-publisher/`): standalone executable that connects to VDO.Ninja signaling as a publisher, sends two VP9 video tracks (primary YUV + alpha-as-Y), and generates an animated test pattern with variable transparency. Build with `-DBUILD_PUBLISHER_TOOL=ON`. Useful for verifying the native receiver's alpha decode path end-to-end.
+- Playwright e2e test for VP9 publish-to-native-receiver path (`npm run test:e2e:vp9`).
+
 ## [1.1.39] - 2026-03-22
 
 ### Added
