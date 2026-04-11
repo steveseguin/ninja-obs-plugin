@@ -8,9 +8,11 @@
 #include <obs-module.h>
 
 #include <atomic>
+#include <deque>
 #include <thread>
 #include <unordered_set>
 
+#include "vdoninja-alpha-sync.h"
 #include "vdoninja-common.h"
 #include "vdoninja-peer-manager.h"
 #include "vdoninja-reliability.h"
@@ -94,7 +96,7 @@ private:
 	void resetAlphaDecoder();
 	void resetAudioDecoder();
 	void resetNativeState();
-	void outputDecodedVideoFrame(const AVFrame *frame, uint64_t timestampNs);
+	void outputDecodedVideoFrame(const AVFrame *frame, uint64_t timestampNs, uint32_t rtpTimestamp);
 	void outputDecodedAudioFrame(const AVFrame *frame, uint64_t timestampNs);
 	uint64_t mapVideoTimestamp(uint32_t rtpTimestamp);
 	uint64_t mapAudioTimestamp(uint32_t rtpTimestamp);
@@ -181,13 +183,7 @@ private:
 	AVCodecContext *alphaDecoder_ = nullptr;
 	AVFrame *alphaFrame_ = nullptr;
 	AVPacket *alphaPacket_ = nullptr;
-	// Most-recently decoded alpha Y-plane (pending combination with primary)
-	std::vector<uint8_t> pendingAlphaYData_;
-	int pendingAlphaWidth_ = 0;
-	int pendingAlphaHeight_ = 0;
-	int pendingAlphaYLinesize_ = 0;
-	uint32_t pendingAlphaTimestamp_ = 0;
-	bool pendingAlphaValid_ = false;
+	std::deque<PendingAlphaFrame> pendingAlphaFrames_;
 	AVCodecContext *audioDecoder_ = nullptr;
 	AVFrame *audioFrame_ = nullptr;
 	AVPacket *audioPacket_ = nullptr;
@@ -208,6 +204,13 @@ private:
 	bool videoHwDecodeDisabled_ = false;
 	bool videoHwStatusLogged_ = false;
 	std::string videoHwDeviceName_;
+	std::atomic<bool> alphaTrackActive_{false};
+	std::atomic<bool> preferSoftwareVp9DecodeForAlpha_{false};
+	std::atomic<bool> loggedAlphaSoftwareDecodeMode_{false};
+	std::atomic<bool> loggedAlphaCompositionActive_{false};
+	std::atomic<bool> loggedAlphaTimestampSyncWait_{false};
+	std::atomic<bool> loggedAlphaPixelFormatMismatch_{false};
+	std::atomic<bool> loggedAlphaDimensionMismatch_{false};
 	uint32_t audioBaseRtpTimestamp_ = 0;
 	uint64_t audioBaseTimestampNs_ = 0;
 	uint64_t lastAudioTimestampNs_ = 0;

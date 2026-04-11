@@ -296,6 +296,7 @@ if(BUILD_PLUGIN)
     # Plugin sources
     set(PLUGIN_SOURCES
         src/plugin-main.cpp
+        src/vdoninja-alpha-sync.cpp
         src/vdoninja-output.cpp
         src/vdoninja-reliability.cpp
         src/vdoninja-rtp-utils.cpp
@@ -312,6 +313,7 @@ if(BUILD_PLUGIN)
 
     set(PLUGIN_HEADERS
         src/plugin-main.h
+        src/vdoninja-alpha-sync.h
         src/vdoninja-common.h
         src/vdoninja-output.h
         src/vdoninja-reliability.h
@@ -491,6 +493,7 @@ if(BUILD_TESTS)
 
     # Test sources that don't depend on OBS
     set(TESTABLE_SOURCES
+        src/vdoninja-alpha-sync.cpp
         src/vdoninja-rtp-utils.cpp
         src/vdoninja-utils.cpp
         src/vdoninja-reliability.cpp
@@ -518,6 +521,7 @@ if(BUILD_TESTS)
 
     # Unit tests
     add_executable(vdoninja-tests
+        tests/test-alpha-sync.cpp
         tests/test-utils.cpp
         tests/test-reliability.cpp
         tests/test-json.cpp
