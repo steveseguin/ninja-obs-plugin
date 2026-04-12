@@ -62,6 +62,40 @@ std::string codecNameLower(const std::string &codec)
 	return lower;
 }
 
+TrackType classifyIncomingTrack(const std::shared_ptr<PeerInfo> &peer, const std::shared_ptr<rtc::Track> &track)
+{
+	if (!track) {
+		return TrackType::Video;
+	}
+
+	const auto desc = track->description();
+	if (desc.type() == "audio") {
+		return TrackType::Audio;
+	}
+
+	const std::string trackMid = track->mid();
+	if (!trackMid.empty()) {
+		if (trackMid == "video-alpha") {
+			return TrackType::AlphaVideo;
+		}
+		if (peer) {
+			if (peer->alphaVideoTrack && peer->alphaVideoTrack->mid() == trackMid) {
+				return TrackType::AlphaVideo;
+			}
+			if (peer->videoTrack && peer->videoTrack->mid() == trackMid) {
+				return TrackType::Video;
+			}
+		}
+	}
+
+	if (peer && peer->videoTrack && peer->alphaVideoTrack && track != peer->videoTrack &&
+	    track == peer->alphaVideoTrack) {
+		return TrackType::AlphaVideo;
+	}
+
+	return TrackType::Video;
+}
+
 const SdpOfferedCodec *findPreferredOfferedCodec(const SdpOfferedMediaSection &section, const char *codecName)
 {
 	const std::string target = codecNameLower(codecName);
@@ -840,16 +874,18 @@ void VDONinjaPeerManager::setupPeerConnectionCallbacks(std::shared_ptr<PeerInfo>
 		if (!peer)
 			return;
 
-		auto desc = track->description();
-		TrackType type = TrackType::Video;
-		if (desc.type() == "audio") {
-			type = TrackType::Audio;
+		const TrackType type = classifyIncomingTrack(peer, track);
+		if (type == TrackType::Audio) {
 			peer->audioTrack = track;
+		} else if (type == TrackType::AlphaVideo) {
+			peer->alphaVideoTrack = track;
 		} else {
 			peer->videoTrack = track;
 		}
 
-		logInfo("Received %s track from %s", type == TrackType::Audio ? "audio" : "video", uuid.c_str());
+		const char *typeLabel =
+		    type == TrackType::Audio ? "audio" : (type == TrackType::AlphaVideo ? "alpha video" : "video");
+		logInfo("Received %s track from %s (mid=%s)", typeLabel, uuid.c_str(), track ? track->mid().c_str() : "");
 
 		OnTrackCallback cb;
 		{

@@ -472,7 +472,7 @@ int chooseViewerTargetBitrateKbps(uint32_t width, uint32_t height)
 	return 800;
 }
 
-std::string buildViewerRequestMessage(uint32_t width, uint32_t height, bool guest)
+std::string buildViewerRequestMessage(uint32_t width, uint32_t height, bool guest, const std::string &viewerInfoJson)
 {
 	JsonBuilder request;
 	request.add("downloads", false)
@@ -505,6 +505,10 @@ std::string buildViewerRequestMessage(uint32_t width, uint32_t height, bool gues
 			resolution.add("h", static_cast<int>(height));
 		}
 		request.addRaw("requestResolution", resolution.build());
+	}
+
+	if (!viewerInfoJson.empty()) {
+		request.addRaw("info", viewerInfoJson);
 	}
 
 	return request.build();

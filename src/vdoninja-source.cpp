@@ -30,6 +30,7 @@ extern "C" {
 
 #include "vdoninja-rtp-utils.h"
 #include "vdoninja-utils.h"
+#include "plugin-main.h"
 
 namespace vdoninja
 {
@@ -42,6 +43,19 @@ constexpr const char *kInternalNativeSourceSetting = "internal_native_receiver_s
 constexpr int kViewRequestTimeoutMs = 15000;
 constexpr int kMinViewRequestGapMs = 1500;
 constexpr int64_t kNativeVideoStallBlankMs = 4000;
+
+std::string buildNativeViewerInfoJson(obs_source_t *source)
+{
+	JsonBuilder info;
+	const char *sourceName = source ? obs_source_get_name(source) : nullptr;
+	info.add("label", (sourceName && *sourceName) ? sourceName : "OBS VDO.Ninja Viewer");
+	info.add("version", PLUGIN_VERSION);
+	info.add("platform", "OBS");
+	info.add("Browser", "OBS VDO.Ninja Native Receiver");
+	info.add("alpha_receive", "vp9-dualtrack-v1");
+	return info.build();
+}
+
 const char *tr(const char *key, const char *fallback)
 {
 	const char *localized = obs_module_text(key);
@@ -1258,7 +1272,8 @@ void VDONinjaSource::sendViewerPreferencesToPeer(const std::string &uuid, const 
 		return;
 	}
 
-	const std::string preferences = buildViewerRequestMessage(width_, height_, !settings_.roomId.empty());
+	const std::string preferences =
+	    buildViewerRequestMessage(width_, height_, !settings_.roomId.empty(), buildNativeViewerInfoJson(source_));
 	peerManager_->sendDataToPeer(uuid, preferences);
 	logInfo("Sent viewer preferences to %s (%s): %s", uuid.c_str(), reason ? reason : "unknown", preferences.c_str());
 }

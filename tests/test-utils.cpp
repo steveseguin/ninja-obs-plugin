@@ -1051,6 +1051,29 @@ TEST(ViewerRequestMessageTest, MarksRoomViewersAsGuests)
 	EXPECT_EQ(resolution.getInt("h"), 720);
 }
 
+TEST(ViewerRequestMessageTest, IncludesOptionalViewerInfoPayload)
+{
+	JsonBuilder info;
+	info.add("label", "OBS VDO.Ninja Viewer")
+	    .add("version", "1.2.3")
+	    .add("platform", "OBS")
+	    .add("Browser", "OBS VDO.Ninja Native Receiver")
+	    .add("alpha_receive", "vp9-dualtrack-v1");
+
+	const std::string message = buildViewerRequestMessage(1280, 720, false, info.build());
+	const JsonParser parser(message);
+
+	EXPECT_TRUE(parser.getBool("audio"));
+	EXPECT_TRUE(parser.getBool("video"));
+
+	const JsonParser viewerInfo(parser.getObject("info"));
+	EXPECT_EQ(viewerInfo.getString("label"), "OBS VDO.Ninja Viewer");
+	EXPECT_EQ(viewerInfo.getString("version"), "1.2.3");
+	EXPECT_EQ(viewerInfo.getString("platform"), "OBS");
+	EXPECT_EQ(viewerInfo.getString("Browser"), "OBS VDO.Ninja Native Receiver");
+	EXPECT_EQ(viewerInfo.getString("alpha_receive"), "vp9-dualtrack-v1");
+}
+
 TEST(ViewerRequestMessageTest, ChoosesConservativeBitrateForSmallCanvases)
 {
 	EXPECT_EQ(chooseViewerTargetBitrateKbps(640, 360), 800);
