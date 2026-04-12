@@ -247,8 +247,8 @@ TEST(Vp9DescriptorTest, ScalabilityStructure_WithResolution_TwoLayers)
 	// V=1, N_S=1 (2 layers), Y=1, G=0 => SS header(1) + 2*4 resolution bytes
 	const uint8_t buf[] = {
 	    descByte(0, 0, 0, 0, 1, 1, 1, 0),
-	    // SS header: N_S=1 (bits 7-4 = 0001), Y=1 (bit 3), G=0 (bit 2) => 0x18
-	    0x18, 0x05, 0x00, // width layer 0
+	    // SS header: N_S=1 (bits 7-5 = 001), Y=1 (bit 4), G=0 (bit 3) => 0x30
+	    0x30, 0x05, 0x00, // width layer 0
 	    0x03, 0x00,       // height layer 0
 	    0x0A, 0x00,       // width layer 1
 	    0x06, 0x00,       // height layer 1
@@ -262,12 +262,12 @@ TEST(Vp9DescriptorTest, ScalabilityStructure_WithResolution_TwoLayers)
 TEST(Vp9DescriptorTest, ScalabilityStructure_WithGroupDesc)
 {
 	// V=1, N_S=0, Y=0, G=1, N_G=1 group entry with R=1 reference
-	// SS header byte: N_S=0000, Y=0, G=1 => 0x04
+	// SS header byte: N_S=000, Y=0, G=1 => 0x08
 	// N_G = 1
 	// Group entry: T=0, U=0, R=01 => 0x04, then 1 P_DIFF byte
 	const uint8_t buf[] = {
 	    descByte(0, 0, 0, 0, 1, 1, 1, 0),
-	    0x04, // SS header: N_S=0, Y=0, G=1
+	    0x08, // SS header: N_S=0, Y=0, G=1
 	    0x01, // N_G=1
 	    0x04, // T=0,U=0,R=1,RES=0 -> R=1
 	    0x01, // P_DIFF for the 1 reference
@@ -283,7 +283,7 @@ TEST(Vp9DescriptorTest, ScalabilityStructure_Truncated_Invalid)
 	// V=1, Y=1, N_S=0 (1 layer) but resolution bytes missing
 	const uint8_t buf[] = {
 	    descByte(0, 0, 0, 0, 1, 1, 1, 0),
-	    0x08, // N_S=0, Y=1, G=0 => needs 4 more bytes but none follow
+	    0x10, // N_S=0, Y=1, G=0 => needs 4 more bytes but none follow
 	};
 	const auto r = parseVP9PayloadDescriptor(buf, sizeof(buf));
 	EXPECT_FALSE(r.valid);

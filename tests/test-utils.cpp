@@ -830,6 +830,46 @@ TEST(JsonParserHardeningTest, HandlesUnterminatedArrayWithoutReadingPastEnd)
 	EXPECT_EQ(items[0], "alpha");
 }
 
+TEST(JsonParserHardeningTest, ParsesBrowserStyleDecryptedOfferDescription)
+{
+	const std::string description =
+	    "{\"type\":\"offer\",\"sdp\":\"v=0\\r\\na=group:BUNDLE 0 1 2\\r\\n"
+	    "m=application 9 UDP/DTLS/SCTP webrtc-datachannel\\r\\na=mid:0\\r\\n"
+	    "m=video 9 UDP/TLS/RTP/SAVPF 96 97 98 99 103 104\\r\\na=mid:1\\r\\n"
+	    "a=rtpmap:96 VP8/90000\\r\\na=rtpmap:97 rtx/90000\\r\\na=fmtp:97 apt=96\\r\\n"
+	    "a=rtpmap:98 VP9/90000\\r\\na=fmtp:98 profile-id=0\\r\\na=rtpmap:99 rtx/90000\\r\\n"
+	    "a=fmtp:99 apt=98\\r\\na=rtpmap:103 H264/90000\\r\\n"
+	    "a=fmtp:103 level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42001f\\r\\n"
+	    "a=rtpmap:104 rtx/90000\\r\\na=fmtp:104 apt=103\\r\\n"
+	    "m=audio 9 UDP/TLS/RTP/SAVPF 111 126\\r\\na=mid:2\\r\\n"
+	    "a=rtpmap:111 opus/48000/2\\r\\na=fmtp:111 minptime=10;useinbandfec=1\\r\\n"
+	    "a=rtpmap:126 telephone-event/8000\\r\\n\"}";
+
+	const JsonParser parser(description);
+	const std::string sdp = parser.getString("sdp");
+	EXPECT_NE(sdp.find("m=application"), std::string::npos);
+	EXPECT_NE(sdp.find("m=video"), std::string::npos);
+	EXPECT_NE(sdp.find("m=audio"), std::string::npos);
+	EXPECT_NE(sdp.find("\r\n"), std::string::npos);
+
+	const auto sections = parseOfferedMediaSections(sdp);
+	ASSERT_EQ(sections.size(), 2u);
+	EXPECT_EQ(sections[0].type, "video");
+	EXPECT_EQ(sections[0].mid, "1");
+	EXPECT_EQ(sections[1].type, "audio");
+	EXPECT_EQ(sections[1].mid, "2");
+
+	const auto hasCodec = [](const SdpOfferedMediaSection &section, const char *codecName) {
+		return std::any_of(section.codecs.begin(), section.codecs.end(), [codecName](const SdpOfferedCodec &codec) {
+			return codec.codec == codecName;
+		});
+	};
+
+	EXPECT_TRUE(hasCodec(sections[0], "VP9"));
+	EXPECT_TRUE(hasCodec(sections[0], "H264"));
+	EXPECT_TRUE(hasCodec(sections[1], "opus"));
+}
+
 // String Split Tests
 class SplitTest : public ::testing::Test
 {

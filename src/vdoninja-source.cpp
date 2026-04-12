@@ -403,7 +403,7 @@ std::string describeMediaCodecs(const rtc::Description::Media &description)
 
 bool safeRequestKeyframe(const std::shared_ptr<rtc::Track> &track, const char *reasonTag)
 {
-	if (!track || !track->isOpen()) {
+	if (!track) {
 		return false;
 	}
 
@@ -420,7 +420,7 @@ bool safeRequestKeyframe(const std::shared_ptr<rtc::Track> &track, const char *r
 
 bool safeRequestBitrate(const std::shared_ptr<rtc::Track> &track, unsigned int bitrateBps, const char *reasonTag)
 {
-	if (!track || !track->isOpen() || bitrateBps == 0) {
+	if (!track || bitrateBps == 0) {
 		return false;
 	}
 
@@ -488,7 +488,7 @@ bool vdoninja_source_native_mode_modified(obs_properties_t *props, obs_property_
 	return true;
 }
 
-class InspectingReceivingSession : public rtc::MediaHandler
+class InspectingReceivingSession : public rtc::RtcpReceivingSession
 {
 public:
 	using InspectCallback = std::function<void(const rtc::message_ptr &)>;
@@ -502,7 +502,7 @@ public:
 				callback_(message);
 			}
 		}
-		rtc::MediaHandler::incoming(messages, send);
+		rtc::RtcpReceivingSession::incoming(messages, send);
 	}
 
 private:
@@ -1090,6 +1090,11 @@ void VDONinjaSource::connectionThread()
 				return;
 			}
 			VDONinjaSource *self = guard.owner();
+			std::shared_ptr<rtc::Track> videoTrack;
+			{
+				std::lock_guard<std::mutex> stateLock(self->nativeStateMutex_);
+				videoTrack = self->videoTrack_;
+			}
 			logInfo("Connected to publisher: %s", uuid.c_str());
 			self->connected_ = true;
 			self->cancelViewRetry();
@@ -1101,6 +1106,10 @@ void VDONinjaSource::connectionThread()
 			}
 			self->sendViewerPreferencesToPeer(uuid, "peer-connected");
 			self->requestNativeTargetBitrate("peer-connected");
+			if (safeRequestKeyframe(videoTrack, "peer-connected")) {
+				self->lastKeyframeRequestTime_.store(currentTimeMs(), std::memory_order_relaxed);
+				logInfo("Requested initial video keyframe for native receiver");
+			}
 		});
 
 		peerManager_->setOnPeerDisconnected([callbackState](const std::string &uuid) {
@@ -1999,6 +2008,11 @@ void VDONinjaSource::processVP9RtpPacket(const uint8_t *payload, size_t payloadS
 	if (!desc.valid) {
 		return;
 	}
+	if (desc.payloadOffset >= payloadSize) {
+		logWarning("VP9 RTP payload descriptor consumed entire payload (payload=%zu, offset=%zu, ts=%u)", payloadSize,
+		           desc.payloadOffset, rtpTimestamp);
+		return;
+	}
 
 	const uint8_t *vpData = payload + desc.payloadOffset;
 	const size_t vpSize = payloadSize - desc.payloadOffset;
@@ -2068,6 +2082,11 @@ void VDONinjaSource::processAlphaVP9RtpPacket(const uint8_t *payload, size_t pay
 
 	const auto desc = parseVP9PayloadDescriptor(payload, payloadSize);
 	if (!desc.valid) {
+		return;
+	}
+	if (desc.payloadOffset >= payloadSize) {
+		logWarning("VP9 alpha RTP payload descriptor consumed entire payload (payload=%zu, offset=%zu, ts=%u)",
+		           payloadSize, desc.payloadOffset, rtpTimestamp);
 		return;
 	}
 

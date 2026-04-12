@@ -102,9 +102,9 @@ Vp9DescriptorResult parseVP9PayloadDescriptor(const uint8_t *payload, size_t siz
 			return result;
 		}
 		const uint8_t ss = payload[offset++];
-		const uint8_t N_S = (ss >> 4) & 0x0F;
-		const bool Y = (ss & 0x08) != 0;
-		const bool G = (ss & 0x04) != 0;
+		const uint8_t N_S = static_cast<uint8_t>((ss >> 5) & 0x07);
+		const bool Y = (ss & 0x10) != 0;
+		const bool G = (ss & 0x08) != 0;
 
 		// Per-layer resolution: (N_S + 1) entries of WIDTH(2) + HEIGHT(2) = 4 bytes each
 		if (Y) {
