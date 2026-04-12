@@ -12,9 +12,12 @@
 #include <rtc/rtc.hpp>
 
 #include <algorithm>
+#include <array>
 #include <cctype>
 #include <chrono>
+#include <cwchar>
 #include <initializer_list>
+#include <new>
 #include <vector>
 
 #if __has_include(<openssl/evp.h>) && __has_include(<openssl/rand.h>)
@@ -23,6 +26,14 @@
 #include <openssl/rand.h>
 #else
 #define VDONINJA_HAS_OPENSSL 0
+#endif
+
+#if !VDONINJA_HAS_OPENSSL && defined(_WIN32)
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#include <bcrypt.h>
 #endif
 
 namespace vdoninja
@@ -130,6 +141,99 @@ bool encryptAesCbcHex(const std::string &plaintext, const std::string &phrase, s
 	cipherHex = bytesToHex(out.data(), out.size());
 	vectorHex = bytesToHex(iv, sizeof(iv));
 	return true;
+#elif defined(_WIN32)
+	if (phrase.empty()) {
+		return false;
+	}
+
+	const std::string keyHex = sha256(phrase);
+	std::vector<uint8_t> key;
+	if (!hexToBytes(keyHex, key) || key.size() != 32) {
+		return false;
+	}
+
+	BCRYPT_ALG_HANDLE algorithm = nullptr;
+	BCRYPT_KEY_HANDLE keyHandle = nullptr;
+	PUCHAR keyObject = nullptr;
+	DWORD keyObjectSize = 0;
+	DWORD blockLength = 0;
+	DWORD resultSize = 0;
+	std::vector<uint8_t> iv(16);
+	std::vector<uint8_t> encrypted;
+	bool ok = false;
+
+	auto cleanup = [&]() {
+		if (keyHandle) {
+			BCryptDestroyKey(keyHandle);
+		}
+		if (algorithm) {
+			BCryptCloseAlgorithmProvider(algorithm, 0);
+		}
+		delete[] keyObject;
+	};
+
+	if (BCryptOpenAlgorithmProvider(&algorithm, BCRYPT_AES_ALGORITHM, nullptr, 0) != 0) {
+		cleanup();
+		return false;
+	}
+
+	if (BCryptSetProperty(algorithm, BCRYPT_CHAINING_MODE, reinterpret_cast<PUCHAR>(const_cast<wchar_t *>(BCRYPT_CHAIN_MODE_CBC)),
+	                      static_cast<ULONG>((wcslen(BCRYPT_CHAIN_MODE_CBC) + 1) * sizeof(wchar_t)), 0) != 0) {
+		cleanup();
+		return false;
+	}
+
+	if (BCryptGetProperty(algorithm, BCRYPT_OBJECT_LENGTH, reinterpret_cast<PUCHAR>(&keyObjectSize),
+	                      sizeof(keyObjectSize), &resultSize, 0) != 0 ||
+	    BCryptGetProperty(algorithm, BCRYPT_BLOCK_LENGTH, reinterpret_cast<PUCHAR>(&blockLength), sizeof(blockLength),
+	                      &resultSize, 0) != 0 ||
+	    blockLength != iv.size()) {
+		cleanup();
+		return false;
+	}
+
+	keyObject = new (std::nothrow) UCHAR[keyObjectSize];
+	if (!keyObject) {
+		cleanup();
+		return false;
+	}
+
+	if (BCryptGenerateSymmetricKey(algorithm, &keyHandle, keyObject, keyObjectSize, key.data(),
+	                               static_cast<ULONG>(key.size()), 0) != 0) {
+		cleanup();
+		return false;
+	}
+
+	if (BCryptGenRandom(nullptr, iv.data(), static_cast<ULONG>(iv.size()), BCRYPT_USE_SYSTEM_PREFERRED_RNG) != 0) {
+		cleanup();
+		return false;
+	}
+
+	std::vector<uint8_t> input(plaintext.begin(), plaintext.end());
+	DWORD encryptedSize = 0;
+	std::vector<uint8_t> ivWork = iv;
+	if (BCryptEncrypt(keyHandle, input.data(), static_cast<ULONG>(input.size()), nullptr, ivWork.data(),
+	                  static_cast<ULONG>(ivWork.size()), nullptr, 0, &encryptedSize,
+	                  BCRYPT_BLOCK_PADDING) != 0) {
+		cleanup();
+		return false;
+	}
+
+	encrypted.resize(encryptedSize);
+	ivWork = iv;
+	if (BCryptEncrypt(keyHandle, input.data(), static_cast<ULONG>(input.size()), nullptr, ivWork.data(),
+	                  static_cast<ULONG>(ivWork.size()), encrypted.data(), encryptedSize, &encryptedSize,
+	                  BCRYPT_BLOCK_PADDING) != 0) {
+		cleanup();
+		return false;
+	}
+
+	encrypted.resize(encryptedSize);
+	cipherHex = bytesToHex(encrypted.data(), encrypted.size());
+	vectorHex = bytesToHex(iv.data(), iv.size());
+	ok = true;
+	cleanup();
+	return ok;
 #else
 	(void)plaintext;
 	(void)phrase;
@@ -174,6 +278,92 @@ bool decryptAesCbcHex(const std::string &cipherHex, const std::string &vectorHex
 
 	out.resize(static_cast<size_t>(outLen1 + outLen2));
 	plaintext.assign(reinterpret_cast<const char *>(out.data()), out.size());
+	return true;
+#elif defined(_WIN32)
+	if (phrase.empty()) {
+		return false;
+	}
+
+	const std::string keyHex = sha256(phrase);
+	std::vector<uint8_t> key;
+	std::vector<uint8_t> cipher;
+	std::vector<uint8_t> iv;
+	if (!hexToBytes(keyHex, key) || key.size() != 32 || !hexToBytes(cipherHex, cipher) ||
+	    !hexToBytes(vectorHex, iv) || iv.size() != 16) {
+		return false;
+	}
+
+	BCRYPT_ALG_HANDLE algorithm = nullptr;
+	BCRYPT_KEY_HANDLE keyHandle = nullptr;
+	PUCHAR keyObject = nullptr;
+	DWORD keyObjectSize = 0;
+	DWORD blockLength = 0;
+	DWORD resultSize = 0;
+	std::vector<uint8_t> output;
+
+	auto cleanup = [&]() {
+		if (keyHandle) {
+			BCryptDestroyKey(keyHandle);
+		}
+		if (algorithm) {
+			BCryptCloseAlgorithmProvider(algorithm, 0);
+		}
+		delete[] keyObject;
+	};
+
+	if (BCryptOpenAlgorithmProvider(&algorithm, BCRYPT_AES_ALGORITHM, nullptr, 0) != 0) {
+		cleanup();
+		return false;
+	}
+
+	if (BCryptSetProperty(algorithm, BCRYPT_CHAINING_MODE, reinterpret_cast<PUCHAR>(const_cast<wchar_t *>(BCRYPT_CHAIN_MODE_CBC)),
+	                      static_cast<ULONG>((wcslen(BCRYPT_CHAIN_MODE_CBC) + 1) * sizeof(wchar_t)), 0) != 0) {
+		cleanup();
+		return false;
+	}
+
+	if (BCryptGetProperty(algorithm, BCRYPT_OBJECT_LENGTH, reinterpret_cast<PUCHAR>(&keyObjectSize),
+	                      sizeof(keyObjectSize), &resultSize, 0) != 0 ||
+	    BCryptGetProperty(algorithm, BCRYPT_BLOCK_LENGTH, reinterpret_cast<PUCHAR>(&blockLength), sizeof(blockLength),
+	                      &resultSize, 0) != 0 ||
+	    blockLength != iv.size()) {
+		cleanup();
+		return false;
+	}
+
+	keyObject = new (std::nothrow) UCHAR[keyObjectSize];
+	if (!keyObject) {
+		cleanup();
+		return false;
+	}
+
+	if (BCryptGenerateSymmetricKey(algorithm, &keyHandle, keyObject, keyObjectSize, key.data(),
+	                               static_cast<ULONG>(key.size()), 0) != 0) {
+		cleanup();
+		return false;
+	}
+
+	DWORD decryptedSize = 0;
+	std::vector<uint8_t> ivWork = iv;
+	if (BCryptDecrypt(keyHandle, cipher.data(), static_cast<ULONG>(cipher.size()), nullptr, ivWork.data(),
+	                  static_cast<ULONG>(ivWork.size()), nullptr, 0, &decryptedSize,
+	                  BCRYPT_BLOCK_PADDING) != 0) {
+		cleanup();
+		return false;
+	}
+
+	output.resize(decryptedSize);
+	ivWork = iv;
+	if (BCryptDecrypt(keyHandle, cipher.data(), static_cast<ULONG>(cipher.size()), nullptr, ivWork.data(),
+	                  static_cast<ULONG>(ivWork.size()), output.data(), decryptedSize, &decryptedSize,
+	                  BCRYPT_BLOCK_PADDING) != 0) {
+		cleanup();
+		return false;
+	}
+
+	output.resize(decryptedSize);
+	plaintext.assign(reinterpret_cast<const char *>(output.data()), output.size());
+	cleanup();
 	return true;
 #else
 	(void)cipherHex;
@@ -761,26 +951,53 @@ void VDONinjaSignaling::processMessage(const std::string &message)
 		}
 	};
 
-	const std::string activePassword = getActiveSignalingPassword();
+	std::string defaultPassword;
 	std::string processSalt;
+	StreamInfo publishedStream;
+	RoomInfo currentRoom;
+	std::vector<StreamInfo> viewingStreams;
 	{
 		std::lock_guard<std::mutex> lock(stateMutex_);
+		defaultPassword = defaultPassword_;
 		processSalt = salt_;
+		publishedStream = publishedStream_;
+		currentRoom = currentRoom_;
+		viewingStreams.reserve(viewingStreams_.size());
+		for (const auto &entry : viewingStreams_) {
+			viewingStreams.push_back(entry.second);
+		}
 	}
 	JsonParser raw(message);
-	if (!activePassword.empty() && raw.hasKey("vector")) {
-		const std::string phrase = activePassword + processSalt;
+	const std::string messageStreamId = getAnyString(raw, {"streamID", "streamId"});
+	std::string defaultPasswordCandidate;
+	const std::string trimmedDefaultPassword = trim(defaultPassword);
+	if (!trimmedDefaultPassword.empty() && !isPasswordDisabledToken(trimmedDefaultPassword)) {
+		defaultPasswordCandidate = jsEncodeURIComponent(trimmedDefaultPassword);
+	}
+	const std::vector<std::string> passwordCandidates =
+	    buildIncomingSignalingPasswordCandidates(messageStreamId, defaultPasswordCandidate, publishedStream,
+	                                            viewingStreams, currentRoom);
+	if (!passwordCandidates.empty() && raw.hasKey("vector")) {
 		const std::string vector = raw.getString("vector");
+		auto decryptWithCandidates = [&](const std::string &cipherText, std::string &plaintext) {
+			for (const auto &password : passwordCandidates) {
+				if (decryptAesCbcHex(cipherText, vector, password + processSalt, plaintext)) {
+					return true;
+				}
+			}
+			return false;
+		};
 
 		ParsedSignalMessage decryptedParsed;
 		decryptedParsed.uuid = getAnyString(raw, {"UUID", "uuid"});
 		decryptedParsed.session = getAnyString(raw, {"session"});
+		decryptedParsed.streamId = messageStreamId;
 
 		if (raw.hasKey("description")) {
 			const std::string encryptedDescription = raw.getRaw("description");
 			if (!encryptedDescription.empty() && encryptedDescription[0] != '{') {
 				std::string decryptedDescription;
-				if (!decryptAesCbcHex(encryptedDescription, vector, phrase, decryptedDescription)) {
+				if (!decryptWithCandidates(encryptedDescription, decryptedDescription)) {
 					logWarning("Failed to decrypt incoming SDP description");
 					return;
 				}
@@ -805,7 +1022,7 @@ void VDONinjaSignaling::processMessage(const std::string &message)
 			const std::string encryptedCandidate = raw.getRaw("candidate");
 			if (!encryptedCandidate.empty() && encryptedCandidate[0] != '{') {
 				std::string decryptedCandidate;
-				if (!decryptAesCbcHex(encryptedCandidate, vector, phrase, decryptedCandidate)) {
+				if (!decryptWithCandidates(encryptedCandidate, decryptedCandidate)) {
 					logWarning("Failed to decrypt incoming ICE candidate");
 					return;
 				}
@@ -823,7 +1040,7 @@ void VDONinjaSignaling::processMessage(const std::string &message)
 			const std::string encryptedCandidates = raw.getRaw("candidates");
 			if (!encryptedCandidates.empty() && encryptedCandidates[0] != '[' && encryptedCandidates[0] != '{') {
 				std::string decryptedCandidates;
-				if (!decryptAesCbcHex(encryptedCandidates, vector, phrase, decryptedCandidates)) {
+				if (!decryptWithCandidates(encryptedCandidates, decryptedCandidates)) {
 					logWarning("Failed to decrypt incoming ICE candidate bundle");
 					return;
 				}

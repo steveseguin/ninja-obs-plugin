@@ -58,6 +58,11 @@ std::string buildInboundViewUrl(const std::string &baseUrl, const std::string &s
                                 const std::string &roomId, const std::string &salt);
 int chooseViewerTargetBitrateKbps(uint32_t width, uint32_t height);
 std::string buildViewerRequestMessage(uint32_t width, uint32_t height, bool guest);
+std::vector<std::string> buildIncomingSignalingPasswordCandidates(const std::string &messageStreamId,
+                                                                  const std::string &defaultPassword,
+                                                                  const StreamInfo &publishedStream,
+                                                                  const std::vector<StreamInfo> &viewingStreams,
+                                                                  const RoomInfo &currentRoom);
 
 // Sanitize stream ID (replace non-alphanumeric with underscores)
 std::string sanitizeStreamId(const std::string &streamId);

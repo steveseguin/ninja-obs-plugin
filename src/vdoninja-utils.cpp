@@ -510,6 +510,46 @@ std::string buildViewerRequestMessage(uint32_t width, uint32_t height, bool gues
 	return request.build();
 }
 
+std::vector<std::string> buildIncomingSignalingPasswordCandidates(const std::string &messageStreamId,
+                                                                  const std::string &defaultPassword,
+                                                                  const StreamInfo &publishedStream,
+                                                                  const std::vector<StreamInfo> &viewingStreams,
+                                                                  const RoomInfo &currentRoom)
+{
+	std::vector<std::string> candidates;
+	auto addCandidate = [&candidates](const std::string &password) {
+		if (password.empty() ||
+		    std::find(candidates.begin(), candidates.end(), password) != candidates.end()) {
+			return;
+		}
+		candidates.push_back(password);
+	};
+
+	auto matchesStream = [&messageStreamId](const StreamInfo &stream) {
+		return !messageStreamId.empty() &&
+		       (messageStreamId == stream.streamId || messageStreamId == stream.hashedStreamId);
+	};
+
+	if (matchesStream(publishedStream)) {
+		addCandidate(publishedStream.password);
+	}
+
+	for (const auto &stream : viewingStreams) {
+		if (matchesStream(stream)) {
+			addCandidate(stream.password);
+		}
+	}
+
+	addCandidate(publishedStream.password);
+	for (const auto &stream : viewingStreams) {
+		addCandidate(stream.password);
+	}
+	addCandidate(currentRoom.password);
+	addCandidate(defaultPassword);
+
+	return candidates;
+}
+
 std::string sanitizeStreamId(const std::string &streamId)
 {
 	return sanitizeIdentifier(streamId, 64);

@@ -423,7 +423,7 @@ if(BUILD_PLUGIN)
 
     # Platform-specific settings
     if(WIN32)
-        target_link_libraries(${PROJECT_NAME} PRIVATE ws2_32 crypt32)
+        target_link_libraries(${PROJECT_NAME} PRIVATE ws2_32 crypt32 bcrypt)
         target_compile_definitions(${PROJECT_NAME} PRIVATE _WIN32_WINNT=0x0601 WIN32_LEAN_AND_MEAN)
     elseif(APPLE)
         find_library(COREFOUNDATION_LIBRARY CoreFoundation)
@@ -615,6 +615,10 @@ if(BUILD_PUBLISHER_TOOL)
 
     if(OpenSSL_FOUND)
         target_link_libraries(vp9-alpha-publisher PRIVATE OpenSSL::SSL OpenSSL::Crypto)
+    endif()
+
+    if(WIN32)
+        target_link_libraries(vp9-alpha-publisher PRIVATE bcrypt)
     endif()
 
     if(MSVC)

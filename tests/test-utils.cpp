@@ -638,6 +638,73 @@ TEST_F(VdoNinjaHashCompatTest, ViewerPageUrlStripsHashSuffixFromViewId)
 	EXPECT_NE(url.find("view=cam_1&"), std::string::npos) << "URL was: " << url;
 }
 
+TEST_F(VdoNinjaHashCompatTest, IncomingSignalingPasswordsPrioritizeMatchingViewingStream)
+{
+	StreamInfo published;
+	published.streamId = "publisher";
+	published.hashedStreamId = "publisher999999";
+	published.password = "publishPw";
+
+	StreamInfo viewA;
+	viewA.streamId = "alpha";
+	viewA.hashedStreamId = "alpha111111";
+	viewA.password = "alphaPw";
+
+	StreamInfo viewB;
+	viewB.streamId = "beta";
+	viewB.hashedStreamId = "beta222222";
+	viewB.password = "betaPw";
+
+	const std::vector<std::string> candidates = buildIncomingSignalingPasswordCandidates(
+	    "beta222222", "defaultPw", published, {viewA, viewB}, RoomInfo{});
+
+	ASSERT_GE(candidates.size(), 4u);
+	EXPECT_EQ(candidates[0], "betaPw");
+	EXPECT_EQ(candidates[1], "publishPw");
+	EXPECT_EQ(candidates[2], "alphaPw");
+	EXPECT_EQ(candidates[3], "defaultPw");
+}
+
+TEST_F(VdoNinjaHashCompatTest, IncomingSignalingPasswordsMatchRawStreamIdToo)
+{
+	StreamInfo published;
+	published.streamId = "publisher";
+	published.hashedStreamId = "publisher999999";
+	published.password = "publishPw";
+
+	StreamInfo view;
+	view.streamId = "beta";
+	view.hashedStreamId = "beta222222";
+	view.password = "betaPw";
+
+	const std::vector<std::string> candidates =
+	    buildIncomingSignalingPasswordCandidates("beta", "", published, {view}, RoomInfo{});
+
+	ASSERT_GE(candidates.size(), 2u);
+	EXPECT_EQ(candidates[0], "betaPw");
+	EXPECT_EQ(candidates[1], "publishPw");
+}
+
+TEST_F(VdoNinjaHashCompatTest, IncomingSignalingPasswordsDeduplicateAndFallbackToDefault)
+{
+	StreamInfo published;
+	published.password = "sharedPw";
+
+	StreamInfo view;
+	view.password = "sharedPw";
+
+	RoomInfo room;
+	room.password = "roomPw";
+
+	const std::vector<std::string> candidates =
+	    buildIncomingSignalingPasswordCandidates("unknown", "defaultPw", published, {view}, room);
+
+	ASSERT_EQ(candidates.size(), 3u);
+	EXPECT_EQ(candidates[0], "sharedPw");
+	EXPECT_EQ(candidates[1], "roomPw");
+	EXPECT_EQ(candidates[2], "defaultPw");
+}
+
 // URL Encoding Tests
 class URLEncodeTest : public ::testing::Test
 {
