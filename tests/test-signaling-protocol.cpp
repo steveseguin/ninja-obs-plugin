@@ -214,6 +214,28 @@ TEST(SignalingProtocolTest, ParsesVideoAddedToRoomMixedCaseRequestVariant)
 	EXPECT_EQ(parsed.streamId, "cam_3");
 }
 
+TEST(SignalingProtocolTest, ParsesVideoRemovedFromRoomRequestVariant)
+{
+	const std::string raw = R"({"request":"videoRemovedFromRoom","UUID":"peer-a","streamID":"cam_3"})";
+	ParsedSignalMessage parsed;
+	std::string error;
+
+	EXPECT_TRUE(parseSignalingMessage(raw, parsed, &error));
+	EXPECT_EQ(parsed.kind, ParsedSignalKind::VideoRemovedFromRoom);
+	EXPECT_EQ(parsed.streamId, "cam_3");
+}
+
+TEST(SignalingProtocolTest, ParsesVideoRemovedFromRoomBooleanVariant)
+{
+	const std::string raw = R"({"videoRemovedFromRoom":true,"UUID":"peer-a","streamID":"cam_4"})";
+	ParsedSignalMessage parsed;
+	std::string error;
+
+	EXPECT_TRUE(parseSignalingMessage(raw, parsed, &error));
+	EXPECT_EQ(parsed.kind, ParsedSignalKind::VideoRemovedFromRoom);
+	EXPECT_EQ(parsed.streamId, "cam_4");
+}
+
 TEST(SignalingProtocolTest, ParsesAlertRequestMessageField)
 {
 	const std::string raw = R"({"request":"alert","message":"Room already claimed"})";

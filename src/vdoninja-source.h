@@ -77,7 +77,10 @@ private:
 	void requestNativeTargetBitrate(const char *reason);
 	void handleSignalingAlert(const std::string &message);
 	void handlePeerCleanupSignal(const std::string &uuid);
+	void handleStreamRemovedSignal(const std::string &streamId, const std::string &uuid);
 	void handlePeerDisconnected(const std::string &uuid);
+	bool matchesTargetStreamId(const std::string &streamId) const;
+	void clearNativeVideoOutput(const char *reason);
 	void onVideoTrack(const std::string &uuid, std::shared_ptr<rtc::Track> track);
 	void onAlphaVideoTrack(const std::string &uuid, std::shared_ptr<rtc::Track> track);
 	void onAudioTrack(const std::string &uuid, std::shared_ptr<rtc::Track> track);
@@ -227,6 +230,8 @@ private:
 	std::atomic<int64_t> lastVideoTime_{0};
 	std::atomic<int64_t> lastAudioTime_{0};
 	std::atomic<int64_t> lastKeyframeRequestTime_{0};
+	std::atomic<bool> videoOutputActive_{false};
+	std::atomic<bool> loggedVideoStallClear_{false};
 	std::mutex retryStateMutex_;
 	int viewRetryCount_ = 0;
 	int64_t lastViewRequestTimeMs_ = 0;

@@ -41,6 +41,7 @@ constexpr const char *kInternalNativeSourceId = "vdoninja_native_source_internal
 constexpr const char *kInternalNativeSourceSetting = "internal_native_receiver_source";
 constexpr int kViewRequestTimeoutMs = 15000;
 constexpr int kMinViewRequestGapMs = 1500;
+constexpr int64_t kNativeVideoStallBlankMs = 4000;
 const char *tr(const char *key, const char *fallback)
 {
 	const char *localized = obs_module_text(key);
@@ -1036,6 +1037,7 @@ void VDONinjaSource::disconnect()
 		signaling_->setOnDisconnected(nullptr);
 		signaling_->setOnError(nullptr);
 		signaling_->setOnStreamAdded(nullptr);
+		signaling_->setOnStreamRemoved(nullptr);
 		signaling_->setOnPeerCleanup(nullptr);
 	}
 
@@ -1150,6 +1152,9 @@ void VDONinjaSource::connectionThread()
 			     message.find("\"candidates\"") != std::string::npos ||
 			     message.find("\"request\"") != std::string::npos || message.find("\"bye\"") != std::string::npos)) {
 				self->signaling_->processIncomingMessage(message);
+				if (targetUuid.empty() && message.find("\"bye\"") != std::string::npos) {
+					self->handlePeerCleanupSignal(uuid);
+				}
 				if (!targetUuid.empty()) {
 					self->sendViewerPreferencesToPeer(targetUuid, "resolved-media-peer");
 				}
@@ -1195,12 +1200,17 @@ void VDONinjaSource::connectionThread()
 				return;
 			}
 			VDONinjaSource *self = guard.owner();
-			if (streamId == self->settings_.streamId ||
-			    hashStreamId(self->settings_.streamId, self->settings_.password, self->settings_.salt) == streamId ||
-			    hashStreamId(self->settings_.streamId, DEFAULT_PASSWORD, self->settings_.salt) == streamId) {
+			if (self->matchesTargetStreamId(streamId)) {
 				logInfo("Target stream appeared in room, connecting...");
 				self->requestViewStream("stream-added", false);
 			}
+		});
+		signaling_->setOnStreamRemoved([callbackState](const std::string &streamId, const std::string &uuid) {
+			AsyncCallbackGuard<VDONinjaSource> guard(callbackState.get());
+			if (!guard) {
+				return;
+			}
+			guard.owner()->handleStreamRemovedSignal(streamId, uuid);
 		});
 		signaling_->setOnPeerCleanup([callbackState](const std::string &uuid) {
 			AsyncCallbackGuard<VDONinjaSource> guard(callbackState.get());
@@ -1415,6 +1425,64 @@ void VDONinjaSource::handlePeerCleanupSignal(const std::string &uuid)
 		peerManager_->disconnectPeer(uuid);
 	}
 	handlePeerDisconnected(uuid);
+}
+
+bool VDONinjaSource::matchesTargetStreamId(const std::string &streamId) const
+{
+	if (streamId.empty() || settings_.streamId.empty()) {
+		return false;
+	}
+
+	return streamId == settings_.streamId ||
+	       hashStreamId(settings_.streamId, settings_.password, settings_.salt) == streamId ||
+	       hashStreamId(settings_.streamId, DEFAULT_PASSWORD, settings_.salt) == streamId;
+}
+
+void VDONinjaSource::clearNativeVideoOutput(const char *reason)
+{
+	if (!source_) {
+		return;
+	}
+
+	const bool hadVideo = videoOutputActive_.exchange(false, std::memory_order_relaxed);
+	if (hadVideo && reason && *reason) {
+		logInfo("Clearing native video output (%s)", reason);
+	}
+	obs_source_output_video(source_, nullptr);
+}
+
+void VDONinjaSource::handleStreamRemovedSignal(const std::string &streamId, const std::string &uuid)
+{
+	bool activePeerMatches = false;
+	{
+		std::lock_guard<std::mutex> stateLock(nativeStateMutex_);
+		activePeerMatches =
+		    (!uuid.empty() && (uuid == videoTrackPeerUuid_ || uuid == alphaVideoTrackPeerUuid_ ||
+		                       uuid == audioTrackPeerUuid_));
+	}
+
+	if (!matchesTargetStreamId(streamId) && !activePeerMatches) {
+		return;
+	}
+
+	logInfo(
+	    "Native receiver got stream-removed for target stream (%s) from %s; clearing active receiver state",
+	    streamId.empty() ? settings_.streamId.c_str() : streamId.c_str(),
+	    uuid.empty() ? "unknown peer" : uuid.c_str());
+	if (peerManager_) {
+		peerManager_->stopViewing(settings_.streamId);
+	}
+	connected_ = false;
+	resetNativeState();
+
+	if (settings_.autoReconnect && nativeRunning_.load()) {
+		int retryCount = 0;
+		{
+			std::lock_guard<std::mutex> lock(retryStateMutex_);
+			retryCount = viewRetryCount_;
+		}
+		scheduleViewRetry("stream-removed", computeViewerPeerRecoveryDelayMs(retryCount), false);
+	}
 }
 
 void VDONinjaSource::onVideoTrack(const std::string &uuid, std::shared_ptr<rtc::Track> track)
@@ -2116,12 +2184,25 @@ void VDONinjaSource::videoTick(float seconds)
 		videoTrack = videoTrack_;
 	}
 
-	if (!usingNativeReceiver() || !active_.load() || !connected_.load() || !videoTrack) {
+	if (!usingNativeReceiver() || !active_.load()) {
 		return;
 	}
 
 	const int64_t now = currentTimeMs();
 	const int64_t lastVideoTime = lastVideoTime_.load(std::memory_order_relaxed);
+	if (videoOutputActive_.load(std::memory_order_relaxed) && lastVideoTime != 0 &&
+	    now - lastVideoTime >= kNativeVideoStallBlankMs) {
+		if (!loggedVideoStallClear_.exchange(true, std::memory_order_relaxed)) {
+			logWarning("No native video packets for %lld ms; clearing stale frame",
+			           static_cast<long long>(now - lastVideoTime));
+		}
+		clearNativeVideoOutput("stale-video-timeout");
+	}
+
+	if (!connected_.load() || !videoTrack) {
+		return;
+	}
+
 	if (lastVideoTime != 0 && now - lastVideoTime < 1500) {
 		return;
 	}
@@ -2544,12 +2625,14 @@ void VDONinjaSource::resetNativeState()
 	alphaAssemblyTimestamp_ = 0;
 	alphaAssemblyActive_ = false;
 	videoHwDecodeDisabled_ = false;
+	videoOutputActive_.store(false, std::memory_order_relaxed);
+	loggedVideoStallClear_.store(false, std::memory_order_relaxed);
 	resetVideoDecoder();
 	resetAlphaDecoder();
 	resetAudioDecoder();
 	if (source_) {
 		setObsSourceAudioActiveSafe(source_, false);
-		obs_source_output_video(source_, nullptr);
+		clearNativeVideoOutput("reset-native-state");
 	}
 }
 
@@ -2613,7 +2696,7 @@ void VDONinjaSource::handlePeerDisconnected(const std::string &uuid)
 	}
 
 	if (videoRemoved && source_) {
-		obs_source_output_video(source_, nullptr);
+		clearNativeVideoOutput("peer-disconnected");
 	}
 
 	if (!connected_.load() && settings_.autoReconnect) {
@@ -2767,6 +2850,8 @@ void VDONinjaSource::outputDecodedVideoFrame(const AVFrame *frame, uint64_t time
 	obsFrame.full_range = true;
 	obsFrame.data[0] = output.data();
 	obsFrame.linesize[0] = static_cast<uint32_t>(outputStride);
+	videoOutputActive_.store(true, std::memory_order_relaxed);
+	loggedVideoStallClear_.store(false, std::memory_order_relaxed);
 	obs_source_output_video(source_, &obsFrame);
 }
 
