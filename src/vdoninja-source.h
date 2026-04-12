@@ -59,7 +59,7 @@ public:
 	bool isConnected() const;
 	std::string getStreamId() const;
 	obs_source_t *obsSourceHandle() const;
-	obs_source_t *getActiveChildSource() const;
+	obs_source_t *acquireActiveChildSource() const;
 
 private:
 	void loadSettings(obs_data_t *settings);
@@ -134,7 +134,11 @@ private:
 	std::atomic<bool> loggedFirstDecodedVideoFrame_{false};
 	std::atomic<bool> loggedFirstAudioPacket_{false};
 	std::atomic<bool> loggedFirstDecodedAudioFrame_{false};
+	std::atomic<bool> loggedFirstDecodedAlphaFrame_{false};
+	std::atomic<bool> loggedAlphaDecodeSubmitFailure_{false};
+	std::atomic<bool> loggedAlphaDecodeReceiveFailure_{false};
 	std::thread connectionThread_;
+	mutable std::mutex childSourceMutex_;
 	obs_source_t *browserSource_ = nullptr;
 	obs_source_t *nativeReceiverSource_ = nullptr;
 	std::string browserSourceName_;
@@ -170,6 +174,7 @@ private:
 	std::vector<uint8_t> videoAssemblyBuffer_;
 	uint32_t videoAssemblyTimestamp_ = 0;
 	bool videoAssemblyActive_ = false;
+	std::deque<uint32_t> pendingVideoDecodeTimestamps_;
 	AVCodecContext *videoDecoder_ = nullptr;
 	AVFrame *videoFrame_ = nullptr;
 	AVFrame *videoTransferFrame_ = nullptr;
@@ -180,6 +185,7 @@ private:
 	std::vector<uint8_t> alphaAssemblyBuffer_;
 	uint32_t alphaAssemblyTimestamp_ = 0;
 	bool alphaAssemblyActive_ = false;
+	std::deque<uint32_t> pendingAlphaDecodeTimestamps_;
 	AVCodecContext *alphaDecoder_ = nullptr;
 	AVFrame *alphaFrame_ = nullptr;
 	AVPacket *alphaPacket_ = nullptr;
@@ -209,8 +215,11 @@ private:
 	std::atomic<bool> loggedAlphaSoftwareDecodeMode_{false};
 	std::atomic<bool> loggedAlphaCompositionActive_{false};
 	std::atomic<bool> loggedAlphaTimestampSyncWait_{false};
+	std::atomic<bool> loggedAlphaTimestampMiss_{false};
 	std::atomic<bool> loggedAlphaPixelFormatMismatch_{false};
 	std::atomic<bool> loggedAlphaDimensionMismatch_{false};
+	uint32_t alphaTimestampPendingStreak_ = 0;
+	uint32_t alphaTimestampMissStreak_ = 0;
 	uint32_t audioBaseRtpTimestamp_ = 0;
 	uint64_t audioBaseTimestampNs_ = 0;
 	uint64_t lastAudioTimestampNs_ = 0;

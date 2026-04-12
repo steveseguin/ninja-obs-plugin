@@ -34,7 +34,7 @@ struct ConsumePendingAlphaResult {
 
 bool isRtpTimestampBefore(uint32_t lhs, uint32_t rhs);
 void upsertPendingAlphaFrame(std::deque<PendingAlphaFrame> &frames, PendingAlphaFrame frame,
-                             size_t maxFrames = 8);
+                             size_t maxFrames = 64);
 ConsumePendingAlphaResult consumePendingAlphaFrame(std::deque<PendingAlphaFrame> &frames, uint32_t rtpTimestamp,
                                                    int expectedWidth, int expectedHeight);
 

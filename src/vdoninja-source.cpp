@@ -111,6 +111,38 @@ obs_data_t *createNativeReceiverSourceSettings(const SourceSettings &sourceSetti
 	return settings;
 }
 
+void runUiTaskThunk(void *param)
+{
+	auto *fn = static_cast<std::function<void()> *>(param);
+	(*fn)();
+	delete fn;
+}
+
+void setObsSourceAudioActiveSafe(obs_source_t *source, bool active)
+{
+	if (!source) {
+		return;
+	}
+	if (obs_source_audio_active(source) == active) {
+		return;
+	}
+
+	if (obs_in_task_thread(OBS_TASK_UI)) {
+		obs_source_set_audio_active(source, active);
+		return;
+	}
+
+	obs_source_t *sourceRef = obs_source_get_ref(source);
+	if (!sourceRef) {
+		return;
+	}
+	auto *task = new std::function<void()>([sourceRef, active]() {
+		obs_source_set_audio_active(sourceRef, active);
+		obs_source_release(sourceRef);
+	});
+	obs_queue_task(OBS_TASK_UI, runUiTaskThunk, task, false);
+}
+
 bool sourceSettingsEqualForChild(const SourceSettings &left, const SourceSettings &right)
 {
 	return left.streamId == right.streamId && left.roomId == right.roomId && left.password == right.password &&
@@ -232,6 +264,14 @@ std::optional<RtpPayloadView> parseRtpPayloadView(const uint8_t *packetData, siz
 
 	const uint8_t version = static_cast<uint8_t>((packetData[0] >> 6) & 0x03);
 	if (version != 2) {
+		return std::nullopt;
+	}
+
+	// With RTP/RTCP mux enabled, track callbacks can surface RTCP control packets
+	// alongside media packets. RTCP packet types occupy the raw second-octet range
+	// 192-223, while our RTP payload types are dynamic values outside that band.
+	const uint8_t rawPacketType = packetData[1];
+	if (rawPacketType >= 192 && rawPacketType <= 223) {
 		return std::nullopt;
 	}
 
@@ -447,7 +487,7 @@ bool vdoninja_source_native_mode_modified(obs_properties_t *props, obs_property_
 	return true;
 }
 
-class InspectingReceivingSession : public rtc::RtcpReceivingSession
+class InspectingReceivingSession : public rtc::MediaHandler
 {
 public:
 	using InspectCallback = std::function<void(const rtc::message_ptr &)>;
@@ -461,7 +501,7 @@ public:
 				callback_(message);
 			}
 		}
-		rtc::RtcpReceivingSession::incoming(messages, send);
+		rtc::MediaHandler::incoming(messages, send);
 	}
 
 private:
@@ -650,9 +690,10 @@ static void vdoninja_source_enum_active_sources(void *data, obs_source_enum_proc
 {
 	runNoexceptCallback("vdoninja_source_enum_active_sources", [data, cb, param]() {
 		VDONinjaSource *source = static_cast<VDONinjaSource *>(data);
-		obs_source_t *child = source ? source->getActiveChildSource() : nullptr;
+		obs_source_t *child = source ? source->acquireActiveChildSource() : nullptr;
 		if (child) {
 			cb(source->obsSourceHandle(), child, param);
+			obs_source_release(child);
 		}
 	});
 }
@@ -895,9 +936,10 @@ void VDONinjaSource::activate()
 		connect();
 	} else {
 		updateWrapperChildSource();
-		obs_source_t *child = getActiveChildSource();
+		obs_source_t *child = acquireActiveChildSource();
 		if (child) {
 			syncChildLifecycleState(child);
+			obs_source_release(child);
 		}
 	}
 }
@@ -911,9 +953,10 @@ void VDONinjaSource::deactivate()
 	if (isInternalNativeSource()) {
 		disconnect();
 	} else {
-		obs_source_t *child = getActiveChildSource();
+		obs_source_t *child = acquireActiveChildSource();
 		if (child) {
 			syncChildLifecycleState(child);
+			obs_source_release(child);
 		}
 	}
 }
@@ -926,9 +969,10 @@ void VDONinjaSource::show()
 
 	if (!isInternalNativeSource()) {
 		updateWrapperChildSource();
-		obs_source_t *child = getActiveChildSource();
+		obs_source_t *child = acquireActiveChildSource();
 		if (child) {
 			syncChildLifecycleState(child);
+			obs_source_release(child);
 		}
 	}
 }
@@ -940,9 +984,10 @@ void VDONinjaSource::hide()
 	}
 
 	if (!isInternalNativeSource()) {
-		obs_source_t *child = getActiveChildSource();
+		obs_source_t *child = acquireActiveChildSource();
 		if (child) {
 			syncChildLifecycleState(child);
+			obs_source_release(child);
 		}
 	}
 }
@@ -976,7 +1021,7 @@ void VDONinjaSource::disconnect()
 {
 	nativeRunning_ = false;
 	connected_ = false;
-	obs_source_set_audio_active(source_, false);
+	setObsSourceAudioActiveSafe(source_, false);
 	resetViewRetryState();
 
 	if (signaling_) {
@@ -1545,8 +1590,11 @@ void VDONinjaSource::onAlphaVideoTrack(const std::string &uuid, std::shared_ptr<
 		loggedAlphaSoftwareDecodeMode_.store(false, std::memory_order_relaxed);
 		loggedAlphaCompositionActive_.store(false, std::memory_order_relaxed);
 		loggedAlphaTimestampSyncWait_.store(false, std::memory_order_relaxed);
+		loggedAlphaTimestampMiss_.store(false, std::memory_order_relaxed);
 		loggedAlphaPixelFormatMismatch_.store(false, std::memory_order_relaxed);
 		loggedAlphaDimensionMismatch_.store(false, std::memory_order_relaxed);
+		alphaTimestampPendingStreak_ = 0;
+		alphaTimestampMissStreak_ = 0;
 		resetAlphaDecoder();
 		loggedFirstAlphaRtpPacket_ = false;
 		if (nativeVideoCodec_ == NativeVideoCodec::VP9 && videoDecoder_) {
@@ -1695,6 +1743,9 @@ void VDONinjaSource::processVideoData(const uint8_t *data, size_t size, uint32_t
 		}
 		return;
 	}
+	if (sendResult >= 0) {
+		pendingVideoDecodeTimestamps_.push_back(rtpTimestamp);
+	}
 
 	while (true) {
 		const int receiveResult = avcodec_receive_frame(videoDecoder_, videoFrame_);
@@ -1738,7 +1789,12 @@ void VDONinjaSource::processVideoData(const uint8_t *data, size_t size, uint32_t
 			frameToOutput = videoTransferFrame_;
 		}
 
-		outputDecodedVideoFrame(frameToOutput, mapVideoTimestamp(rtpTimestamp), rtpTimestamp);
+		uint32_t decodedRtpTimestamp = rtpTimestamp;
+		if (!pendingVideoDecodeTimestamps_.empty()) {
+			decodedRtpTimestamp = pendingVideoDecodeTimestamps_.front();
+			pendingVideoDecodeTimestamps_.pop_front();
+		}
+		outputDecodedVideoFrame(frameToOutput, mapVideoTimestamp(decodedRtpTimestamp), decodedRtpTimestamp);
 		av_frame_unref(videoFrame_);
 		if (frameToOutput == videoTransferFrame_) {
 			av_frame_unref(videoTransferFrame_);
@@ -2088,22 +2144,21 @@ void VDONinjaSource::videoRender(gs_effect_t *effect)
 		return;
 	}
 
-	obs_source_t *child = getActiveChildSource();
-	if (!child) {
-		updateWrapperChildSource();
-		child = getActiveChildSource();
-	}
+	obs_source_t *child = acquireActiveChildSource();
 	if (child) {
-		syncChildLifecycleState(child);
 		obs_source_video_render(child);
+		obs_source_release(child);
 	}
 }
 
 uint32_t VDONinjaSource::getWidth() const
 {
 	if (!isInternalNativeSource()) {
-		obs_source_t *child = getActiveChildSource();
+		obs_source_t *child = acquireActiveChildSource();
 		const uint32_t childWidth = child ? obs_source_get_width(child) : 0;
+		if (child) {
+			obs_source_release(child);
+		}
 		if (childWidth != 0) {
 			return childWidth;
 		}
@@ -2114,8 +2169,11 @@ uint32_t VDONinjaSource::getWidth() const
 uint32_t VDONinjaSource::getHeight() const
 {
 	if (!isInternalNativeSource()) {
-		obs_source_t *child = getActiveChildSource();
+		obs_source_t *child = acquireActiveChildSource();
 		const uint32_t childHeight = child ? obs_source_get_height(child) : 0;
+		if (child) {
+			obs_source_release(child);
+		}
 		if (childHeight != 0) {
 			return childHeight;
 		}
@@ -2129,7 +2187,12 @@ bool VDONinjaSource::isConnected() const
 		return connected_.load();
 	}
 
-	return getActiveChildSource() != nullptr && !settings_.streamId.empty();
+	obs_source_t *child = acquireActiveChildSource();
+	const bool connected = child != nullptr && !settings_.streamId.empty();
+	if (child) {
+		obs_source_release(child);
+	}
+	return connected;
 }
 
 std::string VDONinjaSource::getStreamId() const
@@ -2274,6 +2337,7 @@ void VDONinjaSource::resetVideoDecoder()
 	lastVideoTimestampNs_ = 0;
 	lastDecodedVideoWidth_ = 0;
 	lastDecodedVideoHeight_ = 0;
+	pendingVideoDecodeTimestamps_.clear();
 	videoHwDecodeConfigured_ = false;
 	videoHwStatusLogged_ = false;
 	videoHwPixelFormat_ = AV_PIX_FMT_NONE;
@@ -2295,6 +2359,7 @@ void VDONinjaSource::resetAlphaDecoder()
 		std::lock_guard<std::mutex> lock(pendingAlphaMutex_);
 		pendingAlphaFrames_.clear();
 	}
+	pendingAlphaDecodeTimestamps_.clear();
 }
 
 bool VDONinjaSource::initializeAlphaDecoder()
@@ -2351,7 +2416,13 @@ void VDONinjaSource::processAlphaVideoData(const uint8_t *data, size_t size, uin
 	std::memcpy(alphaPacket_->data, data, size);
 	const int sendResult = avcodec_send_packet(alphaDecoder_, alphaPacket_);
 	if (sendResult < 0 && sendResult != AVERROR(EAGAIN)) {
+		if (!loggedAlphaDecodeSubmitFailure_.exchange(true, std::memory_order_relaxed)) {
+			logWarning("Failed to submit VP9 alpha packet: %s", ffmpegErrorString(sendResult).c_str());
+		}
 		return;
+	}
+	if (sendResult >= 0) {
+		pendingAlphaDecodeTimestamps_.push_back(rtpTimestamp);
 	}
 
 	while (true) {
@@ -2360,6 +2431,9 @@ void VDONinjaSource::processAlphaVideoData(const uint8_t *data, size_t size, uin
 			break;
 		}
 		if (receiveResult < 0) {
+			if (!loggedAlphaDecodeReceiveFailure_.exchange(true, std::memory_order_relaxed)) {
+				logWarning("Failed to decode VP9 alpha frame: %s", ffmpegErrorString(receiveResult).c_str());
+			}
 			break;
 		}
 
@@ -2367,12 +2441,34 @@ void VDONinjaSource::processAlphaVideoData(const uint8_t *data, size_t size, uin
 		const int w = alphaFrame_->width;
 		const int h = alphaFrame_->height;
 		const int linesize = alphaFrame_->linesize[0];
+		uint32_t decodedRtpTimestamp = rtpTimestamp;
+		if (!pendingAlphaDecodeTimestamps_.empty()) {
+			decodedRtpTimestamp = pendingAlphaDecodeTimestamps_.front();
+			pendingAlphaDecodeTimestamps_.pop_front();
+		}
 		if (w > 0 && h > 0 && linesize > 0 && alphaFrame_->data[0]) {
+			if (!loggedFirstDecodedAlphaFrame_.exchange(true, std::memory_order_relaxed)) {
+				uint8_t minAlpha = 255;
+				uint8_t maxAlpha = 0;
+				for (int y = 0; y < h; ++y) {
+					const uint8_t *row = alphaFrame_->data[0] + static_cast<ptrdiff_t>(y) * linesize;
+					for (int x = 0; x < w; ++x) {
+						const uint8_t alpha = row[x];
+						minAlpha = std::min(minAlpha, alpha);
+						maxAlpha = std::max(maxAlpha, alpha);
+					}
+				}
+				logInfo("Native receiver decoded first alpha frame (%dx%d, format=%d, rtp ts=%u, alpha range=%u-%u)",
+				        w, h, alphaFrame_->format, decodedRtpTimestamp, static_cast<unsigned>(minAlpha),
+				        static_cast<unsigned>(maxAlpha));
+			}
+			loggedAlphaDecodeSubmitFailure_.store(false, std::memory_order_relaxed);
+			loggedAlphaDecodeReceiveFailure_.store(false, std::memory_order_relaxed);
 			PendingAlphaFrame pendingFrame;
 			pendingFrame.width = w;
 			pendingFrame.height = h;
 			pendingFrame.yLinesize = linesize;
-			pendingFrame.rtpTimestamp = rtpTimestamp;
+			pendingFrame.rtpTimestamp = decodedRtpTimestamp;
 			pendingFrame.yData.resize(static_cast<size_t>(linesize) * static_cast<size_t>(h));
 			std::memcpy(pendingFrame.yData.data(), alphaFrame_->data[0],
 			            static_cast<size_t>(linesize) * static_cast<size_t>(h));
@@ -2421,13 +2517,19 @@ void VDONinjaSource::resetNativeState()
 	loggedFirstAlphaRtpPacket_ = false;
 	loggedFirstAudioPacket_ = false;
 	loggedFirstDecodedAudioFrame_ = false;
+	loggedFirstDecodedAlphaFrame_ = false;
+	loggedAlphaDecodeSubmitFailure_ = false;
+	loggedAlphaDecodeReceiveFailure_ = false;
 	alphaTrackActive_.store(false, std::memory_order_relaxed);
 	preferSoftwareVp9DecodeForAlpha_.store(false, std::memory_order_relaxed);
 	loggedAlphaSoftwareDecodeMode_.store(false, std::memory_order_relaxed);
 	loggedAlphaCompositionActive_.store(false, std::memory_order_relaxed);
 	loggedAlphaTimestampSyncWait_.store(false, std::memory_order_relaxed);
+	loggedAlphaTimestampMiss_.store(false, std::memory_order_relaxed);
 	loggedAlphaPixelFormatMismatch_.store(false, std::memory_order_relaxed);
 	loggedAlphaDimensionMismatch_.store(false, std::memory_order_relaxed);
+	alphaTimestampPendingStreak_ = 0;
+	alphaTimestampMissStreak_ = 0;
 	videoTrack_.reset();
 	alphaVideoTrack_.reset();
 	audioTrack_.reset();
@@ -2446,7 +2548,7 @@ void VDONinjaSource::resetNativeState()
 	resetAlphaDecoder();
 	resetAudioDecoder();
 	if (source_) {
-		obs_source_set_audio_active(source_, false);
+		setObsSourceAudioActiveSafe(source_, false);
 		obs_source_output_video(source_, nullptr);
 	}
 }
@@ -2484,8 +2586,14 @@ void VDONinjaSource::handlePeerDisconnected(const std::string &uuid)
 			loggedAlphaSoftwareDecodeMode_.store(false, std::memory_order_relaxed);
 			loggedAlphaCompositionActive_.store(false, std::memory_order_relaxed);
 			loggedAlphaTimestampSyncWait_.store(false, std::memory_order_relaxed);
+			loggedAlphaTimestampMiss_.store(false, std::memory_order_relaxed);
 			loggedAlphaPixelFormatMismatch_.store(false, std::memory_order_relaxed);
 			loggedAlphaDimensionMismatch_.store(false, std::memory_order_relaxed);
+			alphaTimestampPendingStreak_ = 0;
+			alphaTimestampMissStreak_ = 0;
+			loggedFirstDecodedAlphaFrame_.store(false, std::memory_order_relaxed);
+			loggedAlphaDecodeSubmitFailure_.store(false, std::memory_order_relaxed);
+			loggedAlphaDecodeReceiveFailure_.store(false, std::memory_order_relaxed);
 			resetAlphaDecoder();
 		}
 
@@ -2501,7 +2609,7 @@ void VDONinjaSource::handlePeerDisconnected(const std::string &uuid)
 	}
 
 	if (audioRemoved && source_) {
-		obs_source_set_audio_active(source_, false);
+		setObsSourceAudioActiveSafe(source_, false);
 	}
 
 	if (videoRemoved && source_) {
@@ -2569,9 +2677,27 @@ void VDONinjaSource::outputDecodedVideoFrame(const AVFrame *frame, uint64_t time
 		           "video (%dx%d vs %dx%d)",
 		           rtpTimestamp, alphaWidth, alphaHeight, frame->width, frame->height);
 	}
-	if (!hasAlpha && alphaTrackActive_.load(std::memory_order_relaxed) && alphaTimestampPending &&
+	const bool alphaTrackActive = alphaTrackActive_.load(std::memory_order_relaxed);
+	if (!alphaTrackActive || hasAlpha || alphaDimensionsMismatch) {
+		alphaTimestampPendingStreak_ = 0;
+		alphaTimestampMissStreak_ = 0;
+	} else if (alphaTimestampPending) {
+		alphaTimestampPendingStreak_++;
+		alphaTimestampMissStreak_ = 0;
+	} else {
+		alphaTimestampPendingStreak_ = 0;
+		alphaTimestampMissStreak_++;
+	}
+	constexpr uint32_t kAlphaTimestampLogThreshold = 15;
+	if (!hasAlpha && alphaTrackActive && alphaTimestampPending &&
+	    alphaTimestampPendingStreak_ >= kAlphaTimestampLogThreshold &&
 	    !loggedAlphaTimestampSyncWait_.exchange(true, std::memory_order_relaxed)) {
 		logInfo("Waiting for matching VP9 alpha RTP timestamp before compositing transparency");
+	}
+	if (!hasAlpha && alphaTrackActive && !alphaTimestampPending &&
+	    alphaTimestampMissStreak_ >= kAlphaTimestampLogThreshold &&
+	    !loggedAlphaTimestampMiss_.exchange(true, std::memory_order_relaxed)) {
+		logInfo("No matching VP9 alpha frame available for primary RTP timestamp %u", rtpTimestamp);
 	}
 
 	// Build a synthetic YUVA420P view from the primary YUV planes + alpha Y plane.
@@ -2596,7 +2722,10 @@ void VDONinjaSource::outputDecodedVideoFrame(const AVFrame *frame, uint64_t time
 		if (!loggedAlphaCompositionActive_.exchange(true, std::memory_order_relaxed)) {
 			logInfo("Native receiver alpha composition active");
 		}
+		alphaTimestampPendingStreak_ = 0;
+		alphaTimestampMissStreak_ = 0;
 		loggedAlphaTimestampSyncWait_.store(false, std::memory_order_relaxed);
+		loggedAlphaTimestampMiss_.store(false, std::memory_order_relaxed);
 		loggedAlphaPixelFormatMismatch_.store(false, std::memory_order_relaxed);
 		loggedAlphaDimensionMismatch_.store(false, std::memory_order_relaxed);
 	} else if (hasAlpha && !loggedAlphaPixelFormatMismatch_.exchange(true, std::memory_order_relaxed)) {
@@ -2726,7 +2855,7 @@ void VDONinjaSource::outputDecodedAudioFrame(const AVFrame *frame, uint64_t time
 		audio.data[i] = dstData[i];
 	}
 
-	obs_source_set_audio_active(source_, true);
+	setObsSourceAudioActiveSafe(source_, true);
 	obs_source_output_audio(source_, &audio);
 
 	av_freep(&dstData[0]);
@@ -2776,55 +2905,81 @@ uint64_t VDONinjaSource::mapAudioTimestamp(uint32_t rtpTimestamp)
 
 void VDONinjaSource::ensureNativeReceiverSource()
 {
-	if (isInternalNativeSource() || !usingNativeReceiver() || nativeReceiverSource_ || settings_.streamId.empty()) {
+	if (isInternalNativeSource() || !usingNativeReceiver() || settings_.streamId.empty()) {
 		return;
 	}
 
+	{
+		std::lock_guard<std::mutex> lock(childSourceMutex_);
+		if (nativeReceiverSource_) {
+			return;
+		}
+	}
+
 	obs_data_t *nativeSettings = createNativeReceiverSourceSettings(settings_, width_, height_);
-	nativeReceiverSource_ =
+	obs_source_t *created =
 	    obs_source_create_private(kInternalNativeSourceId, nativeReceiverSourceName_.c_str(), nativeSettings);
 	obs_data_release(nativeSettings);
 
-	if (!nativeReceiverSource_) {
+	if (!created) {
 		logError("Failed to create internal native receiver source for VDO.Ninja Source");
 		return;
 	}
 
-	obs_source_add_audio_capture_callback(nativeReceiverSource_, vdoninja_source_child_audio_capture,
-	                                      callbackState_.get());
-	signal_handler_t *sh = obs_source_get_signal_handler(nativeReceiverSource_);
+	{
+		std::lock_guard<std::mutex> lock(childSourceMutex_);
+		if (nativeReceiverSource_) {
+			obs_source_release(created);
+			return;
+		}
+		nativeReceiverSource_ = created;
+	}
+
+	obs_source_add_audio_capture_callback(created, vdoninja_source_child_audio_capture, callbackState_.get());
+	signal_handler_t *sh = obs_source_get_signal_handler(created);
 	signal_handler_connect(sh, "audio_activate", vdoninja_source_child_audio_activate, callbackState_.get());
 	signal_handler_connect(sh, "audio_deactivate", vdoninja_source_child_audio_deactivate, callbackState_.get());
-	obs_source_set_audio_active(source_, obs_source_audio_active(nativeReceiverSource_));
-	syncChildLifecycleState(nativeReceiverSource_);
-	nativeReceiverSettings_ = settings_;
-	nativeReceiverWidth_ = width_;
-	nativeReceiverHeight_ = height_;
-	nativeReceiverConfigApplied_ = true;
+	setObsSourceAudioActiveSafe(source_, obs_source_audio_active(created));
+	syncChildLifecycleState(created);
+	{
+		std::lock_guard<std::mutex> lock(childSourceMutex_);
+		nativeReceiverSettings_ = settings_;
+		nativeReceiverWidth_ = width_;
+		nativeReceiverHeight_ = height_;
+		nativeReceiverConfigApplied_ = true;
+	}
 
 	logInfo("Created internal native receiver source for VDO.Ninja Source");
 }
 
 void VDONinjaSource::releaseNativeReceiverSource()
 {
-	if (!nativeReceiverSource_) {
+	obs_source_t *child = nullptr;
+	{
+		std::lock_guard<std::mutex> lock(childSourceMutex_);
+		child = nativeReceiverSource_;
+		if (!child) {
+			return;
+		}
+		nativeReceiverSource_ = nullptr;
+		nativeReceiverConfigApplied_ = false;
+		nativeReceiverWidth_ = 0;
+		nativeReceiverHeight_ = 0;
+		nativeReceiverSettings_ = SourceSettings{};
+	}
+
+	if (!child) {
 		return;
 	}
 
-	signal_handler_t *sh = obs_source_get_signal_handler(nativeReceiverSource_);
+	signal_handler_t *sh = obs_source_get_signal_handler(child);
 	signal_handler_disconnect(sh, "audio_activate", vdoninja_source_child_audio_activate, callbackState_.get());
 	signal_handler_disconnect(sh, "audio_deactivate", vdoninja_source_child_audio_deactivate, callbackState_.get());
-	obs_source_remove_audio_capture_callback(nativeReceiverSource_, vdoninja_source_child_audio_capture,
-	                                         callbackState_.get());
-	detachChildLifecycleState(nativeReceiverSource_);
+	obs_source_remove_audio_capture_callback(child, vdoninja_source_child_audio_capture, callbackState_.get());
+	detachChildLifecycleState(child);
 
-	obs_source_set_audio_active(source_, false);
-	obs_source_release(nativeReceiverSource_);
-	nativeReceiverSource_ = nullptr;
-	nativeReceiverConfigApplied_ = false;
-	nativeReceiverWidth_ = 0;
-	nativeReceiverHeight_ = 0;
-	nativeReceiverSettings_ = SourceSettings{};
+	setObsSourceAudioActiveSafe(source_, false);
+	obs_source_release(child);
 }
 
 void VDONinjaSource::updateNativeReceiverSource()
@@ -2840,30 +2995,61 @@ void VDONinjaSource::updateNativeReceiverSource()
 	}
 
 	ensureNativeReceiverSource();
-	if (!nativeReceiverSource_) {
+	obs_source_t *child = nullptr;
+	bool configApplied = false;
+	uint32_t configuredWidth = 0;
+	uint32_t configuredHeight = 0;
+	SourceSettings configuredSettings;
+	{
+		std::lock_guard<std::mutex> lock(childSourceMutex_);
+		child = nativeReceiverSource_;
+		if (child) {
+			child = obs_source_get_ref(child);
+		}
+		configApplied = nativeReceiverConfigApplied_;
+		configuredWidth = nativeReceiverWidth_;
+		configuredHeight = nativeReceiverHeight_;
+		configuredSettings = nativeReceiverSettings_;
+	}
+
+	if (!child) {
 		return;
 	}
 
-	if (nativeReceiverConfigApplied_ && nativeReceiverWidth_ == width_ && nativeReceiverHeight_ == height_ &&
-	    sourceSettingsEqualForChild(nativeReceiverSettings_, settings_)) {
-		syncChildLifecycleState(nativeReceiverSource_);
+	if (configApplied && configuredWidth == width_ && configuredHeight == height_ &&
+	    sourceSettingsEqualForChild(configuredSettings, settings_)) {
+		syncChildLifecycleState(child);
+		obs_source_release(child);
 		return;
 	}
 
 	obs_data_t *nativeSettings = createNativeReceiverSourceSettings(settings_, width_, height_);
-	obs_source_update(nativeReceiverSource_, nativeSettings);
+	obs_source_update(child, nativeSettings);
 	obs_data_release(nativeSettings);
-	nativeReceiverSettings_ = settings_;
-	nativeReceiverWidth_ = width_;
-	nativeReceiverHeight_ = height_;
-	nativeReceiverConfigApplied_ = true;
-	syncChildLifecycleState(nativeReceiverSource_);
+	{
+		std::lock_guard<std::mutex> lock(childSourceMutex_);
+		if (nativeReceiverSource_ == child) {
+			nativeReceiverSettings_ = settings_;
+			nativeReceiverWidth_ = width_;
+			nativeReceiverHeight_ = height_;
+			nativeReceiverConfigApplied_ = true;
+		}
+	}
+	syncChildLifecycleState(child);
+	obs_source_release(child);
 }
 
 void VDONinjaSource::ensureBrowserSource()
 {
-	if (isInternalNativeSource() || usingNativeReceiver() || browserSource_ || settings_.streamId.empty()) {
+	if (isInternalNativeSource() || usingNativeReceiver() || settings_.streamId.empty()) {
 		return;
+	}
+
+	{
+		std::lock_guard<std::mutex> lock(childSourceMutex_);
+		if (browserSource_) {
+			return;
+		}
 	}
 
 	const std::string url = buildViewerUrl();
@@ -2872,47 +3058,68 @@ void VDONinjaSource::ensureBrowserSource()
 	}
 
 	obs_data_t *browserSettings = createBrowserSourceSettings(url, width_, height_);
-	browserSource_ = obs_source_create_private("browser_source", browserSourceName_.c_str(), browserSettings);
+	obs_source_t *created = obs_source_create_private("browser_source", browserSourceName_.c_str(), browserSettings);
 	obs_data_release(browserSettings);
 
-	if (!browserSource_) {
+	if (!created) {
 		logError("Failed to create internal browser source for VDO.Ninja Source");
 		return;
 	}
 
-	obs_source_add_audio_capture_callback(browserSource_, vdoninja_source_child_audio_capture, callbackState_.get());
-	signal_handler_t *sh = obs_source_get_signal_handler(browserSource_);
+	{
+		std::lock_guard<std::mutex> lock(childSourceMutex_);
+		if (browserSource_) {
+			obs_source_release(created);
+			return;
+		}
+		browserSource_ = created;
+	}
+
+	obs_source_add_audio_capture_callback(created, vdoninja_source_child_audio_capture, callbackState_.get());
+	signal_handler_t *sh = obs_source_get_signal_handler(created);
 	signal_handler_connect(sh, "audio_activate", vdoninja_source_child_audio_activate, callbackState_.get());
 	signal_handler_connect(sh, "audio_deactivate", vdoninja_source_child_audio_deactivate, callbackState_.get());
-	obs_source_set_audio_active(source_, obs_source_audio_active(browserSource_));
-	syncChildLifecycleState(browserSource_);
-	browserSourceUrl_ = url;
-	browserSourceWidth_ = width_;
-	browserSourceHeight_ = height_;
-	browserSourceConfigApplied_ = true;
+	setObsSourceAudioActiveSafe(source_, obs_source_audio_active(created));
+	syncChildLifecycleState(created);
+	{
+		std::lock_guard<std::mutex> lock(childSourceMutex_);
+		browserSourceUrl_ = url;
+		browserSourceWidth_ = width_;
+		browserSourceHeight_ = height_;
+		browserSourceConfigApplied_ = true;
+	}
 
 	logInfo("Created internal Browser Source for VDO.Ninja Source");
 }
 
 void VDONinjaSource::releaseBrowserSource()
 {
-	if (!browserSource_) {
+	obs_source_t *child = nullptr;
+	{
+		std::lock_guard<std::mutex> lock(childSourceMutex_);
+		child = browserSource_;
+		if (!child) {
+			return;
+		}
+		browserSource_ = nullptr;
+		browserSourceConfigApplied_ = false;
+		browserSourceWidth_ = 0;
+		browserSourceHeight_ = 0;
+		browserSourceUrl_.clear();
+	}
+
+	if (!child) {
 		return;
 	}
 
-	signal_handler_t *sh = obs_source_get_signal_handler(browserSource_);
+	signal_handler_t *sh = obs_source_get_signal_handler(child);
 	signal_handler_disconnect(sh, "audio_activate", vdoninja_source_child_audio_activate, callbackState_.get());
 	signal_handler_disconnect(sh, "audio_deactivate", vdoninja_source_child_audio_deactivate, callbackState_.get());
-	obs_source_remove_audio_capture_callback(browserSource_, vdoninja_source_child_audio_capture, callbackState_.get());
-	detachChildLifecycleState(browserSource_);
+	obs_source_remove_audio_capture_callback(child, vdoninja_source_child_audio_capture, callbackState_.get());
+	detachChildLifecycleState(child);
 
-	obs_source_set_audio_active(source_, false);
-	obs_source_release(browserSource_);
-	browserSource_ = nullptr;
-	browserSourceConfigApplied_ = false;
-	browserSourceWidth_ = 0;
-	browserSourceHeight_ = 0;
-	browserSourceUrl_.clear();
+	setObsSourceAudioActiveSafe(source_, false);
+	obs_source_release(child);
 }
 
 void VDONinjaSource::updateBrowserSource()
@@ -2929,24 +3136,47 @@ void VDONinjaSource::updateBrowserSource()
 	}
 
 	ensureBrowserSource();
-	if (!browserSource_) {
+	obs_source_t *child = nullptr;
+	bool configApplied = false;
+	uint32_t configuredWidth = 0;
+	uint32_t configuredHeight = 0;
+	std::string configuredUrl;
+	{
+		std::lock_guard<std::mutex> lock(childSourceMutex_);
+		child = browserSource_;
+		if (child) {
+			child = obs_source_get_ref(child);
+		}
+		configApplied = browserSourceConfigApplied_;
+		configuredWidth = browserSourceWidth_;
+		configuredHeight = browserSourceHeight_;
+		configuredUrl = browserSourceUrl_;
+	}
+
+	if (!child) {
 		return;
 	}
 
-	if (browserSourceConfigApplied_ && browserSourceWidth_ == width_ && browserSourceHeight_ == height_ &&
-	    browserSourceUrl_ == url) {
-		syncChildLifecycleState(browserSource_);
+	if (configApplied && configuredWidth == width_ && configuredHeight == height_ && configuredUrl == url) {
+		syncChildLifecycleState(child);
+		obs_source_release(child);
 		return;
 	}
 
 	obs_data_t *browserSettings = createBrowserSourceSettings(url, width_, height_);
-	obs_source_update(browserSource_, browserSettings);
+	obs_source_update(child, browserSettings);
 	obs_data_release(browserSettings);
-	browserSourceUrl_ = url;
-	browserSourceWidth_ = width_;
-	browserSourceHeight_ = height_;
-	browserSourceConfigApplied_ = true;
-	syncChildLifecycleState(browserSource_);
+	{
+		std::lock_guard<std::mutex> lock(childSourceMutex_);
+		if (browserSource_ == child) {
+			browserSourceUrl_ = url;
+			browserSourceWidth_ = width_;
+			browserSourceHeight_ = height_;
+			browserSourceConfigApplied_ = true;
+		}
+	}
+	syncChildLifecycleState(child);
+	obs_source_release(child);
 }
 
 void VDONinjaSource::releaseChildSources()
@@ -2977,49 +3207,87 @@ void VDONinjaSource::syncChildLifecycleState(obs_source_t *child)
 	}
 
 	const bool shouldShow = showing_.load() || (source_ && obs_source_showing(source_));
-	if (shouldShow && !childShowing_) {
-		obs_source_inc_showing(child);
-		childShowing_ = true;
-	} else if (!shouldShow && childShowing_) {
-		obs_source_dec_showing(child);
-		childShowing_ = false;
+	const bool shouldBeActive = active_.load() || (source_ && obs_source_active(source_));
+	bool incShowing = false;
+	bool decShowing = false;
+	bool incActive = false;
+	bool decActive = false;
+	{
+		std::lock_guard<std::mutex> lock(childSourceMutex_);
+		if (shouldShow && !childShowing_) {
+			childShowing_ = true;
+			incShowing = true;
+		} else if (!shouldShow && childShowing_) {
+			childShowing_ = false;
+			decShowing = true;
+		}
+
+		if (shouldBeActive && !childActive_) {
+			childActive_ = true;
+			incActive = true;
+		} else if (!shouldBeActive && childActive_) {
+			childActive_ = false;
+			decActive = true;
+		}
 	}
 
-	const bool shouldBeActive = active_.load() || (source_ && obs_source_active(source_));
-	if (shouldBeActive && !childActive_) {
+	if (incShowing) {
+		obs_source_inc_showing(child);
+	} else if (decShowing) {
+		obs_source_dec_showing(child);
+	}
+
+	if (incActive) {
 		obs_source_inc_active(child);
-		childActive_ = true;
-	} else if (!shouldBeActive && childActive_) {
+	} else if (decActive) {
 		obs_source_dec_active(child);
-		childActive_ = false;
 	}
 }
 
 void VDONinjaSource::detachChildLifecycleState(obs_source_t *child)
 {
+	bool decShowing = false;
+	bool decActive = false;
+
 	if (!child) {
+		std::lock_guard<std::mutex> lock(childSourceMutex_);
 		childShowing_ = false;
 		childActive_ = false;
 		return;
 	}
 
-	if (childShowing_) {
-		obs_source_dec_showing(child);
-		childShowing_ = false;
+	{
+		std::lock_guard<std::mutex> lock(childSourceMutex_);
+		if (childShowing_) {
+			childShowing_ = false;
+			decShowing = true;
+		}
+		if (childActive_) {
+			childActive_ = false;
+			decActive = true;
+		}
 	}
-	if (childActive_) {
+
+	if (decShowing) {
+		obs_source_dec_showing(child);
+	}
+	if (decActive) {
 		obs_source_dec_active(child);
-		childActive_ = false;
 	}
 }
 
-obs_source_t *VDONinjaSource::getActiveChildSource() const
+obs_source_t *VDONinjaSource::acquireActiveChildSource() const
 {
 	if (isInternalNativeSource()) {
 		return nullptr;
 	}
 
-	return usingNativeReceiver() ? nativeReceiverSource_ : browserSource_;
+	std::lock_guard<std::mutex> lock(childSourceMutex_);
+	obs_source_t *child = usingNativeReceiver() ? nativeReceiverSource_ : browserSource_;
+	if (child) {
+		child = obs_source_get_ref(child);
+	}
+	return child;
 }
 
 std::string VDONinjaSource::buildViewerUrl() const
@@ -3059,16 +3327,12 @@ void VDONinjaSource::onChildAudioCaptured(const struct audio_data *audioData, bo
 
 void VDONinjaSource::onChildAudioActivated()
 {
-	if (source_) {
-		obs_source_set_audio_active(source_, true);
-	}
+	setObsSourceAudioActiveSafe(source_, true);
 }
 
 void VDONinjaSource::onChildAudioDeactivated()
 {
-	if (source_) {
-		obs_source_set_audio_active(source_, false);
-	}
+	setObsSourceAudioActiveSafe(source_, false);
 }
 
 void VDONinjaSource::drainAsyncCallbacks()
