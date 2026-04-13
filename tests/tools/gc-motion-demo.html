@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>GC Alpha Motion Demo</title>
+  <style>
+    html, body {
+      margin: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #05070a;
+      color: #f4f7fb;
+      font-family: Consolas, "Courier New", monospace;
+    }
+
+    canvas {
+      display: block;
+      width: 100vw;
+      height: 100vh;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="demo"></canvas>
+  <script>
+    const canvas = document.getElementById("demo");
+    const ctx = canvas.getContext("2d");
+    let frame = 0;
+    const blobs = Array.from({ length: 10 }, (_, i) => ({
+      radius: 28 + i * 7,
+      color: `hsl(${(i * 36) % 360} 88% 58%)`,
+      speed: 0.008 + i * 0.0015,
+      offset: i * 0.7
+    }));
+
+    function resize() {
+      canvas.width = window.innerWidth * devicePixelRatio;
+      canvas.height = window.innerHeight * devicePixelRatio;
+      ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
+    }
+
+    function draw(ts) {
+      frame += 1;
+      const w = window.innerWidth;
+      const h = window.innerHeight;
+      ctx.fillStyle = "#05070a";
+      ctx.fillRect(0, 0, w, h);
+
+      const gradient = ctx.createLinearGradient(0, 0, w, h);
+      gradient.addColorStop(0, "#0d1422");
+      gradient.addColorStop(1, "#15263f");
+      ctx.fillStyle = gradient;
+      ctx.fillRect(0, 0, w, h);
+
+      for (let y = 0; y < h; y += 48) {
+        for (let x = 0; x < w; x += 48) {
+          ctx.fillStyle = ((x + y) / 48) % 2 === 0 ? "rgba(255,255,255,0.03)" : "rgba(0,0,0,0.06)";
+          ctx.fillRect(x, y, 48, 48);
+        }
+      }
+
+      blobs.forEach((blob, i) => {
+        const t = ts * blob.speed + blob.offset;
+        const x = w * 0.5 + Math.cos(t) * (w * (0.18 + i * 0.015));
+        const y = h * 0.5 + Math.sin(t * 1.4) * (h * (0.22 + i * 0.012));
+        ctx.beginPath();
+        ctx.fillStyle = blob.color;
+        ctx.arc(x, y, blob.radius, 0, Math.PI * 2);
+        ctx.fill();
+      });
+
+      ctx.strokeStyle = "rgba(255,255,255,0.18)";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(40, h - 70);
+      for (let i = 0; i < 180; i += 1) {
+        const x = 40 + i * 6;
+        const y = h - 70 - Math.sin((frame + i) * 0.08) * 28;
+        ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+
+      ctx.fillStyle = "#f4f7fb";
+      ctx.font = "700 34px Consolas, monospace";
+      ctx.fillText("GC ALPHA MOTION DEMO", 36, 56);
+      ctx.font = "600 22px Consolas, monospace";
+      ctx.fillText(`frame=${frame}`, 36, 92);
+      ctx.fillText(`time=${(ts / 1000).toFixed(2)}s`, 36, 122);
+
+      requestAnimationFrame(draw);
+    }
+
+    window.addEventListener("resize", resize);
+    resize();
+    requestAnimationFrame(draw);
+  </script>
+</body>
+</html>

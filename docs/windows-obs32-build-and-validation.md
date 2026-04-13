@@ -186,6 +186,65 @@ Important:
 4. Confirm the loaded plugin module path from the OBS process.
 5. Confirm the latest portable OBS log records the expected connect/publish/view sequence.
 
+## Alpha Validation
+
+Status as of `2026-04-12`: validated locally with `game-capture` publishing `VP9 + Alpha` into the OBS native receiver path.
+
+Expected behavior:
+
+- OBS native receiver upgrades to dual-track VP9 alpha and reaches `Native receiver alpha composition active`.
+- A normal Chromium viewer can watch the same stream at the same time, but it stays standard color video instead of composited transparency.
+- When the publisher exits, OBS clears the native video output instead of holding the last frame.
+
+Tracked motion source used for these checks:
+
+- `tests/tools/gc-motion-demo.html`
+
+Local automation wrappers that now cover the validated path:
+
+### Concurrent OBS + Browser alpha check
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\run-vdoninja-alpha-concurrent-smoke.ps1
+```
+
+What it does:
+
+1. syncs the installed plugin DLL into the portable OBS plugin path used on this machine
+2. launches the tracked motion-demo window in Chrome
+3. launches `game-capture` headless in `VP9 + Alpha`
+4. runs a standard Chromium VDO.Ninja viewer against the same stream
+5. runs the OBS native receiver smoke against the same stream
+6. verifies:
+   - browser viewer received exactly one video track with inbound media
+   - OBS log reached `Native receiver alpha composition active`
+   - OBS log did not hit stale-video timeout or queue-drop storms
+
+### Publisher teardown / clear check
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\run-vdoninja-alpha-teardown-smoke.ps1
+```
+
+What it does:
+
+1. syncs the installed plugin DLL into the portable OBS plugin path used on this machine
+2. launches the tracked motion-demo window in Chrome
+3. launches `game-capture` headless in `VP9 + Alpha`
+4. waits long enough for alpha composition to become active
+5. lets the publisher exit while OBS stays alive
+6. verifies:
+   - OBS log reached `Native receiver alpha composition active`
+   - OBS log recorded peer disconnect
+   - OBS log recorded `Clearing native video output (peer-disconnected)`
+   - the end-of-run screenshot from the empty test scene is near-blank
+
+These wrappers intentionally validate against the machine-specific portable plugin path:
+
+- `_obs-portable/config/obs-studio/plugins/obs-vdoninja/bin/64bit/obs-vdoninja.dll`
+
+That avoids the common Windows mistake of testing a stale portable plugin copy while the repo build under `install-obs32` is newer.
+
 ## Forced Fallback Test Recipe
 
 Use this only for regression validation, and always restore the file afterward.

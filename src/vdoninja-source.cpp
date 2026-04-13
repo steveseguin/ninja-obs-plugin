@@ -721,7 +721,8 @@ static obs_properties_t *vdoninja_source_properties(void *)
 	    props, "experimental_note",
 	    tr("VDONinjaSource.ModeNote",
 	       "Default mode uses an internal Browser Source. Native Receiver (Experimental) uses the native "
-	       "VP9/H.264/Opus WebRTC receive path. Compatible dual-track VP9 senders can preserve transparency."),
+	       "VP9/H.264/Opus WebRTC receive path. Compatible dual-track VP9 senders can preserve transparency "
+	       "here; browser viewers stay standard color video."),
 	    OBS_TEXT_INFO);
 	obs_property_text_set_info_type(note, OBS_TEXT_INFO_NORMAL);
 	obs_property_text_set_info_word_wrap(note, true);
@@ -733,7 +734,7 @@ static obs_properties_t *vdoninja_source_properties(void *)
 	    tr("VDONinjaSource.UseNativeReceiver.Description",
 	       "Unchecked uses the simple browser-backed viewer path. Checked enables the experimental native "
 	       "VP9/H.264/Opus receiver path with slower retry/backoff after failures. Dual-track VP9 alpha "
-	       "transparency requires this mode."));
+	       "transparency requires this mode and a compatible sender."));
 	obs_property_set_modified_callback(useNative, vdoninja_source_native_mode_modified);
 
 	obs_properties_add_text(props, "stream_id", tr("StreamID", "Stream ID"), OBS_TEXT_DEFAULT);
@@ -785,7 +786,8 @@ static void vdoninja_source_defaults(obs_data_t *settings)
 	obs_data_set_default_string(
 	    settings, "experimental_note",
 	    "Default mode uses an internal Browser Source. Native Receiver (Experimental) uses the native "
-	    "VP9/H.264/Opus WebRTC receive path. Compatible dual-track VP9 senders can preserve transparency.");
+	    "VP9/H.264/Opus WebRTC receive path. Compatible dual-track VP9 senders can preserve transparency "
+	    "here; browser viewers stay standard color video.");
 	obs_data_set_default_bool(settings, "use_native_receiver", false);
 	obs_data_set_default_string(settings, "stream_id", "");
 	obs_data_set_default_string(settings, "room_id", "");
