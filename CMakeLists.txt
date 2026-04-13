@@ -535,6 +535,7 @@ if(BUILD_TESTS)
     # Unit tests
     add_executable(vdoninja-tests
         tests/test-alpha-sync.cpp
+        tests/test-peer-manager.cpp
         tests/test-utils.cpp
         tests/test-reliability.cpp
         tests/test-json.cpp

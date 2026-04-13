@@ -69,31 +69,10 @@ TrackType classifyIncomingTrack(const std::shared_ptr<PeerInfo> &peer, const std
 	}
 
 	const auto desc = track->description();
-	if (desc.type() == "audio") {
-		return TrackType::Audio;
-	}
-
-	const std::string trackMid = track->mid();
-	if (!trackMid.empty()) {
-		if (trackMid == "video-alpha") {
-			return TrackType::AlphaVideo;
-		}
-		if (peer) {
-			if (peer->alphaVideoTrack && peer->alphaVideoTrack->mid() == trackMid) {
-				return TrackType::AlphaVideo;
-			}
-			if (peer->videoTrack && peer->videoTrack->mid() == trackMid) {
-				return TrackType::Video;
-			}
-		}
-	}
-
-	if (peer && peer->videoTrack && peer->alphaVideoTrack && track != peer->videoTrack &&
-	    track == peer->alphaVideoTrack) {
-		return TrackType::AlphaVideo;
-	}
-
-	return TrackType::Video;
+	const std::string videoMid = (peer && peer->videoTrack) ? peer->videoTrack->mid() : "";
+	const std::string alphaMid = (peer && peer->alphaVideoTrack) ? peer->alphaVideoTrack->mid() : "";
+	const bool matchesAlphaTrackHandle = peer && peer->alphaVideoTrack && track == peer->alphaVideoTrack;
+	return classifyIncomingTrackKind(desc.type(), track->mid(), videoMid, alphaMid, matchesAlphaTrackHandle);
 }
 
 const SdpOfferedCodec *findPreferredOfferedCodec(const SdpOfferedMediaSection &section, const char *codecName)
@@ -1060,11 +1039,23 @@ void VDONinjaPeerManager::prepareViewerTracks(const std::shared_ptr<PeerInfo> &p
 							                                     rtc::Description::Direction::RecvOnly);
 							receiveAlpha.addVP9Codec(alphaCodec->payloadType);
 							auto alphaTrack = peer->pc->addTrack(receiveAlpha);
-							peer->alphaVideoTrack = alphaTrack;
-							logInfo("Prepared native recvonly VP9 alpha video track for %s (mid=%s)",
-							        peer->uuid.c_str(), alphaTrack ? alphaTrack->mid().c_str() : "");
-							if (trackCallback && alphaTrack) {
-								trackCallback(peer->uuid, TrackType::AlphaVideo, alphaTrack);
+							const std::string alphaTrackMid = alphaTrack ? alphaTrack->mid() : "";
+							if (!alphaTrackMid.empty() && alphaTrackMid == section.mid) {
+								peer->alphaVideoTrack = alphaTrack;
+								logInfo("Prepared native recvonly VP9 alpha video track for %s (mid=%s)",
+								        peer->uuid.c_str(), alphaTrackMid.c_str());
+								if (trackCallback && alphaTrack) {
+									trackCallback(peer->uuid, TrackType::AlphaVideo, alphaTrack);
+								}
+							} else {
+								peer->videoTrack = alphaTrack;
+								logInfo("Prepared renegotiated VP9 alpha receive handle for %s but libdatachannel bound it "
+								        "to primary mid=%s; refreshing native video callbacks before waiting for "
+								        "video-alpha onTrack",
+								        peer->uuid.c_str(), alphaTrackMid.empty() ? "(unset)" : alphaTrackMid.c_str());
+								if (trackCallback && alphaTrack) {
+									trackCallback(peer->uuid, TrackType::Video, alphaTrack);
+								}
 							}
 						}
 					}

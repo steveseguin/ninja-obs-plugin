@@ -17,12 +17,10 @@
 
 #include "vdoninja-common.h"
 #include "vdoninja-signaling.h"
+#include "vdoninja-track-utils.h"
 
 namespace vdoninja
 {
-
-// Track types
-enum class TrackType { Audio, Video, AlphaVideo };
 
 // Media track info
 struct MediaTrack {

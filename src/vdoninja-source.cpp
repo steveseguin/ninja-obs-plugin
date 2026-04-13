@@ -1660,6 +1660,20 @@ void VDONinjaSource::onAlphaVideoTrack(const std::string &uuid, std::shared_ptr<
 		return;
 	}
 
+	std::string currentVideoMid;
+	{
+		std::lock_guard<std::mutex> stateLock(nativeStateMutex_);
+		if (videoTrack_) {
+			currentVideoMid = videoTrack_->mid();
+		}
+	}
+	if (!currentVideoMid.empty() && !track->mid().empty() && track->mid() == currentVideoMid) {
+		logInfo("Alpha track for %s reused primary video mid=%s; reattaching it as the native video track",
+		        uuid.c_str(), track->mid().c_str());
+		onVideoTrack(uuid, track);
+		return;
+	}
+
 	bool resetPrimaryVp9Decoder = false;
 	{
 		std::scoped_lock stateLock(nativeStateMutex_, videoDecodeMutex_, alphaAssemblyMutex_, alphaDecodeMutex_);
