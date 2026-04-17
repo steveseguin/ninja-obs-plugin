@@ -61,6 +61,7 @@ try {
     $publisherProc = Start-Process -FilePath $gameCaptureExePath -ArgumentList @(
             "--headless",
             "--stream=$StreamId",
+            "--password=false",
             "--video-codec=vp9",
             "--alpha-workflow",
             "--resolution=1280x720",
@@ -77,6 +78,7 @@ try {
     $smokeOutput = & powershell -ExecutionPolicy Bypass -File $smokeScriptPath `
         -Mode native `
         -StreamId $StreamId `
+        -Password false `
         -SkipPublisher `
         -InstallPrefix $InstallPrefix `
         -ObsWebSocketPort $ObsWebSocketPort `

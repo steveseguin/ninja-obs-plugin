@@ -2,10 +2,10 @@ param(
     [ValidateSet("browser", "native")]
     [string]$Mode = "native",
     [string]$StreamId = "codexNativeSmoke5",
-    [string]$Password = "",
+    [string]$Password = "false",
     [string]$RoomId = "",
-    [string]$PushUrl = "https://vdo.ninja/?push=codexNativeSmoke5",
-    [string]$ViewUrl = "https://vdo.ninja/?view=codexNativeSmoke5",
+    [string]$PushUrl = "https://vdo.ninja/?push=codexNativeSmoke5&password=false",
+    [string]$ViewUrl = "https://vdo.ninja/?view=codexNativeSmoke5&password=false",
     [string]$ObsExe = ".\\_obs-portable\\bin\\64bit\\obs64.exe",
     [string]$ObsWorkingDirectory = ".\\_obs-portable\\bin\\64bit",
     [string]$InstallPrefix = ".\\install",

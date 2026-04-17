@@ -42,7 +42,7 @@ Stop-AlphaMotionDemoProcesses
 New-Item -ItemType Directory -Force -Path $chromeProfile | Out-Null
 
 $motionDemoUri = "file:///" + ($motionDemoPath -replace '\\', '/')
-$viewUrl = "https://vdo.ninja/?view=$([Uri]::EscapeDataString($StreamId))&cleanoutput=1"
+$viewUrl = "https://vdo.ninja/?view=$([Uri]::EscapeDataString($StreamId))&password=false&cleanoutput=1"
 
 $chromeProc = $null
 $publisherProc = $null
@@ -62,6 +62,7 @@ try {
     $publisherProc = Start-Process -FilePath $gameCaptureExePath -ArgumentList @(
             "--headless",
             "--stream=$StreamId",
+            "--password=false",
             "--video-codec=vp9",
             "--alpha-workflow",
             "--resolution=1280x720",
@@ -82,6 +83,7 @@ try {
     $smokeOutput = & powershell -ExecutionPolicy Bypass -File $smokeScriptPath `
         -Mode native `
         -StreamId $StreamId `
+        -Password false `
         -SkipPublisher `
         -InstallPrefix $InstallPrefix `
         -ObsWebSocketPort $ObsWebSocketPort `
