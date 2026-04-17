@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.40] - 2026-04-17
+
 ### Added
 - VP9 native receiver support: plugin now negotiates VP9 (preferred) with H.264 fallback when receiving streams via the native receiver path.
 - RFC 9628 VP9 RTP payload descriptor parser (`vdoninja-rtp-utils`) with full unit test coverage (B/E frame reassembly, PictureID 7-bit and 15-bit, layer indices, flexible mode P_DIFFs, scalability structure).
