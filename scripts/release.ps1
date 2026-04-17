@@ -420,7 +420,8 @@ function Resolve-ClangFormat {
     }
 
     # Check MSVC/LLVM bundled clang-format (Windows)
-    if ($IsWindows -or $env:OS -eq "Windows_NT") {
+    $runningOnWindows = (($PSVersionTable.PSEdition -eq "Desktop") -or ($env:OS -eq "Windows_NT"))
+    if ($runningOnWindows) {
         $vsWhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
         if (Test-Path $vsWhere) {
             $vsPath = & $vsWhere -latest -property installationPath 2>$null
