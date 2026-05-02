@@ -557,7 +557,20 @@ jobs:
             "-DENABLE_SCRIPTING=OFF" `
             "-DOBS_VERSION_OVERRIDE=${{ env.OBS_VERSION }}"
           cmake --build --preset windows-x64 --config RelWithDebInfo --parallel
-          cmake --install build_x64 --prefix "${{ github.workspace }}\obs-sdk" --config RelWithDebInfo
+          $obsSdkPrefix = "${{ github.workspace }}\obs-sdk"
+          $installOutput = cmake --install build_x64 --prefix $obsSdkPrefix --config RelWithDebInfo 2>&1
+          $installExit = $LASTEXITCODE
+          $installOutput | ForEach-Object { Write-Host $_ }
+          $frontendLibExists = (
+            (Test-Path "build_x64\frontend\api\RelWithDebInfo\obs-frontend-api.lib") -or
+            (Test-Path "build_x64\UI\obs-frontend-api\RelWithDebInfo\obs-frontend-api.lib")
+          )
+          if ($installExit -ne 0) {
+            if (-not (Test-Path "build_x64\libobs\RelWithDebInfo\obs.lib") -or -not $frontendLibExists) {
+              throw "OBS SDK install failed before required OBS import libraries were available."
+            }
+            Write-Warning "OBS SDK install returned $installExit after required import libraries were built; continuing with manual SDK staging."
+          }
           # Copy headers that aren't installed by default
           # OBS headers expect: include/obs.h, include/util/c99defs.h (not include/obs/...)
           New-Item -ItemType Directory -Force -Path "${{ github.workspace }}\obs-sdk\include"

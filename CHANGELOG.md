@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Fixed the Windows release workflow to continue staging the plugin SDK when OBS 32.0.4 builds the required import libraries but its optional `cmake --install` payload fails while installing unrelated OBS runtime components.
+
 ## [1.1.41] - 2026-05-02
 
 ### Fixed
