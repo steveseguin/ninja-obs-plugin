@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.41] - 2026-05-02
+
 ### Fixed
 - Fixed Windows release builds using OBS-deps `rtc/` headers instead of the libdatachannel headers that match the linked static library. This corrupted `rtc::Configuration` fields and could produce invalid viewer SDP such as huge `a=max-message-size` values, leaving VDO.Ninja view links blank.
 
