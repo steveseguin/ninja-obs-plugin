@@ -9,8 +9,8 @@
 #include <cctype>
 #include <cstdint>
 #include <cstring>
-#include <sstream>
 #include <random>
+#include <sstream>
 
 #include "vdoninja-utils.h"
 
@@ -117,9 +117,8 @@ std::string constrainViewerOfferToNativeCodecs(const std::string &sdp)
 std::string normalizeEscapedSdpLineEndings(const std::string &sdp)
 {
 	const bool hasActualLineBreaks = sdp.find('\n') != std::string::npos || sdp.find('\r') != std::string::npos;
-	const bool hasEscapedLineBreaks =
-	    sdp.find("\\r\\n") != std::string::npos || sdp.find("\\n") != std::string::npos ||
-	    sdp.find("\\r") != std::string::npos;
+	const bool hasEscapedLineBreaks = sdp.find("\\r\\n") != std::string::npos || sdp.find("\\n") != std::string::npos ||
+	                                  sdp.find("\\r") != std::string::npos;
 	if (hasActualLineBreaks || !hasEscapedLineBreaks) {
 		return sdp;
 	}
@@ -1019,14 +1018,14 @@ void VDONinjaPeerManager::prepareViewerTracks(const std::shared_ptr<PeerInfo> &p
 	}
 
 	const auto offeredSections = parseOfferedMediaSections(offerSdp);
-	logInfo("Native viewer offer for %s parsed into %zu media sections: %s", peer->uuid.c_str(),
-	        offeredSections.size(), describeOfferedSections(offeredSections).c_str());
+	logInfo("Native viewer offer for %s parsed into %zu media sections: %s", peer->uuid.c_str(), offeredSections.size(),
+	        describeOfferedSections(offeredSections).c_str());
 	if (offeredSections.empty()) {
 		const bool hasActualLineBreaks =
 		    offerSdp.find('\n') != std::string::npos || offerSdp.find('\r') != std::string::npos;
-		const bool hasEscapedLineBreaks =
-		    offerSdp.find("\\r\\n") != std::string::npos || offerSdp.find("\\n") != std::string::npos ||
-		    offerSdp.find("\\r") != std::string::npos;
+		const bool hasEscapedLineBreaks = offerSdp.find("\\r\\n") != std::string::npos ||
+		                                  offerSdp.find("\\n") != std::string::npos ||
+		                                  offerSdp.find("\\r") != std::string::npos;
 		logWarning("Native viewer offer for %s contained no audio/video media sections (bytes=%zu, actual_newlines=%s, "
 		           "escaped_newlines=%s)",
 		           peer->uuid.c_str(), offerSdp.size(), hasActualLineBreaks ? "yes" : "no",
@@ -1062,10 +1061,11 @@ void VDONinjaPeerManager::prepareViewerTracks(const std::shared_ptr<PeerInfo> &p
 								}
 							} else {
 								peer->videoTrack = alphaTrack;
-								logInfo("Prepared renegotiated VP9 alpha receive handle for %s but libdatachannel bound it "
-								        "to primary mid=%s; refreshing native video callbacks before waiting for "
-								        "video-alpha onTrack",
-								        peer->uuid.c_str(), alphaTrackMid.empty() ? "(unset)" : alphaTrackMid.c_str());
+								logInfo(
+								    "Prepared renegotiated VP9 alpha receive handle for %s but libdatachannel bound it "
+								    "to primary mid=%s; refreshing native video callbacks before waiting for "
+								    "video-alpha onTrack",
+								    peer->uuid.c_str(), alphaTrackMid.empty() ? "(unset)" : alphaTrackMid.c_str());
 								if (trackCallback && alphaTrack) {
 									trackCallback(peer->uuid, TrackType::Video, alphaTrack);
 								}
@@ -1185,17 +1185,16 @@ void VDONinjaPeerManager::onSignalingOffer(const std::string &uuid, const std::s
 	try {
 		const bool hasActualLineBreaks =
 		    constrainedSdp.find('\n') != std::string::npos || constrainedSdp.find('\r') != std::string::npos;
-		const bool hasEscapedLineBreaks =
-		    constrainedSdp.find("\\r\\n") != std::string::npos || constrainedSdp.find("\\n") != std::string::npos ||
-		    constrainedSdp.find("\\r") != std::string::npos;
+		const bool hasEscapedLineBreaks = constrainedSdp.find("\\r\\n") != std::string::npos ||
+		                                  constrainedSdp.find("\\n") != std::string::npos ||
+		                                  constrainedSdp.find("\\r") != std::string::npos;
 		logInfo("Applying native viewer offer for %s (session=%s, bytes=%zu, actual_newlines=%s, escaped_newlines=%s, "
 		        "signaling=%d)",
 		        uuid.c_str(), session.c_str(), constrainedSdp.size(), hasActualLineBreaks ? "yes" : "no",
 		        hasEscapedLineBreaks ? "yes" : "no", static_cast<int>(peer->pc->signalingState()));
 		prepareViewerTracks(peer, constrainedSdp);
 		logInfo("Prepared native viewer tracks for %s (video=%s, alpha=%s, audio=%s)", uuid.c_str(),
-		        peer->videoTrack ? "yes" : "no", peer->alphaVideoTrack ? "yes" : "no",
-		        peer->audioTrack ? "yes" : "no");
+		        peer->videoTrack ? "yes" : "no", peer->alphaVideoTrack ? "yes" : "no", peer->audioTrack ? "yes" : "no");
 		peer->pc->setRemoteDescription(rtc::Description(constrainedSdp, rtc::Description::Type::Offer));
 		logInfo("Applied remote offer for %s; signaling state is now %d", uuid.c_str(),
 		        static_cast<int>(peer->pc->signalingState()));

@@ -522,8 +522,7 @@ std::vector<std::string> buildIncomingSignalingPasswordCandidates(const std::str
 {
 	std::vector<std::string> candidates;
 	auto addCandidate = [&candidates](const std::string &password) {
-		if (password.empty() ||
-		    std::find(candidates.begin(), candidates.end(), password) != candidates.end()) {
+		if (password.empty() || std::find(candidates.begin(), candidates.end(), password) != candidates.end()) {
 			return;
 		}
 		candidates.push_back(password);

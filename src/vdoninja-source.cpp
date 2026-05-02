@@ -28,9 +28,9 @@ extern "C" {
 #include <libswscale/swscale.h>
 }
 
+#include "plugin-main.h"
 #include "vdoninja-rtp-utils.h"
 #include "vdoninja-utils.h"
-#include "plugin-main.h"
 
 namespace vdoninja
 {
@@ -730,11 +730,10 @@ static obs_properties_t *vdoninja_source_properties(void *)
 	obs_property_t *useNative = obs_properties_add_bool(
 	    props, "use_native_receiver", tr("VDONinjaSource.UseNativeReceiver", "Use Native Receiver (Experimental)"));
 	obs_property_set_long_description(
-	    useNative,
-	    tr("VDONinjaSource.UseNativeReceiver.Description",
-	       "Unchecked uses the simple browser-backed viewer path. Checked enables the experimental native "
-	       "VP9/H.264/Opus receiver path with slower retry/backoff after failures. Dual-track VP9 alpha "
-	       "transparency requires this mode and a compatible sender."));
+	    useNative, tr("VDONinjaSource.UseNativeReceiver.Description",
+	                  "Unchecked uses the simple browser-backed viewer path. Checked enables the experimental native "
+	                  "VP9/H.264/Opus receiver path with slower retry/backoff after failures. Dual-track VP9 alpha "
+	                  "transparency requires this mode and a compatible sender."));
 	obs_property_set_modified_callback(useNative, vdoninja_source_native_mode_modified);
 
 	obs_properties_add_text(props, "stream_id", tr("StreamID", "Stream ID"), OBS_TEXT_DEFAULT);
@@ -1482,19 +1481,17 @@ void VDONinjaSource::handleStreamRemovedSignal(const std::string &streamId, cons
 	bool activePeerMatches = false;
 	{
 		std::lock_guard<std::mutex> stateLock(nativeStateMutex_);
-		activePeerMatches =
-		    (!uuid.empty() && (uuid == videoTrackPeerUuid_ || uuid == alphaVideoTrackPeerUuid_ ||
-		                       uuid == audioTrackPeerUuid_));
+		activePeerMatches = (!uuid.empty() && (uuid == videoTrackPeerUuid_ || uuid == alphaVideoTrackPeerUuid_ ||
+		                                       uuid == audioTrackPeerUuid_));
 	}
 
 	if (!matchesTargetStreamId(streamId) && !activePeerMatches) {
 		return;
 	}
 
-	logInfo(
-	    "Native receiver got stream-removed for target stream (%s) from %s; clearing active receiver state",
-	    streamId.empty() ? settings_.streamId.c_str() : streamId.c_str(),
-	    uuid.empty() ? "unknown peer" : uuid.c_str());
+	logInfo("Native receiver got stream-removed for target stream (%s) from %s; clearing active receiver state",
+	        streamId.empty() ? settings_.streamId.c_str() : streamId.c_str(),
+	        uuid.empty() ? "unknown peer" : uuid.c_str());
 	if (peerManager_) {
 		peerManager_->stopViewing(settings_.streamId);
 	}
@@ -2345,8 +2342,7 @@ bool VDONinjaSource::initializeVideoDecoder()
 	const bool isVP9 = (nativeVideoCodec_ == NativeVideoCodec::VP9);
 	const AVCodecID codecId = isVP9 ? AV_CODEC_ID_VP9 : AV_CODEC_ID_H264;
 	const char *codecName = isVP9 ? "VP9" : "H.264";
-	const bool preferSoftwareForAlpha =
-	    isVP9 && preferSoftwareVp9DecodeForAlpha_.load(std::memory_order_relaxed);
+	const bool preferSoftwareForAlpha = isVP9 && preferSoftwareVp9DecodeForAlpha_.load(std::memory_order_relaxed);
 
 	const AVCodec *codec = avcodec_find_decoder(codecId);
 	if (!codec) {
@@ -2589,8 +2585,8 @@ void VDONinjaSource::processAlphaVideoData(const uint8_t *data, size_t size, uin
 						maxAlpha = std::max(maxAlpha, alpha);
 					}
 				}
-				logInfo("Native receiver decoded first alpha frame (%dx%d, format=%d, rtp ts=%u, alpha range=%u-%u)",
-				        w, h, alphaFrame_->format, decodedRtpTimestamp, static_cast<unsigned>(minAlpha),
+				logInfo("Native receiver decoded first alpha frame (%dx%d, format=%d, rtp ts=%u, alpha range=%u-%u)", w,
+				        h, alphaFrame_->format, decodedRtpTimestamp, static_cast<unsigned>(minAlpha),
 				        static_cast<unsigned>(maxAlpha));
 			}
 			loggedAlphaDecodeSubmitFailure_.store(false, std::memory_order_relaxed);
@@ -2804,8 +2800,7 @@ void VDONinjaSource::outputDecodedVideoFrame(const AVFrame *frame, uint64_t time
 		}
 	}
 
-	if (alphaDimensionsMismatch &&
-	    !loggedAlphaDimensionMismatch_.exchange(true, std::memory_order_relaxed)) {
+	if (alphaDimensionsMismatch && !loggedAlphaDimensionMismatch_.exchange(true, std::memory_order_relaxed)) {
 		logWarning("Discarded VP9 alpha frame for RTP timestamp %u because dimensions did not match primary "
 		           "video (%dx%d vs %dx%d)",
 		           rtpTimestamp, alphaWidth, alphaHeight, frame->width, frame->height);

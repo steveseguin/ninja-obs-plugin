@@ -655,8 +655,8 @@ TEST_F(VdoNinjaHashCompatTest, IncomingSignalingPasswordsPrioritizeMatchingViewi
 	viewB.hashedStreamId = "beta222222";
 	viewB.password = "betaPw";
 
-	const std::vector<std::string> candidates = buildIncomingSignalingPasswordCandidates(
-	    "beta222222", "defaultPw", published, {viewA, viewB}, RoomInfo{});
+	const std::vector<std::string> candidates =
+	    buildIncomingSignalingPasswordCandidates("beta222222", "defaultPw", published, {viewA, viewB}, RoomInfo{});
 
 	ASSERT_GE(candidates.size(), 4u);
 	EXPECT_EQ(candidates[0], "betaPw");
@@ -860,9 +860,8 @@ TEST(JsonParserHardeningTest, ParsesBrowserStyleDecryptedOfferDescription)
 	EXPECT_EQ(sections[1].mid, "2");
 
 	const auto hasCodec = [](const SdpOfferedMediaSection &section, const char *codecName) {
-		return std::any_of(section.codecs.begin(), section.codecs.end(), [codecName](const SdpOfferedCodec &codec) {
-			return codec.codec == codecName;
-		});
+		return std::any_of(section.codecs.begin(), section.codecs.end(),
+		                   [codecName](const SdpOfferedCodec &codec) { return codec.codec == codecName; });
 	};
 
 	EXPECT_TRUE(hasCodec(sections[0], "VP9"));

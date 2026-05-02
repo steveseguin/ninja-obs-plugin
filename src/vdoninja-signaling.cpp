@@ -32,8 +32,8 @@
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
-#include <windows.h>
 #include <bcrypt.h>
+#include <windows.h>
 #endif
 
 namespace vdoninja
@@ -177,7 +177,8 @@ bool encryptAesCbcHex(const std::string &plaintext, const std::string &phrase, s
 		return false;
 	}
 
-	if (BCryptSetProperty(algorithm, BCRYPT_CHAINING_MODE, reinterpret_cast<PUCHAR>(const_cast<wchar_t *>(BCRYPT_CHAIN_MODE_CBC)),
+	if (BCryptSetProperty(algorithm, BCRYPT_CHAINING_MODE,
+	                      reinterpret_cast<PUCHAR>(const_cast<wchar_t *>(BCRYPT_CHAIN_MODE_CBC)),
 	                      static_cast<ULONG>((wcslen(BCRYPT_CHAIN_MODE_CBC) + 1) * sizeof(wchar_t)), 0) != 0) {
 		cleanup();
 		return false;
@@ -213,8 +214,7 @@ bool encryptAesCbcHex(const std::string &plaintext, const std::string &phrase, s
 	DWORD encryptedSize = 0;
 	std::vector<uint8_t> ivWork = iv;
 	if (BCryptEncrypt(keyHandle, input.data(), static_cast<ULONG>(input.size()), nullptr, ivWork.data(),
-	                  static_cast<ULONG>(ivWork.size()), nullptr, 0, &encryptedSize,
-	                  BCRYPT_BLOCK_PADDING) != 0) {
+	                  static_cast<ULONG>(ivWork.size()), nullptr, 0, &encryptedSize, BCRYPT_BLOCK_PADDING) != 0) {
 		cleanup();
 		return false;
 	}
@@ -288,8 +288,8 @@ bool decryptAesCbcHex(const std::string &cipherHex, const std::string &vectorHex
 	std::vector<uint8_t> key;
 	std::vector<uint8_t> cipher;
 	std::vector<uint8_t> iv;
-	if (!hexToBytes(keyHex, key) || key.size() != 32 || !hexToBytes(cipherHex, cipher) ||
-	    !hexToBytes(vectorHex, iv) || iv.size() != 16) {
+	if (!hexToBytes(keyHex, key) || key.size() != 32 || !hexToBytes(cipherHex, cipher) || !hexToBytes(vectorHex, iv) ||
+	    iv.size() != 16) {
 		return false;
 	}
 
@@ -316,7 +316,8 @@ bool decryptAesCbcHex(const std::string &cipherHex, const std::string &vectorHex
 		return false;
 	}
 
-	if (BCryptSetProperty(algorithm, BCRYPT_CHAINING_MODE, reinterpret_cast<PUCHAR>(const_cast<wchar_t *>(BCRYPT_CHAIN_MODE_CBC)),
+	if (BCryptSetProperty(algorithm, BCRYPT_CHAINING_MODE,
+	                      reinterpret_cast<PUCHAR>(const_cast<wchar_t *>(BCRYPT_CHAIN_MODE_CBC)),
 	                      static_cast<ULONG>((wcslen(BCRYPT_CHAIN_MODE_CBC) + 1) * sizeof(wchar_t)), 0) != 0) {
 		cleanup();
 		return false;
@@ -346,8 +347,7 @@ bool decryptAesCbcHex(const std::string &cipherHex, const std::string &vectorHex
 	DWORD decryptedSize = 0;
 	std::vector<uint8_t> ivWork = iv;
 	if (BCryptDecrypt(keyHandle, cipher.data(), static_cast<ULONG>(cipher.size()), nullptr, ivWork.data(),
-	                  static_cast<ULONG>(ivWork.size()), nullptr, 0, &decryptedSize,
-	                  BCRYPT_BLOCK_PADDING) != 0) {
+	                  static_cast<ULONG>(ivWork.size()), nullptr, 0, &decryptedSize, BCRYPT_BLOCK_PADDING) != 0) {
 		cleanup();
 		return false;
 	}
@@ -984,9 +984,8 @@ void VDONinjaSignaling::processMessage(const std::string &message)
 	if (!trimmedDefaultPassword.empty() && !isPasswordDisabledToken(trimmedDefaultPassword)) {
 		defaultPasswordCandidate = jsEncodeURIComponent(trimmedDefaultPassword);
 	}
-	const std::vector<std::string> passwordCandidates =
-	    buildIncomingSignalingPasswordCandidates(messageStreamId, defaultPasswordCandidate, publishedStream,
-	                                            viewingStreams, currentRoom);
+	const std::vector<std::string> passwordCandidates = buildIncomingSignalingPasswordCandidates(
+	    messageStreamId, defaultPasswordCandidate, publishedStream, viewingStreams, currentRoom);
 	if (!passwordCandidates.empty() && raw.hasKey("vector")) {
 		const std::string vector = raw.getString("vector");
 		auto decryptWithCandidates = [&](const std::string &cipherText, std::string &plaintext) {

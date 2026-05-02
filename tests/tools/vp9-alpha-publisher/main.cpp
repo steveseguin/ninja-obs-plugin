@@ -79,8 +79,8 @@ static void printfLog(const char *prefix, const char *fmt, ...)
 
 static constexpr size_t kMaxRtpPayload = 1150; // stay under typical MTU
 
-static void sendVP9FrameRtp(const std::shared_ptr<rtc::Track> &track, uint16_t &seq, uint32_t ts,
-                             uint32_t ssrc, uint8_t payloadType, const std::vector<uint8_t> &vp9Frame)
+static void sendVP9FrameRtp(const std::shared_ptr<rtc::Track> &track, uint16_t &seq, uint32_t ts, uint32_t ssrc,
+                            uint8_t payloadType, const std::vector<uint8_t> &vp9Frame)
 {
 	if (!track || vp9Frame.empty()) {
 		return;
@@ -244,12 +244,12 @@ struct VP9Encoder {
 // Fill a YUVA420P test frame.
 // Primary planes: moving coloured circle on a checkerboard background.
 // Alpha plane:    the circle is fully opaque, background is 50% transparent.
-static void generateTestFrame(uint8_t *yPlane, int yStride, uint8_t *uPlane, int uStride, uint8_t *vPlane,
-                               int vStride, uint8_t *aPlane, int aStride, int w, int h, int frameNum)
+static void generateTestFrame(uint8_t *yPlane, int yStride, uint8_t *uPlane, int uStride, uint8_t *vPlane, int vStride,
+                              uint8_t *aPlane, int aStride, int w, int h, int frameNum)
 {
 	// Circle centre oscillates horizontally
-	const float cx = static_cast<float>(w) * 0.5f + static_cast<float>(w) * 0.3f *
-	                                                     std::sin(static_cast<float>(frameNum) * 0.05f);
+	const float cx =
+	    static_cast<float>(w) * 0.5f + static_cast<float>(w) * 0.3f * std::sin(static_cast<float>(frameNum) * 0.05f);
 	const float cy = static_cast<float>(h) * 0.5f;
 	const float radius = static_cast<float>(std::min(w, h)) * 0.25f;
 
@@ -319,7 +319,8 @@ struct Config {
 	int fps = 30;
 };
 
-class AlphaPublisher {
+class AlphaPublisher
+{
 public:
 	explicit AlphaPublisher(Config cfg) : cfg_(std::move(cfg)) {}
 
@@ -351,8 +352,7 @@ public:
 		});
 
 		signaling_->setOnIceCandidate(
-		    [this](const std::string &uuid, const std::string &candidate, const std::string &mid,
-		           const std::string &) {
+		    [this](const std::string &uuid, const std::string &candidate, const std::string &mid, const std::string &) {
 			    std::lock_guard<std::mutex> lock(peersMutex_);
 			    auto it = peers_.find(uuid);
 			    if (it == peers_.end())
@@ -412,9 +412,8 @@ public:
 			nextFrameTime += frameDuration;
 
 			// Generate test pattern into primary encoder frame
-			generateTestFrame(primaryEnc.frame->data[0], primaryEnc.frame->linesize[0],
-			                  primaryEnc.frame->data[1], primaryEnc.frame->linesize[1],
-			                  primaryEnc.frame->data[2], primaryEnc.frame->linesize[2],
+			generateTestFrame(primaryEnc.frame->data[0], primaryEnc.frame->linesize[0], primaryEnc.frame->data[1],
+			                  primaryEnc.frame->linesize[1], primaryEnc.frame->data[2], primaryEnc.frame->linesize[2],
 			                  nullptr, // alpha not written to primary frame
 			                  0, cfg_.width, cfg_.height, static_cast<int>(pts));
 
@@ -440,8 +439,7 @@ public:
 					for (int x = 0; x < w; ++x) {
 						const float dx = static_cast<float>(x) - cx;
 						const float dy = static_cast<float>(y) - cy;
-						aY[y * aYStride + x] =
-						    (dx * dx + dy * dy < radius * radius) ? 255u : 128u;
+						aY[y * aYStride + x] = (dx * dx + dy * dy < radius * radius) ? 255u : 128u;
 					}
 				}
 				for (int y = 0; y < h / 2; ++y) {
@@ -469,12 +467,10 @@ public:
 						continue;
 
 					for (const auto &pkt : primaryPackets) {
-						sendVP9FrameRtp(peer.videoTrack, peer.videoSeq, rtpTs, peer.videoSsrc, 96,
-						               pkt);
+						sendVP9FrameRtp(peer.videoTrack, peer.videoSeq, rtpTs, peer.videoSsrc, 96, pkt);
 					}
 					for (const auto &pkt : alphaPackets) {
-						sendVP9FrameRtp(peer.alphaTrack, peer.alphaSeq, rtpTs, peer.alphaSsrc, 97,
-						               pkt);
+						sendVP9FrameRtp(peer.alphaTrack, peer.alphaSeq, rtpTs, peer.alphaSsrc, 97, pkt);
 					}
 				}
 			}
@@ -527,8 +523,7 @@ private:
 					p->connected = true;
 				}
 			} else if (state == rtc::PeerConnection::State::Disconnected ||
-			           state == rtc::PeerConnection::State::Failed ||
-			           state == rtc::PeerConnection::State::Closed) {
+			           state == rtc::PeerConnection::State::Failed || state == rtc::PeerConnection::State::Closed) {
 				LOG_INFO("Viewer %s disconnected (state=%d)", uuid.c_str(), static_cast<int>(state));
 				if (auto p = weakPeer.lock()) {
 					p->connected = false;
