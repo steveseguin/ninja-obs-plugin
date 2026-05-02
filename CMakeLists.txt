@@ -17,7 +17,10 @@ option(BUILD_PUBLISHER_TOOL "Build the VP9 alpha publisher test tool (requires B
 # Use C++20 on Windows for designated initializers support (MSVC requires /std:c++20)
 if(MSVC)
     set(CMAKE_CXX_STANDARD 20)
-    add_compile_options(/Zc:__cplusplus)
+    add_compile_options(
+        "$<$<COMPILE_LANGUAGE:CXX>:/Zc:__cplusplus>"
+        "$<$<COMPILE_LANGUAGE:CXX>:/EHsc>"
+    )
 else()
     set(CMAKE_CXX_STANDARD 17)
 endif()
@@ -330,11 +333,13 @@ if(BUILD_PLUGIN)
 
     # Create the plugin library
     add_library(${PROJECT_NAME} MODULE ${PLUGIN_SOURCES} ${PLUGIN_HEADERS})
-    set_target_properties(${PROJECT_NAME} PROPERTIES AUTOMOC ON)
+    set_target_properties(${PROJECT_NAME} PROPERTIES
+        AUTOMOC ON
+        NO_SYSTEM_FROM_IMPORTED ON
+    )
 
     target_include_directories(${PROJECT_NAME} PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/src
-        ${FFMPEG_INCLUDE_DIR}
     )
 
     if(DEFINED OBS_SDK_PATH)
@@ -347,23 +352,16 @@ if(BUILD_PLUGIN)
     endif()
 
     # Link libdatachannel
-    set(_ldc_force_include "")
     if(LibDataChannel_FOUND)
         get_target_property(LIBDATACHANNEL_INCLUDE_DIRS LibDataChannel::LibDataChannel INTERFACE_INCLUDE_DIRECTORIES)
         if(LIBDATACHANNEL_INCLUDE_DIRS)
             target_include_directories(${PROJECT_NAME} BEFORE PRIVATE ${LIBDATACHANNEL_INCLUDE_DIRS})
-            if(MSVC AND NOT _ldc_force_include)
-                list(GET LIBDATACHANNEL_INCLUDE_DIRS 0 _ldc_force_include)
-            endif()
         endif()
         if(WIN32)
             if(TARGET LibDataChannel::LibDataChannelStatic)
                 get_target_property(LIBDATACHANNEL_STATIC_INCLUDE_DIRS LibDataChannel::LibDataChannelStatic INTERFACE_INCLUDE_DIRECTORIES)
                 if(LIBDATACHANNEL_STATIC_INCLUDE_DIRS)
                     target_include_directories(${PROJECT_NAME} BEFORE PRIVATE ${LIBDATACHANNEL_STATIC_INCLUDE_DIRS})
-                    if(MSVC AND NOT _ldc_force_include)
-                        list(GET LIBDATACHANNEL_STATIC_INCLUDE_DIRS 0 _ldc_force_include)
-                    endif()
                 endif()
                 target_link_libraries(${PROJECT_NAME} PRIVATE LibDataChannel::LibDataChannelStatic)
             else()
@@ -393,11 +391,9 @@ if(BUILD_PLUGIN)
         target_link_libraries(${PROJECT_NAME} PRIVATE ${LIBDATACHANNEL_LIBRARIES})
     endif()
 
-    if(MSVC AND _ldc_force_include)
-        foreach(_src ${PLUGIN_SOURCES})
-            set_source_files_properties(${_src} PROPERTIES COMPILE_OPTIONS "/I${_ldc_force_include}")
-        endforeach()
-    endif()
+    # OBS deps includes also contain an rtc/ tree. Keep them behind libdatachannel
+    # so rtc/*.hpp always matches the static library we link.
+    target_include_directories(${PROJECT_NAME} SYSTEM PRIVATE ${FFMPEG_INCLUDE_DIR})
 
     # Link OBS libraries
     if(TARGET OBS::libobs)
@@ -579,37 +575,15 @@ if(BUILD_PUBLISHER_TOOL)
         src/vdoninja-rtp-utils.cpp
         tests/stubs/obs-stubs.cpp
     )
+    set_target_properties(vp9-alpha-publisher PROPERTIES NO_SYSTEM_FROM_IMPORTED ON)
 
     # Regular includes (no rtc/ collision)
     target_include_directories(vp9-alpha-publisher PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/src
         ${CMAKE_CURRENT_SOURCE_DIR}/tests/stubs
-        ${FFMPEG_INCLUDE_DIR}
     )
-
-    # The local deps/libdatachannel headers must shadow the older rtc/ copy
-    # that lives inside FFMPEG_INCLUDE_DIR (OBS deps include/).  cmake always
-    # puts INTERFACE includes from linked targets as /external:I after the
-    # target's own /I paths, so we cannot fix the order via normal cmake
-    # include APIs.  Use a per-source forced /I flag (via COMPILE_OPTIONS)
-    # which is emitted BEFORE AdditionalIncludeDirectories in the cl.exe
-    # command line, winning the header search race.
-    if(MSVC)
-        set(_ldc_inc "${CMAKE_CURRENT_SOURCE_DIR}/deps/libdatachannel/include")
-        foreach(_src
-            tests/tools/vp9-alpha-publisher/main.cpp
-            src/vdoninja-signaling.cpp
-            src/vdoninja-utils.cpp
-            src/vdoninja-signaling-protocol.cpp
-            src/vdoninja-reliability.cpp
-            src/vdoninja-rtp-utils.cpp
-            tests/stubs/obs-stubs.cpp
-        )
-            set_source_files_properties(${_src} PROPERTIES
-                COMPILE_OPTIONS "/I${_ldc_inc}"
-            )
-        endforeach()
-    endif()
+    # Same rtc/ header collision as the plugin target.
+    target_include_directories(vp9-alpha-publisher SYSTEM PRIVATE ${FFMPEG_INCLUDE_DIR})
 
     # Re-use exactly the same libdatachannel link target resolved by the plugin section
     if(LibDataChannel_FOUND)
@@ -637,13 +611,6 @@ if(BUILD_PUBLISHER_TOOL)
 
     if(MSVC)
         target_compile_options(vp9-alpha-publisher PRIVATE /W3 /wd4201)
-        # Force the local deps/libdatachannel headers ahead of the OBS deps
-        # include dir.  Without this, cmake adds the local path as /external:I
-        # (because it comes from an IMPORTED target's INTERFACE_INCLUDE_DIRECTORIES)
-        # while FFMPEG_INCLUDE_DIR is a direct /I path; /I paths are searched
-        # before /external:I, so the older OBS rtc headers win and produce
-        # symbol mismatches with the newer local static lib.
-        # Adding /I via AdditionalOptions places it first on the command line.
         # Static libdatachannel can cause COMDAT symbol conflicts with non-inline virtuals.
         target_link_options(vp9-alpha-publisher PRIVATE /FORCE:MULTIPLE)
     endif()

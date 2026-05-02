@@ -577,8 +577,18 @@ void VDONinjaSignaling::wsThreadFunc()
 		auto opened = std::make_shared<std::atomic<bool>>(false);
 
 		try {
-			rtc::WebSocket::Configuration wsConfig;
+			rtc::WebSocket::Configuration wsConfig{};
+			wsConfig.disableTlsVerification = false;
+			wsConfig.proxyServer.reset();
+			wsConfig.protocols.clear();
 			wsConfig.connectionTimeout = std::chrono::milliseconds(kSignalingConnectionTimeoutMs);
+			wsConfig.pingInterval.reset();
+			wsConfig.maxOutstandingPings.reset();
+			wsConfig.caCertificatePemFile.reset();
+			wsConfig.certificatePemFile.reset();
+			wsConfig.keyPemFile.reset();
+			wsConfig.keyPemPass.reset();
+			wsConfig.maxMessageSize.reset();
 			auto ws = std::make_shared<rtc::WebSocket>(wsConfig);
 			{
 				std::lock_guard<std::mutex> lock(handleMutex_);

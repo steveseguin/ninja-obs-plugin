@@ -485,7 +485,20 @@ void VDONinjaPeerManager::setForceTurn(bool force)
 
 rtc::Configuration VDONinjaPeerManager::getRtcConfig() const
 {
-	rtc::Configuration config;
+	rtc::Configuration config{};
+	config.proxyServer.reset();
+	config.bindAddress.reset();
+	config.certificateType = rtc::CertificateType::Default;
+	config.iceTransportPolicy = rtc::TransportPolicy::All;
+	config.enableIceTcp = false;
+	config.enableIceUdpMux = false;
+	config.disableAutoNegotiation = false;
+	config.forceMediaTransport = false;
+	config.portRangeBegin = 1024;
+	config.portRangeEnd = 65535;
+	config.mtu.reset();
+	config.maxMessageSize.reset();
+
 	bool hasTurnServer = false;
 
 	auto hasTurnScheme = [](const std::string &url) {

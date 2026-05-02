@@ -497,7 +497,19 @@ public:
 private:
 	void createPeerForViewer(const std::string &uuid, const std::string &session)
 	{
-		rtc::Configuration rtcConfig;
+		rtc::Configuration rtcConfig{};
+		rtcConfig.proxyServer.reset();
+		rtcConfig.bindAddress.reset();
+		rtcConfig.certificateType = rtc::CertificateType::Default;
+		rtcConfig.iceTransportPolicy = rtc::TransportPolicy::All;
+		rtcConfig.enableIceTcp = false;
+		rtcConfig.enableIceUdpMux = false;
+		rtcConfig.disableAutoNegotiation = false;
+		rtcConfig.forceMediaTransport = false;
+		rtcConfig.portRangeBegin = 1024;
+		rtcConfig.portRangeEnd = 65535;
+		rtcConfig.mtu.reset();
+		rtcConfig.maxMessageSize.reset();
 		rtcConfig.iceServers.push_back({"stun:stun.l.google.com:19302"});
 		rtcConfig.iceServers.push_back({"stun:stun.cloudflare.com:3478"});
 
