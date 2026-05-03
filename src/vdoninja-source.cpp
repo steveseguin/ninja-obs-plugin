@@ -926,8 +926,6 @@ void VDONinjaSource::update(obs_data_t *settings)
 {
 	if (isInternalNativeSource()) {
 		disconnect();
-	} else {
-		releaseChildSources();
 	}
 
 	loadSettings(settings);
