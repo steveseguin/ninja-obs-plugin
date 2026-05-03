@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.43] - 2026-05-03
+
 ### Fixed
 - Avoid recreating the internal Browser Source for VDO.Ninja Source on ordinary property updates, reducing UI-thread churn when opening or saving source properties during active publish/view workflows.
 
