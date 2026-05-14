@@ -29,6 +29,38 @@ else
   exit 1
 fi
 
+PLUGIN_VERSION="1"
+if [[ -f "$PKG_ROOT/VERSION" ]]; then
+  PLUGIN_VERSION="$(tr -d '[:space:]' < "$PKG_ROOT/VERSION")"
+fi
+
+read_plist_value() {
+  /usr/libexec/PlistBuddy -c "Print :$2" "$1/Contents/Info.plist" 2>/dev/null || true
+}
+
+bundle_arches() {
+  local binary="$1/Contents/MacOS/OBS"
+  [[ -f "$binary" ]] || return 0
+  lipo -archs "$binary" 2>/dev/null || true
+}
+
+arch_overlap() {
+  local left="$1"
+  local right="$2"
+  local arch
+  for arch in $left; do
+    case " $right " in
+      *" $arch "*) return 0 ;;
+    esac
+    if [[ "$arch" == "arm64" ]]; then
+      case " $right " in *" arm64e "*) return 0 ;; esac
+    elif [[ "$arch" == "arm64e" ]]; then
+      case " $right " in *" arm64 "*) return 0 ;; esac
+    fi
+  done
+  return 1
+}
+
 # macOS OBS requires a .plugin bundle structure
 BUNDLE_DIR="${HOME}/Library/Application Support/obs-studio/plugins/obs-vdoninja.plugin"
 DST_PLUGIN_DIR="$BUNDLE_DIR/Contents/MacOS"
@@ -59,6 +91,45 @@ if [[ -z "$PLUGIN_BIN" ]]; then
   echo "Could not find plugin binary in $SRC_PLUGIN_DIR"
   exit 1
 fi
+
+PLUGIN_ARCHES="$(lipo -archs "$PLUGIN_BIN" 2>/dev/null || true)"
+HOST_ARCH="$(uname -m)"
+if [[ -n "$PLUGIN_ARCHES" && " $PLUGIN_ARCHES " != *" $HOST_ARCH "* ]]; then
+  if ! { [[ "$HOST_ARCH" == "arm64e" && " $PLUGIN_ARCHES " == *" arm64 "* ]] ||
+    [[ "$HOST_ARCH" == "arm64" && " $PLUGIN_ARCHES " == *" arm64e "* ]]; }; then
+    echo "Error: this package contains plugin architecture(s): $PLUGIN_ARCHES, but this Mac reports: $HOST_ARCH."
+    echo "Install the matching OBS VDO.Ninja package for this Mac/OBS architecture."
+    exit 1
+  fi
+fi
+
+FOUND_OBS=0
+while read -r obs_app; do
+  [[ -n "$obs_app" ]] || continue
+  FOUND_OBS=1
+  OBS_VERSION="$(read_plist_value "$obs_app" CFBundleShortVersionString)"
+  OBS_ARCHES="$(bundle_arches "$obs_app")"
+  echo "Detected OBS: $obs_app (${OBS_VERSION:-unknown}; ${OBS_ARCHES:-unknown})"
+  if [[ -n "$OBS_VERSION" && "$OBS_VERSION" != 32.* ]]; then
+    echo "Warning: this plugin package targets OBS 32.x, but detected OBS $OBS_VERSION."
+  fi
+  if [[ -n "$OBS_ARCHES" && -n "$PLUGIN_ARCHES" ]] && ! arch_overlap "$OBS_ARCHES" "$PLUGIN_ARCHES"; then
+    echo "Warning: OBS architecture(s) [$OBS_ARCHES] do not overlap plugin architecture(s) [$PLUGIN_ARCHES]."
+  fi
+done < <(
+  {
+    find /Applications "$HOME/Applications" -maxdepth 3 -name "OBS.app" -type d -print 2>/dev/null || true
+    if command -v mdfind >/dev/null 2>&1; then
+      mdfind "kMDItemCFBundleIdentifier == 'com.obsproject.obs-studio'" 2>/dev/null || true
+    fi
+  } | sort -u
+)
+
+if [[ "$FOUND_OBS" -eq 0 ]]; then
+  echo "Warning: OBS.app was not found in /Applications or $HOME/Applications."
+  echo "The plugin will still be installed to OBS's user plugin directory."
+fi
+
 cp -a "$PLUGIN_BIN" "$DST_PLUGIN_DIR/obs-vdoninja"
 
 # Copy any bundled dylibs shipped alongside the plugin binary (e.g. OpenSSL,
@@ -132,7 +203,7 @@ if command -v install_name_tool &>/dev/null && command -v otool &>/dev/null; the
 fi
 
 # Create Info.plist (required for macOS bundle loading)
-cat > "$BUNDLE_DIR/Contents/Info.plist" << 'PLIST'
+cat > "$BUNDLE_DIR/Contents/Info.plist" << PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -142,9 +213,9 @@ cat > "$BUNDLE_DIR/Contents/Info.plist" << 'PLIST'
     <key>CFBundleIdentifier</key>
     <string>com.vdoninja.obs-plugin</string>
     <key>CFBundleVersion</key>
-    <string>1</string>
+    <string>${PLUGIN_VERSION}</string>
     <key>CFBundleShortVersionString</key>
-    <string>1.0</string>
+    <string>${PLUGIN_VERSION}</string>
     <key>CFBundleExecutable</key>
     <string>obs-vdoninja</string>
     <key>CFBundlePackageType</key>

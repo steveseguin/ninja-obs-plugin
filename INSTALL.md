@@ -106,9 +106,21 @@ sudo ./uninstall.sh --remove-data
 
 <a id="install-macos"></a>
 
-## macOS (`obs-vdoninja-macos-arm64.zip`)
+## macOS (`obs-vdoninja-macos-arm64.pkg` or `.zip`)
+
+`obs-vdoninja-macos-arm64.pkg` is for native Apple Silicon OBS. Intel Macs, and Apple Silicon Macs running Intel OBS under Rosetta, need an `x86_64` or universal package.
 
 ### Install or update
+
+Preferred installer:
+
+```bash
+sudo installer -pkg obs-vdoninja-macos-arm64.pkg -target /
+```
+
+Official release packages should be Developer ID signed, notarized, and stapled. The installer writes diagnostics to `/Library/Logs/obs-vdoninja-installer.log`, including OBS version, architecture, and bundle signature warnings when OBS is detected.
+
+ZIP fallback:
 
 ```bash
 chmod +x install.sh
@@ -127,6 +139,8 @@ Remove plugin + data:
 ```bash
 ./uninstall.sh --remove-data
 ```
+
+Installer validation details: [docs/macos-installer-validation.md](docs/macos-installer-validation.md)
 
 ## Manual install fallback
 

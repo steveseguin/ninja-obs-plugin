@@ -492,7 +492,8 @@ function New-ReleaseNotes {
 - Windows installer: `obs-vdoninja-windows-x64-setup.exe`
 - Windows portable/manual package: `obs-vdoninja-windows-x64.zip`
 - Linux package: `obs-vdoninja-linux-x86_64.tar.gz`
-- macOS package: `obs-vdoninja-macos-arm64.zip`
+- macOS installer: `obs-vdoninja-macos-arm64.pkg` (Developer ID signed and notarized)
+- macOS ZIP fallback: `obs-vdoninja-macos-arm64.zip`
 
 Windows release artifacts are built against OBS `32.0.4` to maximize compatibility across current OBS `32.x` installs.
 
@@ -502,7 +503,8 @@ Windows release artifacts are built against OBS `32.0.4` to maximize compatibili
 - macOS install: `https://github.com/steveseguin/ninja-obs-plugin/blob/main/INSTALL.md#install-macos`
 - Windows installer: run `obs-vdoninja-windows-x64-setup.exe`
 - Windows zip: extract, then run `install.cmd`
-- Linux/macOS packages: extract, then run `install.sh`
+- macOS installer: run `obs-vdoninja-macos-arm64.pkg`
+- Linux/macOS ZIP packages: extract, then run `install.sh`
 - Post-install usage: `QUICKSTART.md`
 
 ## Changes

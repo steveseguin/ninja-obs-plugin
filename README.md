@@ -18,6 +18,7 @@ VDO.Ninja is a low-latency WebRTC platform used for live production, remote gues
 - Install steps: [INSTALL.md](INSTALL.md)
 - Linux install: [INSTALL.md#install-linux](INSTALL.md#install-linux)
 - macOS install: [INSTALL.md#install-macos](INSTALL.md#install-macos)
+- macOS installer validation: [docs/macos-installer-validation.md](docs/macos-installer-validation.md)
 - Build requirements and source build guide: [BUILDING.md](BUILDING.md)
 - Web quick start (post-install): [GitHub Pages Quick Start](https://steveseguin.github.io/ninja-obs-plugin/#quick-start)
 - First-run usage guide: [QUICKSTART.md](QUICKSTART.md)
@@ -81,7 +82,10 @@ Download the latest package from [Releases](https://github.com/steveseguin/ninja
 - Linux: `obs-vdoninja-linux-x86_64.tar.gz`
 - Windows installer: `obs-vdoninja-windows-x64-setup.exe`
 - Windows portable/manual package: `obs-vdoninja-windows-x64.zip`
-- macOS: `obs-vdoninja-macos-arm64.zip`
+- macOS installer: `obs-vdoninja-macos-arm64.pkg`
+- macOS ZIP fallback: `obs-vdoninja-macos-arm64.zip`
+
+The macOS `.pkg` release artifact should be Developer ID signed, notarized, and stapled. The ZIP fallback is available for manual installs and troubleshooting.
 
 Each release archive includes:
 
@@ -196,7 +200,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\check-build-requir
 
 - `main` pushes run `CI`, `Code Quality`, and `GitHub Pages`.
 - Tag pushes matching `v*` run cross-platform build/release packaging.
-- Current release workflow auto-builds Linux x86_64, Windows x64 ZIP + setup `.exe`, and macOS arm64.
+- Current release workflow auto-builds Linux x86_64, Windows x64 ZIP + setup `.exe`, and macOS arm64 `.pkg` + ZIP; macOS release packages must pass strict signing/notarization validation before upload.
 - Use `powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\release.ps1 -Action status` to inspect release readiness.
 - Supported staged flow: `status` -> `prepare` -> `verify` -> `cut`.
 - `prepare` promotes `CHANGELOG.md` and aligns version files for the target release; `verify` runs the release checks against that prepared version; `cut` repeats the full path, then commits/tags/pushes.
