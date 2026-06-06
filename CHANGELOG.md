@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.44] - 2026-06-06
+
+### Fixed
+- Fixed a Windows OBS crash after long-running VDO.Ninja publish sessions when a viewer lost ICE connectivity. Peer connections are now retired from libdatachannel state callbacks and cleaned up later from normal plugin paths, so `Disconnected`/`Failed`/`Closed` callbacks no longer destroy RTC objects re-entrantly.
+
 ## [1.1.43] - 2026-05-03
 
 ### Fixed
