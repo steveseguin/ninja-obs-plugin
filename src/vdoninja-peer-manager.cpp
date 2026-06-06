@@ -1672,8 +1672,7 @@ void VDONinjaPeerManager::releasePeerResources(const std::shared_ptr<PeerInfo> &
 	peer->hasDataChannel = false;
 }
 
-void VDONinjaPeerManager::retirePeerForDeferredCleanup(const std::string &uuid,
-                                                       const std::shared_ptr<PeerInfo> &peer)
+void VDONinjaPeerManager::retirePeerForDeferredCleanup(const std::string &uuid, const std::shared_ptr<PeerInfo> &peer)
 {
 	if (!peer) {
 		return;
