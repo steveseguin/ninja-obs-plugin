@@ -73,6 +73,9 @@ struct PeerInfo {
 	std::string session;
 	ConnectionType type;
 	std::atomic<ConnectionState> state{ConnectionState::New};
+	std::atomic<int64_t> terminalStateTimeMs{0};
+	std::atomic<bool> disconnectNotified{false};
+	std::atomic<bool> cleanupRetired{false};
 	bool hasDataChannel = false;
 	bool awaitingVideoKeyframe = true;
 	std::shared_ptr<rtc::PeerConnection> pc;

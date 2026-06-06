@@ -23,6 +23,22 @@ namespace
 constexpr uint8_t kH264PayloadType = 96;
 constexpr uint8_t kH264FuAType = 28;
 constexpr size_t kMaxRtpPayloadSize = 1200;
+constexpr int64_t kRetiredPeerCleanupDelayMs = 1000;
+
+bool isTerminalPeerState(ConnectionState state)
+{
+	switch (state) {
+	case ConnectionState::Disconnected:
+	case ConnectionState::Failed:
+	case ConnectionState::Closed:
+		return true;
+	case ConnectionState::New:
+	case ConnectionState::Connecting:
+	case ConnectionState::Connected:
+	default:
+		return false;
+	}
+}
 
 std::string viewerSignalingKey(const std::string &uuid, const std::string &session)
 {
@@ -438,15 +454,20 @@ VDONinjaPeerManager::~VDONinjaPeerManager()
 		onDataChannelMessage_ = nullptr;
 	}
 
-	// Close all peer connections
-	std::lock_guard<std::mutex> lock(peersMutex_);
-	for (auto &pair : peers_) {
-		if (pair.second->pc) {
-			clearPeerCallbacks(pair.second);
-			pair.second->pc.reset();
+	// Close all peer connections outside the map lock so RTC teardown cannot
+	// re-enter peersMutex_ through a synchronous state callback.
+	std::vector<std::shared_ptr<PeerInfo>> toRelease;
+	{
+		std::lock_guard<std::mutex> lock(peersMutex_);
+		for (auto &pair : peers_) {
+			toRelease.push_back(pair.second);
 		}
+		peers_.clear();
 	}
-	peers_.clear();
+	for (auto &peer : toRelease) {
+		releasePeerResources(peer);
+	}
+	pruneRetiredPeers(0);
 }
 
 void VDONinjaPeerManager::initialize(VDONinjaSignaling *signaling)
@@ -544,6 +565,8 @@ rtc::Configuration VDONinjaPeerManager::getRtcConfig() const
 
 bool VDONinjaPeerManager::startPublishing(int maxViewers)
 {
+	pruneRetiredPeers(kRetiredPeerCleanupDelayMs);
+
 	if (publishing_) {
 		logWarning("Already publishing");
 		return true;
@@ -580,12 +603,9 @@ void VDONinjaPeerManager::stopPublishing()
 	}
 
 	for (auto &peer : toClose) {
-		clearPeerCallbacks(peer);
-		peer->audioTrack.reset();
-		peer->videoTrack.reset();
-		peer->dataChannel.reset();
-		peer->pc.reset();
+		releasePeerResources(peer);
 	}
+	pruneRetiredPeers(kRetiredPeerCleanupDelayMs);
 
 	logInfo("Stopped publishing");
 }
@@ -629,6 +649,8 @@ int VDONinjaPeerManager::getPublisherSlotCount() const
 
 std::shared_ptr<PeerInfo> VDONinjaPeerManager::createPublisherConnection(const std::string &uuid)
 {
+	pruneRetiredPeers(kRetiredPeerCleanupDelayMs);
+
 	auto config = getRtcConfig();
 	auto pc = std::make_shared<rtc::PeerConnection>(config);
 
@@ -658,6 +680,8 @@ std::shared_ptr<PeerInfo> VDONinjaPeerManager::createPublisherConnection(const s
 
 std::shared_ptr<PeerInfo> VDONinjaPeerManager::createViewerConnection(const std::string &uuid)
 {
+	pruneRetiredPeers(kRetiredPeerCleanupDelayMs);
+
 	auto config = getRtcConfig();
 	auto pc = std::make_shared<rtc::PeerConnection>(config);
 
@@ -696,6 +720,9 @@ void VDONinjaPeerManager::installLocalDescriptionCallback(const std::shared_ptr<
 
 		auto peer = weakPeer.lock();
 		if (!peer || !signaling_) {
+			return;
+		}
+		if (peer->cleanupRetired.load() || isTerminalPeerState(peer->state.load())) {
 			return;
 		}
 
@@ -745,6 +772,9 @@ void VDONinjaPeerManager::setupPeerConnectionCallbacks(std::shared_ptr<PeerInfo>
 		auto peer = weakPeer.lock();
 		if (!peer)
 			return;
+		if (peer->cleanupRetired.load()) {
+			return;
+		}
 
 		switch (state) {
 		case rtc::PeerConnection::State::New:
@@ -756,6 +786,9 @@ void VDONinjaPeerManager::setupPeerConnectionCallbacks(std::shared_ptr<PeerInfo>
 			break;
 		case rtc::PeerConnection::State::Connected: {
 			peer->state = ConnectionState::Connected;
+			peer->terminalStateTimeMs.store(0);
+			peer->disconnectNotified.store(false);
+			peer->cleanupRetired.store(false);
 			logInfo("Peer %s connected", uuid.c_str());
 			OnPeerConnectedCallback cb;
 			{
@@ -769,42 +802,9 @@ void VDONinjaPeerManager::setupPeerConnectionCallbacks(std::shared_ptr<PeerInfo>
 		}
 		case rtc::PeerConnection::State::Disconnected: {
 			peer->state = ConnectionState::Disconnected;
+			peer->terminalStateTimeMs.store(currentTimeMs());
 			logInfo("Peer %s disconnected", uuid.c_str());
-			OnPeerDisconnectedCallback cb;
-			{
-				std::lock_guard<std::mutex> callbackLock(callbackMutex_);
-				cb = onPeerDisconnected_;
-			}
-			if (cb) {
-				cb(uuid);
-			}
-			{
-				std::lock_guard<std::mutex> lock(peersMutex_);
-				peers_.erase(uuid);
-			}
-			break;
-		}
-		case rtc::PeerConnection::State::Failed: {
-			peer->state = ConnectionState::Failed;
-			logError("Peer %s connection failed", uuid.c_str());
-			OnPeerDisconnectedCallback cb;
-			{
-				std::lock_guard<std::mutex> callbackLock(callbackMutex_);
-				cb = onPeerDisconnected_;
-			}
-			if (cb) {
-				cb(uuid);
-			}
-			{
-				std::lock_guard<std::mutex> lock(peersMutex_);
-				peers_.erase(uuid);
-			}
-			break;
-		}
-		case rtc::PeerConnection::State::Closed:
-			peer->state = ConnectionState::Closed;
-			logInfo("Peer %s closed", uuid.c_str());
-			{
+			if (!peer->disconnectNotified.exchange(true)) {
 				OnPeerDisconnectedCallback cb;
 				{
 					std::lock_guard<std::mutex> callbackLock(callbackMutex_);
@@ -814,10 +814,41 @@ void VDONinjaPeerManager::setupPeerConnectionCallbacks(std::shared_ptr<PeerInfo>
 					cb(uuid);
 				}
 			}
-			{
-				std::lock_guard<std::mutex> lock(peersMutex_);
-				peers_.erase(uuid);
+			retirePeerForDeferredCleanup(uuid, peer);
+			break;
+		}
+		case rtc::PeerConnection::State::Failed: {
+			peer->state = ConnectionState::Failed;
+			peer->terminalStateTimeMs.store(currentTimeMs());
+			logError("Peer %s connection failed", uuid.c_str());
+			if (!peer->disconnectNotified.exchange(true)) {
+				OnPeerDisconnectedCallback cb;
+				{
+					std::lock_guard<std::mutex> callbackLock(callbackMutex_);
+					cb = onPeerDisconnected_;
+				}
+				if (cb) {
+					cb(uuid);
+				}
 			}
+			retirePeerForDeferredCleanup(uuid, peer);
+			break;
+		}
+		case rtc::PeerConnection::State::Closed:
+			peer->state = ConnectionState::Closed;
+			peer->terminalStateTimeMs.store(currentTimeMs());
+			logInfo("Peer %s closed", uuid.c_str());
+			if (!peer->disconnectNotified.exchange(true)) {
+				OnPeerDisconnectedCallback cb;
+				{
+					std::lock_guard<std::mutex> callbackLock(callbackMutex_);
+					cb = onPeerDisconnected_;
+				}
+				if (cb) {
+					cb(uuid);
+				}
+			}
+			retirePeerForDeferredCleanup(uuid, peer);
 			break;
 		}
 	});
@@ -829,6 +860,9 @@ void VDONinjaPeerManager::setupPeerConnectionCallbacks(std::shared_ptr<PeerInfo>
 		auto peer = weakPeer.lock();
 		if (!peer)
 			return;
+		if (peer->cleanupRetired.load() || isTerminalPeerState(peer->state.load())) {
+			return;
+		}
 
 		// Bundle candidates before sending
 		bool flushNow = false;
@@ -864,6 +898,9 @@ void VDONinjaPeerManager::setupPeerConnectionCallbacks(std::shared_ptr<PeerInfo>
 		auto peer = weakPeer.lock();
 		if (!peer)
 			return;
+		if (peer->cleanupRetired.load() || isTerminalPeerState(peer->state.load())) {
+			return;
+		}
 
 		const TrackType type = classifyIncomingTrack(peer, track);
 		if (type == TrackType::Audio) {
@@ -895,12 +932,19 @@ void VDONinjaPeerManager::setupPeerConnectionCallbacks(std::shared_ptr<PeerInfo>
 		auto peer = weakPeer.lock();
 		if (!peer)
 			return;
+		if (peer->cleanupRetired.load() || isTerminalPeerState(peer->state.load())) {
+			return;
+		}
 
 		peer->dataChannel = dc;
 		peer->hasDataChannel = true;
 
-		dc->onMessage([this, uuid](auto data) {
+		dc->onMessage([this, weakPeer, uuid](auto data) {
 			if (shuttingDown_) {
+				return;
+			}
+			auto peer = weakPeer.lock();
+			if (!peer || peer->cleanupRetired.load() || isTerminalPeerState(peer->state.load())) {
 				return;
 			}
 			if (std::holds_alternative<std::string>(data)) {
@@ -972,11 +1016,16 @@ void VDONinjaPeerManager::setupPublisherTracks(std::shared_ptr<PeerInfo> peer)
 	if (enableDataChannel_) {
 		// VDO.Ninja expects publisher data channels to use "sendChannel".
 		auto dc = peer->pc->createDataChannel("sendChannel");
+		auto weakPeer = std::weak_ptr<PeerInfo>(peer);
 		peer->dataChannel = dc;
 		peer->hasDataChannel = true;
 
-		dc->onOpen([this, uuid = peer->uuid, dc]() {
+		dc->onOpen([this, weakPeer, uuid = peer->uuid, dc]() {
 			if (shuttingDown_) {
+				return;
+			}
+			auto peer = weakPeer.lock();
+			if (!peer || peer->cleanupRetired.load() || isTerminalPeerState(peer->state.load())) {
 				return;
 			}
 			logInfo("Data channel opened for %s", uuid.c_str());
@@ -990,8 +1039,12 @@ void VDONinjaPeerManager::setupPublisherTracks(std::shared_ptr<PeerInfo> peer)
 			}
 		});
 
-		dc->onMessage([this, uuid = peer->uuid](auto data) {
+		dc->onMessage([this, weakPeer, uuid = peer->uuid](auto data) {
 			if (shuttingDown_) {
+				return;
+			}
+			auto peer = weakPeer.lock();
+			if (!peer || peer->cleanupRetired.load() || isTerminalPeerState(peer->state.load())) {
 				return;
 			}
 			if (std::holds_alternative<std::string>(data)) {
@@ -1228,6 +1281,10 @@ void VDONinjaPeerManager::onSignalingAnswer(const std::string &uuid, const std::
 	}
 
 	const ConnectionState state = peer->state.load();
+	if (isTerminalPeerState(state)) {
+		logDebug("Ignoring answer for terminal peer: %s", uuid.c_str());
+		return;
+	}
 	const bool sessionMismatch = !session.empty() && !peer->session.empty() && peer->session != session;
 	if (sessionMismatch && state == ConnectionState::Connected) {
 		logWarning("Session mismatch for %s while connected, ignoring answer", uuid.c_str());
@@ -1273,8 +1330,7 @@ void VDONinjaPeerManager::onSignalingOfferRequest(const std::string &uuid, const
 				peer = nullptr;
 			} else {
 				const bool sessionRotated = !session.empty() && !peer->session.empty() && (peer->session != session);
-				const bool staleState =
-				    peer->state == ConnectionState::Failed || peer->state == ConnectionState::Closed;
+				const bool staleState = isTerminalPeerState(peer->state.load());
 				if (sessionRotated || staleState) {
 					stalePeer = peer;
 					staleReason = sessionRotated ? "session-rotated" : "stale-state";
@@ -1287,14 +1343,7 @@ void VDONinjaPeerManager::onSignalingOfferRequest(const std::string &uuid, const
 
 	if (stalePeer) {
 		logInfo("Recreating viewer peer %s (%s)", uuid.c_str(), staleReason.c_str());
-		clearPeerCallbacks(stalePeer);
-		stalePeer->audioTrack.reset();
-		stalePeer->videoTrack.reset();
-		stalePeer->dataChannel.reset();
-		stalePeer->pc.reset();
-
-		std::lock_guard<std::mutex> lock(candidateMutex_);
-		candidateBundles_.erase(uuid);
+		retirePeerForDeferredCleanup(uuid, stalePeer);
 	}
 
 	if (!peer) {
@@ -1351,6 +1400,10 @@ void VDONinjaPeerManager::onSignalingIceCandidate(const std::string &uuid, const
 	}
 
 	const ConnectionState state = peer->state.load();
+	if (isTerminalPeerState(state)) {
+		logDebug("Ignoring ICE candidate for terminal peer: %s", uuid.c_str());
+		return;
+	}
 	const bool sessionMismatch = !session.empty() && !peer->session.empty() && peer->session != session;
 	if (sessionMismatch && state == ConnectionState::Connected) {
 		logDebug("Session mismatch for ICE candidate from %s (connected peer), ignoring", uuid.c_str());
@@ -1404,6 +1457,8 @@ void VDONinjaPeerManager::sendAudioFrame(const uint8_t *data, size_t size, uint3
 {
 	if (!publishing_)
 		return;
+
+	pruneRetiredPeers(kRetiredPeerCleanupDelayMs);
 
 	std::lock_guard<std::mutex> lock(peersMutex_);
 
@@ -1470,6 +1525,8 @@ void VDONinjaPeerManager::sendVideoFrame(const uint8_t *data, size_t size, uint3
 {
 	if (!publishing_)
 		return;
+
+	pruneRetiredPeers(kRetiredPeerCleanupDelayMs);
 
 	std::lock_guard<std::mutex> lock(peersMutex_);
 
@@ -1562,12 +1619,9 @@ void VDONinjaPeerManager::stopViewing(const std::string &streamId)
 	}
 
 	for (auto &peer : toClose) {
-		clearPeerCallbacks(peer);
-		peer->audioTrack.reset();
-		peer->videoTrack.reset();
-		peer->dataChannel.reset();
-		peer->pc.reset();
+		releasePeerResources(peer);
 	}
+	pruneRetiredPeers(kRetiredPeerCleanupDelayMs);
 	logInfo("Stopped viewing stream: %s", streamId.c_str());
 }
 
@@ -1595,13 +1649,91 @@ bool VDONinjaPeerManager::disconnectPeer(const std::string &uuid)
 		}
 	} catch (const std::exception &) {
 	}
-	peer->audioTrack.reset();
-	peer->videoTrack.reset();
-	peer->dataChannel.reset();
-	peer->signalingDataChannel.reset();
-	peer->pc.reset();
+	releasePeerResources(peer);
 	logInfo("Disconnected peer: %s", uuid.c_str());
 	return true;
+}
+
+void VDONinjaPeerManager::releasePeerResources(const std::shared_ptr<PeerInfo> &peer) const
+{
+	if (!peer) {
+		return;
+	}
+
+	clearPeerCallbacks(peer);
+	peer->audioTrack.reset();
+	peer->videoTrack.reset();
+	peer->alphaVideoTrack.reset();
+	peer->dataChannel.reset();
+	peer->signalingDataChannel.reset();
+	peer->audioSrReporter.reset();
+	peer->videoSrReporter.reset();
+	peer->pc.reset();
+	peer->hasDataChannel = false;
+}
+
+void VDONinjaPeerManager::retirePeerForDeferredCleanup(const std::string &uuid,
+                                                       const std::shared_ptr<PeerInfo> &peer)
+{
+	if (!peer) {
+		return;
+	}
+
+	const int64_t now = currentTimeMs();
+	if (peer->terminalStateTimeMs.load() == 0) {
+		peer->terminalStateTimeMs.store(now);
+	}
+
+	const bool alreadyRetired = peer->cleanupRetired.exchange(true);
+	{
+		std::lock_guard<std::mutex> lock(peersMutex_);
+		auto it = peers_.find(uuid);
+		if (it != peers_.end() && it->second == peer) {
+			peers_.erase(it);
+		}
+	}
+
+	{
+		std::lock_guard<std::mutex> lock(candidateMutex_);
+		candidateBundles_.erase(uuid);
+	}
+	{
+		std::lock_guard<std::mutex> lock(pendingViewerSignalingMutex_);
+		pendingViewerSignalingDataChannels_.erase(viewerSignalingKey(uuid, peer->session));
+		pendingViewerSignalingDataChannels_.erase(viewerSignalingKey(uuid, ""));
+	}
+
+	if (alreadyRetired) {
+		return;
+	}
+
+	// Keep RTC objects alive until a non-RTC callback path can clear callbacks
+	// and release them. Destroying a PeerConnection from its own state callback
+	// has caused heap corruption/crashes in long-running publish sessions.
+	std::lock_guard<std::mutex> lock(retiredPeersMutex_);
+	retiredPeers_.push_back({uuid, peer, now});
+}
+
+void VDONinjaPeerManager::pruneRetiredPeers(int64_t minAgeMs)
+{
+	std::vector<RetiredPeer> toRelease;
+	const int64_t now = currentTimeMs();
+	{
+		std::lock_guard<std::mutex> lock(retiredPeersMutex_);
+		auto it = retiredPeers_.begin();
+		while (it != retiredPeers_.end()) {
+			if (minAgeMs > 0 && now - it->retiredAtMs < minAgeMs) {
+				++it;
+				continue;
+			}
+			toRelease.push_back(*it);
+			it = retiredPeers_.erase(it);
+		}
+	}
+
+	for (const auto &retiredPeer : toRelease) {
+		releasePeerResources(retiredPeer.peer);
+	}
 }
 
 void VDONinjaPeerManager::clearPeerCallbacks(const std::shared_ptr<PeerInfo> &peer) const
@@ -1621,6 +1753,7 @@ void VDONinjaPeerManager::clearPeerCallbacks(const std::shared_ptr<PeerInfo> &pe
 	}
 
 	clearTrackCallbacks(peer->videoTrack);
+	clearTrackCallbacks(peer->alphaVideoTrack);
 	clearTrackCallbacks(peer->audioTrack);
 
 	if (peer->dataChannel) {
@@ -1634,8 +1767,13 @@ void VDONinjaPeerManager::clearPeerCallbacks(const std::shared_ptr<PeerInfo> &pe
 
 void VDONinjaPeerManager::sendDataToAll(const std::string &message)
 {
+	pruneRetiredPeers(kRetiredPeerCleanupDelayMs);
+
 	std::lock_guard<std::mutex> lock(peersMutex_);
 	for (auto &pair : peers_) {
+		if (!pair.second || isTerminalPeerState(pair.second->state.load())) {
+			continue;
+		}
 		try {
 			if (pair.second->hasDataChannel && pair.second->dataChannel) {
 				pair.second->dataChannel->send(message);
@@ -1648,9 +1786,11 @@ void VDONinjaPeerManager::sendDataToAll(const std::string &message)
 
 void VDONinjaPeerManager::sendDataToPeer(const std::string &uuid, const std::string &message)
 {
+	pruneRetiredPeers(kRetiredPeerCleanupDelayMs);
+
 	std::lock_guard<std::mutex> lock(peersMutex_);
 	auto it = peers_.find(uuid);
-	if (it == peers_.end() || !it->second) {
+	if (it == peers_.end() || !it->second || isTerminalPeerState(it->second->state.load())) {
 		return;
 	}
 

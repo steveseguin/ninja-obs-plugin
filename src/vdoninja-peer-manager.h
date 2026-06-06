@@ -125,6 +125,9 @@ private:
 	void setupPublisherTracks(std::shared_ptr<PeerInfo> peer);
 	void prepareViewerTracks(const std::shared_ptr<PeerInfo> &peer, const std::string &offerSdp);
 	void clearPeerCallbacks(const std::shared_ptr<PeerInfo> &peer) const;
+	void releasePeerResources(const std::shared_ptr<PeerInfo> &peer) const;
+	void retirePeerForDeferredCleanup(const std::string &uuid, const std::shared_ptr<PeerInfo> &peer);
+	void pruneRetiredPeers(int64_t minAgeMs);
 
 	// ICE candidate bundling
 	void bundleAndSendCandidates(const std::string &uuid);
@@ -143,6 +146,13 @@ private:
 	// Peer connections
 	std::map<std::string, std::shared_ptr<PeerInfo>> peers_;
 	mutable std::mutex peersMutex_;
+	struct RetiredPeer {
+		std::string uuid;
+		std::shared_ptr<PeerInfo> peer;
+		int64_t retiredAtMs = 0;
+	};
+	std::vector<RetiredPeer> retiredPeers_;
+	std::mutex retiredPeersMutex_;
 
 	// ICE configuration
 	std::vector<IceServer> iceServers_;
