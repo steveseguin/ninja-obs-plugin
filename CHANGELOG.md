@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.45] - 2026-06-08
+
 ### Fixed
 - Reduced OBS freezes during VDO.Ninja publishing by moving RTP packetization and libdatachannel media sends off the OBS encoder callback thread.
 - Hardened libdatachannel, WebSocket, and native receive callbacks so unexpected exceptions are logged instead of escaping callback threads.
