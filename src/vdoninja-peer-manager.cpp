@@ -25,6 +25,17 @@ constexpr uint8_t kH264FuAType = 28;
 constexpr size_t kMaxRtpPayloadSize = 1200;
 constexpr int64_t kRetiredPeerCleanupDelayMs = 1000;
 
+template <typename Fn> void runRtcCallbackNoexcept(const char *context, Fn &&fn)
+{
+	try {
+		fn();
+	} catch (const std::exception &e) {
+		logError("%s threw exception: %s", context, e.what());
+	} catch (...) {
+		logError("%s threw unknown exception", context);
+	}
+}
+
 bool isTerminalPeerState(ConnectionState state)
 {
 	switch (state) {
@@ -714,49 +725,51 @@ void VDONinjaPeerManager::installLocalDescriptionCallback(const std::shared_ptr<
 	const std::string uuid = peer->uuid;
 
 	peer->pc->onLocalDescription([this, weakPeer, uuid](rtc::Description description) {
-		if (shuttingDown_) {
-			return;
-		}
+		runRtcCallbackNoexcept("PeerConnection::onLocalDescription", [&]() {
+			if (shuttingDown_) {
+				return;
+			}
 
-		auto peer = weakPeer.lock();
-		if (!peer || !signaling_) {
-			return;
-		}
-		if (peer->cleanupRetired.load() || isTerminalPeerState(peer->state.load())) {
-			return;
-		}
+			auto peer = weakPeer.lock();
+			if (!peer || !signaling_) {
+				return;
+			}
+			if (peer->cleanupRetired.load() || isTerminalPeerState(peer->state.load())) {
+				return;
+			}
 
-		const std::string sdp = std::string(description);
-		if (sdp.empty()) {
-			logWarning("Ignoring empty local %s for %s", description.typeString().c_str(), uuid.c_str());
-			return;
-		}
+			const std::string sdp = std::string(description);
+			if (sdp.empty()) {
+				logWarning("Ignoring empty local %s for %s", description.typeString().c_str(), uuid.c_str());
+				return;
+			}
 
-		switch (description.type()) {
-		case rtc::Description::Type::Offer:
-			if (peer->type != ConnectionType::Publisher) {
-				logDebug("Ignoring local offer generated for viewer peer %s", uuid.c_str());
+			switch (description.type()) {
+			case rtc::Description::Type::Offer:
+				if (peer->type != ConnectionType::Publisher) {
+					logDebug("Ignoring local offer generated for viewer peer %s", uuid.c_str());
+					break;
+				}
+				signaling_->sendOffer(uuid, sdp, peer->session);
+				logInfo("Sent offer to %s (session %s)", uuid.c_str(), peer->session.c_str());
+				break;
+			case rtc::Description::Type::Answer:
+				if (peer->type != ConnectionType::Viewer) {
+					logDebug("Ignoring local answer generated for publisher peer %s", uuid.c_str());
+					break;
+				}
+				if (peer->signalingDataChannel) {
+					signaling_->sendAnswerViaDataChannel(peer->signalingDataChannel, uuid, sdp, peer->session);
+				} else {
+					signaling_->sendAnswer(uuid, sdp, peer->session);
+				}
+				logInfo("Sent answer to %s", uuid.c_str());
+				break;
+			default:
+				logDebug("Ignoring local description type '%s' for %s", description.typeString().c_str(), uuid.c_str());
 				break;
 			}
-			signaling_->sendOffer(uuid, sdp, peer->session);
-			logInfo("Sent offer to %s (session %s)", uuid.c_str(), peer->session.c_str());
-			break;
-		case rtc::Description::Type::Answer:
-			if (peer->type != ConnectionType::Viewer) {
-				logDebug("Ignoring local answer generated for publisher peer %s", uuid.c_str());
-				break;
-			}
-			if (peer->signalingDataChannel) {
-				signaling_->sendAnswerViaDataChannel(peer->signalingDataChannel, uuid, sdp, peer->session);
-			} else {
-				signaling_->sendAnswer(uuid, sdp, peer->session);
-			}
-			logInfo("Sent answer to %s", uuid.c_str());
-			break;
-		default:
-			logDebug("Ignoring local description type '%s' for %s", description.typeString().c_str(), uuid.c_str());
-			break;
-		}
+		});
 	});
 }
 
@@ -766,209 +779,221 @@ void VDONinjaPeerManager::setupPeerConnectionCallbacks(std::shared_ptr<PeerInfo>
 	std::string uuid = peer->uuid;
 
 	peer->pc->onStateChange([this, weakPeer, uuid](rtc::PeerConnection::State state) {
-		if (shuttingDown_) {
-			return;
-		}
-		auto peer = weakPeer.lock();
-		if (!peer)
-			return;
-		if (peer->cleanupRetired.load()) {
-			return;
-		}
-
-		switch (state) {
-		case rtc::PeerConnection::State::New:
-			peer->state = ConnectionState::New;
-			break;
-		case rtc::PeerConnection::State::Connecting:
-			peer->state = ConnectionState::Connecting;
-			logInfo("Peer %s connecting", uuid.c_str());
-			break;
-		case rtc::PeerConnection::State::Connected: {
-			peer->state = ConnectionState::Connected;
-			peer->terminalStateTimeMs.store(0);
-			peer->disconnectNotified.store(false);
-			peer->cleanupRetired.store(false);
-			logInfo("Peer %s connected", uuid.c_str());
-			OnPeerConnectedCallback cb;
-			{
-				std::lock_guard<std::mutex> callbackLock(callbackMutex_);
-				cb = onPeerConnected_;
-			}
-			if (cb) {
-				cb(uuid);
-			}
-			break;
-		}
-		case rtc::PeerConnection::State::Disconnected: {
-			peer->state = ConnectionState::Disconnected;
-			peer->terminalStateTimeMs.store(currentTimeMs());
-			logInfo("Peer %s disconnected", uuid.c_str());
-			if (!peer->disconnectNotified.exchange(true)) {
-				OnPeerDisconnectedCallback cb;
-				{
-					std::lock_guard<std::mutex> callbackLock(callbackMutex_);
-					cb = onPeerDisconnected_;
-				}
-				if (cb) {
-					cb(uuid);
-				}
-			}
-			retirePeerForDeferredCleanup(uuid, peer);
-			break;
-		}
-		case rtc::PeerConnection::State::Failed: {
-			peer->state = ConnectionState::Failed;
-			peer->terminalStateTimeMs.store(currentTimeMs());
-			logError("Peer %s connection failed", uuid.c_str());
-			if (!peer->disconnectNotified.exchange(true)) {
-				OnPeerDisconnectedCallback cb;
-				{
-					std::lock_guard<std::mutex> callbackLock(callbackMutex_);
-					cb = onPeerDisconnected_;
-				}
-				if (cb) {
-					cb(uuid);
-				}
-			}
-			retirePeerForDeferredCleanup(uuid, peer);
-			break;
-		}
-		case rtc::PeerConnection::State::Closed:
-			peer->state = ConnectionState::Closed;
-			peer->terminalStateTimeMs.store(currentTimeMs());
-			logInfo("Peer %s closed", uuid.c_str());
-			if (!peer->disconnectNotified.exchange(true)) {
-				OnPeerDisconnectedCallback cb;
-				{
-					std::lock_guard<std::mutex> callbackLock(callbackMutex_);
-					cb = onPeerDisconnected_;
-				}
-				if (cb) {
-					cb(uuid);
-				}
-			}
-			retirePeerForDeferredCleanup(uuid, peer);
-			break;
-		}
-	});
-
-	peer->pc->onLocalCandidate([this, weakPeer, uuid](rtc::Candidate candidate) {
-		if (shuttingDown_) {
-			return;
-		}
-		auto peer = weakPeer.lock();
-		if (!peer)
-			return;
-		if (peer->cleanupRetired.load() || isTerminalPeerState(peer->state.load())) {
-			return;
-		}
-
-		// Bundle candidates before sending
-		bool flushNow = false;
-		{
-			std::lock_guard<std::mutex> lock(candidateMutex_);
-			auto &bundle = candidateBundles_[uuid];
-			bundle.candidates.push_back({std::string(candidate), candidate.mid()});
-			bundle.lastUpdate = currentTimeMs();
-
-			// Schedule sending after delay
-			// In a real implementation, use a timer. Here we send immediately if enough time passed.
-			flushNow = bundle.candidates.size() >= 5;
-		}
-		if (flushNow) {
-			bundleAndSendCandidates(uuid);
-		}
-	});
-
-	peer->pc->onGatheringStateChange([this, uuid](rtc::PeerConnection::GatheringState state) {
-		if (shuttingDown_) {
-			return;
-		}
-		if (state == rtc::PeerConnection::GatheringState::Complete) {
-			logInfo("ICE gathering complete for %s", uuid.c_str());
-			bundleAndSendCandidates(uuid);
-		}
-	});
-
-	peer->pc->onTrack([this, weakPeer, uuid](std::shared_ptr<rtc::Track> track) {
-		if (shuttingDown_) {
-			return;
-		}
-		auto peer = weakPeer.lock();
-		if (!peer)
-			return;
-		if (peer->cleanupRetired.load() || isTerminalPeerState(peer->state.load())) {
-			return;
-		}
-
-		const TrackType type = classifyIncomingTrack(peer, track);
-		if (type == TrackType::Audio) {
-			peer->audioTrack = track;
-		} else if (type == TrackType::AlphaVideo) {
-			peer->alphaVideoTrack = track;
-		} else {
-			peer->videoTrack = track;
-		}
-
-		const char *typeLabel =
-		    type == TrackType::Audio ? "audio" : (type == TrackType::AlphaVideo ? "alpha video" : "video");
-		logInfo("Received %s track from %s (mid=%s)", typeLabel, uuid.c_str(), track ? track->mid().c_str() : "");
-
-		OnTrackCallback cb;
-		{
-			std::lock_guard<std::mutex> callbackLock(callbackMutex_);
-			cb = onTrack_;
-		}
-		if (cb) {
-			cb(uuid, type, track);
-		}
-	});
-
-	peer->pc->onDataChannel([this, weakPeer, uuid](std::shared_ptr<rtc::DataChannel> dc) {
-		if (shuttingDown_) {
-			return;
-		}
-		auto peer = weakPeer.lock();
-		if (!peer)
-			return;
-		if (peer->cleanupRetired.load() || isTerminalPeerState(peer->state.load())) {
-			return;
-		}
-
-		peer->dataChannel = dc;
-		peer->hasDataChannel = true;
-
-		dc->onMessage([this, weakPeer, uuid](auto data) {
+		runRtcCallbackNoexcept("PeerConnection::onStateChange", [&]() {
 			if (shuttingDown_) {
 				return;
 			}
 			auto peer = weakPeer.lock();
-			if (!peer || peer->cleanupRetired.load() || isTerminalPeerState(peer->state.load())) {
+			if (!peer)
+				return;
+			if (peer->cleanupRetired.load()) {
 				return;
 			}
-			if (std::holds_alternative<std::string>(data)) {
-				OnDataChannelMessageCallback cb;
+
+			switch (state) {
+			case rtc::PeerConnection::State::New:
+				peer->state = ConnectionState::New;
+				break;
+			case rtc::PeerConnection::State::Connecting:
+				peer->state = ConnectionState::Connecting;
+				logInfo("Peer %s connecting", uuid.c_str());
+				break;
+			case rtc::PeerConnection::State::Connected: {
+				peer->state = ConnectionState::Connected;
+				peer->terminalStateTimeMs.store(0);
+				peer->disconnectNotified.store(false);
+				peer->cleanupRetired.store(false);
+				logInfo("Peer %s connected", uuid.c_str());
+				OnPeerConnectedCallback cb;
 				{
 					std::lock_guard<std::mutex> callbackLock(callbackMutex_);
-					cb = onDataChannelMessage_;
+					cb = onPeerConnected_;
 				}
 				if (cb) {
-					cb(uuid, std::get<std::string>(data));
+					cb(uuid);
 				}
+				break;
+			}
+			case rtc::PeerConnection::State::Disconnected: {
+				peer->state = ConnectionState::Disconnected;
+				peer->terminalStateTimeMs.store(currentTimeMs());
+				logInfo("Peer %s disconnected", uuid.c_str());
+				if (!peer->disconnectNotified.exchange(true)) {
+					OnPeerDisconnectedCallback cb;
+					{
+						std::lock_guard<std::mutex> callbackLock(callbackMutex_);
+						cb = onPeerDisconnected_;
+					}
+					if (cb) {
+						cb(uuid);
+					}
+				}
+				retirePeerForDeferredCleanup(uuid, peer);
+				break;
+			}
+			case rtc::PeerConnection::State::Failed: {
+				peer->state = ConnectionState::Failed;
+				peer->terminalStateTimeMs.store(currentTimeMs());
+				logError("Peer %s connection failed", uuid.c_str());
+				if (!peer->disconnectNotified.exchange(true)) {
+					OnPeerDisconnectedCallback cb;
+					{
+						std::lock_guard<std::mutex> callbackLock(callbackMutex_);
+						cb = onPeerDisconnected_;
+					}
+					if (cb) {
+						cb(uuid);
+					}
+				}
+				retirePeerForDeferredCleanup(uuid, peer);
+				break;
+			}
+			case rtc::PeerConnection::State::Closed:
+				peer->state = ConnectionState::Closed;
+				peer->terminalStateTimeMs.store(currentTimeMs());
+				logInfo("Peer %s closed", uuid.c_str());
+				if (!peer->disconnectNotified.exchange(true)) {
+					OnPeerDisconnectedCallback cb;
+					{
+						std::lock_guard<std::mutex> callbackLock(callbackMutex_);
+						cb = onPeerDisconnected_;
+					}
+					if (cb) {
+						cb(uuid);
+					}
+				}
+				retirePeerForDeferredCleanup(uuid, peer);
+				break;
 			}
 		});
+	});
 
-		logInfo("Data channel opened with %s", uuid.c_str());
+	peer->pc->onLocalCandidate([this, weakPeer, uuid](rtc::Candidate candidate) {
+		runRtcCallbackNoexcept("PeerConnection::onLocalCandidate", [&]() {
+			if (shuttingDown_) {
+				return;
+			}
+			auto peer = weakPeer.lock();
+			if (!peer)
+				return;
+			if (peer->cleanupRetired.load() || isTerminalPeerState(peer->state.load())) {
+				return;
+			}
 
-		OnDataChannelCallback cb;
-		{
-			std::lock_guard<std::mutex> callbackLock(callbackMutex_);
-			cb = onDataChannel_;
-		}
-		if (cb) {
-			cb(uuid, dc);
-		}
+			// Bundle candidates before sending
+			bool flushNow = false;
+			{
+				std::lock_guard<std::mutex> lock(candidateMutex_);
+				auto &bundle = candidateBundles_[uuid];
+				bundle.candidates.push_back({std::string(candidate), candidate.mid()});
+				bundle.lastUpdate = currentTimeMs();
+
+				// Schedule sending after delay
+				// In a real implementation, use a timer. Here we send immediately if enough time passed.
+				flushNow = bundle.candidates.size() >= 5;
+			}
+			if (flushNow) {
+				bundleAndSendCandidates(uuid);
+			}
+		});
+	});
+
+	peer->pc->onGatheringStateChange([this, uuid](rtc::PeerConnection::GatheringState state) {
+		runRtcCallbackNoexcept("PeerConnection::onGatheringStateChange", [&]() {
+			if (shuttingDown_) {
+				return;
+			}
+			if (state == rtc::PeerConnection::GatheringState::Complete) {
+				logInfo("ICE gathering complete for %s", uuid.c_str());
+				bundleAndSendCandidates(uuid);
+			}
+		});
+	});
+
+	peer->pc->onTrack([this, weakPeer, uuid](std::shared_ptr<rtc::Track> track) {
+		runRtcCallbackNoexcept("PeerConnection::onTrack", [&]() {
+			if (shuttingDown_) {
+				return;
+			}
+			auto peer = weakPeer.lock();
+			if (!peer)
+				return;
+			if (peer->cleanupRetired.load() || isTerminalPeerState(peer->state.load())) {
+				return;
+			}
+
+			const TrackType type = classifyIncomingTrack(peer, track);
+			if (type == TrackType::Audio) {
+				peer->audioTrack = track;
+			} else if (type == TrackType::AlphaVideo) {
+				peer->alphaVideoTrack = track;
+			} else {
+				peer->videoTrack = track;
+			}
+
+			const char *typeLabel =
+			    type == TrackType::Audio ? "audio" : (type == TrackType::AlphaVideo ? "alpha video" : "video");
+			logInfo("Received %s track from %s (mid=%s)", typeLabel, uuid.c_str(), track ? track->mid().c_str() : "");
+
+			OnTrackCallback cb;
+			{
+				std::lock_guard<std::mutex> callbackLock(callbackMutex_);
+				cb = onTrack_;
+			}
+			if (cb) {
+				cb(uuid, type, track);
+			}
+		});
+	});
+
+	peer->pc->onDataChannel([this, weakPeer, uuid](std::shared_ptr<rtc::DataChannel> dc) {
+		runRtcCallbackNoexcept("PeerConnection::onDataChannel", [&]() {
+			if (shuttingDown_) {
+				return;
+			}
+			auto peer = weakPeer.lock();
+			if (!peer)
+				return;
+			if (peer->cleanupRetired.load() || isTerminalPeerState(peer->state.load())) {
+				return;
+			}
+
+			peer->dataChannel = dc;
+			peer->hasDataChannel = true;
+
+			dc->onMessage([this, weakPeer, uuid](auto data) {
+				runRtcCallbackNoexcept("DataChannel::onMessage", [&]() {
+					if (shuttingDown_) {
+						return;
+					}
+					auto peer = weakPeer.lock();
+					if (!peer || peer->cleanupRetired.load() || isTerminalPeerState(peer->state.load())) {
+						return;
+					}
+					if (std::holds_alternative<std::string>(data)) {
+						OnDataChannelMessageCallback cb;
+						{
+							std::lock_guard<std::mutex> callbackLock(callbackMutex_);
+							cb = onDataChannelMessage_;
+						}
+						if (cb) {
+							cb(uuid, std::get<std::string>(data));
+						}
+					}
+				});
+			});
+
+			logInfo("Data channel opened with %s", uuid.c_str());
+
+			OnDataChannelCallback cb;
+			{
+				std::lock_guard<std::mutex> callbackLock(callbackMutex_);
+				cb = onDataChannel_;
+			}
+			if (cb) {
+				cb(uuid, dc);
+			}
+		});
 	});
 }
 
@@ -1021,42 +1046,46 @@ void VDONinjaPeerManager::setupPublisherTracks(std::shared_ptr<PeerInfo> peer)
 		peer->hasDataChannel = true;
 
 		dc->onOpen([this, weakPeer, uuid = peer->uuid, dc]() {
-			if (shuttingDown_) {
-				return;
-			}
-			auto peer = weakPeer.lock();
-			if (!peer || peer->cleanupRetired.load() || isTerminalPeerState(peer->state.load())) {
-				return;
-			}
-			logInfo("Data channel opened for %s", uuid.c_str());
-			OnDataChannelCallback cb;
-			{
-				std::lock_guard<std::mutex> callbackLock(callbackMutex_);
-				cb = onDataChannel_;
-			}
-			if (cb) {
-				cb(uuid, dc);
-			}
+			runRtcCallbackNoexcept("DataChannel::onOpen", [&]() {
+				if (shuttingDown_) {
+					return;
+				}
+				auto peer = weakPeer.lock();
+				if (!peer || peer->cleanupRetired.load() || isTerminalPeerState(peer->state.load())) {
+					return;
+				}
+				logInfo("Data channel opened for %s", uuid.c_str());
+				OnDataChannelCallback cb;
+				{
+					std::lock_guard<std::mutex> callbackLock(callbackMutex_);
+					cb = onDataChannel_;
+				}
+				if (cb) {
+					cb(uuid, dc);
+				}
+			});
 		});
 
 		dc->onMessage([this, weakPeer, uuid = peer->uuid](auto data) {
-			if (shuttingDown_) {
-				return;
-			}
-			auto peer = weakPeer.lock();
-			if (!peer || peer->cleanupRetired.load() || isTerminalPeerState(peer->state.load())) {
-				return;
-			}
-			if (std::holds_alternative<std::string>(data)) {
-				OnDataChannelMessageCallback cb;
-				{
-					std::lock_guard<std::mutex> callbackLock(callbackMutex_);
-					cb = onDataChannelMessage_;
+			runRtcCallbackNoexcept("DataChannel::onMessage", [&]() {
+				if (shuttingDown_) {
+					return;
 				}
-				if (cb) {
-					cb(uuid, std::get<std::string>(data));
+				auto peer = weakPeer.lock();
+				if (!peer || peer->cleanupRetired.load() || isTerminalPeerState(peer->state.load())) {
+					return;
 				}
-			}
+				if (std::holds_alternative<std::string>(data)) {
+					OnDataChannelMessageCallback cb;
+					{
+						std::lock_guard<std::mutex> callbackLock(callbackMutex_);
+						cb = onDataChannelMessage_;
+					}
+					if (cb) {
+						cb(uuid, std::get<std::string>(data));
+					}
+				}
+			});
 		});
 	}
 

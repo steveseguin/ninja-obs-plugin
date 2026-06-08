@@ -2105,8 +2105,13 @@ bool obs_module_load(void)
 
 	// Create and register Studio Dock
 	g_vdo_dock = new VDONinjaDock();
-	obs_frontend_add_custom_qdock("VDONinjaStudioDock", g_vdo_dock);
-	logInfo("Registered VDO.Ninja Studio Dock");
+	if (obs_frontend_add_custom_qdock("VDONinjaStudioDock", g_vdo_dock)) {
+		logInfo("Registered VDO.Ninja Studio Dock");
+	} else {
+		logWarning("Failed to register VDO.Ninja Studio Dock");
+		delete g_vdo_dock;
+		g_vdo_dock = nullptr;
+	}
 
 	obs_frontend_add_tools_menu_item(tr("Tools.OpenStudio", "VDO.Ninja Studio"), open_vdoninja_studio_callback,
 	                                 nullptr);
@@ -2131,9 +2136,11 @@ void obs_module_unload(void)
 		gControlCenterSource = nullptr;
 	}
 
-	// Dock is managed by OBS frontend if registered via add_dock,
-	// but we null out our pointer for safety.
-	g_vdo_dock = nullptr;
+	if (g_vdo_dock) {
+		obs_frontend_remove_dock("VDONinjaStudioDock");
+		delete g_vdo_dock;
+		g_vdo_dock = nullptr;
+	}
 
 	releaseServiceSnapshot(gTemporaryRestoreSnapshot);
 	releaseServiceSnapshot(gLastNonVdoServiceSnapshot);

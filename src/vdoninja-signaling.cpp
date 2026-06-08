@@ -47,6 +47,17 @@ constexpr const char *kProxySignalingHost = "wss://proxywss.rtc.ninja:443";
 constexpr int kInitialConnectWaitMs = 12000;
 constexpr int kSignalingConnectionTimeoutMs = 4000;
 
+template <typename Fn> void runRtcCallbackNoexcept(const char *context, Fn &&fn)
+{
+	try {
+		fn();
+	} catch (const std::exception &e) {
+		logError("%s threw exception: %s", context, e.what());
+	} catch (...) {
+		logError("%s threw unknown exception", context);
+	}
+}
+
 std::string getAnyString(const JsonParser &json, const std::initializer_list<const char *> &keys)
 {
 	for (const char *key : keys) {
@@ -596,93 +607,100 @@ void VDONinjaSignaling::wsThreadFunc()
 			}
 
 			ws->onOpen([this, reconnectAttempts, host, opened]() {
-				logInfo("WebSocket connected to signaling server: %s", host.c_str());
-				opened->store(true);
-				connected_ = true;
-				initialConnectionFinished_ = true;
-				reconnectAttempts->store(0, std::memory_order_relaxed);
-				{
-					std::lock_guard<std::mutex> lock(stateMutex_);
-					deferredConnectionError_.clear();
-					reconnectSuppressedByServer_ = false;
-					reconnectDeferredUntilMs_ = 0;
-				}
+				runRtcCallbackNoexcept("WebSocket::onOpen", [&]() {
+					logInfo("WebSocket connected to signaling server: %s", host.c_str());
+					opened->store(true);
+					connected_ = true;
+					initialConnectionFinished_ = true;
+					reconnectAttempts->store(0, std::memory_order_relaxed);
+					{
+						std::lock_guard<std::mutex> lock(stateMutex_);
+						deferredConnectionError_.clear();
+						reconnectSuppressedByServer_ = false;
+						reconnectDeferredUntilMs_ = 0;
+					}
 
-				OnConnectedCallback cb;
-				{
-					std::lock_guard<std::mutex> lock(callbackMutex_);
-					cb = onConnected_;
-				}
-				if (cb) {
-					cb();
-				}
+					OnConnectedCallback cb;
+					{
+						std::lock_guard<std::mutex> lock(callbackMutex_);
+						cb = onConnected_;
+					}
+					if (cb) {
+						cb();
+					}
+				});
 			});
 
 			ws->onClosed([this, host, opened]() {
-				if (opened->load()) {
-					logInfo("WebSocket closed: %s", host.c_str());
-				} else {
-					logWarning("WebSocket closed before opening: %s", host.c_str());
-				}
-				connected_ = false;
-				needsReconnect_ = true;
-				// Wake send loop so it can exit
-				std::lock_guard<std::mutex> lock(sendMutex_);
-				sendCv_.notify_all();
+				runRtcCallbackNoexcept("WebSocket::onClosed", [&]() {
+					if (opened->load()) {
+						logInfo("WebSocket closed: %s", host.c_str());
+					} else {
+						logWarning("WebSocket closed before opening: %s", host.c_str());
+					}
+					connected_ = false;
+					needsReconnect_ = true;
+					// Wake send loop so it can exit
+					std::lock_guard<std::mutex> lock(sendMutex_);
+					sendCv_.notify_all();
+				});
 			});
 
 			ws->onError([this, host, opened](const std::string &error) {
-				logError("WebSocket error from %s: %s", host.c_str(), error.c_str());
-				bool tryFallback = false;
-				std::string report = error;
-				const bool failedBeforeOpen = !opened->load();
-				bool hasNextHost = false;
-				{
-					std::lock_guard<std::mutex> lock(stateMutex_);
-					hasNextHost = activeWssHostIndex_ + 1 < wssHosts_.size();
-					if (failedBeforeOpen && hasNextHost) {
-						deferredConnectionError_ = error;
-						tryFallback = true;
-					} else if (!deferredConnectionError_.empty()) {
-						report =
-						    "Built-in signaling server fallback failed; primary error: " + deferredConnectionError_ +
-						    "; fallback error: " + error;
-						deferredConnectionError_.clear();
-					}
-				}
-				if (failedBeforeOpen) {
-					logSignalingConnectDiagnostic(host, error, hasNextHost);
-					needsReconnect_ = true;
-					sendCv_.notify_all();
-					std::lock_guard<std::mutex> lock(handleMutex_);
-					if (wsHandle_) {
-						auto stored = static_cast<std::shared_ptr<rtc::WebSocket> *>(wsHandle_);
-						try {
-							(*stored)->close();
-						} catch (const std::exception &closeError) {
-							logWarning("WebSocket close after pre-open error failed for %s: %s", host.c_str(),
-							           closeError.what());
+				runRtcCallbackNoexcept("WebSocket::onError", [&]() {
+					logError("WebSocket error from %s: %s", host.c_str(), error.c_str());
+					bool tryFallback = false;
+					std::string report = error;
+					const bool failedBeforeOpen = !opened->load();
+					bool hasNextHost = false;
+					{
+						std::lock_guard<std::mutex> lock(stateMutex_);
+						hasNextHost = activeWssHostIndex_ + 1 < wssHosts_.size();
+						if (failedBeforeOpen && hasNextHost) {
+							deferredConnectionError_ = error;
+							tryFallback = true;
+						} else if (!deferredConnectionError_.empty()) {
+							report = "Built-in signaling server fallback failed; primary error: " +
+							         deferredConnectionError_ + "; fallback error: " + error;
+							deferredConnectionError_.clear();
 						}
 					}
-				}
-				if (tryFallback) {
-					logWarning("Signaling connect to %s failed before open; trying fallback server", host.c_str());
-					return;
-				}
-				OnErrorCallback cb;
-				{
-					std::lock_guard<std::mutex> lock(callbackMutex_);
-					cb = onError_;
-				}
-				if (cb) {
-					cb(report);
-				}
+					if (failedBeforeOpen) {
+						logSignalingConnectDiagnostic(host, error, hasNextHost);
+						needsReconnect_ = true;
+						sendCv_.notify_all();
+						std::lock_guard<std::mutex> lock(handleMutex_);
+						if (wsHandle_) {
+							auto stored = static_cast<std::shared_ptr<rtc::WebSocket> *>(wsHandle_);
+							try {
+								(*stored)->close();
+							} catch (const std::exception &closeError) {
+								logWarning("WebSocket close after pre-open error failed for %s: %s", host.c_str(),
+								           closeError.what());
+							}
+						}
+					}
+					if (tryFallback) {
+						logWarning("Signaling connect to %s failed before open; trying fallback server", host.c_str());
+						return;
+					}
+					OnErrorCallback cb;
+					{
+						std::lock_guard<std::mutex> lock(callbackMutex_);
+						cb = onError_;
+					}
+					if (cb) {
+						cb(report);
+					}
+				});
 			});
 
 			ws->onMessage([this](auto data) {
-				if (std::holds_alternative<std::string>(data)) {
-					processMessage(std::get<std::string>(data));
-				}
+				runRtcCallbackNoexcept("WebSocket::onMessage", [&]() {
+					if (std::holds_alternative<std::string>(data)) {
+						processMessage(std::get<std::string>(data));
+					}
+				});
 			});
 
 			ws->open(host);

@@ -11,6 +11,8 @@
 #include <obs-module.h>
 
 #include <atomic>
+#include <condition_variable>
+#include <deque>
 #include <thread>
 
 #include "vdoninja-auto-scene-manager.h"
@@ -72,6 +74,18 @@ private:
 	void stopThread();
 
 	// Handle encoding
+	enum class MediaFrameType { Audio, Video };
+	struct QueuedMediaFrame {
+		MediaFrameType type = MediaFrameType::Video;
+		std::vector<uint8_t> payload;
+		uint32_t timestamp = 0;
+		bool keyframe = false;
+	};
+
+	void startMediaSendWorker();
+	void stopMediaSendWorker();
+	void mediaSendThread();
+	void enqueueMediaFrame(QueuedMediaFrame frame);
 	void processAudioPacket(encoder_packet *packet);
 	void processVideoPacket(encoder_packet *packet);
 	void sendInitialPeerInfo(const std::string &uuid);
@@ -102,6 +116,12 @@ private:
 	std::atomic<bool> capturing_{false};
 	std::atomic<bool> stopping_{false};
 	std::thread startStopThread_;
+	std::thread mediaSendThread_;
+	std::mutex mediaSendMutex_;
+	std::condition_variable mediaSendCv_;
+	std::deque<QueuedMediaFrame> mediaSendQueue_;
+	bool mediaSendWorkerRunning_ = false;
+	std::atomic<uint64_t> droppedMediaFrames_{0};
 
 	// Statistics
 	std::atomic<uint64_t> totalBytes_{0};

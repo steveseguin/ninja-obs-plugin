@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Reduced OBS freezes during VDO.Ninja publishing by moving RTP packetization and libdatachannel media sends off the OBS encoder callback thread.
+- Hardened libdatachannel, WebSocket, and native receive callbacks so unexpected exceptions are logged instead of escaping callback threads.
+- Fixed VDO.Ninja Studio dock cleanup when registration fails or the plugin unloads.
+
 ## [1.1.44] - 2026-06-06
 
 ### Fixed

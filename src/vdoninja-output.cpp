@@ -26,6 +26,8 @@ namespace vdoninja
 namespace
 {
 
+constexpr size_t kMaxQueuedMediaFrames = 240;
+
 const char *tr(const char *key, const char *fallback)
 {
 	const char *localized = obs_module_text(key);
@@ -986,11 +988,11 @@ void VDONinjaOutput::queueObsStateToPeer(const std::string &uuid)
 		std::string uuid;
 	};
 
-	auto *task = new ObsStateTaskData{callbackState_, uuid};
+	ObsStateTaskData task{callbackState_, uuid};
 	obs_queue_task(
 	    OBS_TASK_UI,
 	    [](void *param) {
-		    std::unique_ptr<ObsStateTaskData> data(static_cast<ObsStateTaskData *>(param));
+		    auto *data = static_cast<ObsStateTaskData *>(param);
 		    if (!data) {
 			    return;
 		    }
@@ -1000,7 +1002,7 @@ void VDONinjaOutput::queueObsStateToPeer(const std::string &uuid)
 		    }
 		    guard.owner()->sendObsStateToPeer(data->uuid);
 	    },
-	    task, false);
+	    &task, true);
 }
 
 void VDONinjaOutput::sendInitialPeerInfo(const std::string &uuid)
@@ -1095,6 +1097,9 @@ bool VDONinjaOutput::start()
 	lastVideoRtpTimestamp_ = 0;
 	hasLastAudioRtpTimestamp_ = false;
 	lastAudioRtpTimestamp_ = 0;
+	droppedMediaFrames_ = 0;
+
+	startMediaSendWorker();
 
 	if (startStopThread_.joinable()) {
 		startStopThread_.join();
@@ -1399,6 +1404,8 @@ void VDONinjaOutput::stop()
 	const bool wasRunning = running_.exchange(false);
 	const bool wasCapturing = capturing_.load();
 	if (!wasRunning && !wasCapturing) {
+		connected_ = false;
+		stopMediaSendWorker();
 		// Still join the thread in case startThread failed and set running_=false
 		// but is still cleaning up.
 		if (startStopThread_.joinable()) {
@@ -1411,6 +1418,8 @@ void VDONinjaOutput::stop()
 	connected_ = false;
 
 	logInfo("Stopping VDO.Ninja output...");
+
+	stopMediaSendWorker();
 
 	if (autoSceneManager_) {
 		autoSceneManager_->stop();
@@ -1479,6 +1488,92 @@ void VDONinjaOutput::stop()
 
 	stopping_ = false;
 	logInfo("VDO.Ninja output stopped");
+}
+
+void VDONinjaOutput::startMediaSendWorker()
+{
+	stopMediaSendWorker();
+
+	{
+		std::lock_guard<std::mutex> lock(mediaSendMutex_);
+		mediaSendQueue_.clear();
+		mediaSendWorkerRunning_ = true;
+	}
+	mediaSendThread_ = std::thread(&VDONinjaOutput::mediaSendThread, this);
+}
+
+void VDONinjaOutput::stopMediaSendWorker()
+{
+	{
+		std::lock_guard<std::mutex> lock(mediaSendMutex_);
+		mediaSendWorkerRunning_ = false;
+		mediaSendQueue_.clear();
+	}
+	mediaSendCv_.notify_all();
+
+	if (mediaSendThread_.joinable()) {
+		mediaSendThread_.join();
+	}
+}
+
+void VDONinjaOutput::enqueueMediaFrame(QueuedMediaFrame frame)
+{
+	if (frame.payload.empty()) {
+		return;
+	}
+
+	uint64_t dropped = 0;
+	{
+		std::lock_guard<std::mutex> lock(mediaSendMutex_);
+		if (!mediaSendWorkerRunning_) {
+			return;
+		}
+		while (mediaSendQueue_.size() >= kMaxQueuedMediaFrames) {
+			mediaSendQueue_.pop_front();
+			dropped = ++droppedMediaFrames_;
+		}
+		mediaSendQueue_.push_back(std::move(frame));
+	}
+
+	if (dropped != 0 && (dropped == 1 || (dropped % 300) == 0)) {
+		logWarning("Dropped VDO.Ninja media frame because send queue is saturated (dropped=%llu)",
+		           static_cast<unsigned long long>(dropped));
+	}
+
+	mediaSendCv_.notify_one();
+}
+
+void VDONinjaOutput::mediaSendThread()
+{
+	for (;;) {
+		QueuedMediaFrame frame;
+		{
+			std::unique_lock<std::mutex> lock(mediaSendMutex_);
+			mediaSendCv_.wait(lock, [this]() { return !mediaSendQueue_.empty() || !mediaSendWorkerRunning_; });
+			if (mediaSendQueue_.empty() && !mediaSendWorkerRunning_) {
+				break;
+			}
+			frame = std::move(mediaSendQueue_.front());
+			mediaSendQueue_.pop_front();
+		}
+
+		if (!peerManager_ || !connected_.load()) {
+			continue;
+		}
+
+		try {
+			if (frame.type == MediaFrameType::Video) {
+				peerManager_->sendVideoFrame(frame.payload.data(), frame.payload.size(), frame.timestamp,
+				                             frame.keyframe);
+			} else {
+				peerManager_->sendAudioFrame(frame.payload.data(), frame.payload.size(), frame.timestamp);
+			}
+		} catch (const std::exception &e) {
+			logError("VDO.Ninja media sender failed: %s", e.what());
+		} catch (...) {
+			logError("VDO.Ninja media sender failed with unknown exception");
+		}
+	}
 }
 
 void VDONinjaOutput::drainAsyncCallbacks()
@@ -1561,6 +1656,10 @@ uint32_t sanitizeMonotonicTimestamp(uint32_t candidate, bool &hasLast, uint32_t 
 
 void VDONinjaOutput::processVideoPacket(encoder_packet *packet)
 {
+	if (!packet || !packet->data || packet->size == 0) {
+		return;
+	}
+
 	bool keyframe = packet->keyframe;
 	uint32_t timestamp = timestampFromPacket(packet, 90000.0);
 	timestamp = sanitizeMonotonicTimestamp(timestamp, hasLastVideoRtpTimestamp_, lastVideoRtpTimestamp_, 3000);
@@ -1571,7 +1670,12 @@ void VDONinjaOutput::processVideoPacket(encoder_packet *packet)
 		cachedKeyframeTimestamp_ = timestamp;
 	}
 
-	peerManager_->sendVideoFrame(packet->data, packet->size, timestamp, keyframe);
+	QueuedMediaFrame frame;
+	frame.type = MediaFrameType::Video;
+	frame.payload.assign(packet->data, packet->data + packet->size);
+	frame.timestamp = timestamp;
+	frame.keyframe = keyframe;
+	enqueueMediaFrame(std::move(frame));
 }
 
 void VDONinjaOutput::processAudioPacket(encoder_packet *packet)
@@ -1596,7 +1700,11 @@ void VDONinjaOutput::processAudioPacket(encoder_packet *packet)
 	uint32_t timestamp = timestampFromPacket(packet, 48000.0);
 	timestamp = sanitizeMonotonicTimestamp(timestamp, hasLastAudioRtpTimestamp_, lastAudioRtpTimestamp_, 960);
 
-	peerManager_->sendAudioFrame(packet->data, packet->size, timestamp);
+	QueuedMediaFrame frame;
+	frame.type = MediaFrameType::Audio;
+	frame.payload.assign(packet->data, packet->data + packet->size);
+	frame.timestamp = timestamp;
+	enqueueMediaFrame(std::move(frame));
 }
 
 uint64_t VDONinjaOutput::getTotalBytes() const

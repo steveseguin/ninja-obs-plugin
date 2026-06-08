@@ -1583,63 +1583,67 @@ void VDONinjaSource::onVideoTrack(const std::string &uuid, std::shared_ptr<rtc::
 	const auto callbackState = callbackState_;
 	auto receivingSession =
 	    std::make_shared<InspectingReceivingSession>([callbackState](const rtc::message_ptr &message) {
-		    AsyncCallbackGuard<VDONinjaSource> guard(callbackState.get());
-		    if (!guard) {
-			    return;
-		    }
-		    VDONinjaSource *self = guard.owner();
-		    if (!message || message->type != rtc::Message::Binary || message->size() < sizeof(rtc::RtpHeader)) {
-			    return;
-		    }
+		    runNoexceptCallback("native_video_receiving_session", [&]() {
+			    AsyncCallbackGuard<VDONinjaSource> guard(callbackState.get());
+			    if (!guard) {
+				    return;
+			    }
+			    VDONinjaSource *self = guard.owner();
+			    if (!message || message->type != rtc::Message::Binary || message->size() < sizeof(rtc::RtpHeader)) {
+				    return;
+			    }
 
-		    if (self->loggedFirstVideoRtpPacket_.exchange(true)) {
-			    return;
-		    }
+			    if (self->loggedFirstVideoRtpPacket_.exchange(true)) {
+				    return;
+			    }
 
-		    const auto *rtpHeader = reinterpret_cast<const rtc::RtpHeader *>(message->data());
-		    size_t headerSize = rtpHeader->getSize() + rtpHeader->getExtensionHeaderSize();
-		    if (message->size() < headerSize) {
-			    return;
-		    }
+			    const auto *rtpHeader = reinterpret_cast<const rtc::RtpHeader *>(message->data());
+			    size_t headerSize = rtpHeader->getSize() + rtpHeader->getExtensionHeaderSize();
+			    if (message->size() < headerSize) {
+				    return;
+			    }
 
-		    size_t paddingSize = 0;
-		    if (rtpHeader->padding() && !message->empty()) {
-			    paddingSize = std::to_integer<uint8_t>(message->back());
-		    }
-		    if (message->size() <= headerSize + paddingSize) {
-			    return;
-		    }
+			    size_t paddingSize = 0;
+			    if (rtpHeader->padding() && !message->empty()) {
+				    paddingSize = std::to_integer<uint8_t>(message->back());
+			    }
+			    if (message->size() <= headerSize + paddingSize) {
+				    return;
+			    }
 
-		    const size_t payloadSize = message->size() - headerSize - paddingSize;
-		    logInfo("Native receiver got first video RTP packet (pt=%u, bytes=%zu, marker=%u, rtp ts=%u)",
-		            static_cast<unsigned>(rtpHeader->payloadType()), payloadSize,
-		            static_cast<unsigned>(rtpHeader->marker()), rtpHeader->timestamp());
+			    const size_t payloadSize = message->size() - headerSize - paddingSize;
+			    logInfo("Native receiver got first video RTP packet (pt=%u, bytes=%zu, marker=%u, rtp ts=%u)",
+			            static_cast<unsigned>(rtpHeader->payloadType()), payloadSize,
+			            static_cast<unsigned>(rtpHeader->marker()), rtpHeader->timestamp());
+		    });
 	    });
 	track->setMediaHandler(rtxFilter);
 	track->chainMediaHandler(receivingSession);
 	track->onMessage([callbackState, weakTrack = std::weak_ptr<rtc::Track>(track)](rtc::message_variant message) {
-		AsyncCallbackGuard<VDONinjaSource> guard(callbackState.get());
-		if (!guard) {
-			return;
-		}
-		VDONinjaSource *self = guard.owner();
-		const auto strongTrack = weakTrack.lock();
-		if (!strongTrack) {
-			return;
-		}
-		{
-			std::lock_guard<std::mutex> stateLock(self->nativeStateMutex_);
-			if (self->videoTrack_ != strongTrack) {
+		runNoexceptCallback("native_video_track_onMessage", [&]() {
+			AsyncCallbackGuard<VDONinjaSource> guard(callbackState.get());
+			if (!guard) {
 				return;
 			}
-		}
+			VDONinjaSource *self = guard.owner();
+			const auto strongTrack = weakTrack.lock();
+			if (!strongTrack) {
+				return;
+			}
+			{
+				std::lock_guard<std::mutex> stateLock(self->nativeStateMutex_);
+				if (self->videoTrack_ != strongTrack) {
+					return;
+				}
+			}
 
-		if (!std::holds_alternative<rtc::binary>(message)) {
-			return;
-		}
+			if (!std::holds_alternative<rtc::binary>(message)) {
+				return;
+			}
 
-		const auto &packet = std::get<rtc::binary>(message);
-		self->processVideoRtpPacket(reinterpret_cast<const uint8_t *>(packet.data()), packet.size());
+			const auto &packet = std::get<rtc::binary>(message);
+			self->processVideoRtpPacket(reinterpret_cast<const uint8_t *>(packet.data()), packet.size());
+		});
 	});
 
 	if (replacedExistingTrack && safeRequestKeyframe(track, "video-track-replaced")) {
@@ -1714,26 +1718,28 @@ void VDONinjaSource::onAlphaVideoTrack(const std::string &uuid, std::shared_ptr<
 
 	const auto callbackState = callbackState_;
 	track->onMessage([callbackState, weakTrack = std::weak_ptr<rtc::Track>(track)](rtc::message_variant message) {
-		AsyncCallbackGuard<VDONinjaSource> guard(callbackState.get());
-		if (!guard) {
-			return;
-		}
-		VDONinjaSource *self = guard.owner();
-		const auto strongTrack = weakTrack.lock();
-		if (!strongTrack) {
-			return;
-		}
-		{
-			std::lock_guard<std::mutex> stateLock(self->nativeStateMutex_);
-			if (self->alphaVideoTrack_ != strongTrack) {
+		runNoexceptCallback("native_alpha_track_onMessage", [&]() {
+			AsyncCallbackGuard<VDONinjaSource> guard(callbackState.get());
+			if (!guard) {
 				return;
 			}
-		}
-		if (!std::holds_alternative<rtc::binary>(message)) {
-			return;
-		}
-		const auto &packet = std::get<rtc::binary>(message);
-		self->processAlphaRtpPacket(reinterpret_cast<const uint8_t *>(packet.data()), packet.size());
+			VDONinjaSource *self = guard.owner();
+			const auto strongTrack = weakTrack.lock();
+			if (!strongTrack) {
+				return;
+			}
+			{
+				std::lock_guard<std::mutex> stateLock(self->nativeStateMutex_);
+				if (self->alphaVideoTrack_ != strongTrack) {
+					return;
+				}
+			}
+			if (!std::holds_alternative<rtc::binary>(message)) {
+				return;
+			}
+			const auto &packet = std::get<rtc::binary>(message);
+			self->processAlphaRtpPacket(reinterpret_cast<const uint8_t *>(packet.data()), packet.size());
+		});
 	});
 }
 
@@ -1783,26 +1789,28 @@ void VDONinjaSource::onAudioTrack(const std::string &uuid, std::shared_ptr<rtc::
 	audioChannels_ = channels > 0 ? channels : 2;
 	const auto callbackState = callbackState_;
 	track->onMessage([callbackState, weakTrack = std::weak_ptr<rtc::Track>(track)](rtc::message_variant message) {
-		AsyncCallbackGuard<VDONinjaSource> guard(callbackState.get());
-		if (!guard) {
-			return;
-		}
-		VDONinjaSource *self = guard.owner();
-		const auto strongTrack = weakTrack.lock();
-		if (!strongTrack) {
-			return;
-		}
-		{
-			std::lock_guard<std::mutex> stateLock(self->nativeStateMutex_);
-			if (self->audioTrack_ != strongTrack) {
+		runNoexceptCallback("native_audio_track_onMessage", [&]() {
+			AsyncCallbackGuard<VDONinjaSource> guard(callbackState.get());
+			if (!guard) {
 				return;
 			}
-		}
-		if (!std::holds_alternative<rtc::binary>(message)) {
-			return;
-		}
-		const auto &packet = std::get<rtc::binary>(message);
-		self->processAudioRtpPacket(reinterpret_cast<const uint8_t *>(packet.data()), packet.size());
+			VDONinjaSource *self = guard.owner();
+			const auto strongTrack = weakTrack.lock();
+			if (!strongTrack) {
+				return;
+			}
+			{
+				std::lock_guard<std::mutex> stateLock(self->nativeStateMutex_);
+				if (self->audioTrack_ != strongTrack) {
+					return;
+				}
+			}
+			if (!std::holds_alternative<rtc::binary>(message)) {
+				return;
+			}
+			const auto &packet = std::get<rtc::binary>(message);
+			self->processAudioRtpPacket(reinterpret_cast<const uint8_t *>(packet.data()), packet.size());
+		});
 	});
 }
 
