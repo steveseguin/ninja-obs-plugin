@@ -41,8 +41,8 @@ obs_source_t *acquireTargetSceneSource(const std::string &targetScene)
 
 // Runs on the UI thread with value-captured state only; the manager itself may
 // already be destroyed by the time this executes.
-void applyGridLayoutOnUi(const std::string &targetScene, const std::vector<std::string> &sourceNames,
-                         int fallbackWidth, int fallbackHeight)
+void applyGridLayoutOnUi(const std::string &targetScene, const std::vector<std::string> &sourceNames, int fallbackWidth,
+                         int fallbackHeight)
 {
 	obs_source_t *sceneSource = acquireTargetSceneSource(targetScene);
 	if (!sceneSource) {
