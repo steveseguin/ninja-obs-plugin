@@ -7,8 +7,10 @@ function sleep(ms) {
 }
 
 class ObsWebSocketClient {
-  constructor(url) {
+  constructor(url, options = {}) {
     this.url = url;
+    this.eventSubscriptions = options.eventSubscriptions || 0;
+    this.onEvent = typeof options.onEvent === "function" ? options.onEvent : null;
     this.socket = null;
     this.requestId = 0;
     this.pending = new Map();
@@ -32,7 +34,7 @@ class ObsWebSocketClient {
                 op: 1,
                 d: {
                   rpcVersion: 1,
-                  eventSubscriptions: 0,
+                  eventSubscriptions: this.eventSubscriptions,
                 },
               })
             );
@@ -45,6 +47,9 @@ class ObsWebSocketClient {
           }
 
           if (message.op !== 7) {
+            if (message.op === 5 && this.onEvent) {
+              this.onEvent(message.d || {});
+            }
             return;
           }
 
@@ -130,6 +135,8 @@ class ObsWebSocketClient {
   }
 }
 
+const EVENT_SUBSCRIPTION_INPUT_VOLUME_METERS = 1 << 16;
+
 function parseBoolean(value, fallback = false) {
   if (value === undefined) {
     return fallback;
@@ -140,6 +147,70 @@ function parseBoolean(value, fallback = false) {
 
 function logStep(message) {
   console.error(`[obs-source-check] ${message}`);
+}
+
+function createAudioMeterCollector(inputName) {
+  const summary = {
+    inputName,
+    sampleCount: 0,
+    nonSilentSampleCount: 0,
+    highLevelSampleCount: 0,
+    maxMagnitude: 0,
+    maxLevel: 0,
+    firstSeenAt: null,
+    lastSeenAt: null,
+  };
+
+  function observeLevel(value) {
+    if (!Number.isFinite(value)) {
+      return;
+    }
+
+    const abs = Math.abs(value);
+    if (abs > summary.maxMagnitude) {
+      summary.maxMagnitude = abs;
+    }
+    if (abs > summary.maxLevel) {
+      summary.maxLevel = abs;
+    }
+    if (abs > 0.0001) {
+      summary.nonSilentSampleCount += 1;
+    }
+    if (abs >= 0.999) {
+      summary.highLevelSampleCount += 1;
+    }
+  }
+
+  return {
+    summary,
+    onEvent(event) {
+      if (!event || event.eventType !== "InputVolumeMeters") {
+        return;
+      }
+
+      const inputs = event.eventData && Array.isArray(event.eventData.inputs) ? event.eventData.inputs : [];
+      const target = inputs.find((input) => input && input.inputName === inputName);
+      if (!target || !Array.isArray(target.inputLevelsMul)) {
+        return;
+      }
+
+      summary.sampleCount += 1;
+      const now = new Date().toISOString();
+      if (!summary.firstSeenAt) {
+        summary.firstSeenAt = now;
+      }
+      summary.lastSeenAt = now;
+
+      for (const channel of target.inputLevelsMul) {
+        if (!Array.isArray(channel)) {
+          continue;
+        }
+        for (const level of channel) {
+          observeLevel(Number(level));
+        }
+      }
+    },
+  };
 }
 
 async function captureSourceScreenshot(client, sourceName, outputPath) {
@@ -182,16 +253,23 @@ async function main() {
   const websocketUrl = process.env.OBS_WEBSOCKET_URL || "ws://127.0.0.1:4455";
   const useNativeReceiver = mode === "native";
   const keepScene = parseBoolean(process.env.VDONINJA_KEEP_SCENE, false);
-  const skipCapture = parseBoolean(process.env.VDONINJA_SKIP_CAPTURE, false);
+  const skipCapture = parseBoolean(process.env.VDONINJA_SKIP_CAPTURE, mode === "browser");
+  const checkAudioMeter = parseBoolean(process.env.VDONINJA_CHECK_AUDIO_METER, false);
+  const failOnAudioClip = parseBoolean(process.env.VDONINJA_FAIL_ON_AUDIO_CLIP, false);
+  const minAudioMeterSamples = Number(process.env.VDONINJA_MIN_AUDIO_METER_SAMPLES || 3);
 
   if (!streamId) {
     throw new Error("Usage: node scripts/obs-websocket-vdoninja-source-check.cjs <browser|native> <streamId> [password] [roomId]");
   }
 
-  const client = new ObsWebSocketClient(websocketUrl);
   const stamp = Date.now();
   const sceneName = `Codex Source Smoke ${stamp}`;
   const inputName = `Codex VDO Source ${mode} ${stamp}`;
+  const audioMeterCollector = checkAudioMeter ? createAudioMeterCollector(inputName) : null;
+  const client = new ObsWebSocketClient(websocketUrl, {
+    eventSubscriptions: checkAudioMeter ? EVENT_SUBSCRIPTION_INPUT_VOLUME_METERS : 0,
+    onEvent: audioMeterCollector ? audioMeterCollector.onEvent : null,
+  });
   const screenshotPath = path.resolve(
     process.cwd(),
     "artifacts",
@@ -269,7 +347,27 @@ async function main() {
         inputSettings && inputSettings.inputSettings
           ? parseBoolean(inputSettings.inputSettings.use_native_receiver, useNativeReceiver)
           : useNativeReceiver,
+      audioMeter: audioMeterCollector ? audioMeterCollector.summary : null,
     };
+
+    if (checkAudioMeter) {
+      const audioMeter = audioMeterCollector.summary;
+      if (audioMeter.sampleCount < minAudioMeterSamples) {
+        throw new Error(
+          `OBS mixer did not report enough audio meter samples for ${inputName}: ` +
+            `${audioMeter.sampleCount}/${minAudioMeterSamples}`
+        );
+      }
+      if (audioMeter.nonSilentSampleCount === 0 || audioMeter.maxMagnitude <= 0.0001) {
+        throw new Error(`OBS mixer audio for ${inputName} stayed silent`);
+      }
+      if (failOnAudioClip && (audioMeter.highLevelSampleCount > 0 || audioMeter.maxLevel >= 0.999)) {
+        throw new Error(
+          `OBS mixer audio for ${inputName} exceeded the configured high-level threshold: ` +
+            `maxLevel=${audioMeter.maxLevel}, highLevelSamples=${audioMeter.highLevelSampleCount}`
+        );
+      }
+    }
 
     console.log(JSON.stringify(result, null, 2));
   } finally {

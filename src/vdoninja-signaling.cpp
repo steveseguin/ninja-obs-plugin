@@ -492,8 +492,11 @@ bool VDONinjaSignaling::connect(const std::string &wssHost)
 	// Start WebSocket thread
 	wsThread_ = std::thread(&VDONinjaSignaling::wsThreadFunc, this);
 
-	// Wait for initial connect/failover cycle to complete
-	for (int waited = 0; waited < kInitialConnectWaitMs && !connected_ && !initialConnectionFinished_; waited += 100) {
+	// Wait for initial connect/failover cycle to complete. Also bail out when
+	// disconnect() flips shouldRun_, so a teardown that joins the calling thread
+	// is not stuck here for the full timeout.
+	for (int waited = 0; waited < kInitialConnectWaitMs && !connected_ && !initialConnectionFinished_ && shouldRun_;
+	     waited += 100) {
 		std::this_thread::sleep_for(std::chrono::milliseconds(100));
 	}
 
@@ -669,11 +672,18 @@ void VDONinjaSignaling::wsThreadFunc()
 						logSignalingConnectDiagnostic(host, error, hasNextHost);
 						needsReconnect_ = true;
 						sendCv_.notify_all();
-						std::lock_guard<std::mutex> lock(handleMutex_);
-						if (wsHandle_) {
-							auto stored = static_cast<std::shared_ptr<rtc::WebSocket> *>(wsHandle_);
+						// Copy the socket out before closing: close() can fire
+						// callbacks that also acquire handleMutex_.
+						std::shared_ptr<rtc::WebSocket> wsToClose;
+						{
+							std::lock_guard<std::mutex> lock(handleMutex_);
+							if (wsHandle_) {
+								wsToClose = *static_cast<std::shared_ptr<rtc::WebSocket> *>(wsHandle_);
+							}
+						}
+						if (wsToClose) {
 							try {
-								(*stored)->close();
+								wsToClose->close();
 							} catch (const std::exception &closeError) {
 								logWarning("WebSocket close after pre-open error failed for %s: %s", host.c_str(),
 								           closeError.what());
@@ -844,6 +854,8 @@ void VDONinjaSignaling::wsThreadFunc()
 
 	shouldRun_ = false;
 	needsReconnect_ = false;
+	// Release any thread still waiting in connect() for the initial attempt.
+	initialConnectionFinished_ = true;
 }
 
 void VDONinjaSignaling::processMessage(const std::string &message)

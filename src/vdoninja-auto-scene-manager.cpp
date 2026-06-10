@@ -25,6 +25,77 @@ void runUiTaskThunk(void *param)
 	delete fn;
 }
 
+obs_source_t *acquireTargetSceneSource(const std::string &targetScene)
+{
+	obs_source_t *sceneSource = nullptr;
+	if (!targetScene.empty()) {
+		sceneSource = obs_get_source_by_name(targetScene.c_str());
+	}
+
+	if (!sceneSource) {
+		sceneSource = obs_frontend_get_current_scene();
+	}
+
+	return sceneSource;
+}
+
+// Runs on the UI thread with value-captured state only; the manager itself may
+// already be destroyed by the time this executes.
+void applyGridLayoutOnUi(const std::string &targetScene, const std::vector<std::string> &sourceNames,
+                         int fallbackWidth, int fallbackHeight)
+{
+	obs_source_t *sceneSource = acquireTargetSceneSource(targetScene);
+	if (!sceneSource) {
+		return;
+	}
+
+	obs_scene_t *scene = obs_scene_from_source(sceneSource);
+	if (!scene) {
+		obs_source_release(sceneSource);
+		return;
+	}
+
+	obs_video_info ovi = {};
+	const bool gotVideoInfo = obs_get_video_info(&ovi);
+	const uint32_t canvasWidth = gotVideoInfo ? ovi.base_width : static_cast<uint32_t>(fallbackWidth);
+	const uint32_t canvasHeight = gotVideoInfo ? ovi.base_height : static_cast<uint32_t>(fallbackHeight);
+
+	std::vector<obs_sceneitem_t *> items;
+	for (const auto &sourceName : sourceNames) {
+		obs_sceneitem_t *item = obs_scene_find_source(scene, sourceName.c_str());
+		if (item) {
+			items.push_back(item);
+		}
+	}
+
+	auto layout = buildGridLayout(items.size(), canvasWidth, canvasHeight);
+	for (size_t i = 0; i < items.size() && i < layout.size(); ++i) {
+		obs_sceneitem_t *item = items[i];
+		obs_source_t *itemSource = obs_sceneitem_get_source(item);
+		if (!itemSource) {
+			continue;
+		}
+
+		uint32_t sourceWidth = obs_source_get_width(itemSource);
+		uint32_t sourceHeight = obs_source_get_height(itemSource);
+		if (sourceWidth == 0) {
+			sourceWidth = static_cast<uint32_t>(layout[i].width);
+		}
+		if (sourceHeight == 0) {
+			sourceHeight = static_cast<uint32_t>(layout[i].height);
+		}
+
+		struct vec2 pos = {layout[i].x, layout[i].y};
+		struct vec2 scale = {layout[i].width / static_cast<float>(sourceWidth),
+		                     layout[i].height / static_cast<float>(sourceHeight)};
+		obs_sceneitem_set_pos(item, &pos);
+		obs_sceneitem_set_scale(item, &scale);
+		obs_sceneitem_set_visible(item, true);
+	}
+
+	obs_source_release(sceneSource);
+}
+
 } // namespace
 
 VDOAutoSceneManager::~VDOAutoSceneManager()
@@ -123,6 +194,7 @@ void VDOAutoSceneManager::onStreamAdded(const std::string &streamId)
 	int sourceWidth = 1920;
 	int sourceHeight = 1080;
 	AutoLayoutMode layoutMode = AutoLayoutMode::Grid;
+	std::string targetScene;
 	{
 		std::lock_guard<std::mutex> lock(stateMutex_);
 		if (!running_) {
@@ -136,12 +208,13 @@ void VDOAutoSceneManager::onStreamAdded(const std::string &streamId)
 		sourceWidth = settings_.width;
 		sourceHeight = settings_.height;
 		layoutMode = settings_.layoutMode;
+		targetScene = settings_.targetScene;
 	}
 
 	const std::string sourceName = sourceNameForStream(streamId);
 
-	runOnUiThread([this, sourceName, sourceUrl, switchScene, sourceWidth, sourceHeight]() {
-		obs_source_t *sceneSource = resolveTargetSceneSource();
+	runOnUiThread([sourceName, sourceUrl, switchScene, sourceWidth, sourceHeight, targetScene]() {
+		obs_source_t *sceneSource = acquireTargetSceneSource(targetScene);
 		obs_scene_t *scene = sceneSource ? obs_scene_from_source(sceneSource) : nullptr;
 
 		obs_data_t *settings = obs_data_create();
@@ -184,13 +257,15 @@ void VDOAutoSceneManager::onStreamAdded(const std::string &streamId)
 	});
 
 	if (layoutMode == AutoLayoutMode::Grid) {
-		runOnUiThread([this]() { applyLayoutForManagedSources(); });
+		queueLayoutRefresh();
 	}
 }
 
 void VDOAutoSceneManager::onStreamRemoved(const std::string &streamId)
 {
 	bool removeSource = false;
+	std::string targetScene;
+	AutoLayoutMode layoutMode = AutoLayoutMode::Grid;
 	{
 		std::lock_guard<std::mutex> lock(stateMutex_);
 		if (streamId.empty()) {
@@ -199,13 +274,15 @@ void VDOAutoSceneManager::onStreamRemoved(const std::string &streamId)
 
 		managedStreamIds_.erase(streamId);
 		removeSource = settings_.removeOnDisconnect;
+		targetScene = settings_.targetScene;
+		layoutMode = settings_.layoutMode;
 	}
 
 	const std::string sourceName = sourceNameForStream(streamId);
 
-	runOnUiThread([this, sourceName, removeSource]() {
+	runOnUiThread([sourceName, removeSource, targetScene]() {
 		obs_source_t *source = obs_get_source_by_name(sourceName.c_str());
-		obs_source_t *sceneSource = resolveTargetSceneSource();
+		obs_source_t *sceneSource = acquireTargetSceneSource(targetScene);
 		obs_scene_t *scene = sceneSource ? obs_scene_from_source(sceneSource) : nullptr;
 
 		if (source && removeSource) {
@@ -225,26 +302,61 @@ void VDOAutoSceneManager::onStreamRemoved(const std::string &streamId)
 		}
 	});
 
-	AutoLayoutMode layoutMode = AutoLayoutMode::Grid;
+	if (layoutMode == AutoLayoutMode::Grid) {
+		queueLayoutRefresh();
+	}
+}
+
+void VDOAutoSceneManager::queueLayoutRefresh() const
+{
+	std::vector<std::string> sourceNames;
+	int fallbackWidth = 1920;
+	int fallbackHeight = 1080;
+	std::string targetScene;
+	std::string prefix;
+	std::set<std::string> managedStreamIds;
 	{
 		std::lock_guard<std::mutex> lock(stateMutex_);
-		layoutMode = settings_.layoutMode;
+		fallbackWidth = settings_.width;
+		fallbackHeight = settings_.height;
+		targetScene = settings_.targetScene;
+		prefix = settings_.sourcePrefix;
+		managedStreamIds = managedStreamIds_;
 	}
-	if (layoutMode == AutoLayoutMode::Grid) {
-		runOnUiThread([this]() { applyLayoutForManagedSources(); });
+
+	sourceNames.reserve(managedStreamIds.size());
+	for (const auto &streamId : managedStreamIds) {
+		sourceNames.push_back(makeSourceName(prefix, streamId));
 	}
+
+	runOnUiThread([targetScene, sourceNames, fallbackWidth, fallbackHeight]() {
+		applyGridLayoutOnUi(targetScene, sourceNames, fallbackWidth, fallbackHeight);
+	});
 }
 
 void VDOAutoSceneManager::runOnUiThread(const std::function<void()> &fn) const
 {
+	// Fire-and-forget. These calls originate from signaling/RTC callback
+	// threads; waiting for the UI thread here deadlocks against output stop()
+	// and teardown, which run on the UI thread while waiting for those same
+	// callbacks to return. All queued lambdas capture state by value so they
+	// stay valid even if this manager is destroyed first.
 	auto *heapFn = new std::function<void()>(fn);
-	obs_queue_task(OBS_TASK_UI, runUiTaskThunk, heapFn, true);
+	obs_queue_task(OBS_TASK_UI, runUiTaskThunk, heapFn, false);
 }
 
 bool VDOAutoSceneManager::isOwnStream(const std::string &streamId) const
 {
 	std::lock_guard<std::mutex> lock(stateMutex_);
 	return ownStreamIds_.find(streamId) != ownStreamIds_.end();
+}
+
+std::string VDOAutoSceneManager::makeSourceName(std::string prefix, const std::string &streamId)
+{
+	if (prefix.empty()) {
+		prefix = "VDO";
+	}
+	return prefix + "_Cam_" + sanitizeNameToken(streamId);
 }
 
 std::string VDOAutoSceneManager::sourceNameForStream(const std::string &streamId) const
@@ -254,10 +366,7 @@ std::string VDOAutoSceneManager::sourceNameForStream(const std::string &streamId
 		std::lock_guard<std::mutex> lock(stateMutex_);
 		prefix = settings_.sourcePrefix;
 	}
-	if (prefix.empty()) {
-		prefix = "VDO";
-	}
-	return prefix + "_Cam_" + sanitizeNameToken(streamId);
+	return makeSourceName(prefix, streamId);
 }
 
 std::string VDOAutoSceneManager::buildSourceUrl(const std::string &streamId) const
@@ -293,90 +402,6 @@ std::string VDOAutoSceneManager::sanitizeNameToken(const std::string &input)
 		}
 	}
 	return output;
-}
-
-obs_source_t *VDOAutoSceneManager::resolveTargetSceneSource() const
-{
-	obs_source_t *sceneSource = nullptr;
-	std::string targetScene;
-	{
-		std::lock_guard<std::mutex> lock(stateMutex_);
-		targetScene = settings_.targetScene;
-	}
-
-	if (!targetScene.empty()) {
-		sceneSource = obs_get_source_by_name(targetScene.c_str());
-	}
-
-	if (!sceneSource) {
-		sceneSource = obs_frontend_get_current_scene();
-	}
-
-	return sceneSource;
-}
-
-void VDOAutoSceneManager::applyLayoutForManagedSources() const
-{
-	obs_source_t *sceneSource = resolveTargetSceneSource();
-	if (!sceneSource) {
-		return;
-	}
-
-	obs_scene_t *scene = obs_scene_from_source(sceneSource);
-	if (!scene) {
-		obs_source_release(sceneSource);
-		return;
-	}
-
-	obs_video_info ovi = {};
-	const bool gotVideoInfo = obs_get_video_info(&ovi);
-	int fallbackWidth = 1920;
-	int fallbackHeight = 1080;
-	std::set<std::string> managedStreamIds;
-	{
-		std::lock_guard<std::mutex> lock(stateMutex_);
-		fallbackWidth = settings_.width;
-		fallbackHeight = settings_.height;
-		managedStreamIds = managedStreamIds_;
-	}
-
-	const uint32_t canvasWidth = gotVideoInfo ? ovi.base_width : static_cast<uint32_t>(fallbackWidth);
-	const uint32_t canvasHeight = gotVideoInfo ? ovi.base_height : static_cast<uint32_t>(fallbackHeight);
-
-	std::vector<obs_sceneitem_t *> items;
-	for (const auto &streamId : managedStreamIds) {
-		obs_sceneitem_t *item = obs_scene_find_source(scene, sourceNameForStream(streamId).c_str());
-		if (item) {
-			items.push_back(item);
-		}
-	}
-
-	auto layout = buildGridLayout(items.size(), canvasWidth, canvasHeight);
-	for (size_t i = 0; i < items.size() && i < layout.size(); ++i) {
-		obs_sceneitem_t *item = items[i];
-		obs_source_t *itemSource = obs_sceneitem_get_source(item);
-		if (!itemSource) {
-			continue;
-		}
-
-		uint32_t sourceWidth = obs_source_get_width(itemSource);
-		uint32_t sourceHeight = obs_source_get_height(itemSource);
-		if (sourceWidth == 0) {
-			sourceWidth = static_cast<uint32_t>(layout[i].width);
-		}
-		if (sourceHeight == 0) {
-			sourceHeight = static_cast<uint32_t>(layout[i].height);
-		}
-
-		struct vec2 pos = {layout[i].x, layout[i].y};
-		struct vec2 scale = {layout[i].width / static_cast<float>(sourceWidth),
-		                     layout[i].height / static_cast<float>(sourceHeight)};
-		obs_sceneitem_set_pos(item, &pos);
-		obs_sceneitem_set_scale(item, &scale);
-		obs_sceneitem_set_visible(item, true);
-	}
-
-	obs_source_release(sceneSource);
 }
 
 } // namespace vdoninja

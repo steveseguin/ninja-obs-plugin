@@ -114,7 +114,10 @@ private:
 	std::atomic<bool> running_{false};
 	std::atomic<bool> connected_{false};
 	std::atomic<bool> capturing_{false};
-	std::atomic<bool> stopping_{false};
+	// Serializes start()/stop()/destruction so a concurrent stop can never
+	// return early while another thread is still tearing down, leaving joinable
+	// threads behind for the destructor (std::terminate).
+	std::mutex startStopMutex_;
 	std::thread startStopThread_;
 	std::thread mediaSendThread_;
 	std::mutex mediaSendMutex_;

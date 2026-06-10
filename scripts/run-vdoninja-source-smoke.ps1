@@ -51,6 +51,16 @@ function Get-RunningProcessByExecutablePath {
         Where-Object { $_.ExecutablePath -and $_.ExecutablePath -ieq $ExecutablePath }
 }
 
+function Quote-ProcessArgument {
+    param([string]$Argument)
+
+    if ($null -eq $Argument) {
+        return '""'
+    }
+
+    return '"' + ($Argument -replace '"', '\"') + '"'
+}
+
 $existingObs = @(Get-RunningProcessByExecutablePath -ExecutablePath $obsExePath)
 if ($existingObs.Count -gt 0) {
     $existingIds = ($existingObs | Select-Object -ExpandProperty ProcessId) -join ", "
@@ -118,24 +128,38 @@ try {
         $checkArgs += $RoomId
     }
 
-    $checkProc = Start-Process -FilePath "node" `
-        -ArgumentList $checkArgs `
-        -WorkingDirectory $repoRoot `
-        -RedirectStandardOutput $checkOut `
-        -RedirectStandardError $checkErr `
-        -PassThru
-    try {
-        Wait-Process -Id $checkProc.Id -Timeout $CheckTimeoutSeconds -ErrorAction Stop
-    } catch {
+    $checkStartInfo = [System.Diagnostics.ProcessStartInfo]::new()
+    $checkStartInfo.FileName = "node"
+    $checkStartInfo.Arguments = ($checkArgs | ForEach-Object { Quote-ProcessArgument $_ }) -join " "
+    $checkStartInfo.WorkingDirectory = $repoRoot
+    $checkStartInfo.UseShellExecute = $false
+    $checkStartInfo.RedirectStandardOutput = $true
+    $checkStartInfo.RedirectStandardError = $true
+
+    $checkProc = [System.Diagnostics.Process]::new()
+    $checkProc.StartInfo = $checkStartInfo
+    [void]$checkProc.Start()
+    if (-not $checkProc.WaitForExit($CheckTimeoutSeconds * 1000)) {
+        $checkProc.Kill()
         throw "Timed out waiting for source check process PID $($checkProc.Id) after $CheckTimeoutSeconds seconds"
     }
+    $checkStdout = $checkProc.StandardOutput.ReadToEnd()
+    $checkStderr = $checkProc.StandardError.ReadToEnd()
     $checkExit = $checkProc.ExitCode
+    Set-Content -Path $checkOut -Value $checkStdout -Encoding UTF8
+    Set-Content -Path $checkErr -Value $checkStderr -Encoding UTF8
 
     Write-Output "OBS_PID=$($obsProc.Id)"
     Write-Output "PUBLISHER_PID=$($publisherProc.Id)"
     Write-Output "CHECK_EXIT=$checkExit"
     if (Test-Path $checkOut) {
         Get-Content $checkOut
+    }
+    if (Test-Path $checkErr) {
+        Get-Content $checkErr
+    }
+    if ($checkExit -ne 0) {
+        throw "Source check failed with exit code $checkExit"
     }
 } finally {
     if ($originalObsWebSocketConfig -ne $null) {

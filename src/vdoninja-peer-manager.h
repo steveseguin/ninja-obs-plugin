@@ -79,6 +79,10 @@ public:
 	void stopViewing(const std::string &streamId);
 	bool disconnectPeer(const std::string &uuid);
 
+	// Release peers retired from RTC callbacks once they are safely out of band.
+	// Call periodically from a non-RTC thread (e.g. a service loop).
+	void runDeferredCleanup();
+
 	// Data channel
 	void sendDataToAll(const std::string &message);
 	void sendDataToPeer(const std::string &uuid, const std::string &message);

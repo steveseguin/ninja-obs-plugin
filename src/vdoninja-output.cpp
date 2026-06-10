@@ -988,7 +988,10 @@ void VDONinjaOutput::queueObsStateToPeer(const std::string &uuid)
 		std::string uuid;
 	};
 
-	ObsStateTaskData task{callbackState_, uuid};
+	// Never wait on the UI thread here: this runs on RTC callback threads, and
+	// stop()/teardown runs on the UI thread while resetting those callbacks, so a
+	// blocking queue round-trip deadlocks the whole frontend.
+	auto *task = new ObsStateTaskData{callbackState_, uuid};
 	obs_queue_task(
 	    OBS_TASK_UI,
 	    [](void *param) {
@@ -996,13 +999,15 @@ void VDONinjaOutput::queueObsStateToPeer(const std::string &uuid)
 		    if (!data) {
 			    return;
 		    }
-		    AsyncCallbackGuard<VDONinjaOutput> guard(data->callbackState.get());
-		    if (!guard) {
-			    return;
+		    {
+			    AsyncCallbackGuard<VDONinjaOutput> guard(data->callbackState.get());
+			    if (guard) {
+				    guard.owner()->sendObsStateToPeer(data->uuid);
+			    }
 		    }
-		    guard.owner()->sendObsStateToPeer(data->uuid);
+		    delete data;
 	    },
-	    &task, true);
+	    task, false);
 }
 
 void VDONinjaOutput::sendInitialPeerInfo(const std::string &uuid)
@@ -1040,12 +1045,19 @@ void VDONinjaOutput::primeViewerWithCachedKeyframe(const std::string &uuid)
 
 bool VDONinjaOutput::start()
 {
+	std::lock_guard<std::mutex> startStopLock(startStopMutex_);
+
 	if (running_) {
 		logWarning("Output already running");
 		return false;
 	}
 
-	if (settings_.streamId.empty()) {
+	std::string streamIdSnapshot;
+	{
+		std::lock_guard<std::mutex> lock(settingsMutex_);
+		streamIdSnapshot = settings_.streamId;
+	}
+	if (streamIdSnapshot.empty()) {
 		logError("Stream ID is required");
 		obs_output_set_last_error(output_, "Stream ID is required for VDO.Ninja publishing.");
 		return false;
@@ -1395,11 +1407,7 @@ void VDONinjaOutput::startThread(OutputSettings settingsSnap)
 
 void VDONinjaOutput::stop()
 {
-	bool expected = false;
-	if (!stopping_.compare_exchange_strong(expected, true)) {
-		logDebug("VDO.Ninja output stop already in progress");
-		return;
-	}
+	std::lock_guard<std::mutex> startStopLock(startStopMutex_);
 
 	const bool wasRunning = running_.exchange(false);
 	const bool wasCapturing = capturing_.load();
@@ -1411,7 +1419,6 @@ void VDONinjaOutput::stop()
 		if (startStopThread_.joinable()) {
 			startStopThread_.join();
 		}
-		stopping_ = false;
 		return;
 	}
 
@@ -1486,7 +1493,6 @@ void VDONinjaOutput::stop()
 	hasLastAudioRtpTimestamp_ = false;
 	lastAudioRtpTimestamp_ = 0;
 
-	stopping_ = false;
 	logInfo("VDO.Ninja output stopped");
 }
 
@@ -1583,7 +1589,7 @@ void VDONinjaOutput::drainAsyncCallbacks()
 	}
 
 	AsyncCallbackGuard<VDONinjaOutput>::detach(callbackState_.get());
-	if (!AsyncCallbackGuard<VDONinjaOutput>::waitForIdle(callbackState_.get())) {
+	if (!AsyncCallbackGuard<VDONinjaOutput>::waitForIdle(callbackState_.get(), 10000)) {
 		logWarning("Timed out waiting for VDO.Ninja output callbacks to drain during teardown");
 	}
 	callbackState_.reset();

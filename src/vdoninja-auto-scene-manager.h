@@ -38,9 +38,9 @@ private:
 	bool isOwnStream(const std::string &streamId) const;
 	std::string sourceNameForStream(const std::string &streamId) const;
 	std::string buildSourceUrl(const std::string &streamId) const;
+	void queueLayoutRefresh() const;
+	static std::string makeSourceName(std::string prefix, const std::string &streamId);
 	static std::string sanitizeNameToken(const std::string &input);
-	obs_source_t *resolveTargetSceneSource() const;
-	void applyLayoutForManagedSources() const;
 
 	AutoInboundSettings settings_;
 	bool running_ = false;

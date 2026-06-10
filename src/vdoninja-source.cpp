@@ -1252,6 +1252,10 @@ void VDONinjaSource::connectionThread()
 
 		while (nativeRunning_.load()) {
 			serviceViewRetry();
+			// Release peers retired from RTC callbacks; without this an idle
+			// viewer keeps disconnected PeerConnections (sockets, threads)
+			// alive indefinitely.
+			peerManager_->runDeferredCleanup();
 			std::this_thread::sleep_for(std::chrono::milliseconds(100));
 		}
 	} catch (const std::exception &e) {
@@ -1856,6 +1860,12 @@ void VDONinjaSource::processVideoData(const uint8_t *data, size_t size, uint32_t
 	}
 	if (sendResult >= 0) {
 		pendingVideoDecodeTimestamps_.push_back(rtpTimestamp);
+		// The decoder can swallow packets without emitting frames (e.g. waiting
+		// for a keyframe); keep the timestamp backlog bounded.
+		constexpr size_t kMaxPendingDecodeTimestamps = 128;
+		while (pendingVideoDecodeTimestamps_.size() > kMaxPendingDecodeTimestamps) {
+			pendingVideoDecodeTimestamps_.pop_front();
+		}
 	}
 
 	while (true) {
@@ -2556,6 +2566,10 @@ void VDONinjaSource::processAlphaVideoData(const uint8_t *data, size_t size, uin
 	}
 	if (sendResult >= 0) {
 		pendingAlphaDecodeTimestamps_.push_back(rtpTimestamp);
+		constexpr size_t kMaxPendingDecodeTimestamps = 128;
+		while (pendingAlphaDecodeTimestamps_.size() > kMaxPendingDecodeTimestamps) {
+			pendingAlphaDecodeTimestamps_.pop_front();
+		}
 	}
 
 	while (true) {
@@ -3478,7 +3492,7 @@ void VDONinjaSource::drainAsyncCallbacks()
 	}
 
 	AsyncCallbackGuard<VDONinjaSource>::detach(callbackState_.get());
-	if (!AsyncCallbackGuard<VDONinjaSource>::waitForIdle(callbackState_.get())) {
+	if (!AsyncCallbackGuard<VDONinjaSource>::waitForIdle(callbackState_.get(), 10000)) {
 		logWarning("Timed out waiting for VDO.Ninja source callbacks to drain during teardown");
 	}
 	callbackState_.reset();

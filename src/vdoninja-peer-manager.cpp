@@ -1328,8 +1328,14 @@ void VDONinjaPeerManager::onSignalingAnswer(const std::string &uuid, const std::
 	}
 
 	// Set remote description (the answer)
-	peer->pc->setRemoteDescription(rtc::Description(sdp, rtc::Description::Type::Answer));
-	logInfo("Set remote answer for %s", uuid.c_str());
+	try {
+		peer->pc->setRemoteDescription(rtc::Description(sdp, rtc::Description::Type::Answer));
+		logInfo("Set remote answer for %s", uuid.c_str());
+	} catch (const std::exception &e) {
+		logError("Failed to apply remote answer for %s: %s", uuid.c_str(), e.what());
+	} catch (...) {
+		logError("Failed to apply remote answer for %s: unknown exception", uuid.c_str());
+	}
 }
 
 void VDONinjaPeerManager::onSignalingOfferRequest(const std::string &uuid, const std::string &session)
@@ -1410,7 +1416,13 @@ void VDONinjaPeerManager::onSignalingOfferRequest(const std::string &uuid, const
 		peer->awaitingVideoKeyframe = true;
 	}
 
-	peer->pc->setLocalDescription();
+	try {
+		peer->pc->setLocalDescription();
+	} catch (const std::exception &e) {
+		logError("Failed to create local offer for %s: %s", uuid.c_str(), e.what());
+	} catch (...) {
+		logError("Failed to create local offer for %s: unknown exception", uuid.c_str());
+	}
 }
 
 void VDONinjaPeerManager::onSignalingIceCandidate(const std::string &uuid, const std::string &candidate,
@@ -1443,8 +1455,14 @@ void VDONinjaPeerManager::onSignalingIceCandidate(const std::string &uuid, const
 	}
 
 	// Add remote candidate
-	peer->pc->addRemoteCandidate(rtc::Candidate(candidate, mid));
-	logDebug("Added ICE candidate from %s", uuid.c_str());
+	try {
+		peer->pc->addRemoteCandidate(rtc::Candidate(candidate, mid));
+		logDebug("Added ICE candidate from %s", uuid.c_str());
+	} catch (const std::exception &e) {
+		logWarning("Failed to add ICE candidate from %s: %s", uuid.c_str(), e.what());
+	} catch (...) {
+		logWarning("Failed to add ICE candidate from %s: unknown exception", uuid.c_str());
+	}
 }
 
 void VDONinjaPeerManager::bundleAndSendCandidates(const std::string &uuid)
@@ -1678,9 +1696,18 @@ bool VDONinjaPeerManager::disconnectPeer(const std::string &uuid)
 		}
 	} catch (const std::exception &) {
 	}
-	releasePeerResources(peer);
+	// disconnectPeer is reachable from RTC callback threads (datachannel "bye",
+	// signaling peer cleanup). Releasing the PeerConnection synchronously there
+	// destroys RTC objects from their own callbacks, which has caused heap
+	// corruption/crashes; defer the release like state-change cleanup does.
+	retirePeerForDeferredCleanup(uuid, peer);
 	logInfo("Disconnected peer: %s", uuid.c_str());
 	return true;
+}
+
+void VDONinjaPeerManager::runDeferredCleanup()
+{
+	pruneRetiredPeers(kRetiredPeerCleanupDelayMs);
 }
 
 void VDONinjaPeerManager::releasePeerResources(const std::shared_ptr<PeerInfo> &peer) const
@@ -1868,6 +1895,12 @@ void VDONinjaPeerManager::bindViewerSignalingDataChannel(const std::string &tran
 	}
 
 	std::lock_guard<std::mutex> lock(pendingViewerSignalingMutex_);
+	// Bound the pending map: entries for peers that never produce an offer would
+	// otherwise accumulate forever, pinning their DataChannels alive.
+	constexpr size_t kMaxPendingViewerSignalingChannels = 32;
+	while (pendingViewerSignalingDataChannels_.size() >= kMaxPendingViewerSignalingChannels) {
+		pendingViewerSignalingDataChannels_.erase(pendingViewerSignalingDataChannels_.begin());
+	}
 	pendingViewerSignalingDataChannels_[viewerSignalingKey(targetUuid, targetSession)] = transportDataChannel;
 }
 

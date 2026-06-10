@@ -75,18 +75,24 @@ async function main() {
   const durationMs = Number(process.env.PUBLISH_DURATION_MS || 15 * 60 * 1000);
   const startupWaitMs = Number(process.env.PUBLISH_STARTUP_WAIT_MS || 20000);
   const viewProbeWaitMs = Number(process.env.VIEW_PROBE_WAIT_MS || 25000);
+  const fakeAudioCaptureFile = process.env.FAKE_AUDIO_CAPTURE_FILE || "";
 
   const pushUrl = ensureQuery(ensureQuery(pushUrlInput, "autostart", "1"), "webcam", "1");
   const viewUrl = ensureQuery(viewUrlInput, "cleanoutput", "1");
 
+  const launchArgs = [
+    "--autoplay-policy=no-user-gesture-required",
+    "--use-fake-ui-for-media-stream",
+    "--use-fake-device-for-media-stream",
+    "--allow-http-screen-capture",
+  ];
+  if (fakeAudioCaptureFile) {
+    launchArgs.push(`--use-file-for-fake-audio-capture=${fakeAudioCaptureFile}`);
+  }
+
   const browser = await chromium.launch({
     headless: process.env.HEADLESS === "0" ? false : true,
-    args: [
-      "--autoplay-policy=no-user-gesture-required",
-      "--use-fake-ui-for-media-stream",
-      "--use-fake-device-for-media-stream",
-      "--allow-http-screen-capture",
-    ],
+    args: launchArgs,
   });
 
   const context = await browser.newContext({
