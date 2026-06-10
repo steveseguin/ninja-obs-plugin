@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Removed committed local Claude session state and ignored generated Claude, build, install, portable OBS, and local libdatachannel output directories.
+
 ## [1.1.46] - 2026-06-10
 
 ### Added
