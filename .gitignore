@@ -1,8 +1,8 @@
 # Build directories
 build/
+build-*/
 cmake-build-*/
 out/
-a/.claude/
 .claude/
 
 # Dependencies
@@ -61,16 +61,19 @@ build-release-tests/
 build-verify/
 build-tests/
 local-libdatachannel/
+local-libdatachannel-*/
 local-obs-sdk/
 node_modules/
 test-results/
 playwright-*.json
 playwright-*.png
 install/
+install-*/
 dist/
 artifacts/
 obs-vdoninja-windows-x64-setup.exe
 _obs-portable/
+_obs-portable-*/
 _tmp*
 _obs_screenshot*.png
 _obs_stderr.txt
