@@ -60,9 +60,17 @@ VDONinjaDock::VDONinjaDock(QWidget *parent) : QDockWidget(parent)
 	});
 }
 
-VDONinjaDock::~VDONinjaDock()
+VDONinjaDock::~VDONinjaDock() {}
+
+void VDONinjaDock::shutdown()
 {
 	saveSettings();
+	if (statsTimer) {
+		statsTimer->stop();
+	}
+	if (chatClearTimer) {
+		chatClearTimer->stop();
+	}
 }
 
 void VDONinjaDock::setupUi()

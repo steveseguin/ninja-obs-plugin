@@ -1489,12 +1489,12 @@ void VDONinjaPeerManager::bundleAndSendCandidates(const std::string &uuid)
 
 	// Send all bundled candidates
 	for (const auto &cand : bundle.candidates) {
-		if (signalingDataChannel) {
-			signaling_->sendIceCandidateViaDataChannel(signalingDataChannel, uuid, std::get<0>(cand), std::get<1>(cand),
-			                                           bundle.session);
-		} else {
-			signaling_->sendIceCandidate(uuid, std::get<0>(cand), std::get<1>(cand), bundle.session);
+		if (signalingDataChannel &&
+		    signaling_->sendIceCandidateViaDataChannel(signalingDataChannel, uuid, std::get<0>(cand), std::get<1>(cand),
+		                                               bundle.session)) {
+			continue;
 		}
+		signaling_->sendIceCandidate(uuid, std::get<0>(cand), std::get<1>(cand), bundle.session);
 	}
 
 	logDebug("Sent %zu bundled ICE candidates to %s", bundle.candidates.size(), uuid.c_str());
@@ -1831,6 +1831,9 @@ void VDONinjaPeerManager::sendDataToAll(const std::string &message)
 		}
 		try {
 			if (pair.second->hasDataChannel && pair.second->dataChannel) {
+				if (!pair.second->dataChannel->isOpen()) {
+					continue;
+				}
 				pair.second->dataChannel->send(message);
 			}
 		} catch (const std::exception &e) {
@@ -1851,10 +1854,16 @@ void VDONinjaPeerManager::sendDataToPeer(const std::string &uuid, const std::str
 
 	try {
 		if (it->second->hasDataChannel && it->second->dataChannel) {
+			if (!it->second->dataChannel->isOpen()) {
+				return;
+			}
 			it->second->dataChannel->send(message);
 			return;
 		}
 		if (it->second->type == ConnectionType::Viewer && it->second->signalingDataChannel) {
+			if (!it->second->signalingDataChannel->isOpen()) {
+				return;
+			}
 			it->second->signalingDataChannel->send(wrapTargetedPeerMessage(uuid, it->second->session, message));
 		}
 	} catch (const std::exception &e) {

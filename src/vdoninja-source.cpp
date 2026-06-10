@@ -422,6 +422,10 @@ bool safeRequestKeyframe(const std::shared_ptr<rtc::Track> &track, const char *r
 	}
 
 	try {
+		if (!track->isOpen()) {
+			logDebug("Skipping video keyframe request (%s): track is not open", reasonTag);
+			return false;
+		}
 		return track->requestKeyframe();
 	} catch (const std::exception &e) {
 		logWarning("Failed to request video keyframe (%s): %s", reasonTag, e.what());
@@ -439,6 +443,10 @@ bool safeRequestBitrate(const std::shared_ptr<rtc::Track> &track, unsigned int b
 	}
 
 	try {
+		if (!track->isOpen()) {
+			logDebug("Skipping video bitrate request (%s): track is not open", reasonTag);
+			return false;
+		}
 		return track->requestBitrate(bitrateBps);
 	} catch (const std::exception &e) {
 		logWarning("Failed to request video bitrate (%s): %s", reasonTag, e.what());
@@ -1852,8 +1860,14 @@ void VDONinjaSource::processVideoData(const uint8_t *data, size_t size, uint32_t
 	std::memcpy(videoPacket_->data, data, size);
 	const int sendResult = avcodec_send_packet(videoDecoder_, videoPacket_);
 	if (sendResult < 0 && sendResult != AVERROR(EAGAIN)) {
-		logWarning("Failed to submit %s packet: %s", codecName, ffmpegErrorString(sendResult).c_str());
-		if (safeRequestKeyframe(currentVideoTrack, "send-packet-failure")) {
+		if (!loggedVideoDecodeSubmitFailure_.exchange(true, std::memory_order_relaxed)) {
+			logWarning("Failed to submit %s packet before a decodable keyframe arrived: %s", codecName,
+			           ffmpegErrorString(sendResult).c_str());
+		}
+		const int64_t now = currentTimeMs();
+		const int64_t lastKeyframeRequestTime = lastKeyframeRequestTime_.load(std::memory_order_relaxed);
+		if ((lastKeyframeRequestTime == 0 || now - lastKeyframeRequestTime >= 1000) &&
+		    safeRequestKeyframe(currentVideoTrack, "send-packet-failure")) {
 			lastKeyframeRequestTime_.store(currentTimeMs(), std::memory_order_relaxed);
 		}
 		return;
@@ -2481,6 +2495,7 @@ void VDONinjaSource::resetVideoDecoder()
 	lastDecodedVideoWidth_ = 0;
 	lastDecodedVideoHeight_ = 0;
 	pendingVideoDecodeTimestamps_.clear();
+	loggedVideoDecodeSubmitFailure_.store(false, std::memory_order_relaxed);
 	videoHwDecodeConfigured_ = false;
 	videoHwStatusLogged_ = false;
 	videoHwPixelFormat_ = AV_PIX_FMT_NONE;

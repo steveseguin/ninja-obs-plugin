@@ -20,6 +20,7 @@ OBS_MODULE_USE_DEFAULT_LOCALE("obs-vdoninja", "en-US")
 
 #include <rtc/global.hpp>
 
+#include <QPointer>
 #include <cctype>
 #include <cstring>
 #include <filesystem>
@@ -77,7 +78,8 @@ struct ServiceSnapshot {
 obs_source_t *gControlCenterSource = nullptr;
 ServiceSnapshot gLastNonVdoServiceSnapshot = {};
 ServiceSnapshot gTemporaryRestoreSnapshot = {};
-VDONinjaDock *g_vdo_dock = nullptr;
+QPointer<VDONinjaDock> g_vdo_dock;
+bool g_frontend_exiting = false;
 
 constexpr const char *kVdoNinjaRtmpServiceEntry = R"VDOJSON(
         {
@@ -973,6 +975,22 @@ void backupServiceForTemporaryRestore(obs_service_t *service)
 	}
 
 	clearTemporaryServiceRestoreBackup();
+}
+
+void destroyVdoDock(bool removeFromFrontend)
+{
+	VDONinjaDock *dock = g_vdo_dock.data();
+	if (!dock) {
+		g_vdo_dock = nullptr;
+		return;
+	}
+
+	dock->shutdown();
+	if (removeFromFrontend) {
+		obs_frontend_remove_dock("VDONinjaStudioDock");
+	}
+	delete dock;
+	g_vdo_dock = nullptr;
 }
 
 bool restoreServiceFromTemporaryBackupIfNeeded()
@@ -2004,6 +2022,10 @@ static void frontend_event_callback(enum obs_frontend_event event, void *)
 		ensureStreamingServiceExists();
 		captureLastNonVdoServiceSnapshot(obs_frontend_get_streaming_service());
 		break;
+	case OBS_FRONTEND_EVENT_EXIT:
+		g_frontend_exiting = true;
+		destroyVdoDock(true);
+		break;
 	default:
 		break;
 	}
@@ -2105,11 +2127,11 @@ bool obs_module_load(void)
 
 	// Create and register Studio Dock
 	g_vdo_dock = new VDONinjaDock();
-	if (obs_frontend_add_custom_qdock("VDONinjaStudioDock", g_vdo_dock)) {
+	if (obs_frontend_add_custom_qdock("VDONinjaStudioDock", g_vdo_dock.data())) {
 		logInfo("Registered VDO.Ninja Studio Dock");
 	} else {
 		logWarning("Failed to register VDO.Ninja Studio Dock");
-		delete g_vdo_dock;
+		delete g_vdo_dock.data();
 		g_vdo_dock = nullptr;
 	}
 
@@ -2129,18 +2151,16 @@ void obs_module_unload(void)
 {
 	logInfo("Unloading VDO.Ninja plugin");
 
-	obs_frontend_remove_event_callback(frontend_event_callback, nullptr);
+	if (!g_frontend_exiting) {
+		obs_frontend_remove_event_callback(frontend_event_callback, nullptr);
+	}
 
 	if (gControlCenterSource) {
 		obs_source_release(gControlCenterSource);
 		gControlCenterSource = nullptr;
 	}
 
-	if (g_vdo_dock) {
-		obs_frontend_remove_dock("VDONinjaStudioDock");
-		delete g_vdo_dock;
-		g_vdo_dock = nullptr;
-	}
+	destroyVdoDock(!g_frontend_exiting);
 
 	releaseServiceSnapshot(gTemporaryRestoreSnapshot);
 	releaseServiceSnapshot(gLastNonVdoServiceSnapshot);
