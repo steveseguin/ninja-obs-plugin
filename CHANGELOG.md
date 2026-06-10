@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.46] - 2026-06-10
+
+### Added
+- Added portable OBS publish and source smoke-test wrappers that verify VDO.Ninja output/viewer connectivity and OBS mixer audio activity.
+
+### Fixed
+- Avoided teardown deadlocks and callback-thread crashes by making OBS UI tasks fire-and-forget, serializing VDO.Ninja output start/stop, and deferring WebRTC peer cleanup out of RTC callbacks.
+- Hardened signaling and peer negotiation paths so invalid remote descriptions or ICE candidates are logged instead of escaping callback threads.
+- Bounded native receiver decode timestamp queues and pending viewer signaling channels to avoid unbounded growth during stalled or abandoned sessions.
+
 ## [1.1.45] - 2026-06-08
 
 ### Fixed
