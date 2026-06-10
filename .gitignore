@@ -2,6 +2,8 @@
 build/
 cmake-build-*/
 out/
+a/.claude/
+.claude/
 
 # Dependencies
 deps/
