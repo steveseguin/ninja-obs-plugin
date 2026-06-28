@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.48] - 2026-06-28
+
 ### Fixed
 - Fixed a VDO.Ninja publishing crash/unclean shutdown when duplicate `offerSDP` requests arrived for the same viewer while the peer connection was still negotiating.
 
