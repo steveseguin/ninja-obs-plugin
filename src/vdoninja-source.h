@@ -135,6 +135,7 @@ private:
 	std::atomic<bool> loggedFirstVideoRtpPacket_{false};
 	std::atomic<bool> loggedFirstVideoPacket_{false};
 	std::atomic<bool> loggedFirstDecodedVideoFrame_{false};
+	std::atomic<bool> loggedVideoDecodeSubmitFailure_{false};
 	std::atomic<bool> loggedFirstAudioPacket_{false};
 	std::atomic<bool> loggedFirstDecodedAudioFrame_{false};
 	std::atomic<bool> loggedFirstDecodedAlphaFrame_{false};

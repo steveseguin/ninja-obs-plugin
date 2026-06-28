@@ -726,11 +726,21 @@ void VDONinjaSignaling::wsThreadFunc()
 					sendQueue_.pop();
 					lock.unlock();
 
+					if (!shouldRun_ || !connected_ || !ws->isOpen()) {
+						logDebug("Dropping queued signaling message because WebSocket is closed");
+						lock.lock();
+						continue;
+					}
+
 					try {
 						ws->send(msg);
 						logDebug("Sent: %s", msg.c_str());
 					} catch (const std::exception &e) {
-						logError("Failed to send message: %s", e.what());
+						if (shouldRun_ && connected_ && ws->isOpen()) {
+							logError("Failed to send message: %s", e.what());
+						} else {
+							logDebug("Dropping queued signaling message during WebSocket shutdown: %s", e.what());
+						}
 					}
 
 					lock.lock();
@@ -1301,27 +1311,19 @@ bool VDONinjaSignaling::publishStream(const std::string &streamId, const std::st
 
 bool VDONinjaSignaling::unpublishStream()
 {
-	std::string hashedStreamId;
 	{
 		std::lock_guard<std::mutex> lock(stateMutex_);
 		if (!publishedStream_.isPublishing) {
 			return true;
 		}
-		hashedStreamId = publishedStream_.hashedStreamId;
 	}
-
-	JsonBuilder msg;
-	msg.add("request", "unseed");
-	msg.add("streamID", hashedStreamId);
-
-	sendMessage(msg.build());
 
 	{
 		std::lock_guard<std::mutex> lock(stateMutex_);
 		publishedStream_ = StreamInfo{};
 	}
 
-	logInfo("Unpublished stream");
+	logInfo("Cleared published stream state");
 	return true;
 }
 
@@ -1600,12 +1602,12 @@ void VDONinjaSignaling::sendIceCandidate(const std::string &uuid, const std::str
 	logDebug("Sent ICE candidate to %s", uuid.c_str());
 }
 
-void VDONinjaSignaling::sendIceCandidateViaDataChannel(const std::shared_ptr<rtc::DataChannel> &dc,
+bool VDONinjaSignaling::sendIceCandidateViaDataChannel(const std::shared_ptr<rtc::DataChannel> &dc,
                                                        const std::string &uuid, const std::string &candidate,
                                                        const std::string &mid, const std::string &session)
 {
-	if (!dc) {
-		return;
+	if (!dc || !dc->isOpen()) {
+		return false;
 	}
 
 	std::string salt;
@@ -1652,8 +1654,14 @@ void VDONinjaSignaling::sendIceCandidateViaDataChannel(const std::shared_ptr<rtc
 		msg.addRaw("candidate", candidateObj.build());
 	}
 
-	dc->send(msg.build());
-	logDebug("Sent ICE candidate to %s via datachannel", uuid.c_str());
+	try {
+		dc->send(msg.build());
+		logDebug("Sent ICE candidate to %s via datachannel", uuid.c_str());
+		return true;
+	} catch (const std::exception &e) {
+		logDebug("Failed to send ICE candidate to %s via datachannel: %s", uuid.c_str(), e.what());
+	}
+	return false;
 }
 
 void VDONinjaSignaling::sendDataMessage(const std::string &uuid, const std::string &data)

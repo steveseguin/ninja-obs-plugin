@@ -23,6 +23,7 @@ public:
 	explicit VDONinjaDock(QWidget *parent = nullptr);
 	~VDONinjaDock();
 	void syncFromActiveService();
+	void shutdown();
 
 	// Called from output thread (via obs_queue_task) to show chat messages
 	void onChatReceived(const QString &sender, const QString &message);

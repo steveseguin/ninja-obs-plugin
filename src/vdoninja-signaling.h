@@ -69,7 +69,7 @@ public:
 	                      const std::string &session);
 	void sendAnswerViaDataChannel(const std::shared_ptr<rtc::DataChannel> &dc, const std::string &uuid,
 	                              const std::string &sdp, const std::string &session);
-	void sendIceCandidateViaDataChannel(const std::shared_ptr<rtc::DataChannel> &dc, const std::string &uuid,
+	bool sendIceCandidateViaDataChannel(const std::shared_ptr<rtc::DataChannel> &dc, const std::string &uuid,
 	                                    const std::string &candidate, const std::string &mid,
 	                                    const std::string &session);
 
