@@ -63,6 +63,8 @@ find src tests -name "*.cpp" -o -name "*.h" | xargs clang-format-14 --dry-run --
 ## Commit & Pull Request Guidelines
 - Match existing history: short, imperative commit subjects (for example, `Fix Windows build: ...`, `Add macOS framework support`).
 - Keep each commit scoped to one logical change.
+- Work from `main` by default. Do not create or switch to task branches unless Steve explicitly asks.
+- Do not create draft pull requests unless Steve explicitly asks for a draft PR.
 - PRs should include: problem summary, key changes, commands run locally, and platform-specific notes when relevant.
 - Ensure CI is green (unit tests + format check) before merge.
 

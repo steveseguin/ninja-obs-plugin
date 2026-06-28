@@ -76,6 +76,7 @@ struct PeerInfo {
 	std::atomic<int64_t> terminalStateTimeMs{0};
 	std::atomic<bool> disconnectNotified{false};
 	std::atomic<bool> cleanupRetired{false};
+	std::atomic<bool> localOfferRequested{false};
 	bool hasDataChannel = false;
 	bool awaitingVideoKeyframe = true;
 	std::shared_ptr<rtc::PeerConnection> pc;

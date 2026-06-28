@@ -1389,15 +1389,16 @@ void VDONinjaPeerManager::onSignalingOfferRequest(const std::string &uuid, const
 		peer = createPublisherConnection(uuid);
 	}
 
-	// Ignore duplicate offer requests for already-active peers. Re-negotiating here
-	// can repeatedly force keyframe gating and appear as "video advances only on
-	// click"/occasional frame updates.
+	// Ignore duplicate offer requests for a peer/session that is already negotiating
+	// or connected. Re-entering setLocalDescription on the same PeerConnection while
+	// the first local offer is still in flight can race libdatachannel internals.
 	const ConnectionState state = peer->state.load();
 	const bool sameSession = session.empty() || peer->session.empty() || peer->session == session;
-	const bool activePeer = state == ConnectionState::Connected;
-	if (hadExistingPeer && sameSession && activePeer) {
-		logDebug("Ignoring duplicate offer request for active peer %s (state=%d)", uuid.c_str(),
-		         static_cast<int>(state));
+	const bool duplicateActiveOffer =
+	    hadExistingPeer && sameSession && !isTerminalPeerState(state) && peer->localOfferRequested.load();
+	if (duplicateActiveOffer) {
+		logInfo("Ignoring duplicate offer request for negotiating peer %s (state=%d)", uuid.c_str(),
+		        static_cast<int>(state));
 		return;
 	}
 
@@ -1417,10 +1418,13 @@ void VDONinjaPeerManager::onSignalingOfferRequest(const std::string &uuid, const
 	}
 
 	try {
+		peer->localOfferRequested.store(true);
 		peer->pc->setLocalDescription();
 	} catch (const std::exception &e) {
+		peer->localOfferRequested.store(false);
 		logError("Failed to create local offer for %s: %s", uuid.c_str(), e.what());
 	} catch (...) {
+		peer->localOfferRequested.store(false);
 		logError("Failed to create local offer for %s: unknown exception", uuid.c_str());
 	}
 }
