@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.49] - 2026-06-30
+
 ### Added
 - Added an AI-friendly VDO.Ninja workflow map covering signaling, data-channel, native receiver, peer cleanup, retry, media-track, and validation flows.
 - Added focused fuzz-style regression coverage for VDO.Ninja signaling/data-channel parsing and JSON array handling.
