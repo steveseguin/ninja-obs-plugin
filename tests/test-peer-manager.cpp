@@ -5,6 +5,7 @@
 
 #include <gtest/gtest.h>
 
+#include "vdoninja-peer-manager.h"
 #include "vdoninja-track-utils.h"
 
 using namespace vdoninja;
@@ -37,4 +38,12 @@ TEST(PeerManagerTrackClassificationTest, DoesNotTreatPlaceholderAlphaMidAsDistin
 TEST(PeerManagerTrackClassificationTest, FallsBackToAlphaWhenTrackHandleMatchesAlphaSlot)
 {
 	EXPECT_EQ(classifyIncomingTrackKind("video", "", "video", "video-alpha", true), TrackType::AlphaVideo);
+}
+
+TEST(PeerManagerSnapshotTest, ExposesPerPeerMediaSendState)
+{
+	PeerSnapshot snapshot;
+
+	EXPECT_TRUE(snapshot.audioSendEnabled);
+	EXPECT_TRUE(snapshot.videoSendEnabled);
 }

@@ -46,6 +46,8 @@ struct PeerSnapshot {
 	ConnectionType type = ConnectionType::Publisher;
 	ConnectionState state = ConnectionState::New;
 	bool hasDataChannel = false;
+	bool audioSendEnabled = true;
+	bool videoSendEnabled = true;
 };
 
 class VDONinjaPeerManager
@@ -67,12 +69,15 @@ public:
 	bool isPublishing() const;
 	int getViewerCount() const;
 	int getMaxViewers() const;
+	bool requestIceRestart(const std::string &uuid);
 
 	// Send media to all connected peers (viewers)
 	void sendAudioFrame(const uint8_t *data, size_t size, uint32_t timestamp);
 	void sendVideoFrame(const uint8_t *data, size_t size, uint32_t timestamp, bool keyframe);
 	bool sendVideoFrameToPeer(const std::string &uuid, const uint8_t *data, size_t size, uint32_t timestamp,
 	                          bool keyframe);
+	bool setPeerMediaSendEnabled(const std::string &uuid, bool hasVideo, bool videoEnabled, bool hasAudio,
+	                             bool audioEnabled, bool *videoBecameEnabled = nullptr);
 
 	// Viewing mode - receive media from publishers
 	bool startViewing(const std::string &streamId);
@@ -135,8 +140,10 @@ private:
 
 	// ICE candidate bundling
 	void bundleAndSendCandidates(const std::string &uuid);
-	bool sendVideoFrameToPeerLocked(const std::string &uuid, const std::shared_ptr<PeerInfo> &peer, const uint8_t *data,
-	                                size_t size, uint32_t timestamp, bool keyframe);
+	bool sendAudioFrameToPeer(const std::string &uuid, const std::shared_ptr<PeerInfo> &peer, const uint8_t *data,
+	                          size_t size, uint32_t timestamp);
+	bool sendVideoFrameToPeerHandle(const std::string &uuid, const std::shared_ptr<PeerInfo> &peer,
+	                                const uint8_t *data, size_t size, uint32_t timestamp, bool keyframe);
 
 	// Get RTC configuration
 	rtc::Configuration getRtcConfig() const;

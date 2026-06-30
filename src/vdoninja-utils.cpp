@@ -895,6 +895,35 @@ std::vector<std::string> JsonParser::getArray(const std::string &key) const
 					value += arr[pos++];
 				}
 			}
+		} else if (arr[pos] == '[') {
+			int depth = 1;
+			value += arr[pos++];
+			while (pos < arr.size() && depth > 0) {
+				if (arr[pos] == '"') {
+					value += arr[pos++];
+					while (pos < arr.size() && arr[pos] != '"') {
+						if (arr[pos] == '\\' && pos + 1 < arr.size()) {
+							value += arr[pos++];
+						}
+						value += arr[pos++];
+					}
+					if (pos < arr.size())
+						value += arr[pos++];
+				} else {
+					if (arr[pos] == '[')
+						depth++;
+					else if (arr[pos] == ']')
+						depth--;
+					value += arr[pos++];
+				}
+			}
+		} else {
+			while (pos < arr.size() && arr[pos] != ',' && arr[pos] != ']') {
+				if (!isWhitespace(arr[pos])) {
+					value += arr[pos];
+				}
+				pos++;
+			}
 		}
 
 		if (!value.empty()) {

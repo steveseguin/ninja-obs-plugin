@@ -8,6 +8,7 @@
 #include <obs-frontend-api.h>
 
 #include <algorithm>
+#include <chrono>
 #include <cctype>
 #include <cmath>
 #include <cstring>
@@ -27,6 +28,7 @@ namespace
 {
 
 constexpr size_t kMaxQueuedMediaFrames = 240;
+constexpr int kRemoteStatsIntervalMs = 3000;
 
 const char *tr(const char *key, const char *fallback)
 {
@@ -94,6 +96,15 @@ bool containsInsensitive(const std::string &value, const char *needle)
 	std::transform(lowerNeedle.begin(), lowerNeedle.end(), lowerNeedle.begin(),
 	               [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
 	return lowerValue.find(lowerNeedle) != std::string::npos;
+}
+
+bool looksLikeJsonContainer(const std::string &value)
+{
+	const std::string normalized = trim(value);
+	if (normalized.empty()) {
+		return false;
+	}
+	return normalized.front() == '{' || normalized.front() == '[';
 }
 
 int hexValue(unsigned char c)
@@ -862,6 +873,7 @@ std::string VDONinjaOutput::buildInitialInfoMessage() const
 	info.add("recording_audio_pipeline", true);
 	info.add("playback_audio_pipeline", true);
 	info.add("playback_audio_volume_meter", true);
+	info.add("video_muted_init", false);
 	info.add("codec_url", codecToUrlValue(snap.videoCodec));
 	info.add("audio_codec_url", "opus");
 	info.add("vb_url", snap.quality.bitrate / 1000);
@@ -959,6 +971,190 @@ std::string VDONinjaOutput::buildObsStateMessage() const
 	return msg.build();
 }
 
+std::string VDONinjaOutput::buildRemoteStatsMessage(const std::string &requestingUuid) const
+{
+	JsonBuilder remoteStats;
+	const int64_t now = currentTimeMs();
+
+	for (const ViewerRuntimeSnapshot &snapshot : getViewerSnapshots()) {
+		if (snapshot.uuid.empty() || snapshot.uuid == requestingUuid) {
+			continue;
+		}
+
+		JsonBuilder peerStats;
+		peerStats.add("role", snapshot.role);
+		peerStats.add("state", snapshot.state);
+		peerStats.add("hasDataChannel", snapshot.hasDataChannel);
+		if (!snapshot.streamId.empty()) {
+			peerStats.add("streamID", snapshot.streamId);
+		}
+
+		if (snapshot.lastStatsTimestampMs > 0) {
+			peerStats.add("lastStatsAgeMs", now - snapshot.lastStatsTimestampMs);
+			if (looksLikeJsonContainer(snapshot.lastStats)) {
+				peerStats.addRaw("reported", snapshot.lastStats);
+			} else if (!snapshot.lastStats.empty()) {
+				peerStats.add("reported", snapshot.lastStats);
+			}
+		}
+
+		remoteStats.addRaw(snapshot.uuid, peerStats.build());
+	}
+
+	JsonBuilder message;
+	message.addRaw("remoteStats", remoteStats.build());
+	return message.build();
+}
+
+std::string VDONinjaOutput::buildConnectionMapMessage(const std::string &requestingUuid) const
+{
+	OutputSettings snap;
+	{
+		std::lock_guard<std::mutex> lock(settingsMutex_);
+		snap = settings_;
+	}
+
+	const std::string localUuid = signaling_ ? signaling_->getLocalUUID() : snap.streamId;
+	const std::string label = snap.streamId.empty() ? "OBS Publisher" : snap.streamId;
+	std::string connections = "[";
+	bool firstConnection = true;
+	for (const ViewerRuntimeSnapshot &viewer : getViewerSnapshots()) {
+		if (viewer.uuid.empty()) {
+			continue;
+		}
+		if (!firstConnection) {
+			connections += ",";
+		}
+		firstConnection = false;
+
+		JsonBuilder connection;
+		connection.add("peerUUID", viewer.uuid);
+		connection.add("peerStreamID", viewer.streamId.empty() ? viewer.uuid : viewer.streamId);
+		connection.add("direction", "outgoing");
+		connection.add("state", viewer.state);
+		connection.add("bandwidth", -1);
+		connection.add("audioEnabled", viewer.audioSendEnabled);
+		connection.add("videoEnabled", viewer.videoSendEnabled);
+		connection.add("nackCount", 0);
+		connection.add("pliCount", 0);
+		connection.add("candidateType", "unknown");
+		connection.add("hasDataChannel", viewer.hasDataChannel);
+		connections += connection.build();
+	}
+	connections += "]";
+
+	JsonBuilder connectionMap;
+	connectionMap.add("uuid", localUuid.empty() ? label : localUuid);
+	connectionMap.add("streamID", snap.streamId);
+	connectionMap.add("label", label);
+	connectionMap.add("browser", "OBS VDO.Ninja Plugin");
+	connectionMap.addRaw("connections", connections);
+	connectionMap.add("requesterUUID", requestingUuid);
+
+	JsonBuilder message;
+	message.addRaw("connectionMap", connectionMap.build());
+	return message.build();
+}
+
+void VDONinjaOutput::sendRemoteStatsSnapshotToPeer(const std::string &uuid)
+{
+	if (!peerManager_ || uuid.empty()) {
+		return;
+	}
+	peerManager_->sendDataToPeer(uuid, buildRemoteStatsMessage(uuid));
+}
+
+void VDONinjaOutput::sendRejectedControlToPeer(const std::string &uuid, const std::string &controlName)
+{
+	if (!peerManager_ || uuid.empty() || controlName.empty()) {
+		return;
+	}
+
+	JsonBuilder message;
+	message.add("rejected", controlName);
+	peerManager_->sendDataToPeer(uuid, message.build());
+}
+
+void VDONinjaOutput::addRemoteStatsSubscriber(const std::string &uuid)
+{
+	if (uuid.empty()) {
+		return;
+	}
+
+	bool shouldStartWorker = false;
+	{
+		std::lock_guard<std::mutex> lock(remoteStatsMutex_);
+		remoteStatsSubscribers_.insert(uuid);
+		if (!remoteStatsWorkerRunning_) {
+			remoteStatsWorkerRunning_ = true;
+			shouldStartWorker = true;
+		}
+	}
+
+	if (shouldStartWorker) {
+		if (remoteStatsThread_.joinable()) {
+			remoteStatsThread_.join();
+		}
+		remoteStatsThread_ = std::thread(&VDONinjaOutput::remoteStatsThread, this);
+	}
+	remoteStatsCv_.notify_all();
+}
+
+void VDONinjaOutput::removeRemoteStatsSubscriber(const std::string &uuid)
+{
+	if (uuid.empty()) {
+		return;
+	}
+	{
+		std::lock_guard<std::mutex> lock(remoteStatsMutex_);
+		remoteStatsSubscribers_.erase(uuid);
+	}
+	remoteStatsCv_.notify_all();
+}
+
+void VDONinjaOutput::stopRemoteStatsWorker()
+{
+	{
+		std::lock_guard<std::mutex> lock(remoteStatsMutex_);
+		remoteStatsWorkerRunning_ = false;
+		remoteStatsSubscribers_.clear();
+	}
+	remoteStatsCv_.notify_all();
+
+	if (remoteStatsThread_.joinable()) {
+		remoteStatsThread_.join();
+	}
+}
+
+void VDONinjaOutput::remoteStatsThread()
+{
+	std::unique_lock<std::mutex> lock(remoteStatsMutex_);
+	while (remoteStatsWorkerRunning_) {
+		if (remoteStatsSubscribers_.empty()) {
+			remoteStatsCv_.wait(lock, [this]() {
+				return !remoteStatsWorkerRunning_ || !remoteStatsSubscribers_.empty();
+			});
+			continue;
+		}
+
+		const bool wokeForStateChange = remoteStatsCv_.wait_for(lock, std::chrono::milliseconds(kRemoteStatsIntervalMs),
+		                                                        [this]() {
+			                                                        return !remoteStatsWorkerRunning_ ||
+			                                                               remoteStatsSubscribers_.empty();
+		                                                        });
+		if (wokeForStateChange) {
+			continue;
+		}
+
+		std::vector<std::string> subscribers(remoteStatsSubscribers_.begin(), remoteStatsSubscribers_.end());
+		lock.unlock();
+		for (const std::string &uuid : subscribers) {
+			sendRemoteStatsSnapshotToPeer(uuid);
+		}
+		lock.lock();
+	}
+}
+
 void VDONinjaOutput::sendObsStateToPeer(const std::string &uuid)
 {
 	if (!peerManager_ || uuid.empty()) {
@@ -1026,7 +1222,6 @@ void VDONinjaOutput::primeViewerWithCachedKeyframe(const std::string &uuid)
 	if (!peerManager_ || uuid.empty()) {
 		return;
 	}
-
 	std::vector<uint8_t> keyframeCopy;
 	uint32_t keyframeTimestamp = 0;
 	{
@@ -1283,6 +1478,7 @@ void VDONinjaOutput::startThread(OutputSettings settingsSnap)
 				self->lastPeerStats_.erase(uuid);
 				self->lastPeerStatsTimestampMs_.erase(uuid);
 			}
+			self->removeRemoteStatsSubscriber(uuid);
 			logInfo("Viewer disconnected: %s (total: %d)", uuid.c_str(), self->peerManager_->getViewerCount());
 		});
 
@@ -1304,7 +1500,40 @@ void VDONinjaOutput::startThread(OutputSettings settingsSnap)
 			    self->dataChannel_.handleMessage(uuid, message);
 
 			    const DataMessage parsed = self->dataChannel_.parseMessage(message);
-			    if (parsed.type == DataMessageType::RequestKeyframe) {
+			    if (parsed.type == DataMessageType::Signaling) {
+				    if (self->signaling_) {
+					    self->signaling_->processIncomingMessage(
+					        self->dataChannel_.prepareSignalingMessage(message, uuid));
+				    }
+				    return;
+			    }
+
+			    if (parsed.type == DataMessageType::Ping) {
+				    if (self->peerManager_) {
+					    self->peerManager_->sendDataToPeer(uuid, self->dataChannel_.createPongMessage(parsed.data));
+				    }
+				    return;
+			    }
+
+			    if (parsed.type == DataMessageType::IceRestartRequest) {
+				    if (self->peerManager_) {
+					    self->peerManager_->requestIceRestart(uuid);
+				    }
+				    return;
+			    }
+
+			    if (parsed.type == DataMessageType::MeshControl) {
+				    const MeshControlUpdate mesh = self->dataChannel_.parseMeshControl(message);
+				    if (mesh.hasReconnectPeer) {
+					    self->sendRejectedControlToPeer(uuid, "reconnectPeer");
+				    }
+				    if (mesh.hasGetConnectionMap) {
+					    self->sendRejectedControlToPeer(uuid, "getConnectionMap");
+				    }
+				    return;
+			    }
+
+			    if (self->dataChannel_.hasKeyframeRequest(message)) {
 				    logInfo("Viewer %s requested keyframe over data channel", uuid.c_str());
 				    self->primeViewerWithCachedKeyframe(uuid);
 			    }
@@ -1313,6 +1542,125 @@ void VDONinjaOutput::startThread(OutputSettings settingsSnap)
 				    std::lock_guard<std::mutex> lock(self->telemetryMutex_);
 				    self->lastPeerStats_[uuid] = parsed.data.empty() ? message : parsed.data;
 				    self->lastPeerStatsTimestampMs_[uuid] = currentTimeMs();
+			    }
+
+			    if (parsed.type == DataMessageType::StatsRequest && self->peerManager_) {
+				    if (parsed.statsRequestMode == StatsRequestMode::ContinuousStop) {
+					    self->removeRemoteStatsSubscriber(uuid);
+				    } else if (settingsSnap.enableRemote) {
+					    if (parsed.statsRequestMode == StatsRequestMode::ContinuousStart) {
+						    self->addRemoteStatsSubscriber(uuid);
+					    }
+					    self->sendRemoteStatsSnapshotToPeer(uuid);
+				    } else {
+					    self->removeRemoteStatsSubscriber(uuid);
+					    self->peerManager_->sendDataToPeer(uuid, R"({"remoteStats":{}})");
+				    }
+			    }
+
+			    const RecoveryControlUpdate recovery = self->dataChannel_.parseRecoveryControl(message);
+			    const bool hasRecoveryControl =
+			        recovery.hasRefreshVideo || recovery.hasRefreshMicrophone || recovery.hasRefreshConnection ||
+			        recovery.hasRefreshAll || recovery.hasRestartWhip;
+			    if (hasRecoveryControl) {
+				    const bool refreshVideo =
+				        (recovery.hasRefreshVideo && recovery.refreshVideo) ||
+				        (recovery.hasRefreshAll && recovery.refreshAll);
+				    const bool refreshConnection =
+				        (recovery.hasRefreshConnection && recovery.refreshConnection) ||
+				        (recovery.hasRefreshAll && recovery.refreshAll);
+
+				    if (!settingsSnap.enableRemote || !self->peerManager_) {
+					    self->sendRejectedControlToPeer(uuid, self->dataChannel_.recoveryControlRejectionName(message));
+					    return;
+				    }
+
+				    if (refreshVideo) {
+					    logInfo("Viewer %s requested publisher video refresh over data channel", uuid.c_str());
+					    self->primeViewerWithCachedKeyframe(uuid);
+				    }
+				    if (refreshConnection) {
+					    const std::vector<PeerSnapshot> peerSnapshots = self->peerManager_->getPeerSnapshots();
+					    size_t requestedRestarts = 0;
+					    size_t eligiblePublisherPeers = 0;
+					    for (const PeerSnapshot &snapshot : peerSnapshots) {
+						    if (snapshot.type != ConnectionType::Publisher) {
+							    continue;
+						    }
+						    eligiblePublisherPeers++;
+						    if (self->peerManager_->requestIceRestart(snapshot.uuid)) {
+							    requestedRestarts++;
+						    }
+					    }
+					    logInfo("Viewer %s requested publisher-wide connection refresh over data channel; "
+					            "started ICE repair for %zu/%zu peer(s)",
+					            uuid.c_str(), requestedRestarts, eligiblePublisherPeers);
+				    }
+				    if (recovery.hasRefreshMicrophone && recovery.refreshMicrophone) {
+					    logInfo("Viewer %s requested microphone refresh, rejected by native OBS publisher output",
+					            uuid.c_str());
+					    self->sendRejectedControlToPeer(uuid, "refreshMicrophone");
+				    }
+				    if (recovery.hasRestartWhip && recovery.restartWhip) {
+					    logInfo("Viewer %s requested WHIP restart, rejected by native OBS publisher output",
+					            uuid.c_str());
+					    self->sendRejectedControlToPeer(uuid, "restartWhip");
+				    }
+			    }
+
+			    if (self->peerManager_) {
+				    const MediaControlUpdate mediaControl = self->dataChannel_.parseMediaControl(message);
+				    if (mediaControl.hasVideoBitrate || mediaControl.hasAudioBitrate) {
+					    bool videoBecameEnabled = false;
+					    const bool videoEnabled = mediaControl.videoBitrateKbps != 0;
+					    const bool audioEnabled = mediaControl.audioBitrateKbps != 0;
+					    if (self->peerManager_->setPeerMediaSendEnabled(
+					            uuid, mediaControl.hasVideoBitrate, videoEnabled, mediaControl.hasAudioBitrate,
+					            audioEnabled, &videoBecameEnabled)) {
+						    if (mediaControl.hasVideoBitrate) {
+							    logInfo("Viewer %s requested video bitrate %d kbps; publisher video send is %s",
+							            uuid.c_str(), mediaControl.videoBitrateKbps,
+							            videoEnabled ? "enabled" : "disabled");
+						    }
+						    if (mediaControl.hasAudioBitrate) {
+							    logInfo("Viewer %s requested audio bitrate %d kbps; publisher audio send is %s",
+							            uuid.c_str(), mediaControl.audioBitrateKbps,
+							            audioEnabled ? "enabled" : "disabled");
+						    }
+						    if (videoBecameEnabled) {
+							    self->primeViewerWithCachedKeyframe(uuid);
+						    }
+					    }
+				    }
+			    }
+
+			    const std::string unsupportedControl = self->dataChannel_.unsupportedControlName(message);
+			    if (!unsupportedControl.empty()) {
+				    logInfo("Viewer %s requested unsupported VDO.Ninja control %s over data channel",
+				            uuid.c_str(), unsupportedControl.c_str());
+				    self->sendRejectedControlToPeer(uuid, unsupportedControl);
+				    return;
+			    }
+
+			    if (parsed.type == DataMessageType::Hangup) {
+				    logInfo("Viewer %s requested output hangup over data channel; rejected without director identity",
+				            uuid.c_str());
+				    self->sendRejectedControlToPeer(uuid, "hangup");
+				    return;
+			    }
+
+			    if (parsed.type == DataMessageType::PeerBye) {
+				    logInfo("Viewer %s sent data-channel bye; retiring peer", uuid.c_str());
+				    {
+					    std::lock_guard<std::mutex> lock(self->telemetryMutex_);
+					    self->lastPeerStats_.erase(uuid);
+					    self->lastPeerStatsTimestampMs_.erase(uuid);
+				    }
+				    self->removeRemoteStatsSubscriber(uuid);
+				    if (self->peerManager_) {
+					    self->peerManager_->disconnectPeer(uuid);
+				    }
+				    return;
 			    }
 
 			    if (settingsSnap.enableRemote) {
@@ -1413,6 +1761,7 @@ void VDONinjaOutput::stop()
 	const bool wasCapturing = capturing_.load();
 	if (!wasRunning && !wasCapturing) {
 		connected_ = false;
+		stopRemoteStatsWorker();
 		stopMediaSendWorker();
 		// Still join the thread in case startThread failed and set running_=false
 		// but is still cleaning up.
@@ -1426,6 +1775,7 @@ void VDONinjaOutput::stop()
 
 	logInfo("Stopping VDO.Ninja output...");
 
+	stopRemoteStatsWorker();
 	stopMediaSendWorker();
 
 	if (autoSceneManager_) {
@@ -1443,7 +1793,9 @@ void VDONinjaOutput::stop()
 	signaling_->setOnOffer(nullptr);
 	signaling_->setOnAnswer(nullptr);
 	signaling_->setOnOfferRequest(nullptr);
+	signaling_->setOnIceRestartRequest(nullptr);
 	signaling_->setOnIceCandidate(nullptr);
+	signaling_->setOnPeerCleanup(nullptr);
 	peerManager_->setOnPeerConnected(nullptr);
 	peerManager_->setOnPeerDisconnected(nullptr);
 	peerManager_->setOnDataChannel(nullptr);
@@ -1798,6 +2150,8 @@ std::vector<VDONinjaOutput::ViewerRuntimeSnapshot> VDONinjaOutput::getViewerSnap
 		snapshot.role = connectionTypeToString(peer.type);
 		snapshot.state = connectionStateToString(peer.state);
 		snapshot.hasDataChannel = peer.hasDataChannel;
+		snapshot.audioSendEnabled = peer.audioSendEnabled;
+		snapshot.videoSendEnabled = peer.videoSendEnabled;
 
 		auto statsIt = lastPeerStats_.find(peer.uuid);
 		if (statsIt != lastPeerStats_.end()) {

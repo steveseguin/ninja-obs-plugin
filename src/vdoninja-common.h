@@ -77,8 +77,13 @@ struct PeerInfo {
 	std::atomic<bool> disconnectNotified{false};
 	std::atomic<bool> cleanupRetired{false};
 	std::atomic<bool> localOfferRequested{false};
+	mutable std::mutex negotiationMutex;
+	std::string lastLocalOfferSdp;
+	mutable std::mutex mediaMutex;
 	bool hasDataChannel = false;
 	bool awaitingVideoKeyframe = true;
+	bool audioSendEnabled = true;
+	bool videoSendEnabled = true;
 	std::shared_ptr<rtc::PeerConnection> pc;
 	std::shared_ptr<rtc::DataChannel> dataChannel;
 	std::shared_ptr<rtc::DataChannel> signalingDataChannel;
@@ -123,8 +128,9 @@ using OnOfferCallback =
 using OnAnswerCallback =
     std::function<void(const std::string &uuid, const std::string &sdp, const std::string &session)>;
 using OnOfferRequestCallback = std::function<void(const std::string &uuid, const std::string &session)>;
+using OnIceRestartRequestCallback = std::function<void(const std::string &uuid, const std::string &session)>;
 using OnIceCandidateCallback = std::function<void(const std::string &uuid, const std::string &candidate,
-                                                  const std::string &mid, const std::string &session)>;
+                                                 const std::string &mid, const std::string &session)>;
 using OnRoomJoinedCallback = std::function<void(const std::vector<std::string> &members)>;
 using OnStreamAddedCallback = std::function<void(const std::string &streamId, const std::string &uuid)>;
 using OnStreamRemovedCallback = std::function<void(const std::string &streamId, const std::string &uuid)>;

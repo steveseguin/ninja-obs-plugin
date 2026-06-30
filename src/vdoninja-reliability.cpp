@@ -96,7 +96,8 @@ int computeViewerPeerRecoveryDelayMs(int retryCount)
 
 bool isSupportedNativeVideoCodecName(const std::string &codecName)
 {
-	return asciiLowerCopy(codecName) == "h264";
+	const std::string codec = asciiLowerCopy(codecName);
+	return codec == "h264" || codec == "vp9";
 }
 
 bool isSupportedNativeAudioCodecName(const std::string &codecName)

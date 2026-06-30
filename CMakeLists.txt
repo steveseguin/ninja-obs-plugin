@@ -507,6 +507,7 @@ if(BUILD_TESTS)
         src/vdoninja-utils.cpp
         src/vdoninja-reliability.cpp
         src/vdoninja-data-channel.cpp
+        src/vdoninja-signaling.cpp
         src/vdoninja-signaling-protocol.cpp
         src/vdoninja-layout.cpp
     )
@@ -525,6 +526,9 @@ if(BUILD_TESTS)
     if(OpenSSL_FOUND)
         target_link_libraries(vdoninja-testable PUBLIC OpenSSL::SSL OpenSSL::Crypto)
     endif()
+    if(WIN32)
+        target_link_libraries(vdoninja-testable PUBLIC bcrypt)
+    endif()
 
     target_compile_definitions(vdoninja-testable PRIVATE TESTING_BUILD)
 
@@ -537,6 +541,7 @@ if(BUILD_TESTS)
         tests/test-json.cpp
         tests/test-data-channel.cpp
         tests/test-signaling-protocol.cpp
+        tests/test-signaling-state.cpp
         tests/test-layout.cpp
         tests/test-vp9-rtp.cpp
     )

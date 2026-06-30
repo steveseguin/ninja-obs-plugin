@@ -51,6 +51,7 @@ public:
 	bool leaveRoom();
 	bool isInRoom() const;
 	std::string getCurrentRoomId() const;
+	std::vector<std::string> getCurrentRoomMembers() const;
 
 	// Stream publishing
 	bool publishStream(const std::string &streamId, const std::string &password = "");
@@ -66,15 +67,12 @@ public:
 	void sendOffer(const std::string &uuid, const std::string &sdp, const std::string &session);
 	void sendAnswer(const std::string &uuid, const std::string &sdp, const std::string &session);
 	void sendIceCandidate(const std::string &uuid, const std::string &candidate, const std::string &mid,
-	                      const std::string &session);
+	                      const std::string &session, const std::string &candidateType = "local");
 	void sendAnswerViaDataChannel(const std::shared_ptr<rtc::DataChannel> &dc, const std::string &uuid,
 	                              const std::string &sdp, const std::string &session);
 	bool sendIceCandidateViaDataChannel(const std::shared_ptr<rtc::DataChannel> &dc, const std::string &uuid,
 	                                    const std::string &candidate, const std::string &mid,
-	                                    const std::string &session);
-
-	// Data channel messaging
-	void sendDataMessage(const std::string &uuid, const std::string &data);
+	                                    const std::string &session, const std::string &candidateType = "local");
 
 	// Reuse signaling parsing for messages received over alternate transports
 	void processIncomingMessage(const std::string &message);
@@ -86,6 +84,7 @@ public:
 	void setOnOffer(OnOfferCallback callback);
 	void setOnAnswer(OnAnswerCallback callback);
 	void setOnOfferRequest(OnOfferRequestCallback callback);
+	void setOnIceRestartRequest(OnIceRestartRequestCallback callback);
 	void setOnIceCandidate(OnIceCandidateCallback callback);
 	void setOnRoomJoined(OnRoomJoinedCallback callback);
 	void setOnStreamAdded(OnStreamAddedCallback callback);
@@ -107,6 +106,7 @@ private:
 	void processMessage(const std::string &message);
 	void sendMessage(const std::string &message);
 	void queueMessage(const std::string &message);
+	void clearSendQueue();
 	void applyServerAlertPolicy(const std::string &alert);
 
 	// Message handlers
@@ -162,6 +162,7 @@ private:
 	OnOfferCallback onOffer_;
 	OnAnswerCallback onAnswer_;
 	OnOfferRequestCallback onOfferRequest_;
+	OnIceRestartRequestCallback onIceRestartRequest_;
 	OnIceCandidateCallback onIceCandidate_;
 	OnRoomJoinedCallback onRoomJoined_;
 	OnStreamAddedCallback onStreamAdded_;

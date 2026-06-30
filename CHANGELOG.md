@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Added an AI-friendly VDO.Ninja workflow map covering signaling, data-channel, native receiver, peer cleanup, retry, media-track, and validation flows.
+- Added focused fuzz-style regression coverage for VDO.Ninja signaling/data-channel parsing and JSON array handling.
+
+### Fixed
+- Aligned native VDO.Ninja signaling/data-channel handling with official message shapes for ping/pong, cleanup, ICE restart, stats requests, keyframe requests, media controls, recovery controls, and targeted director video state.
+- Fixed JSON array parsing so scalar and nested-array entries cannot stall parser consumers.
+- Fixed native receiver handling for remote audio mute/unmute and remote video suppression state, including targeted director mute and virtual hangup.
+- Hardened publisher/viewer data-channel teardown, stats subscription cleanup, peer cleanup, and malformed message handling to avoid callback-thread crashes and stale state.
+
 ## [1.1.48] - 2026-06-28
 
 ### Fixed

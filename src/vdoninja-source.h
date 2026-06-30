@@ -14,6 +14,7 @@
 
 #include "vdoninja-alpha-sync.h"
 #include "vdoninja-common.h"
+#include "vdoninja-data-channel.h"
 #include "vdoninja-peer-manager.h"
 #include "vdoninja-reliability.h"
 #include "vdoninja-signaling.h"
@@ -75,6 +76,9 @@ private:
 	void serviceViewRetry();
 	void sendViewerPreferencesToPeer(const std::string &uuid, const char *reason);
 	void requestNativeTargetBitrate(const char *reason);
+	void handleRemoteMuteState(const std::string &uuid, const MuteStateUpdate &update);
+	void handleReceiverVideoSuppressionState(const std::string &uuid, const ReceiverVideoSuppressionUpdate &update);
+	void refreshRemoteVideoSuppression(const std::string &uuid, const char *reason);
 	void handleSignalingAlert(const std::string &message);
 	void handlePeerCleanupSignal(const std::string &uuid);
 	void handleStreamRemovedSignal(const std::string &streamId, const std::string &uuid);
@@ -128,6 +132,7 @@ private:
 	bool internalNativeSource_ = false;
 	std::unique_ptr<VDONinjaSignaling> signaling_;
 	std::unique_ptr<VDONinjaPeerManager> peerManager_;
+	VDONinjaDataChannel dataChannel_;
 	std::atomic<bool> active_{false};
 	std::atomic<bool> showing_{false};
 	std::atomic<bool> connected_{false};
@@ -138,6 +143,11 @@ private:
 	std::atomic<bool> loggedVideoDecodeSubmitFailure_{false};
 	std::atomic<bool> loggedFirstAudioPacket_{false};
 	std::atomic<bool> loggedFirstDecodedAudioFrame_{false};
+	std::atomic<bool> remoteAudioMuted_{false};
+	std::atomic<bool> remoteVideoMuted_{false};
+	std::atomic<bool> remoteMediaVideoMuted_{false};
+	std::atomic<bool> remoteDirectorVideoMuted_{false};
+	std::atomic<bool> remoteVirtualHangup_{false};
 	std::atomic<bool> loggedFirstDecodedAlphaFrame_{false};
 	std::atomic<bool> loggedAlphaDecodeSubmitFailure_{false};
 	std::atomic<bool> loggedAlphaDecodeReceiveFailure_{false};

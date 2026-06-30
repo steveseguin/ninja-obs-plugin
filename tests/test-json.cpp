@@ -240,6 +240,19 @@ TEST_F(JsonParserTest, ParsesArray)
 	EXPECT_EQ(items[2], "c");
 }
 
+TEST_F(JsonParserTest, ParsesArrayWithScalarValues)
+{
+	JsonParser parser("{\"items\":[null,false,true,42,\"tail\"]}");
+
+	auto items = parser.getArray("items");
+	ASSERT_EQ(items.size(), 5u);
+	EXPECT_EQ(items[0], "null");
+	EXPECT_EQ(items[1], "false");
+	EXPECT_EQ(items[2], "true");
+	EXPECT_EQ(items[3], "42");
+	EXPECT_EQ(items[4], "tail");
+}
+
 TEST_F(JsonParserTest, ParsesArrayOfObjects)
 {
 	JsonParser parser("{\"list\":[{\"id\":1},{\"id\":2}]}");

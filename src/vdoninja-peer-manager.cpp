@@ -11,6 +11,7 @@
 #include <cstring>
 #include <random>
 #include <sstream>
+#include <vector>
 
 #include "vdoninja-utils.h"
 
@@ -326,10 +327,10 @@ bool extractH264Nalus(const uint8_t *data, size_t size, std::vector<NalUnitView>
 	return true;
 }
 
-bool sendRtpPacket(const std::shared_ptr<rtc::Track> &track, uint16_t &sequence, uint32_t timestamp, uint32_t ssrc,
-                   bool marker, const uint8_t *payload, size_t payloadSize)
+bool appendRtpPacket(std::vector<rtc::binary> &packets, uint16_t &sequence, uint32_t timestamp, uint32_t ssrc,
+                     bool marker, const uint8_t *payload, size_t payloadSize)
 {
-	if (!track || !payload || payloadSize == 0) {
+	if (!payload || payloadSize == 0) {
 		return false;
 	}
 
@@ -350,12 +351,12 @@ bool sendRtpPacket(const std::shared_ptr<rtc::Track> &track, uint16_t &sequence,
 	packet.push_back(static_cast<std::byte>(ssrc & 0xFF));
 	packet.insert(packet.end(), reinterpret_cast<const std::byte *>(payload),
 	              reinterpret_cast<const std::byte *>(payload + payloadSize));
-	track->send(std::move(packet));
+	packets.push_back(std::move(packet));
 	return true;
 }
 
-bool sendH264FrameRtp(const std::shared_ptr<rtc::Track> &track, uint16_t &sequence, uint32_t timestamp, uint32_t ssrc,
-                      const uint8_t *data, size_t size)
+bool buildH264FrameRtpPackets(std::vector<rtc::binary> &packets, uint16_t &sequence, uint32_t timestamp,
+                              uint32_t ssrc, const uint8_t *data, size_t size)
 {
 	std::vector<NalUnitView> nalUnits;
 	if (!extractH264Nalus(data, size, nalUnits)) {
@@ -370,7 +371,7 @@ bool sendH264FrameRtp(const std::shared_ptr<rtc::Track> &track, uint16_t &sequen
 
 		const bool lastNalInFrame = (i + 1 == nalUnits.size());
 		if (nal.size <= kMaxRtpPayloadSize) {
-			if (!sendRtpPacket(track, sequence, timestamp, ssrc, lastNalInFrame, nal.data, nal.size)) {
+			if (!appendRtpPacket(packets, sequence, timestamp, ssrc, lastNalInFrame, nal.data, nal.size)) {
 				return false;
 			}
 			continue;
@@ -400,7 +401,7 @@ bool sendH264FrameRtp(const std::shared_ptr<rtc::Track> &track, uint16_t &sequen
 			payload.push_back(static_cast<uint8_t>(nalType | (start ? 0x80 : 0x00) | (end ? 0x40 : 0x00)));
 			payload.insert(payload.end(), nal.data + offset, nal.data + offset + chunk);
 
-			if (!sendRtpPacket(track, sequence, timestamp, ssrc, marker, payload.data(), payload.size())) {
+			if (!appendRtpPacket(packets, sequence, timestamp, ssrc, marker, payload.data(), payload.size())) {
 				return false;
 			}
 
@@ -420,6 +421,36 @@ void clearTrackCallbacks(const std::shared_ptr<rtc::Track> &track)
 	try {
 		track->resetCallbacks();
 		track->setMediaHandler(nullptr);
+	} catch (const std::exception &) {
+	}
+}
+
+void clearPeerConnectionCallbacks(const std::shared_ptr<rtc::PeerConnection> &pc)
+{
+	if (!pc) {
+		return;
+	}
+
+	try {
+		pc->onStateChange(nullptr);
+		pc->onLocalDescription(nullptr);
+		pc->onLocalCandidate(nullptr);
+		pc->onGatheringStateChange(nullptr);
+		pc->onTrack(nullptr);
+		pc->onDataChannel(nullptr);
+	} catch (const std::exception &) {
+	}
+}
+
+void clearDataChannelCallbacks(const std::shared_ptr<rtc::DataChannel> &dataChannel)
+{
+	if (!dataChannel) {
+		return;
+	}
+
+	try {
+		dataChannel->onOpen(nullptr);
+		dataChannel->onMessage(nullptr);
 	} catch (const std::exception &) {
 	}
 }
@@ -452,7 +483,9 @@ VDONinjaPeerManager::~VDONinjaPeerManager()
 		signaling_->setOnOffer(nullptr);
 		signaling_->setOnAnswer(nullptr);
 		signaling_->setOnOfferRequest(nullptr);
+		signaling_->setOnIceRestartRequest(nullptr);
 		signaling_->setOnIceCandidate(nullptr);
+		signaling_->setOnPeerCleanup(nullptr);
 	}
 
 	// Clear own callbacks
@@ -497,9 +530,14 @@ void VDONinjaPeerManager::initialize(VDONinjaSignaling *signaling)
 	signaling_->setOnOfferRequest(
 	    [this](const std::string &uuid, const std::string &session) { onSignalingOfferRequest(uuid, session); });
 
+	signaling_->setOnIceRestartRequest(
+	    [this](const std::string &uuid, const std::string &) { requestIceRestart(uuid); });
+
 	signaling_->setOnIceCandidate(
 	    [this](const std::string &uuid, const std::string &candidate, const std::string &mid,
 	           const std::string &session) { onSignalingIceCandidate(uuid, candidate, mid, session); });
+
+	signaling_->setOnPeerCleanup([this](const std::string &uuid) { disconnectPeer(uuid); });
 
 	logInfo("Peer manager initialized with signaling client");
 }
@@ -643,6 +681,79 @@ int VDONinjaPeerManager::getMaxViewers() const
 	return maxViewers_;
 }
 
+bool VDONinjaPeerManager::requestIceRestart(const std::string &uuid)
+{
+	if (!publishing_) {
+		logDebug("Ignoring ICE restart request from %s while not publishing", uuid.c_str());
+		return false;
+	}
+
+	if (uuid.empty()) {
+		logWarning("Ignoring ICE restart request without UUID");
+		return false;
+	}
+
+	std::shared_ptr<PeerInfo> peer;
+	{
+		std::lock_guard<std::mutex> lock(peersMutex_);
+		auto it = peers_.find(uuid);
+		if (it != peers_.end()) {
+			peer = it->second;
+		}
+	}
+
+	if (!peer || !peer->pc || peer->type != ConnectionType::Publisher) {
+		logWarning("Ignoring ICE restart request for unknown publisher peer %s", uuid.c_str());
+		return false;
+	}
+
+	if (peer->cleanupRetired.load() || isTerminalPeerState(peer->state.load())) {
+		logInfo("Ignoring ICE restart request for retired/terminal peer %s", uuid.c_str());
+		return false;
+	}
+
+	if (peer->pc->signalingState() != rtc::PeerConnection::SignalingState::Stable) {
+		logInfo("Ignoring ICE restart request for peer %s while signaling state is not stable", uuid.c_str());
+		return false;
+	}
+
+	if (peer->session.empty()) {
+		peer->session = generateSessionId();
+	}
+	{
+		std::lock_guard<std::mutex> lock(candidateMutex_);
+		candidateBundles_[uuid].session = peer->session;
+		candidateBundles_[uuid].candidates.clear();
+	}
+	{
+		std::lock_guard<std::mutex> negotiationLock(peer->negotiationMutex);
+		peer->lastLocalOfferSdp.clear();
+	}
+
+	try {
+		peer->localOfferRequested.store(true);
+		peer->pc->setLocalDescription(rtc::Description::Type::Offer);
+		logInfo("Requested ICE restart/re-offer for peer %s (session %s)", uuid.c_str(), peer->session.c_str());
+		return true;
+	} catch (const std::exception &e) {
+		peer->localOfferRequested.store(false);
+		{
+			std::lock_guard<std::mutex> negotiationLock(peer->negotiationMutex);
+			peer->lastLocalOfferSdp.clear();
+		}
+		logError("Failed to request ICE restart/re-offer for %s: %s", uuid.c_str(), e.what());
+	} catch (...) {
+		peer->localOfferRequested.store(false);
+		{
+			std::lock_guard<std::mutex> negotiationLock(peer->negotiationMutex);
+			peer->lastLocalOfferSdp.clear();
+		}
+		logError("Failed to request ICE restart/re-offer for %s: unknown exception", uuid.c_str());
+	}
+
+	return false;
+}
+
 int VDONinjaPeerManager::getPublisherSlotCount() const
 {
 	std::lock_guard<std::mutex> lock(peersMutex_);
@@ -656,6 +767,66 @@ int VDONinjaPeerManager::getPublisherSlotCount() const
 		}
 	}
 	return count;
+}
+
+bool VDONinjaPeerManager::setPeerMediaSendEnabled(const std::string &uuid, bool hasVideo, bool videoEnabled,
+                                                  bool hasAudio, bool audioEnabled, bool *videoBecameEnabled)
+{
+	if (videoBecameEnabled) {
+		*videoBecameEnabled = false;
+	}
+
+	if (uuid.empty() || (!hasVideo && !hasAudio)) {
+		return false;
+	}
+
+	std::shared_ptr<PeerInfo> peer;
+	{
+		std::lock_guard<std::mutex> lock(peersMutex_);
+		auto it = peers_.find(uuid);
+		if (it != peers_.end()) {
+			peer = it->second;
+		}
+	}
+
+	if (!peer || peer->type != ConnectionType::Publisher) {
+		return false;
+	}
+
+	bool changed = false;
+	bool finalVideoEnabled = true;
+	bool finalAudioEnabled = true;
+	{
+		std::lock_guard<std::mutex> mediaLock(peer->mediaMutex);
+		if (peer->cleanupRetired.load() || isTerminalPeerState(peer->state.load())) {
+			return false;
+		}
+
+		if (hasVideo && peer->videoSendEnabled != videoEnabled) {
+			const bool wasEnabled = peer->videoSendEnabled;
+			peer->videoSendEnabled = videoEnabled;
+			changed = true;
+			if (!wasEnabled && videoEnabled) {
+				peer->awaitingVideoKeyframe = true;
+				if (videoBecameEnabled) {
+					*videoBecameEnabled = true;
+				}
+			}
+		}
+		if (hasAudio && peer->audioSendEnabled != audioEnabled) {
+			peer->audioSendEnabled = audioEnabled;
+			changed = true;
+		}
+		finalVideoEnabled = peer->videoSendEnabled;
+		finalAudioEnabled = peer->audioSendEnabled;
+	}
+
+	if (changed) {
+		logInfo("Peer %s media send state: video=%s audio=%s", uuid.c_str(),
+		        finalVideoEnabled ? "enabled" : "disabled", finalAudioEnabled ? "enabled" : "disabled");
+	}
+
+	return true;
 }
 
 std::shared_ptr<PeerInfo> VDONinjaPeerManager::createPublisherConnection(const std::string &uuid)
@@ -749,6 +920,10 @@ void VDONinjaPeerManager::installLocalDescriptionCallback(const std::shared_ptr<
 				if (peer->type != ConnectionType::Publisher) {
 					logDebug("Ignoring local offer generated for viewer peer %s", uuid.c_str());
 					break;
+				}
+				{
+					std::lock_guard<std::mutex> negotiationLock(peer->negotiationMutex);
+					peer->lastLocalOfferSdp = sdp;
 				}
 				signaling_->sendOffer(uuid, sdp, peer->session);
 				logInfo("Sent offer to %s (session %s)", uuid.c_str(), peer->session.c_str());
@@ -1001,24 +1176,7 @@ void VDONinjaPeerManager::setupPublisherTracks(std::shared_ptr<PeerInfo> peer)
 {
 	// Set up video track
 	rtc::Description::Video videoDesc("video", rtc::Description::Direction::SendOnly);
-
-	// Configure based on selected codec
-	switch (videoCodec_) {
-	case VideoCodec::H264:
-		videoDesc.addH264Codec(96);
-		break;
-	case VideoCodec::VP8:
-		videoDesc.addVP8Codec(96);
-		break;
-	case VideoCodec::VP9:
-		videoDesc.addVP9Codec(96);
-		break;
-	case VideoCodec::AV1:
-		// AV1 support depends on libdatachannel version
-		videoDesc.addH264Codec(96); // Fallback
-		break;
-	}
-
+	videoDesc.addH264Codec(96);
 	videoDesc.addSSRC(videoSsrc_, "video-stream");
 	peer->videoTrack = peer->pc->addTrack(videoDesc);
 
@@ -1315,12 +1473,9 @@ void VDONinjaPeerManager::onSignalingAnswer(const std::string &uuid, const std::
 		return;
 	}
 	const bool sessionMismatch = !session.empty() && !peer->session.empty() && peer->session != session;
-	if (sessionMismatch && state == ConnectionState::Connected) {
-		logWarning("Session mismatch for %s while connected, ignoring answer", uuid.c_str());
-		return;
-	}
 	if (sessionMismatch) {
-		logWarning("Session mismatch for %s while negotiating, accepting latest answer session", uuid.c_str());
+		logWarning("Session mismatch for %s, ignoring answer", uuid.c_str());
+		return;
 	}
 	if (!session.empty()) {
 		std::lock_guard<std::mutex> lock(candidateMutex_);
@@ -1397,8 +1552,19 @@ void VDONinjaPeerManager::onSignalingOfferRequest(const std::string &uuid, const
 	const bool duplicateActiveOffer =
 	    hadExistingPeer && sameSession && !isTerminalPeerState(state) && peer->localOfferRequested.load();
 	if (duplicateActiveOffer) {
-		logInfo("Ignoring duplicate offer request for negotiating peer %s (state=%d)", uuid.c_str(),
-		        static_cast<int>(state));
+		std::string cachedOffer;
+		{
+			std::lock_guard<std::mutex> negotiationLock(peer->negotiationMutex);
+			cachedOffer = peer->lastLocalOfferSdp;
+		}
+		if (state != ConnectionState::Connected && !cachedOffer.empty() && signaling_) {
+			signaling_->sendOffer(uuid, cachedOffer, peer->session);
+			logInfo("Resent cached offer for duplicate request from peer %s (state=%d)", uuid.c_str(),
+			        static_cast<int>(state));
+		} else {
+			logInfo("Ignoring duplicate offer request for peer %s (state=%d, cached_offer=%s)", uuid.c_str(),
+			        static_cast<int>(state), cachedOffer.empty() ? "no" : "yes");
+		}
 		return;
 	}
 
@@ -1418,13 +1584,25 @@ void VDONinjaPeerManager::onSignalingOfferRequest(const std::string &uuid, const
 	}
 
 	try {
+		{
+			std::lock_guard<std::mutex> negotiationLock(peer->negotiationMutex);
+			peer->lastLocalOfferSdp.clear();
+		}
 		peer->localOfferRequested.store(true);
 		peer->pc->setLocalDescription();
 	} catch (const std::exception &e) {
 		peer->localOfferRequested.store(false);
+		{
+			std::lock_guard<std::mutex> negotiationLock(peer->negotiationMutex);
+			peer->lastLocalOfferSdp.clear();
+		}
 		logError("Failed to create local offer for %s: %s", uuid.c_str(), e.what());
 	} catch (...) {
 		peer->localOfferRequested.store(false);
+		{
+			std::lock_guard<std::mutex> negotiationLock(peer->negotiationMutex);
+			peer->lastLocalOfferSdp.clear();
+		}
 		logError("Failed to create local offer for %s: unknown exception", uuid.c_str());
 	}
 }
@@ -1450,12 +1628,9 @@ void VDONinjaPeerManager::onSignalingIceCandidate(const std::string &uuid, const
 		return;
 	}
 	const bool sessionMismatch = !session.empty() && !peer->session.empty() && peer->session != session;
-	if (sessionMismatch && state == ConnectionState::Connected) {
-		logDebug("Session mismatch for ICE candidate from %s (connected peer), ignoring", uuid.c_str());
-		return;
-	}
 	if (sessionMismatch) {
-		logDebug("Session mismatch for ICE candidate from %s while negotiating, accepting", uuid.c_str());
+		logDebug("Session mismatch for ICE candidate from %s, ignoring", uuid.c_str());
+		return;
 	}
 
 	// Add remote candidate
@@ -1473,6 +1648,7 @@ void VDONinjaPeerManager::bundleAndSendCandidates(const std::string &uuid)
 {
 	CandidateBundle bundle;
 	std::shared_ptr<rtc::DataChannel> signalingDataChannel;
+	std::string candidateType = "local";
 
 	{
 		std::lock_guard<std::mutex> lock(candidateMutex_);
@@ -1488,6 +1664,7 @@ void VDONinjaPeerManager::bundleAndSendCandidates(const std::string &uuid)
 		auto it = peers_.find(uuid);
 		if (it != peers_.end() && it->second) {
 			signalingDataChannel = it->second->signalingDataChannel;
+			candidateType = it->second->type == ConnectionType::Viewer ? "remote" : "local";
 		}
 	}
 
@@ -1495,10 +1672,10 @@ void VDONinjaPeerManager::bundleAndSendCandidates(const std::string &uuid)
 	for (const auto &cand : bundle.candidates) {
 		if (signalingDataChannel &&
 		    signaling_->sendIceCandidateViaDataChannel(signalingDataChannel, uuid, std::get<0>(cand), std::get<1>(cand),
-		                                               bundle.session)) {
+		                                               bundle.session, candidateType)) {
 			continue;
 		}
-		signaling_->sendIceCandidate(uuid, std::get<0>(cand), std::get<1>(cand), bundle.session);
+		signaling_->sendIceCandidate(uuid, std::get<0>(cand), std::get<1>(cand), bundle.session, candidateType);
 	}
 
 	logDebug("Sent %zu bundled ICE candidates to %s", bundle.candidates.size(), uuid.c_str());
@@ -1511,42 +1688,60 @@ void VDONinjaPeerManager::sendAudioFrame(const uint8_t *data, size_t size, uint3
 
 	pruneRetiredPeers(kRetiredPeerCleanupDelayMs);
 
-	std::lock_guard<std::mutex> lock(peersMutex_);
+	std::vector<std::pair<std::string, std::shared_ptr<PeerInfo>>> targets;
+	{
+		std::lock_guard<std::mutex> lock(peersMutex_);
+		for (auto &pair : peers_) {
+			auto &peer = pair.second;
+			if (!peer || peer->type != ConnectionType::Publisher || peer->state != ConnectionState::Connected) {
+				continue;
+			}
+			targets.emplace_back(pair.first, peer);
+		}
+	}
 
-	for (auto &pair : peers_) {
-		auto &peer = pair.second;
-		if (peer->type != ConnectionType::Publisher || peer->state != ConnectionState::Connected) {
-			continue;
+	for (auto &target : targets) {
+		sendAudioFrameToPeer(target.first, target.second, data, size, timestamp);
+	}
+}
+
+bool VDONinjaPeerManager::sendAudioFrameToPeer(const std::string &uuid, const std::shared_ptr<PeerInfo> &peer,
+                                               const uint8_t *data, size_t size, uint32_t timestamp)
+{
+	if (!peer || !data || size == 0) {
+		return false;
+	}
+
+	std::shared_ptr<rtc::Track> track;
+	rtc::binary packet;
+	{
+		std::lock_guard<std::mutex> mediaLock(peer->mediaMutex);
+		if (peer->cleanupRetired.load() || peer->type != ConnectionType::Publisher ||
+		    peer->state != ConnectionState::Connected) {
+			return false;
+		}
+		if (!peer->audioSendEnabled) {
+			return false;
 		}
 
-		// Get the audio track and send data
-		// The actual RTP packetization would be more complex
-		// This is a simplified version
-		try {
-			auto track = peer->audioTrack;
-			if (!track) {
-				continue;
-			}
+		track = peer->audioTrack;
+		if (!track) {
+			return false;
+		}
 
-			if (peer->useAudioPacketizer) {
-				rtc::binary opusFrame(size);
-				std::memcpy(opusFrame.data(), data, size);
-				track->send(std::move(opusFrame));
-				continue;
-			}
-
-			// Create RTP packet (simplified)
+		if (peer->useAudioPacketizer) {
+			packet = rtc::binary(size);
+			std::memcpy(packet.data(), data, size);
+		} else {
 			std::vector<uint8_t> rtpPacket;
 			rtpPacket.reserve(12 + size);
 
-			// RTP header
 			rtpPacket.push_back(0x80); // V=2, P=0, X=0, CC=0
 			rtpPacket.push_back(111);  // PT=111 (Opus), M=0
 			rtpPacket.push_back((peer->audioSeq >> 8) & 0xFF);
 			rtpPacket.push_back(peer->audioSeq & 0xFF);
 			peer->audioSeq++;
 
-			// Timestamp
 			uint32_t ts = timestamp ? timestamp : peer->audioTimestamp;
 			rtpPacket.push_back((ts >> 24) & 0xFF);
 			rtpPacket.push_back((ts >> 16) & 0xFF);
@@ -1554,21 +1749,24 @@ void VDONinjaPeerManager::sendAudioFrame(const uint8_t *data, size_t size, uint3
 			rtpPacket.push_back(ts & 0xFF);
 			peer->audioTimestamp = ts + 960; // 48kHz, 20ms frames
 
-			// SSRC
 			rtpPacket.push_back((audioSsrc_ >> 24) & 0xFF);
 			rtpPacket.push_back((audioSsrc_ >> 16) & 0xFF);
 			rtpPacket.push_back((audioSsrc_ >> 8) & 0xFF);
 			rtpPacket.push_back(audioSsrc_ & 0xFF);
 
-			// Payload
 			rtpPacket.insert(rtpPacket.end(), data, data + size);
 
-			rtc::binary packet(rtpPacket.size());
+			packet = rtc::binary(rtpPacket.size());
 			std::memcpy(packet.data(), rtpPacket.data(), rtpPacket.size());
-			track->send(std::move(packet));
-		} catch (const std::exception &e) {
-			logError("Failed to send audio to %s: %s", pair.first.c_str(), e.what());
 		}
+	}
+
+	try {
+		track->send(std::move(packet));
+		return true;
+	} catch (const std::exception &e) {
+		logError("Failed to send audio to %s: %s", uuid.c_str(), e.what());
+		return false;
 	}
 }
 
@@ -1579,14 +1777,20 @@ void VDONinjaPeerManager::sendVideoFrame(const uint8_t *data, size_t size, uint3
 
 	pruneRetiredPeers(kRetiredPeerCleanupDelayMs);
 
-	std::lock_guard<std::mutex> lock(peersMutex_);
-
-	for (auto &pair : peers_) {
-		auto &peer = pair.second;
-		if (peer->type != ConnectionType::Publisher || peer->state != ConnectionState::Connected) {
-			continue;
+	std::vector<std::pair<std::string, std::shared_ptr<PeerInfo>>> targets;
+	{
+		std::lock_guard<std::mutex> lock(peersMutex_);
+		for (auto &pair : peers_) {
+			auto &peer = pair.second;
+			if (!peer || peer->type != ConnectionType::Publisher || peer->state != ConnectionState::Connected) {
+				continue;
+			}
+			targets.emplace_back(pair.first, peer);
 		}
-		sendVideoFrameToPeerLocked(pair.first, peer, data, size, timestamp, keyframe);
+	}
+
+	for (auto &target : targets) {
+		sendVideoFrameToPeerHandle(target.first, target.second, data, size, timestamp, keyframe);
 	}
 }
 
@@ -1597,45 +1801,66 @@ bool VDONinjaPeerManager::sendVideoFrameToPeer(const std::string &uuid, const ui
 		return false;
 	}
 
-	std::lock_guard<std::mutex> lock(peersMutex_);
-	auto it = peers_.find(uuid);
-	if (it == peers_.end()) {
-		return false;
+	std::shared_ptr<PeerInfo> peer;
+	{
+		std::lock_guard<std::mutex> lock(peersMutex_);
+		auto it = peers_.find(uuid);
+		if (it == peers_.end()) {
+			return false;
+		}
+		peer = it->second;
 	}
 
-	return sendVideoFrameToPeerLocked(uuid, it->second, data, size, timestamp, keyframe);
+	return sendVideoFrameToPeerHandle(uuid, peer, data, size, timestamp, keyframe);
 }
 
-bool VDONinjaPeerManager::sendVideoFrameToPeerLocked(const std::string &uuid, const std::shared_ptr<PeerInfo> &peer,
+bool VDONinjaPeerManager::sendVideoFrameToPeerHandle(const std::string &uuid, const std::shared_ptr<PeerInfo> &peer,
                                                      const uint8_t *data, size_t size, uint32_t timestamp,
                                                      bool keyframe)
 {
-	if (!peer || peer->type != ConnectionType::Publisher || peer->state != ConnectionState::Connected) {
+	if (!peer || !data || size == 0) {
 		return false;
 	}
 
-	// Do not send delta frames to new/reconnected viewers until they get a keyframe.
-	if (peer->awaitingVideoKeyframe && !keyframe) {
-		return false;
-	}
+	std::shared_ptr<rtc::Track> track;
+	std::vector<rtc::binary> packets;
+	{
+		std::lock_guard<std::mutex> mediaLock(peer->mediaMutex);
+		if (peer->cleanupRetired.load() || peer->type != ConnectionType::Publisher ||
+		    peer->state != ConnectionState::Connected) {
+			return false;
+		}
+		if (!peer->videoSendEnabled) {
+			return false;
+		}
 
-	if (peer->awaitingVideoKeyframe && keyframe) {
-		peer->awaitingVideoKeyframe = false;
-		logInfo("Viewer %s synchronized on keyframe", uuid.c_str());
-	}
+		// Do not send delta frames to new/reconnected viewers until they get a keyframe.
+		if (peer->awaitingVideoKeyframe && !keyframe) {
+			return false;
+		}
 
-	try {
-		auto track = peer->videoTrack;
+		if (peer->awaitingVideoKeyframe && keyframe) {
+			peer->awaitingVideoKeyframe = false;
+			logInfo("Viewer %s synchronized on keyframe", uuid.c_str());
+		}
+
+		track = peer->videoTrack;
 		if (!track) {
 			return false;
 		}
 
 		uint32_t ts = timestamp ? timestamp : peer->videoTimestamp;
-		if (!sendH264FrameRtp(track, peer->videoSeq, ts, videoSsrc_, data, size)) {
+		if (!buildH264FrameRtpPackets(packets, peer->videoSeq, ts, videoSsrc_, data, size)) {
 			return false;
 		}
 
 		peer->videoTimestamp = ts + 3000; // 90kHz clock, ~30fps fallback cadence
+	}
+
+	try {
+		for (auto &packet : packets) {
+			track->send(std::move(packet));
+		}
 		return true;
 	} catch (const std::exception &e) {
 		logError("Failed to send video to %s: %s", uuid.c_str(), e.what());
@@ -1720,16 +1945,54 @@ void VDONinjaPeerManager::releasePeerResources(const std::shared_ptr<PeerInfo> &
 		return;
 	}
 
-	clearPeerCallbacks(peer);
-	peer->audioTrack.reset();
-	peer->videoTrack.reset();
-	peer->alphaVideoTrack.reset();
-	peer->dataChannel.reset();
-	peer->signalingDataChannel.reset();
-	peer->audioSrReporter.reset();
-	peer->videoSrReporter.reset();
-	peer->pc.reset();
-	peer->hasDataChannel = false;
+	peer->cleanupRetired.store(true);
+
+	std::shared_ptr<rtc::PeerConnection> pc;
+	std::shared_ptr<rtc::Track> audioTrack;
+	std::shared_ptr<rtc::Track> videoTrack;
+	std::shared_ptr<rtc::Track> alphaVideoTrack;
+	std::shared_ptr<rtc::DataChannel> dataChannel;
+	std::shared_ptr<rtc::DataChannel> signalingDataChannel;
+	std::shared_ptr<rtc::RtcpSrReporter> audioSrReporter;
+	std::shared_ptr<rtc::RtcpSrReporter> videoSrReporter;
+	{
+		std::lock_guard<std::mutex> mediaLock(peer->mediaMutex);
+		pc = peer->pc;
+		audioTrack = peer->audioTrack;
+		videoTrack = peer->videoTrack;
+		alphaVideoTrack = peer->alphaVideoTrack;
+		dataChannel = peer->dataChannel;
+		signalingDataChannel = peer->signalingDataChannel;
+		audioSrReporter = peer->audioSrReporter;
+		videoSrReporter = peer->videoSrReporter;
+	}
+
+	clearPeerConnectionCallbacks(pc);
+	clearTrackCallbacks(audioTrack);
+	clearTrackCallbacks(videoTrack);
+	clearTrackCallbacks(alphaVideoTrack);
+	clearDataChannelCallbacks(dataChannel);
+
+	{
+		std::lock_guard<std::mutex> mediaLock(peer->mediaMutex);
+		peer->audioTrack.reset();
+		peer->videoTrack.reset();
+		peer->alphaVideoTrack.reset();
+		peer->dataChannel.reset();
+		peer->signalingDataChannel.reset();
+		peer->audioSrReporter.reset();
+		peer->videoSrReporter.reset();
+		peer->pc.reset();
+		peer->hasDataChannel = false;
+	}
+	{
+		std::lock_guard<std::mutex> negotiationLock(peer->negotiationMutex);
+		peer->lastLocalOfferSdp.clear();
+	}
+
+	signalingDataChannel.reset();
+	audioSrReporter.reset();
+	videoSrReporter.reset();
 }
 
 void VDONinjaPeerManager::retirePeerForDeferredCleanup(const std::string &uuid, const std::shared_ptr<PeerInfo> &peer)
@@ -1797,51 +2060,48 @@ void VDONinjaPeerManager::pruneRetiredPeers(int64_t minAgeMs)
 
 void VDONinjaPeerManager::clearPeerCallbacks(const std::shared_ptr<PeerInfo> &peer) const
 {
-	if (!peer || !peer->pc) {
+	if (!peer) {
 		return;
 	}
 
-	try {
-		peer->pc->onStateChange(nullptr);
-		peer->pc->onLocalDescription(nullptr);
-		peer->pc->onLocalCandidate(nullptr);
-		peer->pc->onGatheringStateChange(nullptr);
-		peer->pc->onTrack(nullptr);
-		peer->pc->onDataChannel(nullptr);
-	} catch (const std::exception &) {
-	}
-
+	clearPeerConnectionCallbacks(peer->pc);
 	clearTrackCallbacks(peer->videoTrack);
 	clearTrackCallbacks(peer->alphaVideoTrack);
 	clearTrackCallbacks(peer->audioTrack);
-
-	if (peer->dataChannel) {
-		try {
-			peer->dataChannel->onOpen(nullptr);
-			peer->dataChannel->onMessage(nullptr);
-		} catch (const std::exception &) {
-		}
-	}
+	clearDataChannelCallbacks(peer->dataChannel);
 }
 
 void VDONinjaPeerManager::sendDataToAll(const std::string &message)
 {
 	pruneRetiredPeers(kRetiredPeerCleanupDelayMs);
 
-	std::lock_guard<std::mutex> lock(peersMutex_);
-	for (auto &pair : peers_) {
-		if (!pair.second || isTerminalPeerState(pair.second->state.load())) {
-			continue;
-		}
-		try {
-			if (pair.second->hasDataChannel && pair.second->dataChannel) {
-				if (!pair.second->dataChannel->isOpen()) {
-					continue;
-				}
-				pair.second->dataChannel->send(message);
+	struct SendTarget {
+		std::string uuid;
+		std::shared_ptr<rtc::DataChannel> channel;
+	};
+	std::vector<SendTarget> targets;
+
+	{
+		std::lock_guard<std::mutex> lock(peersMutex_);
+		for (auto &pair : peers_) {
+			if (!pair.second || isTerminalPeerState(pair.second->state.load())) {
+				continue;
 			}
+			if (!pair.second->hasDataChannel || !pair.second->dataChannel) {
+				continue;
+			}
+			targets.push_back({pair.first, pair.second->dataChannel});
+		}
+	}
+
+	for (const auto &target : targets) {
+		try {
+			if (!target.channel->isOpen()) {
+				continue;
+			}
+			target.channel->send(message);
 		} catch (const std::exception &e) {
-			logError("Failed to send data to %s: %s", pair.first.c_str(), e.what());
+			logError("Failed to send data to %s: %s", target.uuid.c_str(), e.what());
 		}
 	}
 }
@@ -1850,26 +2110,31 @@ void VDONinjaPeerManager::sendDataToPeer(const std::string &uuid, const std::str
 {
 	pruneRetiredPeers(kRetiredPeerCleanupDelayMs);
 
-	std::lock_guard<std::mutex> lock(peersMutex_);
-	auto it = peers_.find(uuid);
-	if (it == peers_.end() || !it->second || isTerminalPeerState(it->second->state.load())) {
-		return;
+	std::shared_ptr<rtc::DataChannel> targetChannel;
+	std::string targetMessage;
+	{
+		std::lock_guard<std::mutex> lock(peersMutex_);
+		auto it = peers_.find(uuid);
+		if (it == peers_.end() || !it->second || isTerminalPeerState(it->second->state.load())) {
+			return;
+		}
+
+		if (it->second->hasDataChannel && it->second->dataChannel) {
+			targetChannel = it->second->dataChannel;
+			targetMessage = message;
+		} else if (it->second->type == ConnectionType::Viewer && it->second->signalingDataChannel) {
+			targetChannel = it->second->signalingDataChannel;
+			targetMessage = wrapTargetedPeerMessage(uuid, it->second->session, message);
+		} else {
+			return;
+		}
 	}
 
 	try {
-		if (it->second->hasDataChannel && it->second->dataChannel) {
-			if (!it->second->dataChannel->isOpen()) {
-				return;
-			}
-			it->second->dataChannel->send(message);
+		if (!targetChannel->isOpen()) {
 			return;
 		}
-		if (it->second->type == ConnectionType::Viewer && it->second->signalingDataChannel) {
-			if (!it->second->signalingDataChannel->isOpen()) {
-				return;
-			}
-			it->second->signalingDataChannel->send(wrapTargetedPeerMessage(uuid, it->second->session, message));
-		}
+		targetChannel->send(targetMessage);
 	} catch (const std::exception &e) {
 		logError("Failed to send data to %s: %s", uuid.c_str(), e.what());
 	}
@@ -1967,6 +2232,11 @@ std::vector<PeerSnapshot> VDONinjaPeerManager::getPeerSnapshots() const
 		snapshot.type = pair.second ? pair.second->type : ConnectionType::Publisher;
 		snapshot.state = pair.second ? pair.second->state.load() : ConnectionState::Closed;
 		snapshot.hasDataChannel = pair.second && pair.second->hasDataChannel;
+		if (pair.second) {
+			std::lock_guard<std::mutex> mediaLock(pair.second->mediaMutex);
+			snapshot.audioSendEnabled = pair.second->audioSendEnabled;
+			snapshot.videoSendEnabled = pair.second->videoSendEnabled;
+		}
 		snapshots.emplace_back(std::move(snapshot));
 	}
 	return snapshots;
@@ -1984,7 +2254,10 @@ ConnectionState VDONinjaPeerManager::getPeerState(const std::string &uuid) const
 
 void VDONinjaPeerManager::setVideoCodec(VideoCodec codec)
 {
-	videoCodec_ = codec;
+	if (codec != VideoCodec::H264) {
+		logWarning("Only H.264 publisher video is currently supported; using H.264");
+	}
+	videoCodec_ = VideoCodec::H264;
 }
 void VDONinjaPeerManager::setAudioCodec(AudioCodec codec)
 {

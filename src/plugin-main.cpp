@@ -99,7 +99,6 @@ constexpr const char *kVdoNinjaRtmpServiceEntry = R"VDOJSON(
                 }
             ],
             "supported video codecs": [
-                "vp9",
                 "h264"
             ],
             "supported audio codecs": [
@@ -1235,7 +1234,7 @@ static void vdoninja_service_apply_encoder_settings(void *, obs_data_t *video_se
 	}
 }
 
-static const char *vdoninja_video_codecs[] = {"vp9", "h264", nullptr};
+static const char *vdoninja_video_codecs[] = {"h264", nullptr};
 static const char *vdoninja_audio_codecs[] = {"opus", nullptr};
 
 static bool vdoninja_service_can_try_connect(void *data)

@@ -13,6 +13,7 @@
 #include <atomic>
 #include <condition_variable>
 #include <deque>
+#include <set>
 #include <thread>
 
 #include "vdoninja-auto-scene-manager.h"
@@ -33,6 +34,8 @@ public:
 		std::string role;
 		std::string state;
 		bool hasDataChannel = false;
+		bool audioSendEnabled = true;
+		bool videoSendEnabled = true;
 		std::string lastStats;
 		int64_t lastStatsTimestampMs = 0;
 	};
@@ -92,6 +95,14 @@ private:
 	void primeViewerWithCachedKeyframe(const std::string &uuid);
 	std::string buildInitialInfoMessage() const;
 	std::string buildObsStateMessage() const;
+	std::string buildRemoteStatsMessage(const std::string &requestingUuid) const;
+	std::string buildConnectionMapMessage(const std::string &requestingUuid) const;
+	void sendRemoteStatsSnapshotToPeer(const std::string &uuid);
+	void sendRejectedControlToPeer(const std::string &uuid, const std::string &controlName);
+	void addRemoteStatsSubscriber(const std::string &uuid);
+	void removeRemoteStatsSubscriber(const std::string &uuid);
+	void stopRemoteStatsWorker();
+	void remoteStatsThread();
 	void sendObsStateToPeer(const std::string &uuid);
 	void queueObsStateToPeer(const std::string &uuid);
 	void drainAsyncCallbacks();
@@ -135,6 +146,11 @@ private:
 	mutable std::mutex telemetryMutex_;
 	std::map<std::string, std::string> lastPeerStats_;
 	std::map<std::string, int64_t> lastPeerStatsTimestampMs_;
+	std::mutex remoteStatsMutex_;
+	std::condition_variable remoteStatsCv_;
+	std::set<std::string> remoteStatsSubscribers_;
+	std::thread remoteStatsThread_;
+	bool remoteStatsWorkerRunning_ = false;
 
 	// Latest keyframe cache for fast viewer warm-up and keyframe requests.
 	mutable std::mutex keyframeCacheMutex_;

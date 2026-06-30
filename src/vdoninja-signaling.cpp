@@ -32,8 +32,8 @@
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
-#include <bcrypt.h>
 #include <windows.h>
+#include <bcrypt.h>
 #endif
 
 namespace vdoninja
@@ -424,6 +424,11 @@ bool isDefaultSignalingHost(const std::string &host)
 	       normalized == normalizeSignalingHostForCompare(kDefaultSignalingHostWithPort);
 }
 
+std::string normalizeIceCandidateType(const std::string &candidateType)
+{
+	return asciiLower(trim(candidateType)) == "remote" ? "remote" : "local";
+}
+
 std::vector<std::string> buildSignalingHosts(const std::string &configuredHost)
 {
 	std::string primary = trim(configuredHost);
@@ -485,6 +490,7 @@ bool VDONinjaSignaling::connect(const std::string &wssHost)
 		reconnectSuppressedByServer_ = false;
 		reconnectDeferredUntilMs_ = 0;
 	}
+	clearSendQueue();
 	shouldRun_ = true;
 	needsReconnect_ = false;
 	initialConnectionFinished_ = false;
@@ -509,10 +515,8 @@ void VDONinjaSignaling::disconnect()
 	connected_ = false;
 
 	// Signal send thread to exit
-	{
-		std::lock_guard<std::mutex> lock(sendMutex_);
-		sendCv_.notify_all();
-	}
+	clearSendQueue();
+	sendCv_.notify_all();
 
 	// Close WebSocket -- extract handle under the lock, then close outside it.
 	// ws->close() can fire onError/onClosed synchronously, which also
@@ -756,6 +760,7 @@ void VDONinjaSignaling::wsThreadFunc()
 					wsHandle_ = nullptr;
 				}
 			}
+			clearSendQueue();
 		} catch (const std::exception &e) {
 			logError("WebSocket thread error from %s: %s", host.c_str(), e.what());
 			connected_ = false;
@@ -795,6 +800,7 @@ void VDONinjaSignaling::wsThreadFunc()
 				delete stored;
 				wsHandle_ = nullptr;
 			}
+			clearSendQueue();
 		}
 
 		const bool attemptOpened = opened->load();
@@ -973,6 +979,13 @@ void VDONinjaSignaling::processMessage(const std::string &message)
 		}
 		case ParsedSignalKind::VideoAddedToRoom: {
 			logInfo("Stream added to room: %s by %s", parsed.streamId.c_str(), parsed.uuid.c_str());
+			if (!parsed.streamId.empty()) {
+				std::lock_guard<std::mutex> lock(stateMutex_);
+				auto &members = currentRoom_.members;
+				if (std::find(members.begin(), members.end(), parsed.streamId) == members.end()) {
+					members.push_back(parsed.streamId);
+				}
+			}
 			OnStreamAddedCallback cb;
 			{
 				std::lock_guard<std::mutex> lock(callbackMutex_);
@@ -985,6 +998,11 @@ void VDONinjaSignaling::processMessage(const std::string &message)
 		}
 		case ParsedSignalKind::VideoRemovedFromRoom: {
 			logInfo("Stream removed from room: %s by %s", parsed.streamId.c_str(), parsed.uuid.c_str());
+			if (!parsed.streamId.empty()) {
+				std::lock_guard<std::mutex> lock(stateMutex_);
+				auto &members = currentRoom_.members;
+				members.erase(std::remove(members.begin(), members.end(), parsed.streamId), members.end());
+			}
 			OnStreamRemovedCallback cb;
 			{
 				std::lock_guard<std::mutex> lock(callbackMutex_);
@@ -1165,6 +1183,18 @@ void VDONinjaSignaling::handleRequest(const ParsedSignalMessage &message)
 	// signaling compatibility, accept joinroom only when the request also carries
 	// a stream identifier; plain joinroom events are room-admission flow.
 	const bool joinroomOfferCompat = requestLower == "joinroom" && !message.streamId.empty();
+	if (requestLower == "icerestartrequest") {
+		OnIceRestartRequestCallback cb;
+		{
+			std::lock_guard<std::mutex> lock(callbackMutex_);
+			cb = onIceRestartRequest_;
+		}
+		if (cb) {
+			cb(message.uuid, message.session);
+		}
+		return;
+	}
+
 	if (requestLower == "offersdp" || requestLower == "sendoffer" || requestLower == "play" || joinroomOfferCompat) {
 		OnOfferRequestCallback cb;
 		{
@@ -1187,6 +1217,14 @@ void VDONinjaSignaling::sendMessage(const std::string &message)
 	std::lock_guard<std::mutex> lock(sendMutex_);
 	sendQueue_.push(message);
 	sendCv_.notify_one();
+}
+
+void VDONinjaSignaling::clearSendQueue()
+{
+	std::lock_guard<std::mutex> lock(sendMutex_);
+	while (!sendQueue_.empty()) {
+		sendQueue_.pop();
+	}
 }
 
 void VDONinjaSignaling::queueMessage(const std::string &message)
@@ -1240,22 +1278,13 @@ bool VDONinjaSignaling::leaveRoom()
 {
 	{
 		std::lock_guard<std::mutex> lock(stateMutex_);
-		if (!currentRoom_.isJoined) {
+		if (!currentRoom_.isJoined && currentRoom_.roomId.empty() && currentRoom_.hashedRoomId.empty()) {
 			return true;
 		}
-	}
-
-	JsonBuilder msg;
-	msg.add("request", "leaveroom");
-
-	sendMessage(msg.build());
-
-	{
-		std::lock_guard<std::mutex> lock(stateMutex_);
 		currentRoom_ = RoomInfo{};
 	}
 
-	logInfo("Left room");
+	logInfo("Cleared room state");
 	return true;
 }
 
@@ -1269,6 +1298,12 @@ std::string VDONinjaSignaling::getCurrentRoomId() const
 {
 	std::lock_guard<std::mutex> lock(stateMutex_);
 	return currentRoom_.roomId;
+}
+
+std::vector<std::string> VDONinjaSignaling::getCurrentRoomMembers() const
+{
+	std::lock_guard<std::mutex> lock(stateMutex_);
+	return currentRoom_.members;
 }
 
 bool VDONinjaSignaling::publishStream(const std::string &streamId, const std::string &password)
@@ -1381,24 +1416,16 @@ bool VDONinjaSignaling::viewStream(const std::string &streamId, const std::strin
 
 bool VDONinjaSignaling::stopViewing(const std::string &streamId)
 {
-	std::string hashedStreamId;
 	{
 		std::lock_guard<std::mutex> lock(stateMutex_);
 		auto it = viewingStreams_.find(streamId);
 		if (it == viewingStreams_.end()) {
 			return true;
 		}
-		hashedStreamId = it->second.hashedStreamId;
 		viewingStreams_.erase(it);
 	}
 
-	JsonBuilder msg;
-	msg.add("request", "stopPlay");
-	msg.add("streamID", hashedStreamId);
-
-	sendMessage(msg.build());
-
-	logInfo("Stopped viewing stream: %s", streamId.c_str());
+	logInfo("Cleared viewing stream state: %s", streamId.c_str());
 	return true;
 }
 
@@ -1455,13 +1482,9 @@ void VDONinjaSignaling::sendOffer(const std::string &uuid, const std::string &sd
 		} else {
 			logWarning("Failed to encrypt offer SDP; sending plaintext");
 			msg.addRaw("description", description.build());
-			msg.add("sdp", sdp);
-			msg.add("type", "offer");
 		}
 	} else {
 		msg.addRaw("description", description.build());
-		msg.add("sdp", sdp);
-		msg.add("type", "offer");
 	}
 
 	sendMessage(msg.build());
@@ -1494,13 +1517,9 @@ void VDONinjaSignaling::sendAnswer(const std::string &uuid, const std::string &s
 		} else {
 			logWarning("Failed to encrypt answer SDP; sending plaintext");
 			msg.addRaw("description", description.build());
-			msg.add("sdp", sdp);
-			msg.add("type", "answer");
 		}
 	} else {
 		msg.addRaw("description", description.build());
-		msg.add("sdp", sdp);
-		msg.add("type", "answer");
 	}
 
 	sendMessage(msg.build());
@@ -1538,13 +1557,9 @@ void VDONinjaSignaling::sendAnswerViaDataChannel(const std::shared_ptr<rtc::Data
 		} else {
 			logWarning("Failed to encrypt answer SDP for datachannel; sending plaintext");
 			msg.addRaw("description", description.build());
-			msg.add("sdp", sdp);
-			msg.add("type", "answer");
 		}
 	} else {
 		msg.addRaw("description", description.build());
-		msg.add("sdp", sdp);
-		msg.add("type", "answer");
 	}
 
 	dc->send(msg.build());
@@ -1552,7 +1567,7 @@ void VDONinjaSignaling::sendAnswerViaDataChannel(const std::shared_ptr<rtc::Data
 }
 
 void VDONinjaSignaling::sendIceCandidate(const std::string &uuid, const std::string &candidate, const std::string &mid,
-                                         const std::string &session)
+                                         const std::string &session, const std::string &candidateType)
 {
 	std::string salt;
 	{
@@ -1562,7 +1577,7 @@ void VDONinjaSignaling::sendIceCandidate(const std::string &uuid, const std::str
 
 	JsonBuilder msg;
 	msg.add("UUID", uuid);
-	msg.add("type", "local");
+	msg.add("type", normalizeIceCandidateType(candidateType));
 	msg.add("session", session);
 
 	std::string normalizedCandidate = candidate;
@@ -1604,7 +1619,8 @@ void VDONinjaSignaling::sendIceCandidate(const std::string &uuid, const std::str
 
 bool VDONinjaSignaling::sendIceCandidateViaDataChannel(const std::shared_ptr<rtc::DataChannel> &dc,
                                                        const std::string &uuid, const std::string &candidate,
-                                                       const std::string &mid, const std::string &session)
+                                                       const std::string &mid, const std::string &session,
+                                                       const std::string &candidateType)
 {
 	if (!dc || !dc->isOpen()) {
 		return false;
@@ -1618,7 +1634,7 @@ bool VDONinjaSignaling::sendIceCandidateViaDataChannel(const std::shared_ptr<rtc
 
 	JsonBuilder msg;
 	msg.add("UUID", uuid);
-	msg.add("type", "local");
+	msg.add("type", normalizeIceCandidateType(candidateType));
 	msg.add("session", session);
 
 	std::string normalizedCandidate = candidate;
@@ -1664,15 +1680,6 @@ bool VDONinjaSignaling::sendIceCandidateViaDataChannel(const std::shared_ptr<rtc
 	return false;
 }
 
-void VDONinjaSignaling::sendDataMessage(const std::string &uuid, const std::string &data)
-{
-	JsonBuilder msg;
-	msg.add("UUID", uuid);
-	msg.add("data", data);
-
-	sendMessage(msg.build());
-}
-
 void VDONinjaSignaling::setOnConnected(OnConnectedCallback callback)
 {
 	std::lock_guard<std::mutex> lock(callbackMutex_);
@@ -1702,6 +1709,11 @@ void VDONinjaSignaling::setOnOfferRequest(OnOfferRequestCallback callback)
 {
 	std::lock_guard<std::mutex> lock(callbackMutex_);
 	onOfferRequest_ = callback;
+}
+void VDONinjaSignaling::setOnIceRestartRequest(OnIceRestartRequestCallback callback)
+{
+	std::lock_guard<std::mutex> lock(callbackMutex_);
+	onIceRestartRequest_ = callback;
 }
 void VDONinjaSignaling::setOnIceCandidate(OnIceCandidateCallback callback)
 {

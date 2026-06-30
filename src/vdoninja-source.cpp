@@ -1166,28 +1166,64 @@ void VDONinjaSource::connectionThread()
 			}
 			logInfo("Received source datachannel message from %s: %s", uuid.c_str(), preview.c_str());
 
-			JsonParser raw(message);
-			std::string targetUuid = raw.getString("UUID");
-			if (targetUuid.empty()) {
-				targetUuid = raw.getString("uuid");
+			const DataMessage parsed = self->dataChannel_.parseMessage(message);
+			if (parsed.type == DataMessageType::Ping) {
+				if (self->peerManager_) {
+					self->peerManager_->sendDataToPeer(uuid, self->dataChannel_.createPongMessage(parsed.data));
+				}
+				return;
 			}
-			const std::string targetSession = raw.getString("session");
+			if (parsed.type == DataMessageType::Pong) {
+				return;
+			}
+
+			std::string targetUuid;
+			std::string targetSession;
+			try {
+				JsonParser raw(message);
+				targetUuid = raw.getString("UUID");
+				if (targetUuid.empty()) {
+					targetUuid = raw.getString("uuid");
+				}
+				targetSession = raw.getString("session");
+			} catch (const std::exception &e) {
+				logWarning("Ignoring malformed source datachannel message from %s: %s", uuid.c_str(), e.what());
+				return;
+			}
 			if (!targetUuid.empty()) {
 				self->peerManager_->bindViewerSignalingDataChannel(uuid, targetUuid, targetSession);
 			}
+			if (parsed.type == DataMessageType::Mute) {
+				const std::string stateUuid = targetUuid.empty() ? uuid : targetUuid;
+				self->handleRemoteMuteState(stateUuid, self->dataChannel_.parseMuteState(message));
+				self->handleReceiverVideoSuppressionState(stateUuid,
+				                                         self->dataChannel_.parseReceiverVideoSuppression(message));
+				return;
+			}
 
-			if (self->signaling_ &&
-			    (message.find("\"description\"") != std::string::npos ||
-			     message.find("\"candidate\"") != std::string::npos ||
-			     message.find("\"candidates\"") != std::string::npos ||
-			     message.find("\"request\"") != std::string::npos || message.find("\"bye\"") != std::string::npos)) {
-				self->signaling_->processIncomingMessage(message);
-				if (targetUuid.empty() && message.find("\"bye\"") != std::string::npos) {
-					self->handlePeerCleanupSignal(uuid);
+			if (parsed.type == DataMessageType::DirectorVideoState) {
+				self->handleReceiverVideoSuppressionState(
+				    targetUuid.empty() ? uuid : targetUuid, self->dataChannel_.parseReceiverVideoSuppression(message));
+				return;
+			}
+
+			if (parsed.type == DataMessageType::Signaling) {
+				if (self->signaling_) {
+					self->signaling_->processIncomingMessage(self->dataChannel_.prepareSignalingMessage(message, uuid));
 				}
 				if (!targetUuid.empty()) {
 					self->sendViewerPreferencesToPeer(targetUuid, "resolved-media-peer");
 				}
+				return;
+			}
+
+			if (parsed.type == DataMessageType::PeerBye) {
+				if (targetUuid.empty()) {
+					self->handlePeerCleanupSignal(uuid);
+				} else if (self->signaling_) {
+					self->signaling_->processIncomingMessage(message);
+				}
+				return;
 			}
 		});
 
@@ -1301,6 +1337,67 @@ void VDONinjaSource::requestNativeTargetBitrate(const char *reason)
 	    static_cast<unsigned int>(chooseViewerTargetBitrateKbps(width_, height_)) * 1000U;
 	if (safeRequestBitrate(currentVideoTrack, targetBitrateBps, reason)) {
 		logInfo("Requested native video REMB target of %u bps (%s)", targetBitrateBps, reason ? reason : "unknown");
+	}
+}
+
+void VDONinjaSource::handleRemoteMuteState(const std::string &uuid, const MuteStateUpdate &update)
+{
+	if (update.hasAudioMuted) {
+		const bool previous = remoteAudioMuted_.exchange(update.audioMuted, std::memory_order_relaxed);
+		if (previous != update.audioMuted) {
+			logInfo("Native receiver remote audio mute from %s: %s", uuid.empty() ? "unknown peer" : uuid.c_str(),
+			        update.audioMuted ? "muted" : "unmuted");
+		}
+		setObsSourceAudioActiveSafe(source_, !update.audioMuted);
+	}
+}
+
+void VDONinjaSource::handleReceiverVideoSuppressionState(const std::string &uuid,
+                                                        const ReceiverVideoSuppressionUpdate &update)
+{
+	bool changed = false;
+	const char *reason = "remote-video-state";
+
+	if (update.hasMediaVideoMuted) {
+		const bool previous = remoteMediaVideoMuted_.exchange(update.mediaVideoMuted, std::memory_order_relaxed);
+		changed = changed || previous != update.mediaVideoMuted;
+		reason = update.mediaVideoMuted ? "remote-video-muted" : "remote-video-unmuted";
+	}
+	if (update.hasDirectorVideoMuted) {
+		if (dataChannel_.receiverDirectorVideoAppliesToPeer(update, uuid)) {
+			const bool previous =
+			    remoteDirectorVideoMuted_.exchange(update.directorVideoMuted, std::memory_order_relaxed);
+			changed = changed || previous != update.directorVideoMuted;
+			reason = update.directorVideoMuted ? "director-video-muted" : "director-video-unmuted";
+		} else {
+			logDebug("Ignoring director video mute for non-local target %s from %s",
+			         update.directorVideoTarget.empty() ? "unknown" : update.directorVideoTarget.c_str(),
+			         uuid.empty() ? "unknown peer" : uuid.c_str());
+		}
+	}
+	if (update.hasVirtualHangup) {
+		const bool previous = remoteVirtualHangup_.exchange(update.virtualHangup, std::memory_order_relaxed);
+		changed = changed || previous != update.virtualHangup;
+		reason = update.virtualHangup ? "remote-virtual-hangup" : "remote-virtual-hangup-cleared";
+	}
+
+	if (changed) {
+		refreshRemoteVideoSuppression(uuid, reason);
+	}
+}
+
+void VDONinjaSource::refreshRemoteVideoSuppression(const std::string &uuid, const char *reason)
+{
+	const bool suppressed = remoteMediaVideoMuted_.load(std::memory_order_relaxed) ||
+	                        remoteDirectorVideoMuted_.load(std::memory_order_relaxed) ||
+	                        remoteVirtualHangup_.load(std::memory_order_relaxed);
+	const bool previous = remoteVideoMuted_.exchange(suppressed, std::memory_order_relaxed);
+	if (previous != suppressed) {
+		logInfo("Native receiver remote video output from %s: %s (%s)", uuid.empty() ? "unknown peer" : uuid.c_str(),
+		        suppressed ? "suppressed" : "restored", reason ? reason : "remote-video-state");
+	}
+	if (suppressed) {
+		clearNativeVideoOutput(reason ? reason : "remote-video-suppressed");
 	}
 }
 
@@ -2679,6 +2776,11 @@ void VDONinjaSource::resetNativeState()
 	loggedFirstAlphaRtpPacket_ = false;
 	loggedFirstAudioPacket_ = false;
 	loggedFirstDecodedAudioFrame_ = false;
+	remoteAudioMuted_.store(false, std::memory_order_relaxed);
+	remoteVideoMuted_.store(false, std::memory_order_relaxed);
+	remoteMediaVideoMuted_.store(false, std::memory_order_relaxed);
+	remoteDirectorVideoMuted_.store(false, std::memory_order_relaxed);
+	remoteVirtualHangup_.store(false, std::memory_order_relaxed);
 	loggedFirstDecodedAlphaFrame_ = false;
 	loggedAlphaDecodeSubmitFailure_ = false;
 	loggedAlphaDecodeReceiveFailure_ = false;
@@ -2793,6 +2895,9 @@ void VDONinjaSource::handlePeerDisconnected(const std::string &uuid)
 void VDONinjaSource::outputDecodedVideoFrame(const AVFrame *frame, uint64_t timestampNs, uint32_t rtpTimestamp)
 {
 	if (!frame || !source_) {
+		return;
+	}
+	if (remoteVideoMuted_.load(std::memory_order_relaxed)) {
 		return;
 	}
 
@@ -2938,6 +3043,9 @@ void VDONinjaSource::outputDecodedVideoFrame(const AVFrame *frame, uint64_t time
 void VDONinjaSource::outputDecodedAudioFrame(const AVFrame *frame, uint64_t timestampNs)
 {
 	if (!frame || !source_) {
+		return;
+	}
+	if (remoteAudioMuted_.load(std::memory_order_relaxed)) {
 		return;
 	}
 

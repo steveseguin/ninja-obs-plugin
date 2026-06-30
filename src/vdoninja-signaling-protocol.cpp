@@ -74,7 +74,8 @@ bool parseSignalingMessage(const std::string &message, ParsedSignalMessage &pars
 		parsed.streamId = getAnyString(json, {"streamID", "streamId", "whep", "whepUrl", "url", "URL"});
 		const std::string requestLower = asciiLower(parsed.request);
 
-		if (requestLower == "listing" || json.hasKey("listing") || json.hasKey("list")) {
+		if (requestLower == "listing" || requestLower == "transferred" || json.hasKey("listing") ||
+		    json.hasKey("list")) {
 			parsed.kind = ParsedSignalKind::Listing;
 			auto listing = json.hasKey("list") ? json.getArray("list") : json.getArray("listing");
 			for (const auto &member : listing) {
@@ -136,18 +137,24 @@ bool parseSignalingMessage(const std::string &message, ParsedSignalMessage &pars
 			return true;
 		}
 
+		if (json.hasKey("iceRestartRequest") && json.getBool("iceRestartRequest")) {
+			parsed.kind = ParsedSignalKind::Request;
+			parsed.request = "iceRestartRequest";
+			return true;
+		}
+
 		if (requestLower == "alert" || requestLower == "error") {
 			parsed.kind = ParsedSignalKind::Alert;
 			parsed.alert = getAnyString(json, {"message", "alert", "error"});
 			return true;
 		}
 
-		if (requestLower == "cleanup" || requestLower == "bye" || json.hasKey("bye")) {
+		if (requestLower == "cleanup" || (json.hasKey("bye") && json.getBool("bye"))) {
 			parsed.kind = ParsedSignalKind::PeerCleanup;
 			return true;
 		}
 
-		if (requestLower == "videoaddedtoroom") {
+		if ((requestLower == "someonejoined" && !parsed.streamId.empty()) || requestLower == "videoaddedtoroom") {
 			parsed.kind = ParsedSignalKind::VideoAddedToRoom;
 			parsed.streamId = getAnyString(json, {"streamID", "streamId", "whep", "whepUrl", "url", "URL"});
 			return true;
