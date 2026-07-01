@@ -955,6 +955,34 @@ TEST_F(ParseIceServersTest, IgnoresCommentsBlankAndInvalidLines)
 	EXPECT_EQ(servers[0].credential, "pass");
 }
 
+TEST_F(ParseIceServersTest, IgnoresUnsupportedOrMalformedIceUrls)
+{
+	const std::string config = "stuns:secure-stun.example.com:5349\n"
+	                           "turn:turn.example.com:\n"
+	                           "turn:turn.example.com:notaport\n"
+	                           "turn:turn.example.com:999999999999999999999999\n"
+	                           "turn:turn.example.com:0\n"
+	                           "turn:turn.example.com:65536\n"
+	                           "turn:turn.example.com:3478|user|pass";
+	auto servers = parseIceServers(config);
+	ASSERT_EQ(servers.size(), 1u);
+	EXPECT_EQ(servers[0].urls, "turn:turn.example.com:3478");
+	EXPECT_EQ(servers[0].username, "user");
+	EXPECT_EQ(servers[0].credential, "pass");
+}
+
+TEST_F(ParseIceServersTest, ParsesIceUrlsWithDefaultPortsAndQuery)
+{
+	const std::string config = "stun:stun.example.com\n"
+	                           "turn:turn.example.com?transport=tcp\n"
+	                           "turns:[2001:db8::1]:5349?transport=tls";
+	auto servers = parseIceServers(config);
+	ASSERT_EQ(servers.size(), 3u);
+	EXPECT_EQ(servers[0].urls, "stun:stun.example.com");
+	EXPECT_EQ(servers[1].urls, "turn:turn.example.com?transport=tcp");
+	EXPECT_EQ(servers[2].urls, "turns:[2001:db8::1]:5349?transport=tls");
+}
+
 TEST_F(ParseIceServersTest, ParsesSemicolonSeparatedEntries)
 {
 	const std::string config =
@@ -1014,6 +1042,40 @@ TEST(UtilsVideoLayoutTest, AspectFitPillarboxesTallVideoIntoWideCanvas)
 	EXPECT_EQ(layout.contentHeight, 720u);
 	EXPECT_EQ(layout.offsetX, 370u);
 	EXPECT_EQ(layout.offsetY, 0u);
+}
+
+TEST(SourceDimensionTest, NormalizesInvalidSourceDimensions)
+{
+	EXPECT_EQ(normalizeSourceDimension(0, 1920, 320, 4096), 1920u);
+	EXPECT_EQ(normalizeSourceDimension(-1, 1920, 320, 4096), 1920u);
+	EXPECT_EQ(normalizeSourceDimension(1, 1920, 320, 4096), 320u);
+	EXPECT_EQ(normalizeSourceDimension(8192, 1920, 320, 4096), 4096u);
+	EXPECT_EQ(normalizeSourceDimension(1280, 1920, 320, 4096), 1280u);
+}
+
+TEST(SourceDimensionTest, ClampsFallbackAndSwappedBounds)
+{
+	EXPECT_EQ(normalizeSourceDimension(0, 10, 320, 4096), 320u);
+	EXPECT_EQ(normalizeSourceDimension(0, 9999, 320, 4096), 4096u);
+	EXPECT_EQ(normalizeSourceDimension(100, 720, 4096, 320), 320u);
+}
+
+TEST(OpusAudioSettingsTest, NormalizesSampleRateToWebRtcOpusClock)
+{
+	EXPECT_EQ(normalizeOpusSampleRate(48000), 48000);
+	EXPECT_EQ(normalizeOpusSampleRate(0), 48000);
+	EXPECT_EQ(normalizeOpusSampleRate(44100), 48000);
+	EXPECT_EQ(normalizeOpusSampleRate(96000), 48000);
+}
+
+TEST(OpusAudioSettingsTest, NormalizesChannelCountToMonoOrStereo)
+{
+	EXPECT_EQ(normalizeOpusChannelCount(1), 1);
+	EXPECT_EQ(normalizeOpusChannelCount(2), 2);
+	EXPECT_EQ(normalizeOpusChannelCount(0), 2);
+	EXPECT_EQ(normalizeOpusChannelCount(-1), 2);
+	EXPECT_EQ(normalizeOpusChannelCount(6), 2);
+	EXPECT_EQ(normalizeOpusChannelCount(9999), 2);
 }
 
 TEST(ViewerRequestMessageTest, IncludesAudioVideoAndResolutionDefaults)

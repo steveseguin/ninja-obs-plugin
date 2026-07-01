@@ -43,6 +43,12 @@ constexpr const char *kInternalNativeSourceSetting = "internal_native_receiver_s
 constexpr int kViewRequestTimeoutMs = 15000;
 constexpr int kMinViewRequestGapMs = 1500;
 constexpr int64_t kNativeVideoStallBlankMs = 4000;
+constexpr uint32_t kMinSourceWidth = 320;
+constexpr uint32_t kMaxSourceWidth = 4096;
+constexpr uint32_t kDefaultSourceWidth = 1920;
+constexpr uint32_t kMinSourceHeight = 240;
+constexpr uint32_t kMaxSourceHeight = 2160;
+constexpr uint32_t kDefaultSourceHeight = 1080;
 
 std::string buildNativeViewerInfoJson(obs_source_t *source)
 {
@@ -910,13 +916,16 @@ void VDONinjaSource::loadSettings(obs_data_t *settings)
 	settings_.autoReconnect = obs_data_get_bool(settings, "auto_reconnect");
 	settings_.forceTurn = obs_data_get_bool(settings, "force_turn");
 
-	width_ = static_cast<uint32_t>(obs_data_get_int(settings, "width"));
-	height_ = static_cast<uint32_t>(obs_data_get_int(settings, "height"));
-	if (width_ == 0) {
-		width_ = 1920;
+	const int64_t rawWidth = obs_data_get_int(settings, "width");
+	const int64_t rawHeight = obs_data_get_int(settings, "height");
+	width_ = normalizeSourceDimension(rawWidth, kDefaultSourceWidth, kMinSourceWidth, kMaxSourceWidth);
+	height_ = normalizeSourceDimension(rawHeight, kDefaultSourceHeight, kMinSourceHeight, kMaxSourceHeight);
+	if (rawWidth != static_cast<int64_t>(width_)) {
+		logWarning("Clamped VDO.Ninja source width setting from %lld to %u", static_cast<long long>(rawWidth), width_);
 	}
-	if (height_ == 0) {
-		height_ = 1080;
+	if (rawHeight != static_cast<int64_t>(height_)) {
+		logWarning("Clamped VDO.Ninja source height setting from %lld to %u", static_cast<long long>(rawHeight),
+		           height_);
 	}
 }
 
@@ -1871,6 +1880,15 @@ void VDONinjaSource::onAudioTrack(const std::string &uuid, std::shared_ptr<rtc::
 	logInfo("Attaching native audio receive callbacks (mid=%s, direction=%d, rate=%d, channels=%d)",
 	        track->mid().c_str(), static_cast<int>(description.direction()), sampleRate, channels);
 
+	const int normalizedSampleRate = normalizeOpusSampleRate(sampleRate);
+	const int normalizedChannels = normalizeOpusChannelCount(channels);
+	if (sampleRate > 0 && sampleRate != normalizedSampleRate) {
+		logWarning("Normalized native Opus sample rate from %d to %d", sampleRate, normalizedSampleRate);
+	}
+	if (channels > 0 && channels != normalizedChannels) {
+		logWarning("Normalized native Opus channel count from %d to %d", channels, normalizedChannels);
+	}
+
 	bool replacedExistingTrack = false;
 	{
 		std::scoped_lock stateLock(nativeStateMutex_, audioDecodeMutex_);
@@ -1894,8 +1912,8 @@ void VDONinjaSource::onAudioTrack(const std::string &uuid, std::shared_ptr<rtc::
 			lastAudioTime_.store(0, std::memory_order_relaxed);
 		}
 	}
-	audioSampleRate_ = sampleRate > 0 ? sampleRate : 48000;
-	audioChannels_ = channels > 0 ? channels : 2;
+	audioSampleRate_ = normalizedSampleRate;
+	audioChannels_ = normalizedChannels;
 	const auto callbackState = callbackState_;
 	track->onMessage([callbackState, weakTrack = std::weak_ptr<rtc::Track>(track)](rtc::message_variant message) {
 		runNoexceptCallback("native_audio_track_onMessage", [&]() {
@@ -2530,6 +2548,9 @@ bool VDONinjaSource::initializeVideoDecoder()
 
 bool VDONinjaSource::initializeAudioDecoder(int sampleRate, int channels)
 {
+	sampleRate = normalizeOpusSampleRate(sampleRate);
+	channels = normalizeOpusChannelCount(channels);
+
 	if (audioDecoder_ && audioSampleRate_ == sampleRate && audioChannels_ == channels) {
 		return true;
 	}
@@ -2551,8 +2572,8 @@ bool VDONinjaSource::initializeAudioDecoder(int sampleRate, int channels)
 		return false;
 	}
 
-	audioSampleRate_ = sampleRate > 0 ? sampleRate : 48000;
-	audioChannels_ = channels > 0 ? channels : 2;
+	audioSampleRate_ = sampleRate;
+	audioChannels_ = channels;
 	audioDecoder_->sample_rate = audioSampleRate_;
 	av_channel_layout_default(&audioDecoder_->ch_layout, audioChannels_);
 

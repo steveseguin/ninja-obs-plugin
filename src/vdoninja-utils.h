@@ -57,6 +57,9 @@ std::string buildViewerPageUrl(const std::string &baseUrl, const std::string &st
 std::string buildInboundViewUrl(const std::string &baseUrl, const std::string &streamId, const std::string &password,
                                 const std::string &roomId, const std::string &salt);
 int chooseViewerTargetBitrateKbps(uint32_t width, uint32_t height);
+uint32_t normalizeSourceDimension(int64_t value, uint32_t fallback, uint32_t minValue, uint32_t maxValue);
+int normalizeOpusSampleRate(int sampleRate);
+int normalizeOpusChannelCount(int channels);
 std::string buildViewerRequestMessage(uint32_t width, uint32_t height, bool guest,
                                       const std::string &viewerInfoJson = "");
 std::vector<std::string> buildIncomingSignalingPasswordCandidates(const std::string &messageStreamId,

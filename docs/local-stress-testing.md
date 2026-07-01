@@ -37,6 +37,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\run-vdoninja-local-s
 # Add stricter OBS source screenshots. This is useful for visual validation,
 # but less stable than log/connection-based crash hunting.
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\run-vdoninja-local-stress.ps1 -Profile quick -CaptureSourceScreenshots -InstallPrefix .\install-obs32
+
+# Abuse source settings through obs-websocket while OBS is running against a live publisher.
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\run-vdoninja-source-edge-stress.ps1 -StreamId edgeLocal1 -Password false -InstallPrefix .\install-obs32
 ```
 
 ## What This Stresses
@@ -47,6 +50,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\run-vdoninja-local-s
 - Repeated source create/check/remove cycles against a live browser publisher.
 - Optional source disconnect/reconnect recovery in `standard`, `soak`, or `-IncludeFaultRecovery`.
 - OBS source screenshots only when `-CaptureSourceScreenshots` is set.
+- Edge-case obs-websocket source mutation with illegal dimensions, native/browser toggles, empty stream IDs, bad ICE
+  settings, force-TURN toggles, source visibility churn, and rapid transform changes.
 
 ## What It Does Not Stress
 
@@ -54,5 +59,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\run-vdoninja-local-s
 - Installer packaging.
 - Long real-user OBS sessions with many manually managed scenes.
 - Native crash dump capture by default.
+- OS/GPU-only display modes such as HDR, VRR, or multi-monitor color-space changes. Those still need manual Windows
+  display changes or a dedicated machine profile, but the edge source stress covers plugin-side settings that can mimic
+  the same oversized-canvas and reconfiguration pressure.
 
 For crash-focused runs, enable Windows Error Reporting local dumps or run OBS under ProcDump before starting a longer `standard` or `soak` profile. The wrapper keeps OBS/plugin logs and step outputs organized, but it intentionally avoids changing machine-wide crash dump settings.

@@ -1643,11 +1643,17 @@ Flow: native audio receive
 2. Gate: `nativeRunning` must be true.
 3. Gate: `remoteAudioMuted` suppresses decoded OBS audio output.
 4. Edge: parse RTP payload.
-5. Edge: initialize Opus decoder for negotiated sample rate and channels.
-6. Edge: decode Opus frame.
-7. Edge: resample to OBS planar float audio.
-8. Edge: map RTP timestamp to monotonic OBS timestamp.
-9. Edge: set source audio active and output audio to OBS.
+5. Edge: normalize Opus receive settings before decoder setup:
+   - Opus RTP clock is fixed at 48000 Hz.
+   - mono is preserved as mono.
+   - missing, invalid, stereo, or multichannel declarations are treated as
+     stereo before decoder setup.
+6. Edge: initialize Opus decoder for normalized sample rate and channels.
+7. Edge: decode Opus frame.
+8. Edge: resample to OBS planar float audio.
+9. Edge: downmix decoded multichannel frames to stereo, or preserve mono.
+10. Edge: map RTP timestamp to monotonic OBS timestamp.
+11. Edge: set source audio active and output audio to OBS.
 
 Flow: native retry and stale media
 

@@ -590,14 +590,18 @@ rtc::Configuration VDONinjaPeerManager::getRtcConfig() const
 		}
 	} else {
 		for (const auto &server : iceServers_) {
-			rtc::IceServer iceServer(server.urls, "");
-			if (!server.username.empty()) {
-				iceServer.username = server.username;
-				iceServer.password = server.credential;
-			}
-			config.iceServers.push_back(iceServer);
-			if (hasTurnScheme(server.urls)) {
-				hasTurnServer = true;
+			try {
+				rtc::IceServer iceServer(server.urls);
+				if (!server.username.empty()) {
+					iceServer.username = server.username;
+					iceServer.password = server.credential;
+				}
+				config.iceServers.push_back(iceServer);
+				if (hasTurnScheme(server.urls)) {
+					hasTurnServer = true;
+				}
+			} catch (const std::exception &e) {
+				logWarning("Ignoring invalid custom ICE server '%s': %s", server.urls.c_str(), e.what());
 			}
 		}
 	}

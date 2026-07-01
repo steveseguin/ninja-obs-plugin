@@ -88,6 +88,88 @@ bool isIceUrl(const std::string &url)
 	       startsWithInsensitive(url, "turn:") || startsWithInsensitive(url, "turns:");
 }
 
+bool isSupportedIceUrl(const std::string &url)
+{
+	return startsWithInsensitive(url, "stun:") || startsWithInsensitive(url, "turn:") ||
+	       startsWithInsensitive(url, "turns:");
+}
+
+std::string stripUrlDelimiters(const std::string &value)
+{
+	size_t end = value.find_first_of("/?#");
+	return end == std::string::npos ? value : value.substr(0, end);
+}
+
+bool hasValidIceUrlShape(const std::string &url)
+{
+	if (!isSupportedIceUrl(url)) {
+		return false;
+	}
+
+	size_t schemeEnd = url.find(':');
+	if (schemeEnd == std::string::npos || schemeEnd + 1 >= url.size()) {
+		return false;
+	}
+
+	std::string authority = url.substr(schemeEnd + 1);
+	if (authority.rfind("//", 0) == 0) {
+		authority.erase(0, 2);
+	}
+
+	const size_t atPos = authority.rfind('@');
+	if (atPos != std::string::npos) {
+		authority.erase(0, atPos + 1);
+	}
+	authority = stripUrlDelimiters(authority);
+
+	if (authority.empty()) {
+		return false;
+	}
+
+	std::string port;
+	bool portSpecified = false;
+	if (authority.front() == '[') {
+		const size_t bracketEnd = authority.find(']');
+		if (bracketEnd == std::string::npos || bracketEnd == 1) {
+			return false;
+		}
+		if (bracketEnd + 1 < authority.size()) {
+			if (authority[bracketEnd + 1] != ':') {
+				return false;
+			}
+			portSpecified = true;
+			port = authority.substr(bracketEnd + 2);
+		}
+	} else {
+		const size_t lastColon = authority.rfind(':');
+		if (lastColon == 0) {
+			return false;
+		}
+		if (lastColon != std::string::npos) {
+			const bool hasOnlyOneColon = authority.find(':') == lastColon;
+			if (hasOnlyOneColon) {
+				portSpecified = true;
+				port = authority.substr(lastColon + 1);
+			}
+		}
+	}
+
+	if (port.empty()) {
+		return !portSpecified;
+	}
+
+	if (!std::all_of(port.begin(), port.end(), [](unsigned char c) { return std::isdigit(c) != 0; })) {
+		return false;
+	}
+
+	try {
+		const unsigned long parsedPort = std::stoul(port);
+		return parsedPort > 0 && parsedPort <= 65535;
+	} catch (...) {
+		return false;
+	}
+}
+
 bool isDirectPlaybackUrl(const std::string &value)
 {
 	return startsWithInsensitive(value, "http://") || startsWithInsensitive(value, "https://");
@@ -470,6 +552,39 @@ int chooseViewerTargetBitrateKbps(uint32_t width, uint32_t height)
 		return 1200;
 	}
 	return 800;
+}
+
+uint32_t normalizeSourceDimension(int64_t value, uint32_t fallback, uint32_t minValue, uint32_t maxValue)
+{
+	if (minValue > maxValue) {
+		std::swap(minValue, maxValue);
+	}
+
+	const uint32_t normalizedFallback = std::clamp(fallback, minValue, maxValue);
+	if (value <= 0) {
+		return normalizedFallback;
+	}
+	if (value < static_cast<int64_t>(minValue)) {
+		return minValue;
+	}
+	if (value > static_cast<int64_t>(maxValue)) {
+		return maxValue;
+	}
+	return static_cast<uint32_t>(value);
+}
+
+int normalizeOpusSampleRate(int sampleRate)
+{
+	(void)sampleRate;
+	return 48000;
+}
+
+int normalizeOpusChannelCount(int channels)
+{
+	if (channels == 1) {
+		return 1;
+	}
+	return 2;
 }
 
 std::string buildViewerRequestMessage(uint32_t width, uint32_t height, bool guest, const std::string &viewerInfoJson)
@@ -1133,7 +1248,7 @@ std::vector<IceServer> parseIceServers(const std::string &config)
 		server.urls = trim(server.urls);
 		server.username = trim(server.username);
 		server.credential = trim(server.credential);
-		if (!server.urls.empty() && isIceUrl(server.urls)) {
+		if (!server.urls.empty() && isIceUrl(server.urls) && hasValidIceUrlShape(server.urls)) {
 			servers.push_back(std::move(server));
 		}
 	};
