@@ -2,6 +2,8 @@ param(
     [ValidateSet("native", "browser")]
     [string]$Mode = "native",
     [string]$StreamId = "codexFaultRecover1",
+    [string]$Password = "",
+    [string]$RoomId = "",
     [string]$PushUrl = "https://vdo.ninja/?push=codexFaultRecover1",
     [string]$ViewUrl = "https://vdo.ninja/?view=codexFaultRecover1",
     [string]$ObsExe = ".\\_obs-portable\\bin\\64bit\\obs64.exe",
@@ -13,7 +15,8 @@ param(
     [int]$InitialCheckTimeoutSeconds = 150,
     [int]$DisconnectPauseSeconds = 12,
     [int]$RecoveryWarmupSeconds = 25,
-    [int]$PostRecoverySeconds = 10
+    [int]$PostRecoverySeconds = 10,
+    [switch]$SkipRecoveryCapture
 )
 
 $ErrorActionPreference = "Stop"
@@ -205,8 +208,29 @@ try {
 
     Push-Location $repoRoot
     try {
-        cmd /c "node scripts\\obs-websocket-vdoninja-source-check.cjs $Mode $StreamId 1> `"$checkOut`" 2> `"$checkErr`""
-        $checkExitCode = $LASTEXITCODE
+        $checkArgs = @("scripts\obs-websocket-vdoninja-source-check.cjs", $Mode, $StreamId)
+        if ($Password -ne "" -or $RoomId -ne "") {
+            $checkArgs += $Password
+        }
+        if ($RoomId -ne "") {
+            $checkArgs += $RoomId
+        }
+        $checkProc = Start-Process -FilePath "node" `
+            -ArgumentList $checkArgs `
+            -WorkingDirectory $repoRoot `
+            -RedirectStandardOutput $checkOut `
+            -RedirectStandardError $checkErr `
+            -PassThru
+        try {
+            Wait-Process -Id $checkProc.Id -Timeout $InitialCheckTimeoutSeconds -ErrorAction Stop
+        } catch {
+            if ($checkProc -and -not $checkProc.HasExited) {
+                Stop-Process -Id $checkProc.Id -Force -ErrorAction SilentlyContinue
+            }
+            throw "Timed out waiting for initial source check after $InitialCheckTimeoutSeconds seconds"
+        }
+        $checkProc.Refresh()
+        $checkExitCode = if ($null -eq $checkProc.ExitCode) { 0 } else { [int]$checkProc.ExitCode }
     } finally {
         Pop-Location
     }
@@ -236,10 +260,14 @@ try {
         -TimeoutSeconds $RecoveryWarmupSeconds -Description "publisher recovery"
     Sleep-WithCpuSamples -Seconds $PostRecoverySeconds
 
-    $reconnectShot = Join-Path $repoRoot ("artifacts\\obs-source-$Mode-reconnect-" + [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() + ".png")
-    $captureResult = node scripts/obs-websocket-capture-scene.cjs "ws://127.0.0.1:$ObsWebSocketPort" $reconnectShot
-    if ($LASTEXITCODE -ne 0) {
-        throw "Reconnect scene capture failed with exit $LASTEXITCODE"
+    $reconnectShot = $null
+    $captureResult = $null
+    if (-not $SkipRecoveryCapture) {
+        $reconnectShot = Join-Path $repoRoot ("artifacts\\obs-source-$Mode-reconnect-" + [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() + ".png")
+        $captureResult = node scripts/obs-websocket-capture-scene.cjs "ws://127.0.0.1:$ObsWebSocketPort" $reconnectShot
+        if ($LASTEXITCODE -ne 0) {
+            throw "Reconnect scene capture failed with exit $LASTEXITCODE"
+        }
     }
 
     Record-ObsCpuSample

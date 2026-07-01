@@ -16,6 +16,7 @@ param(
     [int]$IterationWaitMs = 12000,
     [int]$IterationTimeoutSeconds = 90,
     [int]$PauseBetweenIterationsMs = 750,
+    [switch]$SkipFinalCapture,
     [switch]$SkipPublisher
 )
 
@@ -158,7 +159,7 @@ try {
         }
 
         $env:VDONINJA_WAIT_MS = [string]$IterationWaitMs
-        if ($iteration -lt $Iterations) {
+        if ($iteration -lt $Iterations -or $SkipFinalCapture) {
             $env:VDONINJA_SKIP_CAPTURE = "1"
         } else {
             Remove-Item Env:VDONINJA_SKIP_CAPTURE -ErrorAction SilentlyContinue

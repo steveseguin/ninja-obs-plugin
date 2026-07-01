@@ -5,7 +5,7 @@ param(
     [string]$ObsExe = ".\_obs-portable\bin\64bit\obs64.exe",
     [string]$ObsWorkingDirectory = ".\_obs-portable\bin\64bit",
     [string]$InstallPrefix = ".\install-obs32",
-    [int]$ObsWebSocketPort = 4464,
+    [int]$ObsWebSocketPort = 4456,
     [int]$ObsStartupSeconds = 18,
     [int]$CheckTimeoutSeconds = 150
 )

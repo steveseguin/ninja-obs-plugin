@@ -20,7 +20,7 @@ class ObsWebSocketClient {
 
   async connect() {
     await new Promise((resolve, reject) => {
-      const socket = new WebSocket(this.url);
+      const socket = new WebSocket(this.url, "obswebsocket.json");
       this.socket = socket;
 
       socket.addEventListener("open", () => resolve());
