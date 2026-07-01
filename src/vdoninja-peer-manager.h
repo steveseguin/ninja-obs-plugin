@@ -142,8 +142,8 @@ private:
 	void bundleAndSendCandidates(const std::string &uuid);
 	bool sendAudioFrameToPeer(const std::string &uuid, const std::shared_ptr<PeerInfo> &peer, const uint8_t *data,
 	                          size_t size, uint32_t timestamp);
-	bool sendVideoFrameToPeerHandle(const std::string &uuid, const std::shared_ptr<PeerInfo> &peer,
-	                                const uint8_t *data, size_t size, uint32_t timestamp, bool keyframe);
+	bool sendVideoFrameToPeerHandle(const std::string &uuid, const std::shared_ptr<PeerInfo> &peer, const uint8_t *data,
+	                                size_t size, uint32_t timestamp, bool keyframe);
 
 	// Get RTC configuration
 	rtc::Configuration getRtcConfig() const;

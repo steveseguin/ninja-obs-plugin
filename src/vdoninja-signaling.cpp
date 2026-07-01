@@ -32,8 +32,11 @@
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
+// bcrypt.h depends on Windows typedefs such as NTSTATUS being available first.
+// clang-format off
 #include <windows.h>
 #include <bcrypt.h>
+// clang-format on
 #endif
 
 namespace vdoninja

@@ -24,37 +24,32 @@ namespace vdoninja
 // Data channel message types (matching VDO.Ninja protocol)
 enum class DataMessageType {
 	Unknown,
-	Chat,            // Chat message
-	Tally,           // Tally light state
-	RequestKeyframe, // Request keyframe from publisher
-	Mute,            // Mute state change
-	ObsState,        // OBS/source scene state from official VDO.Ninja clients
-	MediaControl,    // Bitrate/resolution control hints from official clients
-	ScreenShareState, // Screen-share state hints from official clients
-	DirectorVideoState, // Director-controlled video hide/virtual hangup state
-	DirectorAudioState, // Director-controlled speaker/display mute state
+	Chat,                   // Chat message
+	Tally,                  // Tally light state
+	RequestKeyframe,        // Request keyframe from publisher
+	Mute,                   // Mute state change
+	ObsState,               // OBS/source scene state from official VDO.Ninja clients
+	MediaControl,           // Bitrate/resolution control hints from official clients
+	ScreenShareState,       // Screen-share state hints from official clients
+	DirectorVideoState,     // Director-controlled video hide/virtual hangup state
+	DirectorAudioState,     // Director-controlled speaker/display mute state
 	DirectorTransformState, // Director-controlled mirror/flip/rotation state
-	Stats,           // Connection statistics
-	StatsRequest,    // Request connection statistics
-	Signaling,       // SDP/ICE sent directly over data channel
-	Ping,            // Liveness ping
-	Pong,            // Liveness response
-	IceRestartRequest, // Request peer ICE restart/re-offer
-	RecoveryControl, // Official remote/director stream recovery controls
-	MeshControl,     // Official mesh reconnect/map controls
-	UnsupportedControl, // Official control-center command not implemented by this native endpoint
-	Hangup,          // Remote/director hangup request
-	PeerBye,         // Peer cleanup/close request
-	RemoteControl,   // Remote control command (scene, streaming, recording)
-	Custom           // Custom application data
+	Stats,                  // Connection statistics
+	StatsRequest,           // Request connection statistics
+	Signaling,              // SDP/ICE sent directly over data channel
+	Ping,                   // Liveness ping
+	Pong,                   // Liveness response
+	IceRestartRequest,      // Request peer ICE restart/re-offer
+	RecoveryControl,        // Official remote/director stream recovery controls
+	MeshControl,            // Official mesh reconnect/map controls
+	UnsupportedControl,     // Official control-center command not implemented by this native endpoint
+	Hangup,                 // Remote/director hangup request
+	PeerBye,                // Peer cleanup/close request
+	RemoteControl,          // Remote control command (scene, streaming, recording)
+	Custom                  // Custom application data
 };
 
-enum class StatsRequestMode {
-	None,
-	Immediate,
-	ContinuousStart,
-	ContinuousStop
-};
+enum class StatsRequestMode { None, Immediate, ContinuousStart, ContinuousStop };
 
 // Tally state
 struct TallyState {

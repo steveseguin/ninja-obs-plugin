@@ -342,14 +342,13 @@ void parseOfficialRotateCommand(const JsonParser &json, DirectorTransformStateUp
 bool hasOfficialMediaControl(const JsonParser &json)
 {
 	return json.hasKey("bitrate") || json.hasKey("audioBitrate") || json.hasKey("targetBitrate") ||
-	       json.hasKey("targetAudioBitrate") || json.hasKey("optimizedBitrate") ||
-	       json.hasKey("requestResolution");
+	       json.hasKey("targetAudioBitrate") || json.hasKey("optimizedBitrate") || json.hasKey("requestResolution");
 }
 
 bool hasOfficialRecoveryControl(const JsonParser &json)
 {
-	return json.hasKey("refreshVideo") || json.hasKey("refreshMicrophone") ||
-	       json.hasKey("refreshConnection") || json.hasKey("refreshAll") || json.hasKey("restartWhip");
+	return json.hasKey("refreshVideo") || json.hasKey("refreshMicrophone") || json.hasKey("refreshConnection") ||
+	       json.hasKey("refreshAll") || json.hasKey("restartWhip");
 }
 
 bool hasOfficialMeshControl(const JsonParser &json)
@@ -406,16 +405,53 @@ std::string officialUnsupportedControlName(const JsonParser &json)
 		return "mirrorGuestState";
 	}
 
-	for (const char *key : {"getAudioSettings", "getVideoSettings", "requestVideoHack", "changeCamera",
-	                       "changeMicrophone", "changeSpeaker", "requestAudioHack", "requestChangeEQ",
-	                       "requestChangeGating", "requestChangeCompressor", "requestChangeMicDelay",
-	                       "requestChangeSubGain", "requestChangeLowcut", "requestChangeMicPanning",
-	                       "requestVideoRecord", "changeOrder", "changeURL", "changeLabel", "remoteVideoMuted",
-	                       "lowerhand", "displayMute", "speakerMute", "volume", "micIsolated", "micIsolate",
-	                       "lowerVolume", "requestUpload", "stopClock", "resumeClock", "setClock", "hideClock",
-	                       "showClock", "startClock", "pauseClock", "showTime", "group", "reload", "scale",
-	                       "pan", "tilt", "zoom", "focus", "autofocus", "exposure", "keyframeRate",
-	                       "reconnectPeer", "getConnectionMap"}) {
+	for (const char *key : {"getAudioSettings",
+	                        "getVideoSettings",
+	                        "requestVideoHack",
+	                        "changeCamera",
+	                        "changeMicrophone",
+	                        "changeSpeaker",
+	                        "requestAudioHack",
+	                        "requestChangeEQ",
+	                        "requestChangeGating",
+	                        "requestChangeCompressor",
+	                        "requestChangeMicDelay",
+	                        "requestChangeSubGain",
+	                        "requestChangeLowcut",
+	                        "requestChangeMicPanning",
+	                        "requestVideoRecord",
+	                        "changeOrder",
+	                        "changeURL",
+	                        "changeLabel",
+	                        "remoteVideoMuted",
+	                        "lowerhand",
+	                        "displayMute",
+	                        "speakerMute",
+	                        "volume",
+	                        "micIsolated",
+	                        "micIsolate",
+	                        "lowerVolume",
+	                        "requestUpload",
+	                        "stopClock",
+	                        "resumeClock",
+	                        "setClock",
+	                        "hideClock",
+	                        "showClock",
+	                        "startClock",
+	                        "pauseClock",
+	                        "showTime",
+	                        "group",
+	                        "reload",
+	                        "scale",
+	                        "pan",
+	                        "tilt",
+	                        "zoom",
+	                        "focus",
+	                        "autofocus",
+	                        "exposure",
+	                        "keyframeRate",
+	                        "reconnectPeer",
+	                        "getConnectionMap"}) {
 		if (json.hasKey(key)) {
 			return key;
 		}
@@ -463,9 +499,8 @@ DataMessage VDONinjaDataChannel::parseMessage(const std::string &rawMessage)
 			msg.type = DataMessageType::StatsRequest;
 			msg.data = rawMessage;
 			if (json.hasKey("requestStatsContinuous")) {
-				msg.statsRequestMode =
-				    json.getBool("requestStatsContinuous") ? StatsRequestMode::ContinuousStart
-				                                           : StatsRequestMode::ContinuousStop;
+				msg.statsRequestMode = json.getBool("requestStatsContinuous") ? StatsRequestMode::ContinuousStart
+				                                                              : StatsRequestMode::ContinuousStop;
 			} else {
 				msg.statsRequestMode = StatsRequestMode::Immediate;
 			}

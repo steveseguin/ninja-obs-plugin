@@ -3,13 +3,13 @@
  * SPDX-License-Identifier: AGPL-3.0-only
  */
 
-#include <gtest/gtest.h>
-
 #include <array>
 #include <random>
 #include <sstream>
 #include <string>
 #include <vector>
+
+#include <gtest/gtest.h>
 
 #include "vdoninja-signaling-protocol.h"
 #include "vdoninja-utils.h"
@@ -68,9 +68,9 @@ std::string fuzzSignalScalar(std::mt19937 &rng)
 std::string fuzzSignalingMessage(std::mt19937 &rng)
 {
 	static constexpr std::array<const char *, 21> kKeys = {
-	    "request", "Request", "UUID", "uuid", "from", "session", "Session", "streamID", "streamId", "whep",
-	    "whepUrl", "url", "URL", "description", "sdp", "type", "candidate", "candidates", "listing", "list",
-	    "bye",
+	    "request",  "Request",  "UUID",      "uuid",       "from",    "session", "Session",
+	    "streamID", "streamId", "whep",      "whepUrl",    "url",     "URL",     "description",
+	    "sdp",      "type",     "candidate", "candidates", "listing", "list",    "bye",
 	};
 
 	std::uniform_int_distribution<size_t> keyDist(0, kKeys.size() - 1);

@@ -8,8 +8,8 @@
 #include <obs-frontend-api.h>
 
 #include <algorithm>
-#include <chrono>
 #include <cctype>
+#include <chrono>
 #include <cmath>
 #include <cstring>
 #include <initializer_list>
@@ -1131,17 +1131,14 @@ void VDONinjaOutput::remoteStatsThread()
 	std::unique_lock<std::mutex> lock(remoteStatsMutex_);
 	while (remoteStatsWorkerRunning_) {
 		if (remoteStatsSubscribers_.empty()) {
-			remoteStatsCv_.wait(lock, [this]() {
-				return !remoteStatsWorkerRunning_ || !remoteStatsSubscribers_.empty();
-			});
+			remoteStatsCv_.wait(lock,
+			                    [this]() { return !remoteStatsWorkerRunning_ || !remoteStatsSubscribers_.empty(); });
 			continue;
 		}
 
-		const bool wokeForStateChange = remoteStatsCv_.wait_for(lock, std::chrono::milliseconds(kRemoteStatsIntervalMs),
-		                                                        [this]() {
-			                                                        return !remoteStatsWorkerRunning_ ||
-			                                                               remoteStatsSubscribers_.empty();
-		                                                        });
+		const bool wokeForStateChange =
+		    remoteStatsCv_.wait_for(lock, std::chrono::milliseconds(kRemoteStatsIntervalMs),
+		                            [this]() { return !remoteStatsWorkerRunning_ || remoteStatsSubscribers_.empty(); });
 		if (wokeForStateChange) {
 			continue;
 		}
@@ -1490,202 +1487,196 @@ void VDONinjaOutput::startThread(OutputSettings settingsSnap)
 			guard.owner()->sendInitialPeerInfo(uuid);
 		});
 
-		peerManager_->setOnDataChannelMessage(
-		    [callbackState, settingsSnap](const std::string &uuid, const std::string &message) {
-			    AsyncCallbackGuard<VDONinjaOutput> guard(callbackState.get());
-			    if (!guard) {
-				    return;
-			    }
-			    VDONinjaOutput *self = guard.owner();
-			    self->dataChannel_.handleMessage(uuid, message);
+		peerManager_->setOnDataChannelMessage([callbackState, settingsSnap](const std::string &uuid,
+		                                                                    const std::string &message) {
+			AsyncCallbackGuard<VDONinjaOutput> guard(callbackState.get());
+			if (!guard) {
+				return;
+			}
+			VDONinjaOutput *self = guard.owner();
+			self->dataChannel_.handleMessage(uuid, message);
 
-			    const DataMessage parsed = self->dataChannel_.parseMessage(message);
-			    if (parsed.type == DataMessageType::Signaling) {
-				    if (self->signaling_) {
-					    self->signaling_->processIncomingMessage(
-					        self->dataChannel_.prepareSignalingMessage(message, uuid));
-				    }
-				    return;
-			    }
+			const DataMessage parsed = self->dataChannel_.parseMessage(message);
+			if (parsed.type == DataMessageType::Signaling) {
+				if (self->signaling_) {
+					self->signaling_->processIncomingMessage(self->dataChannel_.prepareSignalingMessage(message, uuid));
+				}
+				return;
+			}
 
-			    if (parsed.type == DataMessageType::Ping) {
-				    if (self->peerManager_) {
-					    self->peerManager_->sendDataToPeer(uuid, self->dataChannel_.createPongMessage(parsed.data));
-				    }
-				    return;
-			    }
+			if (parsed.type == DataMessageType::Ping) {
+				if (self->peerManager_) {
+					self->peerManager_->sendDataToPeer(uuid, self->dataChannel_.createPongMessage(parsed.data));
+				}
+				return;
+			}
 
-			    if (parsed.type == DataMessageType::IceRestartRequest) {
-				    if (self->peerManager_) {
-					    self->peerManager_->requestIceRestart(uuid);
-				    }
-				    return;
-			    }
+			if (parsed.type == DataMessageType::IceRestartRequest) {
+				if (self->peerManager_) {
+					self->peerManager_->requestIceRestart(uuid);
+				}
+				return;
+			}
 
-			    if (parsed.type == DataMessageType::MeshControl) {
-				    const MeshControlUpdate mesh = self->dataChannel_.parseMeshControl(message);
-				    if (mesh.hasReconnectPeer) {
-					    self->sendRejectedControlToPeer(uuid, "reconnectPeer");
-				    }
-				    if (mesh.hasGetConnectionMap) {
-					    self->sendRejectedControlToPeer(uuid, "getConnectionMap");
-				    }
-				    return;
-			    }
+			if (parsed.type == DataMessageType::MeshControl) {
+				const MeshControlUpdate mesh = self->dataChannel_.parseMeshControl(message);
+				if (mesh.hasReconnectPeer) {
+					self->sendRejectedControlToPeer(uuid, "reconnectPeer");
+				}
+				if (mesh.hasGetConnectionMap) {
+					self->sendRejectedControlToPeer(uuid, "getConnectionMap");
+				}
+				return;
+			}
 
-			    if (self->dataChannel_.hasKeyframeRequest(message)) {
-				    logInfo("Viewer %s requested keyframe over data channel", uuid.c_str());
-				    self->primeViewerWithCachedKeyframe(uuid);
-			    }
+			if (self->dataChannel_.hasKeyframeRequest(message)) {
+				logInfo("Viewer %s requested keyframe over data channel", uuid.c_str());
+				self->primeViewerWithCachedKeyframe(uuid);
+			}
 
-			    if (parsed.type == DataMessageType::Stats) {
-				    std::lock_guard<std::mutex> lock(self->telemetryMutex_);
-				    self->lastPeerStats_[uuid] = parsed.data.empty() ? message : parsed.data;
-				    self->lastPeerStatsTimestampMs_[uuid] = currentTimeMs();
-			    }
+			if (parsed.type == DataMessageType::Stats) {
+				std::lock_guard<std::mutex> lock(self->telemetryMutex_);
+				self->lastPeerStats_[uuid] = parsed.data.empty() ? message : parsed.data;
+				self->lastPeerStatsTimestampMs_[uuid] = currentTimeMs();
+			}
 
-			    if (parsed.type == DataMessageType::StatsRequest && self->peerManager_) {
-				    if (parsed.statsRequestMode == StatsRequestMode::ContinuousStop) {
-					    self->removeRemoteStatsSubscriber(uuid);
-				    } else if (settingsSnap.enableRemote) {
-					    if (parsed.statsRequestMode == StatsRequestMode::ContinuousStart) {
-						    self->addRemoteStatsSubscriber(uuid);
-					    }
-					    self->sendRemoteStatsSnapshotToPeer(uuid);
-				    } else {
-					    self->removeRemoteStatsSubscriber(uuid);
-					    self->peerManager_->sendDataToPeer(uuid, R"({"remoteStats":{}})");
-				    }
-			    }
+			if (parsed.type == DataMessageType::StatsRequest && self->peerManager_) {
+				if (parsed.statsRequestMode == StatsRequestMode::ContinuousStop) {
+					self->removeRemoteStatsSubscriber(uuid);
+				} else if (settingsSnap.enableRemote) {
+					if (parsed.statsRequestMode == StatsRequestMode::ContinuousStart) {
+						self->addRemoteStatsSubscriber(uuid);
+					}
+					self->sendRemoteStatsSnapshotToPeer(uuid);
+				} else {
+					self->removeRemoteStatsSubscriber(uuid);
+					self->peerManager_->sendDataToPeer(uuid, R"({"remoteStats":{}})");
+				}
+			}
 
-			    const RecoveryControlUpdate recovery = self->dataChannel_.parseRecoveryControl(message);
-			    const bool hasRecoveryControl =
-			        recovery.hasRefreshVideo || recovery.hasRefreshMicrophone || recovery.hasRefreshConnection ||
-			        recovery.hasRefreshAll || recovery.hasRestartWhip;
-			    if (hasRecoveryControl) {
-				    const bool refreshVideo =
-				        (recovery.hasRefreshVideo && recovery.refreshVideo) ||
-				        (recovery.hasRefreshAll && recovery.refreshAll);
-				    const bool refreshConnection =
-				        (recovery.hasRefreshConnection && recovery.refreshConnection) ||
-				        (recovery.hasRefreshAll && recovery.refreshAll);
+			const RecoveryControlUpdate recovery = self->dataChannel_.parseRecoveryControl(message);
+			const bool hasRecoveryControl = recovery.hasRefreshVideo || recovery.hasRefreshMicrophone ||
+			                                recovery.hasRefreshConnection || recovery.hasRefreshAll ||
+			                                recovery.hasRestartWhip;
+			if (hasRecoveryControl) {
+				const bool refreshVideo = (recovery.hasRefreshVideo && recovery.refreshVideo) ||
+				                          (recovery.hasRefreshAll && recovery.refreshAll);
+				const bool refreshConnection = (recovery.hasRefreshConnection && recovery.refreshConnection) ||
+				                               (recovery.hasRefreshAll && recovery.refreshAll);
 
-				    if (!settingsSnap.enableRemote || !self->peerManager_) {
-					    self->sendRejectedControlToPeer(uuid, self->dataChannel_.recoveryControlRejectionName(message));
-					    return;
-				    }
+				if (!settingsSnap.enableRemote || !self->peerManager_) {
+					self->sendRejectedControlToPeer(uuid, self->dataChannel_.recoveryControlRejectionName(message));
+					return;
+				}
 
-				    if (refreshVideo) {
-					    logInfo("Viewer %s requested publisher video refresh over data channel", uuid.c_str());
-					    self->primeViewerWithCachedKeyframe(uuid);
-				    }
-				    if (refreshConnection) {
-					    const std::vector<PeerSnapshot> peerSnapshots = self->peerManager_->getPeerSnapshots();
-					    size_t requestedRestarts = 0;
-					    size_t eligiblePublisherPeers = 0;
-					    for (const PeerSnapshot &snapshot : peerSnapshots) {
-						    if (snapshot.type != ConnectionType::Publisher) {
-							    continue;
-						    }
-						    eligiblePublisherPeers++;
-						    if (self->peerManager_->requestIceRestart(snapshot.uuid)) {
-							    requestedRestarts++;
-						    }
-					    }
-					    logInfo("Viewer %s requested publisher-wide connection refresh over data channel; "
-					            "started ICE repair for %zu/%zu peer(s)",
-					            uuid.c_str(), requestedRestarts, eligiblePublisherPeers);
-				    }
-				    if (recovery.hasRefreshMicrophone && recovery.refreshMicrophone) {
-					    logInfo("Viewer %s requested microphone refresh, rejected by native OBS publisher output",
-					            uuid.c_str());
-					    self->sendRejectedControlToPeer(uuid, "refreshMicrophone");
-				    }
-				    if (recovery.hasRestartWhip && recovery.restartWhip) {
-					    logInfo("Viewer %s requested WHIP restart, rejected by native OBS publisher output",
-					            uuid.c_str());
-					    self->sendRejectedControlToPeer(uuid, "restartWhip");
-				    }
-			    }
+				if (refreshVideo) {
+					logInfo("Viewer %s requested publisher video refresh over data channel", uuid.c_str());
+					self->primeViewerWithCachedKeyframe(uuid);
+				}
+				if (refreshConnection) {
+					const std::vector<PeerSnapshot> peerSnapshots = self->peerManager_->getPeerSnapshots();
+					size_t requestedRestarts = 0;
+					size_t eligiblePublisherPeers = 0;
+					for (const PeerSnapshot &snapshot : peerSnapshots) {
+						if (snapshot.type != ConnectionType::Publisher) {
+							continue;
+						}
+						eligiblePublisherPeers++;
+						if (self->peerManager_->requestIceRestart(snapshot.uuid)) {
+							requestedRestarts++;
+						}
+					}
+					logInfo("Viewer %s requested publisher-wide connection refresh over data channel; "
+					        "started ICE repair for %zu/%zu peer(s)",
+					        uuid.c_str(), requestedRestarts, eligiblePublisherPeers);
+				}
+				if (recovery.hasRefreshMicrophone && recovery.refreshMicrophone) {
+					logInfo("Viewer %s requested microphone refresh, rejected by native OBS publisher output",
+					        uuid.c_str());
+					self->sendRejectedControlToPeer(uuid, "refreshMicrophone");
+				}
+				if (recovery.hasRestartWhip && recovery.restartWhip) {
+					logInfo("Viewer %s requested WHIP restart, rejected by native OBS publisher output", uuid.c_str());
+					self->sendRejectedControlToPeer(uuid, "restartWhip");
+				}
+			}
 
-			    if (self->peerManager_) {
-				    const MediaControlUpdate mediaControl = self->dataChannel_.parseMediaControl(message);
-				    if (mediaControl.hasVideoBitrate || mediaControl.hasAudioBitrate) {
-					    bool videoBecameEnabled = false;
-					    const bool videoEnabled = mediaControl.videoBitrateKbps != 0;
-					    const bool audioEnabled = mediaControl.audioBitrateKbps != 0;
-					    if (self->peerManager_->setPeerMediaSendEnabled(
-					            uuid, mediaControl.hasVideoBitrate, videoEnabled, mediaControl.hasAudioBitrate,
-					            audioEnabled, &videoBecameEnabled)) {
-						    if (mediaControl.hasVideoBitrate) {
-							    logInfo("Viewer %s requested video bitrate %d kbps; publisher video send is %s",
-							            uuid.c_str(), mediaControl.videoBitrateKbps,
-							            videoEnabled ? "enabled" : "disabled");
-						    }
-						    if (mediaControl.hasAudioBitrate) {
-							    logInfo("Viewer %s requested audio bitrate %d kbps; publisher audio send is %s",
-							            uuid.c_str(), mediaControl.audioBitrateKbps,
-							            audioEnabled ? "enabled" : "disabled");
-						    }
-						    if (videoBecameEnabled) {
-							    self->primeViewerWithCachedKeyframe(uuid);
-						    }
-					    }
-				    }
-			    }
+			if (self->peerManager_) {
+				const MediaControlUpdate mediaControl = self->dataChannel_.parseMediaControl(message);
+				if (mediaControl.hasVideoBitrate || mediaControl.hasAudioBitrate) {
+					bool videoBecameEnabled = false;
+					const bool videoEnabled = mediaControl.videoBitrateKbps != 0;
+					const bool audioEnabled = mediaControl.audioBitrateKbps != 0;
+					if (self->peerManager_->setPeerMediaSendEnabled(uuid, mediaControl.hasVideoBitrate, videoEnabled,
+					                                                mediaControl.hasAudioBitrate, audioEnabled,
+					                                                &videoBecameEnabled)) {
+						if (mediaControl.hasVideoBitrate) {
+							logInfo("Viewer %s requested video bitrate %d kbps; publisher video send is %s",
+							        uuid.c_str(), mediaControl.videoBitrateKbps, videoEnabled ? "enabled" : "disabled");
+						}
+						if (mediaControl.hasAudioBitrate) {
+							logInfo("Viewer %s requested audio bitrate %d kbps; publisher audio send is %s",
+							        uuid.c_str(), mediaControl.audioBitrateKbps, audioEnabled ? "enabled" : "disabled");
+						}
+						if (videoBecameEnabled) {
+							self->primeViewerWithCachedKeyframe(uuid);
+						}
+					}
+				}
+			}
 
-			    const std::string unsupportedControl = self->dataChannel_.unsupportedControlName(message);
-			    if (!unsupportedControl.empty()) {
-				    logInfo("Viewer %s requested unsupported VDO.Ninja control %s over data channel",
-				            uuid.c_str(), unsupportedControl.c_str());
-				    self->sendRejectedControlToPeer(uuid, unsupportedControl);
-				    return;
-			    }
+			const std::string unsupportedControl = self->dataChannel_.unsupportedControlName(message);
+			if (!unsupportedControl.empty()) {
+				logInfo("Viewer %s requested unsupported VDO.Ninja control %s over data channel", uuid.c_str(),
+				        unsupportedControl.c_str());
+				self->sendRejectedControlToPeer(uuid, unsupportedControl);
+				return;
+			}
 
-			    if (parsed.type == DataMessageType::Hangup) {
-				    logInfo("Viewer %s requested output hangup over data channel; rejected without director identity",
-				            uuid.c_str());
-				    self->sendRejectedControlToPeer(uuid, "hangup");
-				    return;
-			    }
+			if (parsed.type == DataMessageType::Hangup) {
+				logInfo("Viewer %s requested output hangup over data channel; rejected without director identity",
+				        uuid.c_str());
+				self->sendRejectedControlToPeer(uuid, "hangup");
+				return;
+			}
 
-			    if (parsed.type == DataMessageType::PeerBye) {
-				    logInfo("Viewer %s sent data-channel bye; retiring peer", uuid.c_str());
-				    {
-					    std::lock_guard<std::mutex> lock(self->telemetryMutex_);
-					    self->lastPeerStats_.erase(uuid);
-					    self->lastPeerStatsTimestampMs_.erase(uuid);
-				    }
-				    self->removeRemoteStatsSubscriber(uuid);
-				    if (self->peerManager_) {
-					    self->peerManager_->disconnectPeer(uuid);
-				    }
-				    return;
-			    }
+			if (parsed.type == DataMessageType::PeerBye) {
+				logInfo("Viewer %s sent data-channel bye; retiring peer", uuid.c_str());
+				{
+					std::lock_guard<std::mutex> lock(self->telemetryMutex_);
+					self->lastPeerStats_.erase(uuid);
+					self->lastPeerStatsTimestampMs_.erase(uuid);
+				}
+				self->removeRemoteStatsSubscriber(uuid);
+				if (self->peerManager_) {
+					self->peerManager_->disconnectPeer(uuid);
+				}
+				return;
+			}
 
-			    if (settingsSnap.enableRemote) {
-				    bool wantsObsState = parsed.type == DataMessageType::RemoteControl;
-				    try {
-					    JsonParser json(message);
-					    if (json.hasKey("getOBSState") && json.getBool("getOBSState")) {
-						    wantsObsState = true;
-					    }
-				    } catch (const std::exception &) {
-				    }
+			if (settingsSnap.enableRemote) {
+				bool wantsObsState = parsed.type == DataMessageType::RemoteControl;
+				try {
+					JsonParser json(message);
+					if (json.hasKey("getOBSState") && json.getBool("getOBSState")) {
+						wantsObsState = true;
+					}
+				} catch (const std::exception &) {
+				}
 
-				    if (wantsObsState) {
-					    self->queueObsStateToPeer(uuid);
-				    }
-			    }
+				if (wantsObsState) {
+					self->queueObsStateToPeer(uuid);
+				}
+			}
 
-			    if (self->autoSceneManager_ && settingsSnap.autoInbound.enabled) {
-				    const std::string playbackHint = self->dataChannel_.extractInboundPlaybackHint(message);
-				    if (!playbackHint.empty()) {
-					    logInfo("Discovered inbound browser-source hint from %s", uuid.c_str());
-					    self->autoSceneManager_->onStreamAdded(playbackHint);
-				    }
-			    }
-		    });
+			if (self->autoSceneManager_ && settingsSnap.autoInbound.enabled) {
+				const std::string playbackHint = self->dataChannel_.extractInboundPlaybackHint(message);
+				if (!playbackHint.empty()) {
+					logInfo("Discovered inbound browser-source hint from %s", uuid.c_str());
+					self->autoSceneManager_->onStreamAdded(playbackHint);
+				}
+			}
+		});
 
 		// Set up chat callback to forward to dock
 		dataChannel_.setOnChatMessage([](const std::string &senderId, const std::string &message) {

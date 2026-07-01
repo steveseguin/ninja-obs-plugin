@@ -19,15 +19,12 @@ TEST(SignalingStateTest, IncrementalRoomStreamEventsUpdateMemberSnapshot)
 	std::vector<std::pair<std::string, std::string>> addedStreams;
 	std::vector<std::pair<std::string, std::string>> removedStreams;
 
-	signaling.setOnStreamAdded([&](const std::string &streamId, const std::string &uuid) {
-		addedStreams.emplace_back(streamId, uuid);
-	});
-	signaling.setOnStreamRemoved([&](const std::string &streamId, const std::string &uuid) {
-		removedStreams.emplace_back(streamId, uuid);
-	});
+	signaling.setOnStreamAdded(
+	    [&](const std::string &streamId, const std::string &uuid) { addedStreams.emplace_back(streamId, uuid); });
+	signaling.setOnStreamRemoved(
+	    [&](const std::string &streamId, const std::string &uuid) { removedStreams.emplace_back(streamId, uuid); });
 
-	signaling.processIncomingMessage(
-	    R"({"request":"listing","list":[{"UUID":"peer-1","streamID":"cam_1"}]})");
+	signaling.processIncomingMessage(R"({"request":"listing","list":[{"UUID":"peer-1","streamID":"cam_1"}]})");
 	EXPECT_TRUE(signaling.isInRoom());
 	EXPECT_THAT(signaling.getCurrentRoomMembers(), ElementsAre("cam_1"));
 

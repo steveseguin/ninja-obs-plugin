@@ -3,14 +3,14 @@
  * SPDX-License-Identifier: AGPL-3.0-only
  */
 
-#include <gmock/gmock.h>
-#include <gtest/gtest.h>
-
 #include <array>
 #include <random>
 #include <sstream>
 #include <string>
 #include <vector>
+
+#include <gmock/gmock.h>
+#include <gtest/gtest.h>
 
 #include "vdoninja-data-channel.h"
 #include "vdoninja-signaling-protocol.h"
@@ -375,8 +375,8 @@ TEST_F(DataChannelTest, ExtractsMediaControlFromCombinedTopLevelMessage)
 
 TEST_F(DataChannelTest, MediaControlIgnoresNestedStatsBitrate)
 {
-	MediaControlUpdate update = dataChannel.parseMediaControl(
-	    R"({"remoteStats":{"peer-1":{"bitrate":2500,"audioBitrate":64}}})");
+	MediaControlUpdate update =
+	    dataChannel.parseMediaControl(R"({"remoteStats":{"peer-1":{"bitrate":2500,"audioBitrate":64}}})");
 
 	EXPECT_FALSE(update.hasVideoBitrate);
 	EXPECT_FALSE(update.hasAudioBitrate);
@@ -411,7 +411,8 @@ TEST_F(DataChannelTest, ParsesOfficialInitialInfoScreenShareStateMessage)
 
 TEST_F(DataChannelTest, ExtractsOfficialScreenShareState)
 {
-	ScreenShareStateUpdate update = dataChannel.parseScreenShareState(R"({"screenShareState":true,"screenStopped":false})");
+	ScreenShareStateUpdate update =
+	    dataChannel.parseScreenShareState(R"({"screenShareState":true,"screenStopped":false})");
 
 	EXPECT_TRUE(update.hasScreenShareState);
 	EXPECT_TRUE(update.screenShareState);
@@ -431,8 +432,8 @@ TEST_F(DataChannelTest, ExtractsOfficialInitialInfoScreenShareState)
 
 TEST_F(DataChannelTest, ExtractsOfficialMixedInitialInfoScreenShareState)
 {
-	ScreenShareStateUpdate update =
-	    dataChannel.parseScreenShareState(R"({"info":{"muted":true,"video_muted_init":false,"screenShareState":true}})");
+	ScreenShareStateUpdate update = dataChannel.parseScreenShareState(
+	    R"({"info":{"muted":true,"video_muted_init":false,"screenShareState":true}})");
 
 	EXPECT_TRUE(update.hasScreenShareState);
 	EXPECT_TRUE(update.screenShareState);
@@ -496,8 +497,8 @@ TEST_F(DataChannelTest, UnsupportedDirectorControlTakesPrecedenceOverMuteState)
 
 TEST_F(DataChannelTest, ExtractsOfficialDirectorVideoState)
 {
-	DirectorVideoStateUpdate update = dataChannel.parseDirectorVideoState(
-	    R"({"directVideoMuted":true,"virtualHangup":false,"target":"viewer-1"})");
+	DirectorVideoStateUpdate update =
+	    dataChannel.parseDirectorVideoState(R"({"directVideoMuted":true,"virtualHangup":false,"target":"viewer-1"})");
 
 	EXPECT_TRUE(update.hasDirectVideoMuted);
 	EXPECT_TRUE(update.directVideoMuted);
@@ -628,7 +629,8 @@ TEST_F(DataChannelTest, ParsesOfficialDisplayMuteMessage)
 
 TEST_F(DataChannelTest, ExtractsOfficialDirectorAudioState)
 {
-	DirectorAudioStateUpdate update = dataChannel.parseDirectorAudioState(R"({"speakerMute":true,"displayMute":false})");
+	DirectorAudioStateUpdate update =
+	    dataChannel.parseDirectorAudioState(R"({"speakerMute":true,"displayMute":false})");
 
 	EXPECT_TRUE(update.hasSpeakerMuted);
 	EXPECT_TRUE(update.speakerMuted);
@@ -722,8 +724,8 @@ TEST_F(DataChannelTest, ExtractsOfficialSelfTargetedDirectorTransformState)
 
 TEST_F(DataChannelTest, ExtractsOfficialInitialDirectorTransformState)
 {
-	DirectorTransformStateUpdate update =
-	    dataChannel.parseDirectorTransformState(R"({"info":{"directorMirror":true,"directorFlip":false,"rotate_video":270}})");
+	DirectorTransformStateUpdate update = dataChannel.parseDirectorTransformState(
+	    R"({"info":{"directorMirror":true,"directorFlip":false,"rotate_video":270}})");
 
 	EXPECT_TRUE(update.hasMirror);
 	EXPECT_TRUE(update.mirror);
@@ -748,7 +750,8 @@ TEST_F(DataChannelTest, ExtractsOfficialRotateVideoState)
 
 TEST_F(DataChannelTest, ExtractsOfficialRemoteRotateToggleCommand)
 {
-	DirectorTransformStateUpdate update = dataChannel.parseDirectorTransformState(R"({"rotate":true,"remote":"secret"})");
+	DirectorTransformStateUpdate update =
+	    dataChannel.parseDirectorTransformState(R"({"rotate":true,"remote":"secret"})");
 
 	EXPECT_TRUE(update.hasRotateCommand);
 	EXPECT_TRUE(update.rotateToggle);
@@ -759,7 +762,8 @@ TEST_F(DataChannelTest, ExtractsOfficialRemoteRotateToggleCommand)
 
 TEST_F(DataChannelTest, ExtractsOfficialRemoteRotateResetCommand)
 {
-	DirectorTransformStateUpdate update = dataChannel.parseDirectorTransformState(R"({"rotate":false,"remote":"secret"})");
+	DirectorTransformStateUpdate update =
+	    dataChannel.parseDirectorTransformState(R"({"rotate":false,"remote":"secret"})");
 
 	EXPECT_TRUE(update.hasRotateCommand);
 	EXPECT_FALSE(update.rotateToggle);
@@ -770,7 +774,8 @@ TEST_F(DataChannelTest, ExtractsOfficialRemoteRotateResetCommand)
 
 TEST_F(DataChannelTest, ExtractsOfficialRemoteRotateDegreeCommand)
 {
-	DirectorTransformStateUpdate update = dataChannel.parseDirectorTransformState(R"({"rotate":180,"remote":"secret"})");
+	DirectorTransformStateUpdate update =
+	    dataChannel.parseDirectorTransformState(R"({"rotate":180,"remote":"secret"})");
 
 	EXPECT_TRUE(update.hasRotateCommand);
 	EXPECT_FALSE(update.rotateToggle);
@@ -939,8 +944,8 @@ TEST_F(DataChannelTest, ParsesOfficialRestartWhipControlMessage)
 
 TEST_F(DataChannelTest, ExtractsOfficialRecoveryControl)
 {
-	RecoveryControlUpdate update =
-	    dataChannel.parseRecoveryControl(R"({"refreshVideo":true,"refreshMicrophone":false,"refreshConnection":false,"refreshAll":true,"restartWhip":true})");
+	RecoveryControlUpdate update = dataChannel.parseRecoveryControl(
+	    R"({"refreshVideo":true,"refreshMicrophone":false,"refreshConnection":false,"refreshAll":true,"restartWhip":true})");
 
 	EXPECT_TRUE(update.hasRefreshVideo);
 	EXPECT_TRUE(update.refreshVideo);
@@ -975,8 +980,7 @@ TEST_F(DataChannelTest, SelectsOfficialRecoveryRejectionOrder)
 {
 	EXPECT_EQ(dataChannel.recoveryControlRejectionName(R"({"refreshAll":true,"refreshMicrophone":true})"),
 	          "refreshMicrophone");
-	EXPECT_EQ(dataChannel.recoveryControlRejectionName(R"({"refreshAll":true,"refreshVideo":true})"),
-	          "refreshVideo");
+	EXPECT_EQ(dataChannel.recoveryControlRejectionName(R"({"refreshAll":true,"refreshVideo":true})"), "refreshVideo");
 	EXPECT_EQ(dataChannel.recoveryControlRejectionName(R"({"refreshAll":true,"refreshConnection":true})"),
 	          "refreshConnection");
 	EXPECT_EQ(dataChannel.recoveryControlRejectionName(R"({"restartWhip":false})"), "restartWhip");
@@ -1129,7 +1133,8 @@ TEST_F(DataChannelTest, ParsesOfficialDataChannelDescriptionAsSignaling)
 
 TEST_F(DataChannelTest, GivesOfficialDataChannelSignalingPrecedenceOverAppFields)
 {
-	std::string raw = R"({"chat":"not-signaling","description":{"type":"answer","sdp":"v=0\r\na=mid:0"},"session":"sess-1"})";
+	std::string raw =
+	    R"({"chat":"not-signaling","description":{"type":"answer","sdp":"v=0\r\na=mid:0"},"session":"sess-1"})";
 	DataMessage msg = dataChannel.parseMessage(raw);
 
 	EXPECT_EQ(msg.type, DataMessageType::Signaling);
@@ -1138,7 +1143,8 @@ TEST_F(DataChannelTest, GivesOfficialDataChannelSignalingPrecedenceOverAppFields
 
 TEST_F(DataChannelTest, ParsesOfficialDataChannelCandidateBundleAsSignaling)
 {
-	std::string raw = R"({"candidates":[{"candidate":"candidate:1 1 UDP 1 192.0.2.1 9 typ host","sdpMid":"0"}],"session":"sess-1"})";
+	std::string raw =
+	    R"({"candidates":[{"candidate":"candidate:1 1 UDP 1 192.0.2.1 9 typ host","sdpMid":"0"}],"session":"sess-1"})";
 	DataMessage msg = dataChannel.parseMessage(raw);
 
 	EXPECT_EQ(msg.type, DataMessageType::Signaling);
@@ -1176,7 +1182,8 @@ TEST_F(DataChannelTest, PreparesOfficialDataChannelCandidateWithSenderUuid)
 
 TEST_F(DataChannelTest, PreparesOfficialDataChannelCandidateBundleWithSenderUuid)
 {
-	std::string raw = R"({"candidates":[{"candidate":"candidate:1 1 UDP 1 192.0.2.1 9 typ host","sdpMid":"0"}],"session":"sess-1"})";
+	std::string raw =
+	    R"({"candidates":[{"candidate":"candidate:1 1 UDP 1 192.0.2.1 9 typ host","sdpMid":"0"}],"session":"sess-1"})";
 	std::string prepared = dataChannel.prepareSignalingMessage(raw, "publisher-1");
 	ParsedSignalMessage parsed;
 	std::string error;

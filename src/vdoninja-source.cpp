@@ -989,8 +989,8 @@ void VDONinjaSource::update(obs_data_t *settings)
 		if (dimensionsChanged) {
 			logInfo("Updated native receiver dimensions to %ux%u without reconnecting", width_, height_);
 			if (peerManager_) {
-				peerManager_->sendDataToAll(
-				    buildViewerRequestMessage(width_, height_, !settings_.roomId.empty(), buildNativeViewerInfoJson(source_)));
+				peerManager_->sendDataToAll(buildViewerRequestMessage(width_, height_, !settings_.roomId.empty(),
+				                                                      buildNativeViewerInfoJson(source_)));
 			}
 			requestNativeTargetBitrate("source-dimension-update");
 		}
@@ -1249,13 +1249,13 @@ void VDONinjaSource::connectionThread()
 				const std::string stateUuid = targetUuid.empty() ? uuid : targetUuid;
 				self->handleRemoteMuteState(stateUuid, self->dataChannel_.parseMuteState(message));
 				self->handleReceiverVideoSuppressionState(stateUuid,
-				                                         self->dataChannel_.parseReceiverVideoSuppression(message));
+				                                          self->dataChannel_.parseReceiverVideoSuppression(message));
 				return;
 			}
 
 			if (parsed.type == DataMessageType::DirectorVideoState) {
-				self->handleReceiverVideoSuppressionState(
-				    targetUuid.empty() ? uuid : targetUuid, self->dataChannel_.parseReceiverVideoSuppression(message));
+				self->handleReceiverVideoSuppressionState(targetUuid.empty() ? uuid : targetUuid,
+				                                          self->dataChannel_.parseReceiverVideoSuppression(message));
 				return;
 			}
 
@@ -1405,7 +1405,7 @@ void VDONinjaSource::handleRemoteMuteState(const std::string &uuid, const MuteSt
 }
 
 void VDONinjaSource::handleReceiverVideoSuppressionState(const std::string &uuid,
-                                                        const ReceiverVideoSuppressionUpdate &update)
+                                                         const ReceiverVideoSuppressionUpdate &update)
 {
 	bool changed = false;
 	const char *reason = "remote-video-state";

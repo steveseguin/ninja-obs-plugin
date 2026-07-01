@@ -355,8 +355,8 @@ bool appendRtpPacket(std::vector<rtc::binary> &packets, uint16_t &sequence, uint
 	return true;
 }
 
-bool buildH264FrameRtpPackets(std::vector<rtc::binary> &packets, uint16_t &sequence, uint32_t timestamp,
-                              uint32_t ssrc, const uint8_t *data, size_t size)
+bool buildH264FrameRtpPackets(std::vector<rtc::binary> &packets, uint16_t &sequence, uint32_t timestamp, uint32_t ssrc,
+                              const uint8_t *data, size_t size)
 {
 	std::vector<NalUnitView> nalUnits;
 	if (!extractH264Nalus(data, size, nalUnits)) {
@@ -826,8 +826,8 @@ bool VDONinjaPeerManager::setPeerMediaSendEnabled(const std::string &uuid, bool 
 	}
 
 	if (changed) {
-		logInfo("Peer %s media send state: video=%s audio=%s", uuid.c_str(),
-		        finalVideoEnabled ? "enabled" : "disabled", finalAudioEnabled ? "enabled" : "disabled");
+		logInfo("Peer %s media send state: video=%s audio=%s", uuid.c_str(), finalVideoEnabled ? "enabled" : "disabled",
+		        finalAudioEnabled ? "enabled" : "disabled");
 	}
 
 	return true;
