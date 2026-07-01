@@ -132,36 +132,52 @@ obs_data_t *createNativeReceiverSourceSettings(const SourceSettings &sourceSetti
 	return settings;
 }
 
-void runUiTaskThunk(void *param)
+void runAudioActiveTask(obs_weak_source_t *weakSource, bool active)
 {
-	auto *fn = static_cast<std::function<void()> *>(param);
-	(*fn)();
-	delete fn;
+	if (!weakSource) {
+		return;
+	}
+
+	obs_source_t *source = obs_weak_source_get_source(weakSource);
+	if (source) {
+		obs_source_set_audio_active(source, active);
+		obs_source_release(source);
+	}
 }
 
-void setObsSourceAudioActiveSafe(obs_source_t *source, bool active)
+struct AudioActiveTask {
+	obs_weak_source_t *weakSource;
+	bool active;
+};
+
+void runQueuedAudioActiveTask(void *param)
 {
-	if (!source) {
+	auto *task = static_cast<AudioActiveTask *>(param);
+	if (!task) {
 		return;
 	}
-	if (obs_source_audio_active(source) == active) {
+
+	runAudioActiveTask(task->weakSource, task->active);
+	obs_weak_source_release(task->weakSource);
+	delete task;
+}
+
+void setObsWeakSourceAudioActiveSafe(obs_weak_source_t *weakSource, bool active)
+{
+	if (!weakSource) {
 		return;
 	}
+
+	obs_weak_source_addref(weakSource);
 
 	if (obs_in_task_thread(OBS_TASK_UI)) {
-		obs_source_set_audio_active(source, active);
+		runAudioActiveTask(weakSource, active);
+		obs_weak_source_release(weakSource);
 		return;
 	}
 
-	obs_source_t *sourceRef = obs_source_get_ref(source);
-	if (!sourceRef) {
-		return;
-	}
-	auto *task = new std::function<void()>([sourceRef, active]() {
-		obs_source_set_audio_active(sourceRef, active);
-		obs_source_release(sourceRef);
-	});
-	obs_queue_task(OBS_TASK_UI, runUiTaskThunk, task, false);
+	auto *task = new AudioActiveTask{weakSource, active};
+	obs_queue_task(OBS_TASK_UI, runQueuedAudioActiveTask, task, false);
 }
 
 bool sourceSettingsEqualForChild(const SourceSettings &left, const SourceSettings &right)
@@ -215,6 +231,10 @@ bool configureVideoHardwareDecoder(AVCodecContext *decoderContext, const AVCodec
                                    std::string &deviceName, bool isVP9)
 {
 #if defined(_WIN32)
+	if (isVP9) {
+		return false;
+	}
+
 	constexpr AVHWDeviceType preferredDeviceTypes[] = {AV_HWDEVICE_TYPE_D3D11VA, AV_HWDEVICE_TYPE_DXVA2};
 
 	for (const AVHWDeviceType deviceType : preferredDeviceTypes) {
@@ -251,12 +271,6 @@ bool configureVideoHardwareDecoder(AVCodecContext *decoderContext, const AVCodec
 		deviceName = hardwareDeviceTypeName(deviceType);
 		decoderContext->get_format = choosePreferredHardwarePixelFormat;
 		decoderContext->opaque = &pixelFormat;
-
-		// VP9 with D3D11VA/DXVA2 allocates too few surfaces by default and hits
-		// "Static surface pool size exceeded" (FFmpeg trac #10608). Extra frames fix this.
-		if (isVP9) {
-			decoderContext->extra_hw_frames = 6;
-		}
 
 		return true;
 	}
@@ -861,6 +875,7 @@ obs_source_info vdoninja_native_source_info = {
 
 VDONinjaSource::VDONinjaSource(obs_data_t *settings, obs_source_t *source) : source_(source)
 {
+	sourceWeak_ = obs_source_get_weak_source(source_);
 	browserSourceName_ = "VDO.Ninja Source Child " + generateSessionId();
 	nativeReceiverSourceName_ = "VDO.Ninja Native Child " + generateSessionId();
 	callbackState_ = std::make_shared<AsyncCallbackState<VDONinjaSource>>();
@@ -889,6 +904,10 @@ VDONinjaSource::~VDONinjaSource()
 		releaseChildSources();
 	}
 	drainAsyncCallbacks();
+	if (sourceWeak_) {
+		obs_weak_source_release(sourceWeak_);
+		sourceWeak_ = nullptr;
+	}
 
 	logInfo("VDO.Ninja source destroyed");
 }
@@ -942,17 +961,41 @@ bool VDONinjaSource::usingNativeReceiver() const
 void VDONinjaSource::update(obs_data_t *settings)
 {
 	if (isInternalNativeSource()) {
-		disconnect();
-	}
+		const SourceSettings previousSettings = settings_;
+		const uint32_t previousWidth = width_;
+		const uint32_t previousHeight = height_;
 
-	loadSettings(settings);
+		loadSettings(settings);
 
-	if (isInternalNativeSource()) {
 		logWarning("VDO.Ninja Source native receiver mode is experimental (VP9/H.264 video + Opus audio)");
-		if (active_.load()) {
+
+		const bool connectionSettingsChanged = !sourceSettingsEqualForChild(previousSettings, settings_);
+		const bool dimensionsChanged = previousWidth != width_ || previousHeight != height_;
+		if (!active_.load()) {
+			if (nativeRunning_.load() && connectionSettingsChanged) {
+				disconnect();
+			}
+			return;
+		}
+		if (connectionSettingsChanged) {
+			disconnect();
 			connect();
+			return;
+		}
+		if (!nativeRunning_.load()) {
+			connect();
+			return;
+		}
+		if (dimensionsChanged) {
+			logInfo("Updated native receiver dimensions to %ux%u without reconnecting", width_, height_);
+			if (peerManager_) {
+				peerManager_->sendDataToAll(
+				    buildViewerRequestMessage(width_, height_, !settings_.roomId.empty(), buildNativeViewerInfoJson(source_)));
+			}
+			requestNativeTargetBitrate("source-dimension-update");
 		}
 	} else {
+		loadSettings(settings);
 		updateWrapperChildSource();
 	}
 }
@@ -1052,7 +1095,7 @@ void VDONinjaSource::disconnect()
 {
 	nativeRunning_ = false;
 	connected_ = false;
-	setObsSourceAudioActiveSafe(source_, false);
+	setObsSourceAudioActive(false);
 	resetViewRetryState();
 
 	if (signaling_) {
@@ -1357,7 +1400,7 @@ void VDONinjaSource::handleRemoteMuteState(const std::string &uuid, const MuteSt
 			logInfo("Native receiver remote audio mute from %s: %s", uuid.empty() ? "unknown peer" : uuid.c_str(),
 			        update.audioMuted ? "muted" : "unmuted");
 		}
-		setObsSourceAudioActiveSafe(source_, !update.audioMuted);
+		setObsSourceAudioActive(!update.audioMuted);
 	}
 }
 
@@ -2835,7 +2878,7 @@ void VDONinjaSource::resetNativeState()
 	resetAlphaDecoder();
 	resetAudioDecoder();
 	if (source_) {
-		setObsSourceAudioActiveSafe(source_, false);
+		setObsSourceAudioActive(false);
 		clearNativeVideoOutput("reset-native-state");
 	}
 }
@@ -2896,7 +2939,7 @@ void VDONinjaSource::handlePeerDisconnected(const std::string &uuid)
 	}
 
 	if (audioRemoved && source_) {
-		setObsSourceAudioActiveSafe(source_, false);
+		setObsSourceAudioActive(false);
 	}
 
 	if (videoRemoved && source_) {
@@ -3149,7 +3192,7 @@ void VDONinjaSource::outputDecodedAudioFrame(const AVFrame *frame, uint64_t time
 		audio.data[i] = dstData[i];
 	}
 
-	setObsSourceAudioActiveSafe(source_, true);
+	setObsSourceAudioActive(true);
 	obs_source_output_audio(source_, &audio);
 
 	av_freep(&dstData[0]);
@@ -3233,7 +3276,7 @@ void VDONinjaSource::ensureNativeReceiverSource()
 	signal_handler_t *sh = obs_source_get_signal_handler(created);
 	signal_handler_connect(sh, "audio_activate", vdoninja_source_child_audio_activate, callbackState_.get());
 	signal_handler_connect(sh, "audio_deactivate", vdoninja_source_child_audio_deactivate, callbackState_.get());
-	setObsSourceAudioActiveSafe(source_, obs_source_audio_active(created));
+	setObsSourceAudioActive(obs_source_audio_active(created));
 	syncChildLifecycleState(created);
 	{
 		std::lock_guard<std::mutex> lock(childSourceMutex_);
@@ -3272,7 +3315,7 @@ void VDONinjaSource::releaseNativeReceiverSource()
 	obs_source_remove_audio_capture_callback(child, vdoninja_source_child_audio_capture, callbackState_.get());
 	detachChildLifecycleState(child);
 
-	setObsSourceAudioActiveSafe(source_, false);
+	setObsSourceAudioActive(false);
 	obs_source_release(child);
 }
 
@@ -3373,7 +3416,7 @@ void VDONinjaSource::ensureBrowserSource()
 	signal_handler_t *sh = obs_source_get_signal_handler(created);
 	signal_handler_connect(sh, "audio_activate", vdoninja_source_child_audio_activate, callbackState_.get());
 	signal_handler_connect(sh, "audio_deactivate", vdoninja_source_child_audio_deactivate, callbackState_.get());
-	setObsSourceAudioActiveSafe(source_, obs_source_audio_active(created));
+	setObsSourceAudioActive(obs_source_audio_active(created));
 	syncChildLifecycleState(created);
 	{
 		std::lock_guard<std::mutex> lock(childSourceMutex_);
@@ -3412,7 +3455,7 @@ void VDONinjaSource::releaseBrowserSource()
 	obs_source_remove_audio_capture_callback(child, vdoninja_source_child_audio_capture, callbackState_.get());
 	detachChildLifecycleState(child);
 
-	setObsSourceAudioActiveSafe(source_, false);
+	setObsSourceAudioActive(false);
 	obs_source_release(child);
 }
 
@@ -3621,12 +3664,21 @@ void VDONinjaSource::onChildAudioCaptured(const struct audio_data *audioData, bo
 
 void VDONinjaSource::onChildAudioActivated()
 {
-	setObsSourceAudioActiveSafe(source_, true);
+	setObsSourceAudioActive(true);
 }
 
 void VDONinjaSource::onChildAudioDeactivated()
 {
-	setObsSourceAudioActiveSafe(source_, false);
+	setObsSourceAudioActive(false);
+}
+
+void VDONinjaSource::setObsSourceAudioActive(bool active)
+{
+	if (sourceAudioActive_.exchange(active, std::memory_order_relaxed) == active) {
+		return;
+	}
+
+	setObsWeakSourceAudioActiveSafe(sourceWeak_, active);
 }
 
 void VDONinjaSource::drainAsyncCallbacks()

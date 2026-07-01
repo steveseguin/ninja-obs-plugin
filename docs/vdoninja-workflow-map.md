@@ -1,19 +1,12 @@
 # VDO.Ninja Workflow Map
 
-Last reviewed: 2026-06-30 after parser fuzzing and JSON array-scalar
-hardening, official remote rotate-command alignment,
-combined close-payload cleanup priority, official cleanup spelling alignment,
-structured media-control fanout, typed peer cleanup dispatch, official peer
-cleanup, hangup, liveness, room-state, stats authorization, screen-share state,
-director-controlled audio/video/transform state, recovery-control,
-mesh-control, game-capture protocol cross-reference, unsupported control-center
-rejection, remote-control auth-shape tightening, director-only control
-rejection, publisher-wide recovery fan-out, signaling-shape alignment,
-native-source dispatch-alignment, director-only mesh request rejection,
-transform-command rejection, unsupported-control precedence, and active-control
-plus telemetry-response precedence, keyframe field-fanout, unsupported
-keyframe-rate/isolation-volume control passes, terminal-message keyframe fanout
-gating, and active-field ordering for unsupported/recovery controls
+Last reviewed: 2026-07-01 after OBS native-source stress testing, official
+VDO.Ninja churn comparison, publisher track/data-channel churn harnessing,
+native receiver dimension-update handling, source audio-active lifetime
+hardening, VP9 hardware-decode crash guarding, parser fuzzing, official
+signaling/data-channel alignment, director-only control rejection, structured
+media-control fanout, room-state/recovery/mesh cleanup alignment, and
+active-field precedence review.
 
 Purpose: keep an AI-friendly, code-free map of how signaling, peer state, video,
 audio, data channels, and teardown currently flow through the plugin. This is
@@ -255,12 +248,15 @@ Source wrapper state:
 - `browserSource`: private child for browser-backed ingest.
 - `nativeReceiverSource`: private child for native ingest.
 - `childActive` and `childShowing`: refcount mirror for private child lifecycle.
-- child config caches: URL, width, height, source settings.
+- child config caches: URL, width, height, source settings. These gates prevent
+  wrapper updates from recreating children or forwarding redundant private-child
+  settings updates.
 
 Native receiver state:
 
 - `nativeRunning`: connection thread and media callbacks should process work.
 - `connected`: native receiver has at least one active media peer/track.
+- `sourceWeak`: weak OBS source handle used by queued source-audio-active tasks.
 - `videoTrack`, `alphaVideoTrack`, `audioTrack`: active libdatachannel tracks.
 - `videoTrackPeerUuid`, `alphaVideoTrackPeerUuid`, `audioTrackPeerUuid`: peer
   ownership of active tracks.
@@ -268,7 +264,9 @@ Native receiver state:
   pending alpha frames, pending decode timestamp queues.
 - retry state: view retry count, last view request time, next retry time,
   awaiting peer connection, retry suppression flag.
-- output state: last packet times, keyframe request time, video output active.
+- output state: last packet times, keyframe request time, video output active,
+  and coalesced `sourceAudioActive` to avoid redundant queued OBS audio-active
+  writes after teardown.
 - remote mute/suppression state: `remoteAudioMuted` suppresses native audio
   output and marks OBS source audio inactive. Native video suppression is split
   into `remoteMediaVideoMuted` for publisher media state
@@ -1471,6 +1469,26 @@ Flow: wrapper native child
    changed.
 6. Edge: attach child audio capture callback and lifecycle mirror.
 
+Flow: internal native source settings update
+
+1. Event: OBS updates settings on an internal native receiver source.
+2. Edge: snapshot previous connection settings and dimensions before loading the
+   new settings.
+3. Gate: connection-affecting settings include stream id, room id, password,
+   signaling URL, stream salt, ICE/TURN configuration, native receiver mode,
+   data-channel signaling, and auto-reconnect behavior.
+4. Gate: dimension-only updates are not connection-affecting.
+5. Edge: inactive source disconnects only if native transport is still running
+   and connection-affecting settings changed.
+6. Edge: active source disconnects and reconnects only when
+   connection-affecting settings changed.
+7. Edge: active source connects if it is not already running.
+8. Edge: dimension-only updates keep signaling, peer, track, and decoder state
+   alive; the source sends updated viewer preferences to peers and refreshes
+   the native target bitrate.
+9. Invariant: OBS canvas/source resize churn must not reset active media unless
+   the user changed a setting that changes the VDO.Ninja session itself.
+
 Flow: internal native source activation
 
 1. Event: OBS activates internal native source.
@@ -2656,9 +2674,140 @@ Fix: JSON array parsing advances over scalar entries.
 - Review rule: any parser loop over ad hoc JSON must advance on every branch,
   including unsupported scalar values.
 
+Fix: native receiver dimension updates do not reconnect.
+
+- Source anchor: `VDONinjaSource::update` in `src/vdoninja-source.cpp`.
+- Discovery: OBS source stress changed width/height repeatedly while a native
+  receiver was active. The old internal native-source update path treated any
+  settings update as a full disconnect/reconnect, so ordinary resize churn
+  could synchronously tear down signaling, peers, tracks, decoders, and retry
+  state on the OBS control path.
+- Workflow: internal native updates now split connection-affecting settings from
+  dimensions. Stream/session/signaling/native transport settings still reconnect
+  when changed; dimension-only updates keep the current media graph alive,
+  resend viewer preferences, and refresh native bitrate targeting.
+- Validation: aggressive publisher track/data-channel churn plus OBS dimension
+  mutation logs now show `Updated native receiver dimensions ... without
+  reconnecting`. Single-source aggressive churn and two-source aggressive churn
+  completed without OBS crashes or new WER dumps after this change.
+- Review rule: any future source property update must prove whether it changes
+  transport/session identity or only render preferences before calling
+  `disconnect()`.
+
+Fix: source audio-active updates are weak-handle and state coalesced.
+
+- Source anchor: `VDONinjaSource::setObsSourceAudioActive` and
+  `setObsWeakSourceAudioActiveSafe` in `src/vdoninja-source.cpp`.
+- Discovery: child/native audio-active changes can be observed from callbacks
+  that outlive a direct raw OBS source pointer during teardown or source
+  replacement.
+- Workflow: the source owns a weak OBS source handle and a coalesced
+  `sourceAudioActive` flag. Audio-active changes only queue work when the state
+  changes; queued work reacquires the OBS source from the weak handle before
+  touching OBS.
+- Validation: current OBS source stress, native source smoke, build, and unit
+  tests pass with this path in place and no new WER dump was produced during the
+  current stress matrix.
+- Review rule: queued OBS tasks must not retain raw source pointers unless the
+  OBS API contract explicitly guarantees lifetime through the queued execution.
+
 ## Validation Snapshot
 
 Last validation for this map revision:
+
+- Current official VDO.Ninja read-only comparison used
+  `C:\Users\steve\Code\vdoninja` and confirmed stress-relevant surfaces:
+  `replaceTrack`, `track.enabled` toggles, track stop/removal, screen-share
+  state, director mute/hangup/refresh controls, `requestResolution`, stereo and
+  PCM modes, codec steering, and audio offers that can include Opus plus RED,
+  G722, PCMU/PCMA, CN, and telephone-event. The plugin should keep treating
+  official signaling/data-channel shapes as the compatibility source of truth
+  and avoid inventing plugin-only message objects for shared flows.
+- Current publisher churn harness validation:
+  `scripts\playwright-vdo-publish-session.cjs` can now mutate publisher tracks
+  by toggling `MediaStreamTrack.enabled`, replacing video with generated canvas
+  tracks at varied dimensions/frame rates, replacing audio with generated mono,
+  stereo, and attempted 6-channel WebAudio tracks, briefly replacing tracks with
+  `null` in aggressive mode, adding extra audio senders, and sending known
+  official-style data-channel messages. The data-fuzz profiles now cover
+  official VDO.Ninja ping/stats/OBS-state/media-control/screen-share/director
+  state/transform/mesh payloads; aggressive mode adds unsupported or privileged
+  official controls, malformed JSON strings, large JSON strings, and binary
+  frames; terminal mode additionally sends official cleanup fields such as
+  `bye` and `request:"cleanup"`. The harness now discovers peer connections
+  through both constructor capture and VDO.Ninja's official `session.pcs` map,
+  can open duplicate publishers, apply semicolon-separated URL variants, reload
+  publishers during a run, and can shorten publisher probe timing so JSON
+  counters flush before the OBS wrapper stops the publisher. A connected
+  publisher-only aggressive data-fuzz smoke completed with 12 iterations, 16
+  track replacements, 3 null replacements, one extra audio sender, 333
+  data-channel sends, 5 malformed string sends, one binary frame, and no script
+  errors.
+- Current OBS native receiver stress matrix with the installed OBS 32 build:
+  one source plus aggressive publisher churn passed; two sources plus
+  aggressive publisher churn passed; three sources plus basic publisher churn
+  passed. Two duplicate publishers with mixed H.264/VP9/stereo-multi/PCM-like
+  URL variants plus one extra OBS native source passed while the connected
+  publisher produced 26 track replacements, 6 null replacements, one extra
+  audio sender, and 133 data-channel messages. Three duplicate publishers with
+  mixed H.264/VP9/stereo/mono/PCM-like URL variants plus two extra OBS native
+  sources also passed; only one duplicate publisher produced active media, which
+  matches same-stream contention. Three sources plus aggressive null-track and
+  extra-audio churn can still starve obs-websocket requests and time out under
+  the current local load, but did not produce a new OBS crash dump. This narrows
+  the observed limit to control-plane starvation/overload rather than a
+  confirmed process crash.
+- Current OBS native receiver data-channel fuzz validation:
+  a focused live-source run with aggressive publisher data fuzz and no OBS
+  rapid scene mutation passed while the publisher produced 23 iterations, 56
+  track replacements, 12 null replacements, 2 extra audio senders, 1050
+  data-channel sends, 25 malformed string sends, 3 binary frames, and no
+  publisher script errors. OBS received source data-channel messages, negotiated
+  the real media offer, decoded Opus audio and VP9 video, and tracked repeated
+  generated-video resolution changes without a new WER dump. Libdatachannel
+  emitted repeated `Got unexpected message on stream 1` lines under aggressive
+  malformed/binary/control traffic; treat that as harness pressure/noise unless
+  accompanied by an OBS exit, a fresh dump, or a plugin exception.
+- Current terminal data-channel cleanup validation:
+  `-PublisherDataFuzz terminal` intentionally sent cleanup-style fields while
+  OBS held a native receiver source open. OBS logged peer disconnect/cleanup for
+  the initial data-channel peer, then continued through the real media offer and
+  decoded audio/video. The publisher reported 23 iterations, 40 replacements, 9
+  null replacements, 3 extra audio senders, 980 data-channel sends, 25
+  malformed strings, 3 binary frames, and no script errors. No new WER dump was
+  produced.
+- Current OBS video-settings stress isolation:
+  `-VideoChurn` passed with no publisher/media and passed with a normal live
+  publisher. `-VideoChurn` combined with aggressive publisher
+  replaceTrack/null/extra-audio churn reproduced `SetSceneItemEnabled: Timed
+  out after 90000ms` during the rapid source mutation phase. OBS stayed alive
+  until the wrapper stopped it and no new WER dump appeared; the latest dump
+  remains from 2026-07-01 14:29:00. Treat this as an API/UI starvation boundary
+  unless a later run captures a fresh crash dump.
+- Current aggressive OBS video-settings profile validation:
+  `-VideoChurnProfile aggressive` passed without publisher/media across QHD60,
+  NTSC 720p, UHD30, small 640x360, UHD60, portrait 1080x1920 at 60 FPS,
+  ultrawide 3440x1440 at 120 FPS, odd 853x481 at 59.94 FPS, and tiny 160x90 at
+  15 FPS, then restored the original 1920x1080/1280x720/30 FPS settings. The
+  odd output size was normalized by OBS to 852x480 output. A combined run with
+  live publisher aggressive data fuzz plus aggressive video churn, but no
+  rapid scene-item mutation, also passed; publisher counters showed 23
+  iterations, 56 replacements, 12 null replacements, 2 extra audio senders,
+  1511 data-channel sends, 35 malformed strings, 5 binary frames, and no script
+  errors. No new OBS crash dump appeared.
+- Current full unit validation after the native update/audio-active changes:
+  `cmake --build build --target vdoninja-tests` passed and
+  `ctest --test-dir build --output-on-failure` passed 782/782.
+- Current OBS build/install validation after the native update/audio-active
+  changes: `cmake --build build-obs32 --config Release --target obs-vdoninja`
+  passed with existing OBS SDK warnings, and `cmake --install build-obs32
+  --config Release --prefix install-obs32` installed the rebuilt plugin.
+- Current syntax validation for stress tooling: `node --check` passed for
+  `scripts\playwright-vdo-publish-session.cjs` and
+  `scripts\obs-websocket-vdoninja-edge-stress.cjs`; PowerShell parser
+  validation passed for `scripts\run-vdoninja-source-edge-stress.ps1`.
+- Formatter note for this pass: `clang-format` and `clang-format-14` were not
+  available on PATH in this shell.
 
 - Current active-control and telemetry-response precedence regression:
   `build\Debug\vdoninja-tests.exe --gtest_filter=DataChannelTest.RecoveryControlTakesPrecedenceOverObsState:DataChannelTest.HangupTakesPrecedenceOverMuteState:DataChannelTest.StatsRequestTakesPrecedenceOverObsState:DataChannelTest.RemoteControlTakesPrecedenceOverObsState:DataChannelTest.RemoteStatsTakesPrecedenceOverObsState:DataChannelTest.ParsesOfficialRequestStatsMessage:DataChannelTest.ParsesTruthyOfficialContinuousStatsRequest:DataChannelTest.ParsesFalseOfficialContinuousStatsRequest:DataChannelTest.ParsesRemoteControlObsCommandMessage:DataChannelTest.RejectsObsCommandWithoutRemoteField:DataChannelTest.RejectsLegacyActionWithoutRemoteField --gtest_brief=1`

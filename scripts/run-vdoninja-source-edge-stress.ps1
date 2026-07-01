@@ -10,9 +10,33 @@ param(
     [int]$ObsWebSocketPort = 4465,
     [int]$ObsStartupSeconds = 18,
     [int]$PublisherWarmupSeconds = 18,
+    [int]$PublisherStartupWaitMs = 20000,
+    [int]$PublisherViewProbeWaitMs = 25000,
+    [int]$PublisherKeepAliveMs = 900000,
     [int]$RapidIterations = 30,
     [int]$RapidWaitMs = 150,
+    [int]$ExtraSources = 0,
+    [ValidateSet("off", "basic", "aggressive")]
+    [string]$PublisherChurn = "off",
+    [int]$PublisherChurnIterations = 0,
+    [int]$PublisherChurnIntervalMs = 0,
+    [switch]$PublisherExtraAudio,
+    [int]$PublisherCount = 1,
+    [int]$PublisherStaggerMs = 1500,
+    [string]$PublisherUrlVariants = "",
+    [int]$PublisherReloads = 0,
+    [int]$PublisherReloadIntervalMs = 20000,
+    [int]$PublisherReloadStartupWaitMs = 8000,
+    [ValidateSet("off", "official", "aggressive", "terminal")]
+    [string]$PublisherDataFuzz = "off",
+    [switch]$VideoChurn,
+    [ValidateSet("standard", "aggressive")]
+    [string]$VideoChurnProfile = "standard",
+    [switch]$SkipEdgeCases,
+    [switch]$StableRapidSettings,
+    [int]$RequestTimeoutMs = 30000,
     [int]$CheckTimeoutSeconds = 180,
+    [int]$FinalWaitMs = 2500,
     [switch]$SkipPublisher
 )
 
@@ -120,12 +144,46 @@ $obsWebSocketConfig.server_port = $ObsWebSocketPort
 $obsWebSocketConfig | ConvertTo-Json | Set-Content -Path $obsWebSocketConfigPath -Encoding UTF8
 
 $env:OBS_WEBSOCKET_URL = "ws://127.0.0.1:$ObsWebSocketPort"
-$env:OBS_WEBSOCKET_REQUEST_TIMEOUT_MS = "30000"
+$env:OBS_WEBSOCKET_REQUEST_TIMEOUT_MS = [string]$RequestTimeoutMs
 $env:VDONINJA_STREAM_ID = $StreamId
 $env:VDONINJA_PASSWORD = $Password
 $env:VDONINJA_ROOM_ID = $RoomId
 $env:VDONINJA_EDGE_RAPID_ITERATIONS = [string]$RapidIterations
 $env:VDONINJA_EDGE_RAPID_WAIT_MS = [string]$RapidWaitMs
+$env:VDONINJA_EDGE_EXTRA_SOURCES = [string]$ExtraSources
+$env:VDONINJA_EDGE_VIDEO_CHURN = if ($VideoChurn) { "1" } else { "0" }
+$env:VDONINJA_EDGE_VIDEO_CHURN_PROFILE = $VideoChurnProfile
+$env:VDONINJA_EDGE_SKIP_CASES = if ($SkipEdgeCases) { "1" } else { "0" }
+$env:VDONINJA_EDGE_STABLE_RAPID_SETTINGS = if ($StableRapidSettings) { "1" } else { "0" }
+$env:VDONINJA_EDGE_FINAL_WAIT_MS = [string]([Math]::Max(0, $FinalWaitMs))
+$env:PUBLISH_CHURN_PROFILE = $PublisherChurn
+$env:PUBLISH_DATA_FUZZ_PROFILE = $PublisherDataFuzz
+$env:PUBLISH_STARTUP_WAIT_MS = [string]([Math]::Max(0, $PublisherStartupWaitMs))
+$env:VIEW_PROBE_WAIT_MS = [string]([Math]::Max(0, $PublisherViewProbeWaitMs))
+$env:PUBLISH_DURATION_MS = [string]([Math]::Max(0, $PublisherKeepAliveMs))
+if ($PublisherChurnIterations -gt 0) {
+    $env:PUBLISH_CHURN_ITERATIONS = [string]$PublisherChurnIterations
+}
+if ($PublisherChurnIntervalMs -gt 0) {
+    $env:PUBLISH_CHURN_INTERVAL_MS = [string]$PublisherChurnIntervalMs
+}
+if ($PublisherExtraAudio) {
+    $env:PUBLISH_CHURN_EXTRA_AUDIO = "1"
+}
+$env:PUBLISHER_COUNT = [string]([Math]::Max(1, $PublisherCount))
+$env:PUBLISHER_STAGGER_MS = [string]([Math]::Max(0, $PublisherStaggerMs))
+if (-not [string]::IsNullOrWhiteSpace($PublisherUrlVariants)) {
+    $env:PUBLISHER_URL_VARIANTS = $PublisherUrlVariants
+}
+if ($PublisherReloads -gt 0) {
+    $env:PUBLISHER_RELOADS = [string]$PublisherReloads
+}
+if ($PublisherReloadIntervalMs -gt 0) {
+    $env:PUBLISHER_RELOAD_INTERVAL_MS = [string]$PublisherReloadIntervalMs
+}
+if ($PublisherReloadStartupWaitMs -gt 0) {
+    $env:PUBLISHER_RELOAD_STARTUP_WAIT_MS = [string]$PublisherReloadStartupWaitMs
+}
 $env:OBS_PLUGINS_PATH = $pluginPath
 $env:OBS_PLUGINS_DATA_PATH = $dataPath
 $env:PATH = "$depsBin;$env:PATH"
@@ -206,6 +264,27 @@ try {
     Write-Output "CHECK_EXIT=$checkExitCode"
     Write-Output "RAPID_ITERATIONS=$RapidIterations"
     Write-Output "RAPID_WAIT_MS=$RapidWaitMs"
+    Write-Output "EXTRA_SOURCES=$ExtraSources"
+    Write-Output "PUBLISHER_CHURN=$PublisherChurn"
+    Write-Output "PUBLISHER_CHURN_ITERATIONS=$PublisherChurnIterations"
+    Write-Output "PUBLISHER_CHURN_INTERVAL_MS=$PublisherChurnIntervalMs"
+    Write-Output "PUBLISHER_EXTRA_AUDIO=$($PublisherExtraAudio.IsPresent)"
+    Write-Output "PUBLISHER_STARTUP_WAIT_MS=$PublisherStartupWaitMs"
+    Write-Output "PUBLISHER_VIEW_PROBE_WAIT_MS=$PublisherViewProbeWaitMs"
+    Write-Output "PUBLISHER_KEEP_ALIVE_MS=$PublisherKeepAliveMs"
+    Write-Output "PUBLISHER_COUNT=$PublisherCount"
+    Write-Output "PUBLISHER_STAGGER_MS=$PublisherStaggerMs"
+    Write-Output "PUBLISHER_URL_VARIANTS=$PublisherUrlVariants"
+    Write-Output "PUBLISHER_RELOADS=$PublisherReloads"
+    Write-Output "PUBLISHER_RELOAD_INTERVAL_MS=$PublisherReloadIntervalMs"
+    Write-Output "PUBLISHER_RELOAD_STARTUP_WAIT_MS=$PublisherReloadStartupWaitMs"
+    Write-Output "PUBLISHER_DATA_FUZZ=$PublisherDataFuzz"
+    Write-Output "VIDEO_CHURN=$($VideoChurn.IsPresent)"
+    Write-Output "VIDEO_CHURN_PROFILE=$VideoChurnProfile"
+    Write-Output "SKIP_EDGE_CASES=$($SkipEdgeCases.IsPresent)"
+    Write-Output "STABLE_RAPID_SETTINGS=$($StableRapidSettings.IsPresent)"
+    Write-Output "REQUEST_TIMEOUT_MS=$RequestTimeoutMs"
+    Write-Output "FINAL_WAIT_MS=$FinalWaitMs"
     Write-Output "OBS_STARTED_AT=$($obsStartedAt.ToString("o"))"
     if (Test-Path $checkOut) {
         Get-Content $checkOut
@@ -232,4 +311,24 @@ try {
     Remove-Item Env:VDONINJA_ROOM_ID -ErrorAction SilentlyContinue
     Remove-Item Env:VDONINJA_EDGE_RAPID_ITERATIONS -ErrorAction SilentlyContinue
     Remove-Item Env:VDONINJA_EDGE_RAPID_WAIT_MS -ErrorAction SilentlyContinue
+    Remove-Item Env:VDONINJA_EDGE_EXTRA_SOURCES -ErrorAction SilentlyContinue
+    Remove-Item Env:VDONINJA_EDGE_VIDEO_CHURN -ErrorAction SilentlyContinue
+    Remove-Item Env:VDONINJA_EDGE_VIDEO_CHURN_PROFILE -ErrorAction SilentlyContinue
+    Remove-Item Env:VDONINJA_EDGE_SKIP_CASES -ErrorAction SilentlyContinue
+    Remove-Item Env:VDONINJA_EDGE_STABLE_RAPID_SETTINGS -ErrorAction SilentlyContinue
+    Remove-Item Env:VDONINJA_EDGE_FINAL_WAIT_MS -ErrorAction SilentlyContinue
+    Remove-Item Env:PUBLISH_CHURN_PROFILE -ErrorAction SilentlyContinue
+    Remove-Item Env:PUBLISH_DATA_FUZZ_PROFILE -ErrorAction SilentlyContinue
+    Remove-Item Env:PUBLISH_STARTUP_WAIT_MS -ErrorAction SilentlyContinue
+    Remove-Item Env:VIEW_PROBE_WAIT_MS -ErrorAction SilentlyContinue
+    Remove-Item Env:PUBLISH_DURATION_MS -ErrorAction SilentlyContinue
+    Remove-Item Env:PUBLISH_CHURN_ITERATIONS -ErrorAction SilentlyContinue
+    Remove-Item Env:PUBLISH_CHURN_INTERVAL_MS -ErrorAction SilentlyContinue
+    Remove-Item Env:PUBLISH_CHURN_EXTRA_AUDIO -ErrorAction SilentlyContinue
+    Remove-Item Env:PUBLISHER_COUNT -ErrorAction SilentlyContinue
+    Remove-Item Env:PUBLISHER_STAGGER_MS -ErrorAction SilentlyContinue
+    Remove-Item Env:PUBLISHER_URL_VARIANTS -ErrorAction SilentlyContinue
+    Remove-Item Env:PUBLISHER_RELOADS -ErrorAction SilentlyContinue
+    Remove-Item Env:PUBLISHER_RELOAD_INTERVAL_MS -ErrorAction SilentlyContinue
+    Remove-Item Env:PUBLISHER_RELOAD_STARTUP_WAIT_MS -ErrorAction SilentlyContinue
 }

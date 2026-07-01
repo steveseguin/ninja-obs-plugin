@@ -121,6 +121,7 @@ private:
 	void onChildAudioCaptured(const struct audio_data *audioData, bool muted);
 	void onChildAudioActivated();
 	void onChildAudioDeactivated();
+	void setObsSourceAudioActive(bool active);
 	void drainAsyncCallbacks();
 	friend void vdoninja_source_child_audio_capture(void *param, obs_source_t *source,
 	                                                const struct audio_data *audioData, bool muted);
@@ -128,6 +129,7 @@ private:
 	friend void vdoninja_source_child_audio_deactivate(void *param, calldata_t *calldata);
 
 	obs_source_t *source_ = nullptr;
+	obs_weak_source_t *sourceWeak_ = nullptr;
 	SourceSettings settings_;
 	bool internalNativeSource_ = false;
 	std::unique_ptr<VDONinjaSignaling> signaling_;
@@ -148,6 +150,7 @@ private:
 	std::atomic<bool> remoteMediaVideoMuted_{false};
 	std::atomic<bool> remoteDirectorVideoMuted_{false};
 	std::atomic<bool> remoteVirtualHangup_{false};
+	std::atomic<bool> sourceAudioActive_{false};
 	std::atomic<bool> loggedFirstDecodedAlphaFrame_{false};
 	std::atomic<bool> loggedAlphaDecodeSubmitFailure_{false};
 	std::atomic<bool> loggedAlphaDecodeReceiveFailure_{false};

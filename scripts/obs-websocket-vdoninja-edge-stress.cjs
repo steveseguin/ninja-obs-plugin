@@ -137,6 +137,17 @@ function parseBoolean(value, fallback = false) {
   return normalized === "1" || normalized === "true" || normalized === "yes" || normalized === "on";
 }
 
+function parseNonNegativeInteger(value, fallback = 0) {
+  if (value === undefined || value === null || value === "") {
+    return fallback;
+  }
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    return fallback;
+  }
+  return Math.max(0, Math.trunc(parsed));
+}
+
 function logStep(message) {
   console.error(`[obs-edge-stress] ${message}`);
 }
@@ -218,6 +229,130 @@ function buildInputReference(inputName, inputUuid) {
   return inputUuid ? { inputUuid } : { inputName };
 }
 
+function pickVideoSettings(settings) {
+  const keys = ["baseWidth", "baseHeight", "outputWidth", "outputHeight", "fpsNumerator", "fpsDenominator"];
+  const result = {};
+  for (const key of keys) {
+    if (typeof settings[key] === "number" && Number.isFinite(settings[key])) {
+      result[key] = settings[key];
+    }
+  }
+  return result;
+}
+
+function buildExtraSourceSettings(index, streamId, password, roomId) {
+  return {
+    stream_id: streamId,
+    password,
+    room_id: roomId,
+    use_native_receiver: index % 2 === 0,
+    enable_data_channel: index % 3 !== 0,
+    auto_reconnect: true,
+    width: 640 + index * 160,
+    height: 360 + index * 90,
+  };
+}
+
+async function createVdoInput(client, sceneName, inputName, settings) {
+  const createResponse = await client.request("CreateInput", {
+    sceneName,
+    inputName,
+    inputKind: "vdoninja_source",
+    inputSettings: settings,
+    sceneItemEnabled: true,
+  });
+  return {
+    inputName,
+    inputUuid: createResponse.inputUuid || createResponse.inputUUID || null,
+    sceneItemId: createResponse.sceneItemId,
+  };
+}
+
+async function createExtraSources(client, sceneName, baseInputName, count, streamId, password, roomId) {
+  const extras = [];
+  for (let index = 0; index < count; index += 1) {
+    const extraInputName = `${baseInputName} extra ${index + 1}`;
+    logStep(`creating extra input ${extraInputName}`);
+    const extra = await createVdoInput(
+      client,
+      sceneName,
+      extraInputName,
+      buildExtraSourceSettings(index, streamId, password, roomId)
+    );
+    extras.push(extra);
+    if (extra.sceneItemId !== undefined && extra.sceneItemId !== null) {
+      await client.request("SetSceneItemTransform", {
+        sceneName,
+        sceneItemId: extra.sceneItemId,
+        sceneItemTransform: {
+          positionX: 40 + (index % 3) * 220,
+          positionY: 420 + Math.floor(index / 3) * 160,
+          scaleX: 0.35,
+          scaleY: 0.35,
+        },
+      });
+    }
+    await sleep(250);
+  }
+  return extras;
+}
+
+async function runVideoSettingsChurn(client, originalVideoSettings) {
+  const profile = String(process.env.VDONINJA_EDGE_VIDEO_CHURN_PROFILE || "standard").trim().toLowerCase();
+  const cases = [
+    { name: "qhd-60", settings: { baseWidth: 2560, baseHeight: 1440, outputWidth: 2560, outputHeight: 1440, fpsNumerator: 60, fpsDenominator: 1 } },
+    { name: "ntsc-720p", settings: { baseWidth: 1280, baseHeight: 720, outputWidth: 1280, outputHeight: 720, fpsNumerator: 30000, fpsDenominator: 1001 } },
+    { name: "uhd-30", settings: { baseWidth: 3840, baseHeight: 2160, outputWidth: 3840, outputHeight: 2160, fpsNumerator: 30, fpsDenominator: 1 } },
+    { name: "small-30", settings: { baseWidth: 640, baseHeight: 360, outputWidth: 640, outputHeight: 360, fpsNumerator: 30, fpsDenominator: 1 } },
+  ];
+  if (profile === "aggressive") {
+    cases.push(
+      { name: "uhd-60", settings: { baseWidth: 3840, baseHeight: 2160, outputWidth: 3840, outputHeight: 2160, fpsNumerator: 60, fpsDenominator: 1 } },
+      { name: "portrait-1080p-60", settings: { baseWidth: 1080, baseHeight: 1920, outputWidth: 1080, outputHeight: 1920, fpsNumerator: 60, fpsDenominator: 1 } },
+      { name: "ultrawide-120", settings: { baseWidth: 3440, baseHeight: 1440, outputWidth: 3440, outputHeight: 1440, fpsNumerator: 120, fpsDenominator: 1 } },
+      { name: "odd-59-94", settings: { baseWidth: 853, baseHeight: 481, outputWidth: 853, outputHeight: 481, fpsNumerator: 60000, fpsDenominator: 1001 } },
+      { name: "tiny-15", settings: { baseWidth: 160, baseHeight: 90, outputWidth: 160, outputHeight: 90, fpsNumerator: 15, fpsDenominator: 1 } }
+    );
+  }
+  const results = [];
+
+  for (const edgeCase of cases) {
+    logStep(`video settings ${edgeCase.name}`);
+    const beforeStats = copyStats(await client.request("GetStats").catch(() => ({})));
+    try {
+      await client.request("SetVideoSettings", edgeCase.settings);
+      await sleep(1500);
+      const observedSettings = pickVideoSettings(await client.request("GetVideoSettings").catch(() => ({})));
+      const afterStats = copyStats(await client.request("GetStats").catch(() => ({})));
+      results.push({
+        name: edgeCase.name,
+        requestedSettings: edgeCase.settings,
+        observedSettings,
+        statsBefore: beforeStats,
+        statsAfter: afterStats,
+      });
+    } catch (error) {
+      results.push({
+        name: edgeCase.name,
+        requestedSettings: edgeCase.settings,
+        statsBefore: beforeStats,
+        error: String(error && error.message ? error.message : error),
+      });
+    }
+  }
+
+  logStep("restoring video settings");
+  await client.request("SetVideoSettings", originalVideoSettings);
+  await sleep(1500);
+
+  return {
+    profile,
+    originalSettings: originalVideoSettings,
+    results,
+    restoredSettings: pickVideoSettings(await client.request("GetVideoSettings").catch(() => ({}))),
+  };
+}
+
 async function applyCase(client, inputName, inputUuid, sceneName, sceneItemId, edgeCase) {
   logStep(`case ${edgeCase.name}`);
   const beforeStats = copyStats(await client.request("GetStats").catch(() => ({})));
@@ -253,7 +388,18 @@ async function applyCase(client, inputName, inputUuid, sceneName, sceneItemId, e
   };
 }
 
-async function runRapidMutationLoop(client, inputName, inputUuid, sceneName, sceneItemId, streamId, password, roomId) {
+async function runRapidMutationLoop(
+  client,
+  inputName,
+  inputUuid,
+  sceneName,
+  sceneItemId,
+  streamId,
+  password,
+  roomId,
+  extraInputs = [],
+  stableSettings = false
+) {
   const iterations = Number(process.env.VDONINJA_EDGE_RAPID_ITERATIONS || 30);
   const waitMs = Number(process.env.VDONINJA_EDGE_RAPID_WAIT_MS || 150);
   const dimensions = [
@@ -273,16 +419,27 @@ async function runRapidMutationLoop(client, inputName, inputUuid, sceneName, sce
     toggle = !toggle;
     await client.request("SetInputSettings", {
       ...buildInputReference(inputName, inputUuid),
-      inputSettings: {
-        stream_id: index % 9 === 0 ? "" : streamId,
-        password: index % 7 === 0 ? "edge rapid /#$" : password,
-        room_id: index % 5 === 0 ? "rapid-room" : roomId,
-        use_native_receiver: toggle,
-        enable_data_channel: index % 4 !== 0,
-        auto_reconnect: index % 3 !== 0,
-        width,
-        height,
-      },
+      inputSettings: stableSettings
+        ? {
+            stream_id: streamId,
+            password,
+            room_id: roomId,
+            use_native_receiver: true,
+            enable_data_channel: true,
+            auto_reconnect: true,
+            width,
+            height,
+          }
+        : {
+            stream_id: index % 9 === 0 ? "" : streamId,
+            password: index % 7 === 0 ? "edge rapid /#$" : password,
+            room_id: index % 5 === 0 ? "rapid-room" : roomId,
+            use_native_receiver: toggle,
+            enable_data_channel: index % 4 !== 0,
+            auto_reconnect: index % 3 !== 0,
+            width,
+            height,
+          },
       overlay: true,
     });
 
@@ -304,6 +461,52 @@ async function runRapidMutationLoop(client, inputName, inputUuid, sceneName, sce
       },
     });
 
+    for (let extraIndex = 0; extraIndex < extraInputs.length; extraIndex += 1) {
+      const extra = extraInputs[extraIndex];
+      if (extra.sceneItemId === undefined || extra.sceneItemId === null) {
+        continue;
+      }
+      await client.request("SetSceneItemEnabled", {
+        sceneName,
+        sceneItemId: extra.sceneItemId,
+        sceneItemEnabled: (index + extraIndex) % 5 !== 0,
+      });
+      await client.request("SetSceneItemTransform", {
+        sceneName,
+        sceneItemId: extra.sceneItemId,
+        sceneItemTransform: {
+          positionX: 40 + ((index * 23 + extraIndex * 170) % 720),
+          positionY: 400 + ((index * 17 + extraIndex * 70) % 260),
+          scaleX: index % 3 === 0 ? 0.25 : 0.45,
+          scaleY: index % 4 === 0 ? 0.25 : 0.45,
+          rotation: (index * 11 + extraIndex * 19) % 360,
+        },
+      });
+      if (index % 8 === 0) {
+        await client.request("SetInputSettings", {
+          ...buildInputReference(extra.inputName, extra.inputUuid),
+          inputSettings: stableSettings
+            ? {
+                stream_id: streamId,
+                password,
+                room_id: roomId,
+                use_native_receiver: extraIndex % 2 === 0,
+                enable_data_channel: extraIndex % 3 !== 0,
+                auto_reconnect: true,
+                width: dimensions[(index + extraIndex) % dimensions.length][0],
+                height: dimensions[(index + extraIndex) % dimensions.length][1],
+              }
+            : {
+                use_native_receiver: (index + extraIndex) % 2 === 0,
+                enable_data_channel: (index + extraIndex) % 3 !== 0,
+                width: dimensions[(index + extraIndex) % dimensions.length][0],
+                height: dimensions[(index + extraIndex) % dimensions.length][1],
+              },
+          overlay: true,
+        });
+      }
+    }
+
     if (waitMs > 0) {
       await sleep(waitMs);
     }
@@ -318,6 +521,7 @@ async function runRapidMutationLoop(client, inputName, inputUuid, sceneName, sce
   return {
     iterations,
     waitMs,
+    stableSettings,
     durationMs: Date.now() - startedAt,
   };
 }
@@ -328,6 +532,10 @@ async function main() {
   const password = process.env.VDONINJA_PASSWORD || process.argv[3] || "false";
   const roomId = process.env.VDONINJA_ROOM_ID || process.argv[4] || "";
   const keepScene = parseBoolean(process.env.VDONINJA_KEEP_SCENE, false);
+  const extraSourceCount = parseNonNegativeInteger(process.env.VDONINJA_EDGE_EXTRA_SOURCES, 0);
+  const videoChurn = parseBoolean(process.env.VDONINJA_EDGE_VIDEO_CHURN, false);
+  const skipEdgeCases = parseBoolean(process.env.VDONINJA_EDGE_SKIP_CASES, false);
+  const stableRapidSettings = parseBoolean(process.env.VDONINJA_EDGE_STABLE_RAPID_SETTINGS, false);
   const stamp = Date.now();
   const sceneName = `Codex Edge Stress ${stamp}`;
   const inputName = `Codex Edge VDO Source ${stamp}`;
@@ -336,9 +544,11 @@ async function main() {
 
   let previousSceneName = null;
   let createdScene = false;
-  let createdInput = false;
   let sceneItemId = null;
   let inputUuid = null;
+  const createdInputs = [];
+  let extraInputs = [];
+  let originalVideoSettings = null;
 
   try {
     logStep(`connecting to ${websocketUrl}`);
@@ -359,11 +569,11 @@ async function main() {
     await client.request("SetCurrentProgramScene", { sceneName });
 
     logStep(`creating input ${inputName}`);
-    const createResponse = await client.request("CreateInput", {
+    const primaryInput = await createVdoInput(
+      client,
       sceneName,
       inputName,
-      inputKind: "vdoninja_source",
-      inputSettings: {
+      {
         stream_id: streamId,
         password,
         room_id: roomId,
@@ -372,12 +582,11 @@ async function main() {
         auto_reconnect: true,
         width: 1280,
         height: 720,
-      },
-      sceneItemEnabled: true,
-    });
-    createdInput = true;
-    sceneItemId = createResponse.sceneItemId;
-    inputUuid = createResponse.inputUuid || createResponse.inputUUID || null;
+      }
+    );
+    sceneItemId = primaryInput.sceneItemId;
+    inputUuid = primaryInput.inputUuid;
+    createdInputs.push(primaryInput);
     logStep(`created sceneItemId=${sceneItemId} inputUuid=${inputUuid || "(none)"}`);
     await sleep(500);
 
@@ -385,9 +594,25 @@ async function main() {
       throw new Error("OBS did not return sceneItemId for edge stress input");
     }
 
+    if (extraSourceCount > 0) {
+      extraInputs = await createExtraSources(client, sceneName, inputName, extraSourceCount, streamId, password, roomId);
+      createdInputs.push(...extraInputs);
+    }
+
     const caseResults = [];
-    for (const edgeCase of buildCases(streamId, password, roomId)) {
-      caseResults.push(await applyCase(client, inputName, inputUuid, sceneName, sceneItemId, edgeCase));
+    if (!skipEdgeCases) {
+      for (const edgeCase of buildCases(streamId, password, roomId)) {
+        caseResults.push(await applyCase(client, inputName, inputUuid, sceneName, sceneItemId, edgeCase));
+      }
+    } else {
+      logStep("skipping edge-case source settings");
+    }
+
+    let videoSettingsChurn = null;
+    if (videoChurn) {
+      originalVideoSettings = pickVideoSettings(await client.request("GetVideoSettings"));
+      videoSettingsChurn = await runVideoSettingsChurn(client, originalVideoSettings);
+      originalVideoSettings = null;
     }
 
     logStep("running rapid mutation loop");
@@ -399,7 +624,9 @@ async function main() {
       sceneItemId,
       streamId,
       password,
-      roomId
+      roomId,
+      extraInputs,
+      stableRapidSettings
     );
 
     logStep("restoring final valid source settings");
@@ -434,7 +661,15 @@ async function main() {
       sceneName,
       inputName,
       inputUuid,
+      skipEdgeCases,
+      stableRapidSettings,
+      extraSources: extraInputs.map((extra) => ({
+        inputName: extra.inputName,
+        inputUuid: extra.inputUuid,
+        sceneItemId: extra.sceneItemId,
+      })),
       caseResults,
+      videoSettingsChurn,
       rapidMutation,
       finalSettings: finalSettings && finalSettings.inputSettings ? finalSettings.inputSettings : null,
       finalStats,
@@ -446,9 +681,12 @@ async function main() {
   } finally {
     if (client.socket && client.socket.readyState === WebSocket.OPEN) {
       try {
+        if (originalVideoSettings) {
+          await client.request("SetVideoSettings", originalVideoSettings).catch(() => {});
+        }
         if (!keepScene) {
-          if (createdInput) {
-            await client.request("RemoveInput", buildInputReference(inputName, inputUuid)).catch(() => {});
+          for (const input of [...createdInputs].reverse()) {
+            await client.request("RemoveInput", buildInputReference(input.inputName, input.inputUuid)).catch(() => {});
           }
           if (createdScene && previousSceneName) {
             await client.request("SetCurrentProgramScene", { sceneName: previousSceneName }).catch(() => {});
