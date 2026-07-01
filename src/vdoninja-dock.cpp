@@ -9,6 +9,7 @@
 #include <QSpinBox>
 #include <QVBoxLayout>
 #include <cstring>
+#include <optional>
 
 #include <util/config-file.h>
 
@@ -176,6 +177,10 @@ void VDONinjaDock::setupUi()
 	lblStats->setWordWrap(true);
 	lblStats->setAlignment(Qt::AlignCenter);
 
+	lblSystemCpu = new QLabel(grpStatus);
+	lblSystemCpu->setAlignment(Qt::AlignCenter);
+	lblSystemCpu->setStyleSheet("font-weight: bold; font-size: 12px; color: #888888;");
+
 	// Chat display
 	lblChat = new QLabel(grpStatus);
 	lblChat->setWordWrap(true);
@@ -187,6 +192,7 @@ void VDONinjaDock::setupUi()
 	statusLayout->addWidget(lblStatus);
 	statusLayout->addWidget(lblTally);
 	statusLayout->addWidget(lblStats);
+	statusLayout->addWidget(lblSystemCpu);
 	statusLayout->addWidget(lblChat);
 
 	layout->addWidget(grpStatus);
@@ -478,6 +484,19 @@ void VDONinjaDock::updateStats()
 	} else {
 		lblStats->setText(obs_module_text_vdo("VDONinja.Dock.NoStats"));
 		lblTally->setVisible(false);
+	}
+
+	std::optional<double> systemCpu = systemCpuSampler.query();
+	if (systemCpu) {
+		const double usage = *systemCpu;
+
+		lblSystemCpu->setText(
+		    QString("%1: %2%").arg(obs_module_text_vdo("VDONinja.Dock.SystemCpu")).arg(usage, 0, 'f', 0));
+		lblSystemCpu->setStyleSheet(
+		    QString("font-weight: bold; font-size: 12px; color: %1;").arg(systemCpuStatusColor(usage)));
+	} else {
+		lblSystemCpu->setText(QString("%1: --%").arg(obs_module_text_vdo("VDONinja.Dock.SystemCpu")));
+		lblSystemCpu->setStyleSheet("font-weight: bold; font-size: 12px; color: #888888;");
 	}
 }
 

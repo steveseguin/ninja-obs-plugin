@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Added a VDO.Ninja dock System CPU readout that samples total host CPU usage and color-codes elevated load.
+
+### Fixed
+- Hardened System CPU sampling against invalid OS counter deltas and added focused unit coverage.
+
 ## [1.1.49] - 2026-06-30
 
 ### Added

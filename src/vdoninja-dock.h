@@ -12,6 +12,8 @@
 #include <QTimer>
 #include <QVBoxLayout>
 
+#include "vdoninja-system-cpu.h"
+
 namespace vdoninja
 {
 
@@ -61,10 +63,12 @@ private:
 	QLabel *lblStatus;
 	QLabel *lblTally;
 	QLabel *lblStats;
+	QLabel *lblSystemCpu;
 	QLabel *lblChat;
 
 	QTimer *statsTimer;
 	QTimer *chatClearTimer;
+	SystemCpuSampler systemCpuSampler;
 };
 
 } // namespace vdoninja

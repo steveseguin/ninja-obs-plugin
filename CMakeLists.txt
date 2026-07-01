@@ -310,6 +310,7 @@ if(BUILD_PLUGIN)
         src/vdoninja-layout.cpp
         src/vdoninja-peer-manager.cpp
         src/vdoninja-data-channel.cpp
+        src/vdoninja-system-cpu.cpp
         src/vdoninja-utils.cpp
         src/vdoninja-dock.cpp
     )
@@ -327,6 +328,7 @@ if(BUILD_PLUGIN)
         src/vdoninja-layout.h
         src/vdoninja-peer-manager.h
         src/vdoninja-data-channel.h
+        src/vdoninja-system-cpu.h
         src/vdoninja-utils.h
         src/vdoninja-dock.h
     )
@@ -510,6 +512,7 @@ if(BUILD_TESTS)
         src/vdoninja-signaling.cpp
         src/vdoninja-signaling-protocol.cpp
         src/vdoninja-layout.cpp
+        src/vdoninja-system-cpu.cpp
     )
 
     # Create a static library for testable code (with OBS stubs)
@@ -543,6 +546,7 @@ if(BUILD_TESTS)
         tests/test-signaling-protocol.cpp
         tests/test-signaling-state.cpp
         tests/test-layout.cpp
+        tests/test-system-cpu.cpp
         tests/test-vp9-rtp.cpp
     )
 
