@@ -2469,31 +2469,11 @@ void VDONinjaSource::videoRender(gs_effect_t *effect)
 
 uint32_t VDONinjaSource::getWidth() const
 {
-	if (!isInternalNativeSource()) {
-		obs_source_t *child = acquireActiveChildSource();
-		const uint32_t childWidth = child ? obs_source_get_width(child) : 0;
-		if (child) {
-			obs_source_release(child);
-		}
-		if (childWidth != 0) {
-			return childWidth;
-		}
-	}
 	return width_;
 }
 
 uint32_t VDONinjaSource::getHeight() const
 {
-	if (!isInternalNativeSource()) {
-		obs_source_t *child = acquireActiveChildSource();
-		const uint32_t childHeight = child ? obs_source_get_height(child) : 0;
-		if (child) {
-			obs_source_release(child);
-		}
-		if (childHeight != 0) {
-			return childHeight;
-		}
-	}
 	return height_;
 }
 

@@ -3,7 +3,8 @@
 Last reviewed: 2026-07-01 after OBS native-source stress testing, official
 VDO.Ninja churn comparison, publisher track/data-channel churn harnessing,
 native receiver dimension-update handling, source audio-active lifetime
-hardening, VP9 hardware-decode crash guarding, parser fuzzing, official
+hardening, wrapper dimension callback lock avoidance, VP9 hardware-decode crash
+guarding, parser fuzzing, official
 signaling/data-channel alignment, director-only control rejection, structured
 media-control fanout, room-state/recovery/mesh cleanup alignment, and
 active-field precedence review.
@@ -251,6 +252,10 @@ Source wrapper state:
 - child config caches: URL, width, height, source settings. These gates prevent
   wrapper updates from recreating children or forwarding redundant private-child
   settings updates.
+- reported dimensions: OBS width/height callbacks return the wrapper's cached
+  configured dimensions. They must not query the private child source because
+  OBS may call them while video settings, scene items, or source rendering hold
+  OBS source/video locks.
 
 Native receiver state:
 
@@ -1422,6 +1427,9 @@ Flow: browser child media
 2. Audio: child audio capture callback forwards captured audio to wrapper source.
 3. Audio state: child audio activate/deactivate mirrors wrapper source audio
    active state.
+4. Dimension reporting: public wrapper `get_width` / `get_height` reports the
+   wrapper's cached configured dimensions, not the child source's live
+   dimensions.
 
 Flow: wrapper child lifecycle mirroring
 
@@ -1456,6 +1464,9 @@ Invariant:
 - Wrapper property updates should not recreate the browser child unless URL or
   dimensions changed.
 - Child active/showing refcounts must be detached before releasing the child.
+- OBS width/height callbacks are lock-sensitive. Do not call
+  `obs_source_get_width` or `obs_source_get_height` on the private child from
+  public wrapper dimension callbacks.
 
 ## Native Receiver Flow
 
@@ -2710,6 +2721,32 @@ Fix: source audio-active updates are weak-handle and state coalesced.
   current stress matrix.
 - Review rule: queued OBS tasks must not retain raw source pointers unless the
   OBS API contract explicitly guarantees lifetime through the queued execution.
+
+Fix: source wrapper dimension callbacks avoid child-source OBS locks.
+
+- Source anchor: `VDONinjaSource::getWidth` and `VDONinjaSource::getHeight` in
+  `src/vdoninja-source.cpp`.
+- Discovery: aggressive UI/canvas/video stress with live publisher
+  replaceTrack/null/extra-audio/data fuzz reproduced an obs-websocket
+  `SetVideoSettings` restore timeout. The wrapper captured
+  `artifacts\obs-edge-capture-20260701-174132-obs-websocket-timeout`, including
+  a live OBS minidump. `cdb` thread stacks showed obs-websocket waiting on OBS
+  video state while a render path was inside plugin code calling
+  `obs_source_get_height` on the private child source.
+- Workflow: the public wrapper source now reports its configured `width` and
+  `height` directly. Private child source dimensions are still cached and used
+  to decide when child settings need updating, but the OBS callback path no
+  longer re-enters child source locks during global video reconfiguration.
+- Validation: after rebuilding and installing to `install-obs32`, the same
+  aggressive command passed and wrote
+  `artifacts\obs-edge-stress-1782942349789.json`. A broader lifecycle run with
+  invalid dimensions, native/browser mode toggles, two publishers, reloads,
+  mixed codec URL variants, extra audio, source mutations, and standard video
+  churn also passed and wrote
+  `artifacts\obs-edge-stress-1782942440345.json`.
+- Review rule: public OBS source callbacks used from render/layout paths should
+  use cached wrapper state where possible and avoid querying child sources or
+  other OBS-owned objects that may be locked by video-setting changes.
 
 ## Validation Snapshot
 

@@ -117,6 +117,117 @@ function Quote-ProcessArgument {
     return '"' + ($Argument -replace '"', '\"') + '"'
 }
 
+function Copy-IfExists {
+    param(
+        [string]$Path,
+        [string]$DestinationDirectory
+    )
+
+    if (-not [string]::IsNullOrWhiteSpace($Path) -and (Test-Path $Path)) {
+        Copy-Item -Path $Path -Destination $DestinationDirectory -Force -ErrorAction SilentlyContinue
+    }
+}
+
+function Capture-ObsEdgeEvidence {
+    param(
+        [System.Diagnostics.Process]$ObsProcess,
+        [string]$Reason
+    )
+
+    $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
+    $safeReason = ($Reason -replace '[^A-Za-z0-9_.-]', '_')
+    $captureDir = Join-Path $artifactRoot "obs-edge-capture-$stamp-$safeReason"
+    New-Item -ItemType Directory -Path $captureDir -Force | Out-Null
+
+    $obsLogsDir = Join-Path $repoRoot "_obs-portable\config\obs-studio\logs"
+    $metadataPath = Join-Path $captureDir "metadata.json"
+    $processPath = Join-Path $captureDir "obs-process.txt"
+    $dumpOut = Join-Path $captureDir "minidump.stdout.log"
+    $dumpErr = Join-Path $captureDir "minidump.stderr.log"
+    $dumpStatus = Join-Path $captureDir "minidump-status.txt"
+
+    $metadata = [ordered]@{
+        capturedAt = (Get-Date).ToString("o")
+        reason = $Reason
+        streamId = $StreamId
+        obsPid = if ($ObsProcess) { $ObsProcess.Id } else { $null }
+        obsHasExited = if ($ObsProcess) {
+            try {
+                $ObsProcess.Refresh()
+                $ObsProcess.HasExited
+            } catch {
+                $true
+            }
+        } else {
+            $null
+        }
+        obsStartedAt = if ($obsStartedAt) { $obsStartedAt.ToString("o") } else { $null }
+        requestTimeoutMs = $RequestTimeoutMs
+        checkTimeoutSeconds = $CheckTimeoutSeconds
+        videoChurn = $VideoChurn.IsPresent
+        videoChurnProfile = $VideoChurnProfile
+        publisherChurn = $PublisherChurn
+        publisherDataFuzz = $PublisherDataFuzz
+        rapidIterations = $RapidIterations
+        rapidWaitMs = $RapidWaitMs
+        extraSources = $ExtraSources
+    }
+    $metadata | ConvertTo-Json -Depth 4 | Set-Content -Path $metadataPath -Encoding UTF8
+
+    foreach ($path in @($obsStdout, $obsStderr, $publisherOut, $publisherErr, $checkOut, $checkErr)) {
+        Copy-IfExists -Path $path -DestinationDirectory $captureDir
+    }
+
+    if (Test-Path $obsLogsDir) {
+        Get-ChildItem $obsLogsDir -Filter "*.txt" -File -ErrorAction SilentlyContinue |
+            Sort-Object LastWriteTime -Descending |
+            Select-Object -First 5 |
+            Copy-Item -Destination $captureDir -Force -ErrorAction SilentlyContinue
+    }
+
+    if ($ObsProcess) {
+        try {
+            $ObsProcess.Refresh()
+            $ObsProcess | Format-List * | Out-File -FilePath $processPath -Encoding UTF8
+            $cim = Get-CimInstance Win32_Process -Filter "ProcessId = $($ObsProcess.Id)" -ErrorAction SilentlyContinue
+            if ($cim) {
+                "`n--- Win32_Process ---`n" | Out-File -FilePath $processPath -Encoding UTF8 -Append
+                $cim | Format-List * | Out-File -FilePath $processPath -Encoding UTF8 -Append
+            }
+        } catch {
+            "Failed to write process metadata: $($_.Exception.Message)" | Out-File -FilePath $processPath -Encoding UTF8
+        }
+
+        if (-not $ObsProcess.HasExited) {
+            $dumpPath = Join-Path $captureDir "obs64-$($ObsProcess.Id).dmp"
+            $rundll32 = Join-Path $env:windir "System32\rundll32.exe"
+            $comsvcs = Join-Path $env:windir "System32\comsvcs.dll"
+            try {
+                $dumpArgs = @("$comsvcs,MiniDump", $ObsProcess.Id, $dumpPath, "full")
+                $dumpProc = Start-Process -FilePath $rundll32 `
+                    -ArgumentList $dumpArgs `
+                    -RedirectStandardOutput $dumpOut `
+                    -RedirectStandardError $dumpErr `
+                    -WindowStyle Hidden `
+                    -Wait `
+                    -PassThru
+                if (Test-Path $dumpPath) {
+                    $currentIdentity = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
+                    & icacls $dumpPath /grant ($currentIdentity + ":(R)") | Out-Null
+                }
+                "MiniDump exit code: $($dumpProc.ExitCode)`nDump path: $dumpPath" |
+                    Out-File -FilePath $dumpStatus -Encoding UTF8
+            } catch {
+                "MiniDump failed: $($_.Exception.Message)" | Out-File -FilePath $dumpStatus -Encoding UTF8
+            }
+        } else {
+            "OBS already exited; no live process dump captured." | Out-File -FilePath $dumpStatus -Encoding UTF8
+        }
+    }
+
+    Write-Output "OBS_EDGE_CAPTURE=$captureDir"
+}
+
 $existingObs = @(Get-RunningProcessByExecutablePath -ExecutablePath $obsExePath)
 if ($existingObs.Count -gt 0) {
     $existingIds = ($existingObs | Select-Object -ExpandProperty ProcessId) -join ", "
@@ -235,6 +346,7 @@ try {
     try {
         Wait-Process -Id $checkProc.Id -Timeout $CheckTimeoutSeconds -ErrorAction Stop
     } catch {
+        Capture-ObsEdgeEvidence -ObsProcess $obsProc -Reason "check-process-timeout"
         if ($checkProc -and -not $checkProc.HasExited) {
             Stop-Process -Id $checkProc.Id -Force -ErrorAction SilentlyContinue
         }
@@ -243,9 +355,9 @@ try {
     $checkProc.WaitForExit()
     $checkProc.Refresh()
     $checkExitCode = $checkProc.ExitCode
+    $checkStderrText = if (Test-Path $checkErr) { Get-Content $checkErr -Raw } else { "" }
+    $checkStdoutText = if (Test-Path $checkOut) { Get-Content $checkOut -Raw } else { "" }
     if ($null -eq $checkExitCode) {
-        $checkStderrText = if (Test-Path $checkErr) { Get-Content $checkErr -Raw } else { "" }
-        $checkStdoutText = if (Test-Path $checkOut) { Get-Content $checkOut -Raw } else { "" }
         $checkExitCode = if ($checkStderrText -match "(?m)^Error:" -or $checkStdoutText -notmatch '"ok"\s*:\s*true') {
             1
         } else {
@@ -256,6 +368,7 @@ try {
 
     $obsProc.Refresh()
     if ($obsProc.HasExited) {
+        Capture-ObsEdgeEvidence -ObsProcess $obsProc -Reason "obs-exited"
         throw "OBS exited during edge stress with code $($obsProc.ExitCode)"
     }
 
@@ -293,6 +406,11 @@ try {
         Get-Content $checkErr
     }
     if ($checkExitCode -ne 0) {
+        $timeoutLikeFailure = $checkStderrText -match "Timed out after|obs-websocket connection closed|not connected" -or
+            $checkStdoutText -match "Timed out after|obs-websocket connection closed|not connected"
+        if ($timeoutLikeFailure) {
+            Capture-ObsEdgeEvidence -ObsProcess $obsProc -Reason "obs-websocket-timeout"
+        }
         throw "Edge stress failed with exit code $checkExitCode"
     }
 } finally {

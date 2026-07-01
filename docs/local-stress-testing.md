@@ -80,6 +80,13 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\run-vdoninja-source-
 # Heavier local-only pass: allow slower obs-websocket replies while OBS is overloaded.
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\run-vdoninja-source-edge-stress.ps1 -StreamId edgeHeavy1 -Password false -InstallPrefix .\install-obs32 -ExtraSources 5 -VideoChurn -RapidIterations 80 -RapidWaitMs 75 -RequestTimeoutMs 120000 -CheckTimeoutSeconds 600
 
+# Aggressive UI/canvas/video churn with live publisher track/data fuzz.
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\run-vdoninja-source-edge-stress.ps1 -StreamId edgeUiCanvasFuzz1 -Password false -PushUrl "https://vdo.ninja/?push=edgeUiCanvasFuzz1&password=false&webcam=1&autostart=1&codec=h264&stereo=2" -ViewUrl "https://vdo.ninja/?view=edgeUiCanvasFuzz1&password=false&codec=h264&stereo=multi" -InstallPrefix .\install-obs32 -PublisherChurn aggressive -PublisherDataFuzz aggressive -PublisherChurnIterations 120 -PublisherChurnIntervalMs 450 -PublisherStartupWaitMs 3000 -PublisherViewProbeWaitMs 5000 -PublisherKeepAliveMs 20000 -PublisherWarmupSeconds 10 -VideoChurn -VideoChurnProfile aggressive -ExtraSources 3 -SkipEdgeCases -RapidIterations 80 -RapidWaitMs 75 -RequestTimeoutMs 120000 -CheckTimeoutSeconds 600
+
+# Broader source lifecycle pass: invalid settings, browser/native mode toggles,
+# two publishers, reloads, mixed codecs, and extra audio while OBS video churns.
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\run-vdoninja-source-edge-stress.ps1 -StreamId edgeLifecycleFuzz1 -Password false -PushUrl "https://vdo.ninja/?push=edgeLifecycleFuzz1&password=false&autostart=1" -ViewUrl "https://vdo.ninja/?view=edgeLifecycleFuzz1&password=false&codec=h264&stereo=multi" -InstallPrefix .\install-obs32 -PublisherChurn aggressive -PublisherDataFuzz aggressive -PublisherExtraAudio -PublisherChurnIterations 90 -PublisherChurnIntervalMs 500 -PublisherStartupWaitMs 3000 -PublisherViewProbeWaitMs 5000 -PublisherKeepAliveMs 25000 -PublisherWarmupSeconds 10 -PublisherCount 2 -PublisherStaggerMs 1000 -PublisherUrlVariants "codec=h264&stereo=2;codec=vp9&stereo=1" -PublisherReloads 1 -PublisherReloadIntervalMs 12000 -PublisherReloadStartupWaitMs 5000 -VideoChurn -VideoChurnProfile standard -ExtraSources 2 -RapidIterations 45 -RapidWaitMs 100 -RequestTimeoutMs 120000 -CheckTimeoutSeconds 480
+
 # Isolate OBS video reset behavior without first abusing VDO source settings.
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\run-vdoninja-source-edge-stress.ps1 -StreamId edgeVideoOnly1 -Password false -InstallPrefix .\install-obs32 -VideoChurn -SkipEdgeCases -RapidIterations 10 -CheckTimeoutSeconds 240
 ```
@@ -134,17 +141,21 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\run-vdoninja-source-
   tracks/resolution and OBS is changing scene transforms, without also forcing constant signaling teardown.
 - `-RequestTimeoutMs` controls the per-request obs-websocket timeout. Keep the default for normal checks; increase it
   for local overload tests so a slow OBS reply is not confused with an OBS process crash.
+- `run-vdoninja-source-edge-stress.ps1` captures timeout evidence automatically when OBS exits, the checker process
+  times out, or obs-websocket reports timeout/closed/not-connected text. Evidence is written to
+  `artifacts\obs-edge-capture-<timestamp>-<reason>` and includes wrapper stdout/stderr, the latest portable OBS logs,
+  process metadata, and a live OBS minidump when OBS is still running.
 
 ## Interpreting Failures
 
 - A new WER dump under `%LOCALAPPDATA%\CrashDumps` or an early OBS process exit is a crash.
-- A `SetVideoSettings` or `SetSceneItemEnabled` timeout without a new dump usually means OBS stayed alive but the UI/API
-  thread was overloaded by the stress case. Re-run with a larger `-RequestTimeoutMs` to separate slow recovery from a
-  real deadlock.
-- Current observed local boundary: `-VideoChurn` passes with no publisher and also passes with a normal live publisher.
-  Combining `-VideoChurn` with aggressive publisher replace/null/extra-audio churn reproduced a `SetSceneItemEnabled`
-  timeout at 90 seconds without producing a new OBS crash dump. Treat this as an overload/starvation case unless WER
-  captures a new `obs64.exe` dump or OBS exits early.
+- A `SetVideoSettings` or `SetSceneItemEnabled` timeout now should have an `OBS_EDGE_CAPTURE=...` artifact path. Inspect
+  `metadata.json`, the copied OBS log, and `minidump-status.txt` first. If a dump exists, run `cdb -z <dump> -c "~* k; q"`
+  and look for plugin callbacks waiting inside OBS source/video locks.
+- A previous `SetVideoSettings` timeout during aggressive publisher track/data churn plus aggressive OBS video churn was
+  traced to wrapper width/height callbacks querying the private child source during OBS video reconfiguration. The source
+  now reports cached wrapper dimensions instead, and the same aggressive UI/canvas/video command completed successfully
+  afterward.
 - Publisher churn failures are not automatically plugin crashes. Check the edge-stress JSON report and
   `artifacts\obs-source-edge-publisher.out.log`; if `publisherChurn.errors` contains browser `replaceTrack` or
   `addTrack` rejections but OBS stays alive and continues responding, the harness found a browser negotiation limit
@@ -158,7 +169,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\run-vdoninja-source-
 - GitHub Actions runners.
 - Installer packaging.
 - Long real-user OBS sessions with many manually managed scenes.
-- Native crash dump capture by default.
+- Native crash dump capture from the top-level `run-vdoninja-local-stress.ps1` aggregator. The edge source wrapper
+  captures a live OBS minidump only on timeout/OBS-exit evidence paths.
 - OS/GPU-only display modes such as HDR, VRR, or multi-monitor color-space changes. Those still need manual Windows
   display changes or a dedicated machine profile, but the edge source stress covers plugin-side settings that can mimic
   the same oversized-canvas and reconfiguration pressure. `&stereo=2`, `&stereo=multi`, `&pcm`, `&codec=h264`, and
