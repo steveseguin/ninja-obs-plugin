@@ -83,6 +83,7 @@ private:
 	void handlePeerCleanupSignal(const std::string &uuid);
 	void handleStreamRemovedSignal(const std::string &streamId, const std::string &uuid);
 	void handlePeerDisconnected(const std::string &uuid);
+	void markNativePeerConnectedIfReady(const std::string &uuid, const char *reason);
 	bool matchesTargetStreamId(const std::string &streamId) const;
 	void clearNativeVideoOutput(const char *reason);
 	void onVideoTrack(const std::string &uuid, std::shared_ptr<rtc::Track> track);
@@ -145,6 +146,7 @@ private:
 	std::atomic<bool> loggedVideoDecodeSubmitFailure_{false};
 	std::atomic<bool> loggedFirstAudioPacket_{false};
 	std::atomic<bool> loggedFirstDecodedAudioFrame_{false};
+	std::atomic<bool> loggedAudioDecodeSubmitFailure_{false};
 	std::atomic<bool> remoteAudioMuted_{false};
 	std::atomic<bool> remoteVideoMuted_{false};
 	std::atomic<bool> remoteMediaVideoMuted_{false};
@@ -164,9 +166,15 @@ private:
 	std::shared_ptr<rtc::Track> videoTrack_;
 	std::shared_ptr<rtc::Track> alphaVideoTrack_;
 	std::shared_ptr<rtc::Track> audioTrack_;
+	std::shared_ptr<rtc::Track> pendingVideoTrack_;
+	std::shared_ptr<rtc::Track> pendingAlphaVideoTrack_;
+	std::shared_ptr<rtc::Track> pendingAudioTrack_;
 	std::string videoTrackPeerUuid_;
 	std::string alphaVideoTrackPeerUuid_;
 	std::string audioTrackPeerUuid_;
+	std::string pendingVideoTrackPeerUuid_;
+	std::string pendingAlphaVideoTrackPeerUuid_;
+	std::string pendingAudioTrackPeerUuid_;
 	std::unordered_set<uint8_t> videoRedPayloadTypes_;
 	bool childShowing_ = false;
 	bool childActive_ = false;

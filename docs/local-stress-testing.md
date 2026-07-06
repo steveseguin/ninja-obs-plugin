@@ -38,6 +38,23 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\run-vdoninja-local-s
 # but less stable than log/connection-based crash hunting.
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\run-vdoninja-local-stress.ps1 -Profile quick -CaptureSourceScreenshots -InstallPrefix .\install-obs32
 
+# Full portable OBS chaos pass: hostile source settings, scene churn,
+# duplicate sources, OBS restart, publisher outage/recovery, and screenshot
+# motion verification.
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\run-vdoninja-chaos-stress.ps1 -ObsWebSocketPort 4482 -PublisherChurn aggressive -PublisherDataFuzz aggressive -PublisherChurnIterations 60 -PublisherChurnIntervalMs 700
+
+# Opt-in publisher page reload pressure. Use this after the stable chaos pass,
+# then check publisher logs for reload-complete before blaming plugin recovery.
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\run-vdoninja-chaos-stress.ps1 -ObsWebSocketPort 4482 -PublisherChurn aggressive -PublisherDataFuzz aggressive -PublisherChurnIterations 60 -PublisherChurnIntervalMs 700 -PublisherReloads 1 -PublisherReloadIntervalMs 45000 -PublisherReloadStartupWaitMs 10000
+
+# Seeded replayable chaos. The seed controls the random mix and the summary
+# records exact replay commands for each iteration.
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\run-vdoninja-seeded-chaos.ps1 -Seed local-crash-hunt-1 -Iterations 3 -Quick
+
+# Seeded reload/terminal pressure. Failures here are useful bug-hunting
+# signals, but inspect the per-iteration replay command and child run logs.
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\run-vdoninja-seeded-chaos.ps1 -Seed reload-terminal-1 -Iterations 5 -IncludePublisherReloads -IncludeTerminalDataFuzz
+
 # Abuse source settings through obs-websocket while OBS is running against a live publisher.
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\run-vdoninja-source-edge-stress.ps1 -StreamId edgeLocal1 -Password false -InstallPrefix .\install-obs32
 
@@ -89,6 +106,14 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\run-vdoninja-source-
 
 # Isolate OBS video reset behavior without first abusing VDO source settings.
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\run-vdoninja-source-edge-stress.ps1 -StreamId edgeVideoOnly1 -Password false -InstallPrefix .\install-obs32 -VideoChurn -SkipEdgeCases -RapidIterations 10 -CheckTimeoutSeconds 240
+
+# Deterministic Spout2 alpha source with a mid-run sender resize. This is the
+# strongest local proof that Game Capture alpha reaches OBS as real transparency.
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\run-vdoninja-gamecapture-spout-smoke.ps1 -InstallPrefix .\install -UseTestSpoutSender -TestSpoutResizeAfterMs 15000 -TestSpoutResizeWidth 960 -TestSpoutResizeHeight 540
+
+# Live Spout2 path with an already-running real sender such as VTube Studio.
+# This also pixel-checks the OBS result and fails if chroma-green fill remains.
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\run-vdoninja-gamecapture-spout-smoke.ps1 -InstallPrefix .\install
 ```
 
 ## What This Stresses
@@ -99,6 +124,15 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\run-vdoninja-source-
 - Repeated source create/check/remove cycles against a live browser publisher.
 - Optional source disconnect/reconnect recovery in `standard`, `soak`, or `-IncludeFaultRecovery`.
 - OBS source screenshots only when `-CaptureSourceScreenshots` is set.
+- Full portable OBS chaos coverage through `run-vdoninja-chaos-stress.ps1`: controlled OBS launch/config, native
+  source setup, hostile source-setting mutations, scene switching, hide/show, transforms, duplicate native/browser
+  source create-destroy, graceful OBS restart, publisher outage/recovery, cleanup, screenshot motion polling, and an
+  8 KB screenshot minimum so black frames do not accidentally count as motion.
+- Replayable seeded chaos through `run-vdoninja-seeded-chaos.ps1`. Each iteration chooses a deterministic mix of
+  publisher churn, data fuzzing, warmup length, retry/recovery coverage, reload coverage when enabled, and OBS window
+  churn from the seed. It writes one parent summary under `artifacts\vdoninja-seeded-chaos-*`, captures per-iteration
+  stdout/stderr, links each child `artifacts\vdoninja-chaos-*` run, copies fresh OBS crash dumps when present, and stores
+  a full replay command for each iteration.
 - Edge-case obs-websocket source mutation with illegal dimensions, native/browser toggles, empty stream IDs, bad ICE
   settings, force-TURN toggles, source visibility churn, and rapid transform changes.
 - Optional multi-source pressure with `run-vdoninja-source-edge-stress.ps1 -ExtraSources N`. This creates several
@@ -145,6 +179,13 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\run-vdoninja-source-
   times out, or obs-websocket reports timeout/closed/not-connected text. Evidence is written to
   `artifacts\obs-edge-capture-<timestamp>-<reason>` and includes wrapper stdout/stderr, the latest portable OBS logs,
   process metadata, and a live OBS minidump when OBS is still running.
+- Game Capture Spout2 alpha validation through `run-vdoninja-gamecapture-spout-smoke.ps1`. The script launches the
+  latest packaged Game Capture build in headless mode with `--source=spout`, `--video-codec=vp9`, `--alpha-workflow`,
+  and `--password=false`, queries local-control `/sources/spout`, connects portable OBS through the native
+  `vdoninja_source`, captures an OBS source screenshot over a bright background, and fails unless the OBS log reaches
+  `Native receiver alpha composition active` and sampled pixels prove transparent areas reveal the OBS background.
+  `-UseTestSpoutSender` launches Game Capture's deterministic `spout_test_sender.exe` and can resize it mid-run so the
+  full path is testable without depending on a VTuber app's current scene settings.
 
 ## Interpreting Failures
 
@@ -163,6 +204,25 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\run-vdoninja-source-
 - Aggressive data fuzz can produce libdatachannel `Got unexpected message on stream` log noise when unsupported,
   malformed, or binary data is sent. Treat it as a harness pressure signal unless OBS exits, WER captures a new dump,
   or plugin logs show an uncaught exception.
+- Chaos-stress static-screenshot failures during publisher reload or recovery should be read with the publisher and
+  native retry logs. A media-less data-channel transport peer must not cancel native view retry; a fresh publisher offer
+  with a rotated session should recreate the viewer peer and eventually produce motion again.
+- `run-vdoninja-chaos-stress.ps1 -PublisherReloads N` is intentionally opt-in. If a failed run shows `reload-start`
+  without `reload-complete` in the publisher report, the test publisher was absent or mid-reload; confirm with a stable
+  no-reload chaos pass before treating that as a plugin regression.
+- For seeded failures, start from the parent `summary.json`, copy the failed iteration's `replayCommand`, then inspect
+  the linked child run. If `newCrashDumps` is non-empty, treat that as a crash even if obs-websocket also reported a
+  timeout. If there is no dump and OBS recovered in a replay, keep the seed anyway because timing-sensitive recoveries
+  often need several repeats.
+- For Game Capture Spout failures, first check `local-control-spout.json`. If it has no senders, the avatar app has not
+  exposed Spout2 to this Windows session; enable Spout output in the app and rerun. Use the packaged Game Capture
+  build, not the build-tree executable, unless PATH contains all required Qt/runtime DLLs; a build-tree
+  `0xC0000135` exit is a missing-DLL loader failure, not a plugin crash. High-resolution VTube Studio senders can also
+  overload software VP9 alpha encoding; Game Capture frame drops are performance evidence, while OBS exits, fresh WER
+  dumps, native-video timeouts, or libdatachannel queue drops are plugin-side failure evidence.
+- If the OBS log reaches alpha composition but the pixel check fails with green fill, the transport/plugin alpha path
+  negotiated but the selected Spout sender is still outputting chroma-green video content. Confirm the sender itself is
+  producing transparent BGRA, or compare against `-UseTestSpoutSender` before debugging the OBS plugin.
 
 ## What It Does Not Stress
 
@@ -175,5 +235,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\run-vdoninja-source-
   display changes or a dedicated machine profile, but the edge source stress covers plugin-side settings that can mimic
   the same oversized-canvas and reconfiguration pressure. `&stereo=2`, `&stereo=multi`, `&pcm`, `&codec=h264`, and
   `&codec=vp9` URL variants are useful local knobs when looking for browser/codec negotiation differences.
+- Authenticated VTube Studio API fuzzing of model state, expressions, and Spout-output toggles. The current Spout smoke
+  validates the live sender and OBS receive path without taking over VTube Studio. Deeper VTube automation requires a
+  VTube Studio API plugin token and user-approved control scope.
 
 For crash-focused runs, enable Windows Error Reporting local dumps or run OBS under ProcDump before starting a longer `standard` or `soak` profile. The wrapper keeps OBS/plugin logs and step outputs organized, but it intentionally avoids changing machine-wide crash dump settings.

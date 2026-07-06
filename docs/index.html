@@ -327,6 +327,7 @@
         <nav class="nav">
           <a href="https://github.com/steveseguin/ninja-obs-plugin/blob/main/INSTALL.md">Install</a>
           <a href="#quick-start">Quick Start</a>
+          <a href="#transparency">Transparency</a>
           <a href="#faq">FAQ</a>
           <a href="https://github.com/steveseguin/ninja-obs-plugin/releases">Releases</a>
         </nav>
@@ -400,10 +401,31 @@ https://vdo.ninja/?view=YourStreamID&amp;room=YourRoomID&amp;solo</code></pre>
             </div>
           </section>
 
+          <section class="section" id="transparency" data-reveal style="--delay: 210ms">
+            <h2>Transparent Avatars and Alpha Video</h2>
+            <p style="margin-top: 0; color: var(--muted)">
+              Transparency in OBS uses the plugin's native receiver plus a compatible dual-track VP9 alpha publisher. The tested path is Spout2 from an avatar or graphics app into Game Capture, then VDO.Ninja into OBS.
+            </p>
+            <div class="mini-grid">
+              <div class="step">
+                <strong>1. Publish from Game Capture</strong>
+                <div>Enable Spout2 output in the avatar app, choose <code>Spout2 (avatar apps)</code> in Game Capture, select <code>VP9</code>, and enable the OBS alpha workflow.</div>
+              </div>
+              <div class="step">
+                <strong>2. Receive in OBS</strong>
+                <div>Add <code>VDO.Ninja Source</code>, enter the matching stream ID/password, and enable <code>Use Native Receiver (Experimental)</code>.</div>
+              </div>
+            </div>
+            <p style="margin-bottom: 0; color: var(--muted)">
+              Browser Sources and normal browser viewers receive standard color video, not composited alpha. VP9 alpha can be CPU-heavy, so lower Game Capture resolution or FPS if load is high.
+            </p>
+          </section>
+
           <section class="section links" data-reveal style="--delay: 240ms">
             <h2>Docs and Support</h2>
             <ul class="list">
               <li><a href="https://github.com/steveseguin/ninja-obs-plugin/releases">Releases</a></li>
+              <li><a href="https://github.com/steveseguin/game-capture">Game Capture for transparent Spout2 publishing</a></li>
               <li><a href="https://github.com/steveseguin/ninja-obs-plugin/blob/main/INSTALL.md">Install guide</a></li>
               <li><a href="https://github.com/steveseguin/ninja-obs-plugin/blob/main/INSTALL.md#install-linux">Linux install guide</a></li>
               <li><a href="https://github.com/steveseguin/ninja-obs-plugin/blob/main/INSTALL.md#install-macos">macOS install guide</a></li>

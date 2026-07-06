@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Added portable OBS chaos stress and seeded replay harnesses covering source mutation, scene churn, duplicate sources, OBS restart, publisher outage/recovery, publisher track/data-channel churn, and crash dump capture.
+- Added Game Capture Spout2 VP9-alpha smoke validation, including deterministic Spout sender support, live VTube Studio window churn, OBS alpha-composite pixel checks, and local-control diagnostics capture.
+- Documented the Game Capture Spout2 to VP9 alpha to OBS native receiver transparency workflow in README, Quick Start, hosted docs, and in-app source guidance.
+
+### Fixed
+- Hardened native receiver reconnect handling so media-less transport peers no longer cancel view retry before accepted video, alpha, or audio media arrives.
+- Recreated native viewer peers when a publisher rotates session IDs or an existing peer is terminal/retired, preventing stale peers from blocking recovered offers.
+- Deferred replacement video, alpha, and audio tracks while another peer owns active media, then adopted the deferred tracks after the old peer disconnects.
+- Ignored extra inbound audio tracks for the same native receiver peer instead of replacing the active audio stream unexpectedly.
+
 ## [1.1.50] - 2026-07-01
 
 ### Added

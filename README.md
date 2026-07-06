@@ -32,6 +32,7 @@ Using VDO.Ninja only through Browser Sources can be limiting for some production
 
 - Publish directly from OBS output settings to VDO.Ninja.
 - Manage inbound room/view streams with less manual setup.
+- Receive compatible VP9 alpha streams for transparent avatars or graphics when paired with Game Capture.
 - Configure advanced signaling, salt, and ICE behavior from plugin settings.
 - Keep media workflows closer to OBS native controls.
 
@@ -67,7 +68,8 @@ In practice, many teams use both: VDO.Ninja workflows for interactive contributi
 - Publishing (`OBS -> VDO.Ninja`) is the primary stable path.
 - Multi-viewer publishing is supported and tested end-to-end.
 - Auto-inbound management can create/update Browser Sources from room/data-channel events.
-- `VDO.Ninja Source` defaults to a browser-backed viewer path; `Use Native Receiver (Experimental)` switches to an experimental native H.264/Opus receive path.
+- `VDO.Ninja Source` defaults to a browser-backed viewer path; `Use Native Receiver (Experimental)` switches to an experimental native VP9/H.264/Opus receive path.
+- Compatible dual-track VP9 alpha senders can preserve transparency in the native receiver. The tested user-facing path is [Game Capture](https://github.com/steveseguin/game-capture) publishing a Spout2 avatar/graphics source with VP9 alpha enabled.
 - Plugin injects a `VDO.Ninja` destination into OBS Stream service list via `rtmp-services` catalog compatibility.
 - `Tools -> VDO.Ninja Control Center` is the single in-app setup surface for publish config, service apply/start/stop controls, generated links, and runtime peer stats.
 - Locale fallback to built-in English strings is supported if locale files are missing.
@@ -135,8 +137,33 @@ https://vdo.ninja/?view=<StreamID>&room=<RoomID>&solo&password=<Password>
 ### 3. Ingest a VDO.Ninja stream in OBS
 
 1. Recommended today: use Browser Source or room-based auto-inbound.
-2. `VDO.Ninja Source` defaults to a browser-backed viewer. Enable `Use Native Receiver (Experimental)` only if you want to test the native H.264/Opus receive path.
+2. `VDO.Ninja Source` defaults to a browser-backed viewer. Enable `Use Native Receiver (Experimental)` only if you want to test the native VP9/H.264/Opus receive path or receive transparency from a compatible VP9 alpha sender.
 3. For room automation, use auto-inbound options in plugin settings.
+
+### Transparent Avatars and Alpha Video
+
+Transparent video in OBS requires the plugin's native receiver and a sender that publishes VDO.Ninja's dual-track VP9 alpha workflow. Browser Sources and normal browser viewers stay standard color video; they do not composite this alpha channel.
+
+The tested path is:
+
+```text
+Spout2 avatar/graphics app -> Game Capture -> VDO.Ninja -> OBS VDO.Ninja Source
+```
+
+Use it like this:
+
+1. In your avatar or graphics app, enable Spout2 output.
+   - VTube Studio has been tested with a `VTubeStudioSpout` sender.
+2. In [Game Capture](https://github.com/steveseguin/game-capture), choose `Video Source -> Spout2 (avatar apps)`.
+3. Select the Spout2 sender, choose any audio source you need, select `VP9`, and enable the OBS alpha workflow.
+4. Start publishing from Game Capture and copy the VDO.Ninja view stream ID or view URL.
+5. In OBS, add `VDO.Ninja Source`, set the same stream ID/password, and enable `Use Native Receiver (Experimental)`.
+
+Notes:
+
+- VP9 alpha is CPU-heavy, especially with high-resolution avatar senders. If OBS or Game Capture CPU is high, lower the Game Capture output resolution/FPS or bitrate.
+- If the Spout sender is not listed in Game Capture, enable Spout output in the avatar app, keep both apps on the same Windows session/GPU where possible, and refresh the sender list.
+- Transparency support is for OBS's native receive path. A regular browser viewer of the same stream should still receive normal color video.
 
 ## Key Settings
 

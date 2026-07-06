@@ -1392,18 +1392,33 @@ void VDONinjaPeerManager::onSignalingOffer(const std::string &uuid, const std::s
 {
 	// We received an offer - this happens when we're viewing a stream
 	std::shared_ptr<PeerInfo> peer;
+	std::shared_ptr<PeerInfo> stalePeer;
+	std::string staleReason;
 
 	{
 		std::lock_guard<std::mutex> lock(peersMutex_);
 		auto it = peers_.find(uuid);
 		if (it != peers_.end()) {
 			peer = it->second;
-			// Verify session matches
-			if (!peer->session.empty() && peer->session != session) {
-				logWarning("Session mismatch for %s, ignoring offer", uuid.c_str());
-				return;
+			if (!peer) {
+				peers_.erase(it);
+				peer = nullptr;
+			} else {
+				const bool sessionRotated = !session.empty() && !peer->session.empty() && peer->session != session;
+				const bool staleState = peer->cleanupRetired.load() || isTerminalPeerState(peer->state.load());
+				if (sessionRotated || staleState) {
+					stalePeer = peer;
+					staleReason = sessionRotated ? "session-rotated" : "stale-state";
+					peers_.erase(it);
+					peer = nullptr;
+				}
 			}
 		}
+	}
+
+	if (stalePeer) {
+		logInfo("Recreating native viewer peer %s (%s)", uuid.c_str(), staleReason.c_str());
+		retirePeerForDeferredCleanup(uuid, stalePeer);
 	}
 
 	if (!peer) {

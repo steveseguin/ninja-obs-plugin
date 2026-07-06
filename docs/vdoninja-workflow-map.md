@@ -1,13 +1,15 @@
 # VDO.Ninja Workflow Map
 
-Last reviewed: 2026-07-01 after OBS native-source stress testing, official
+Last reviewed: 2026-07-05 after OBS chaos stress testing, native viewer
+session-rotation fixes, active media ownership fixes, official
 VDO.Ninja churn comparison, publisher track/data-channel churn harnessing,
 native receiver dimension-update handling, source audio-active lifetime
 hardening, wrapper dimension callback lock avoidance, VP9 hardware-decode crash
 guarding, parser fuzzing, official
 signaling/data-channel alignment, director-only control rejection, structured
 media-control fanout, room-state/recovery/mesh cleanup alignment, and
-active-field precedence review.
+active-field precedence review, seeded chaos replay harnessing, and live
+Game Capture Spout2/VTube Studio VP9-alpha validation.
 
 Purpose: keep an AI-friendly, code-free map of how signaling, peer state, video,
 audio, data channels, and teardown currently flow through the plugin. This is
@@ -54,6 +56,9 @@ Recent review window:
 - Reviewed through: `c02b01c Release v1.1.48`
 - Main changed workflow areas:
   - deferred WebRTC peer cleanup
+  - native viewer peer session-rotation recovery
+  - deferred native media-track adoption after active peer disconnects
+  - first-track-wins handling for extra inbound audio tracks
   - publish media send threading
   - output/source teardown hardening
   - duplicate offer request suppression
@@ -646,6 +651,12 @@ Official VDO.Ninja signaling contract checked against
 - Current official client/server teardown does not define outbound WebSocket
   `leaveroom` or `stopPlay` requests. Disconnect/cleanup flows are driven by
   socket close, server `cleanup`, and peer/data-channel `bye` handling.
+- Game Capture's current Spout2 path is a native-client publisher, not an
+  official browser feature. It captures BGRA frames from a local Spout sender,
+  publishes primary VP9 plus an optional second VP9 alpha track, advertises
+  `alpha_send:"vp9-dualtrack-v1"` and `alpha_active` in peer info, and waits
+  for OBS native receiver preferences containing `alpha_receive:"vp9-dualtrack-v1"`
+  before adding the alpha track and renegotiating.
 
 Protocol guardrail:
 
@@ -1542,12 +1553,18 @@ Flow: native view request retry state
    `awaitingPeerConnection = false`.
 10. Event: retry due.
 11. State: retry count increments and a new view request is sent.
+12. Gate: peer `Connected` events only mark the native source connected and
+    cancel retry state after that peer owns an accepted video, alpha, or audio
+    media track. Media-less transport peers remain useful for data-channel
+    signaling but do not satisfy playback readiness.
 
 Flow: native offer handling
 
 1. Event: signaling receives publisher offer.
-2. Gate: existing viewer peer with different session rejects the offer.
-3. Edge: create viewer peer if none exists.
+2. Gate: existing viewer peer with rotated non-empty session, terminal state,
+   or retired cleanup state is removed from the active peer map and moved to
+   deferred cleanup.
+3. Edge: create viewer peer if none remains reusable.
 4. State: peer session is offer session.
 5. Edge: bind pending viewer signaling data channel for `UUID + session` if one
    was discovered earlier.
@@ -1600,17 +1617,20 @@ Flow: native cleanup and stream removal
 5. Edge: matching audio cleanup marks source audio inactive.
 6. Gate: if no active media track remains and auto-reconnect is enabled,
    schedule recovery retry.
-7. Event: stream-removed arrives for the target stream, or for a UUID that owns
+7. Edge: if another peer's tracks were deferred while the disconnected peer
+   owned active media, adopt the deferred video/audio/alpha tracks after
+   clearing the old owner.
+8. Event: stream-removed arrives for the target stream, or for a UUID that owns
    an active media track.
-8. Edge: peer manager stops viewing the stream.
-9. Edge: native state is fully reset and retry is scheduled when allowed.
+9. Edge: peer manager stops viewing the stream.
+10. Edge: native state is fully reset and retry is scheduled when allowed.
 
 Flow: native track attachment
 
 1. Event: peer manager reports track.
 2. Video gate:
    - track must advertise H.264 or VP9.
-   - track is ignored if another peer still owns active video.
+   - track is deferred if another peer still owns active video.
 3. Video edge:
    - clear previous video callbacks.
    - set active video track and owner UUID.
@@ -1619,7 +1639,8 @@ Flow: native track attachment
    - request bitrate and keyframe when appropriate.
 4. Alpha gate:
    - track must not be the same mid as primary video unless reattached as video.
-   - track is ignored if another peer still owns active alpha.
+   - track is deferred if another peer still owns active alpha or primary
+     video.
 5. Alpha edge:
    - set active alpha track and owner UUID.
    - force software VP9 primary decode for compositing.
@@ -1627,7 +1648,9 @@ Flow: native track attachment
    - attach binary message callback.
 6. Audio gate:
    - track must advertise Opus.
-   - track is ignored if video peer ownership conflicts.
+   - track is deferred if video peer ownership conflicts.
+   - extra audio tracks for the same active or pending peer are ignored because
+     the OBS native receiver currently exposes one audio stream.
 7. Audio edge:
    - set active audio track and owner UUID.
    - reset audio decoder when replacing.
@@ -1665,6 +1688,32 @@ Flow: native VP9 alpha receive
 6. Edge: primary video output consumes matching alpha timestamp when available.
 7. Gate: alpha frame dimensions must match primary video frame.
 8. Edge: YUV primary + alpha Y plane are exposed as YUVA420P for BGRA output.
+
+Flow: Game Capture Spout2 publisher into native OBS receiver
+
+1. Event: Game Capture captures BGRA frames from a Windows Spout2 sender such
+   as `VTubeStudioSpout`.
+2. Edge: Game Capture encodes primary video as VP9 and extracts BGRA alpha into
+   a grayscale VP9 alpha encoder when `--alpha-workflow` is enabled.
+3. Edge: initial publisher offer may contain only primary video/audio and data
+   channel.
+4. Event: OBS native receiver connects and sends viewer preferences over the
+   data channel, including `info.alpha_receive:"vp9-dualtrack-v1"`.
+5. Edge: Game Capture marks the peer alpha-capable, adds `video-alpha`, and
+   sends a second offer with primary video, audio, data channel, and alpha VP9.
+6. Edge: native receiver parses the second offer as three media sections:
+   primary VP9 video, Opus audio, and VP9 `video-alpha`.
+7. Edge: native receiver attaches the alpha track, forces software primary VP9
+   decode for compositing, requests a keyframe, and stores decoded alpha by RTP
+   timestamp.
+8. Gate: the first alpha frame can be discarded if it belongs to a previous
+   primary-video resolution during renegotiation. Later matching primary/alpha
+   dimensions activate composition.
+9. State: OBS log reaches `Native receiver alpha composition active`.
+10. Hazard: high-resolution avatar senders can overload software VP9 alpha
+    encoding before the OBS receiver fails. Treat Game Capture frame drops as
+    publisher performance evidence unless OBS exits, WER creates a dump, native
+    video times out, or libdatachannel queues overflow.
 
 Flow: native audio receive
 
@@ -2794,6 +2843,51 @@ Last validation for this map revision:
   the current local load, but did not produce a new OBS crash dump. This narrows
   the observed limit to control-plane starvation/overload rather than a
   confirmed process crash.
+- Current OBS chaos stress validation:
+  `scripts\run-vdoninja-chaos-stress.ps1` passed a full local run against
+  portable OBS 32.1.0 and the installed plugin v1.1.50 at
+  `artifacts\vdoninja-chaos-20260705-220912\summary.json`. The run used
+  aggressive publisher track churn, aggressive data fuzz, extra audio, invalid
+  source dimensions, native/browser toggles, blank and unicode stream settings,
+  bad ICE/force-TURN settings, data-channel and auto-reconnect toggles, scene
+  visibility/transform churn, duplicate native/browser source create-destroy,
+  graceful OBS restart, explicit publisher offline verification, explicit
+  publisher recovery verification, cleanup, and an 8 KB screenshot minimum so
+  black frames cannot accidentally satisfy motion checks. It validated deferred
+  track adoption, extra-audio first-track-wins behavior, native viewer
+  session-rotation recreation, restart recovery, and publisher outage recovery.
+  No OBS crash remained after the run; remaining RTC/STUN/TURN/keyframe log
+  lines were expected harness pressure.
+- Current seeded chaos validation:
+  `scripts\run-vdoninja-seeded-chaos.ps1 -Seed smoke-seed-2 -Iterations 1
+  -Quick -StopOnFailure` passed at
+  `artifacts\vdoninja-seeded-chaos-20260705-230143-smoke-seed-2\summary.json`.
+  This validated that seeded replay commands are complete, generated stream IDs
+  are VDO-safe (`seedsmoke_seed_2i1`), the child chaos run must produce its own
+  summary before the parent can pass, and publisher churn restores
+  `MediaStreamTrack.enabled` before final media verification so the harness does
+  not create false black-frame failures.
+- Current live Spout2 alpha validation:
+  VTube Studio `1.35.8` exposed `VTubeStudioSpout` at `2560x1351`.
+  Packaged Game Capture `0.2.43` detected it through local-control
+  `/sources/spout`, published `--source=spout --video-codec=vp9
+  --alpha-workflow --password=false`, and OBS portable `32.1.0` with plugin
+  `1.1.50` rendered the native source. The run at
+  `artifacts\gc-vtube-spout-obs-e2e-20260705-231202\summary.json` reached
+  `Native receiver alpha composition active`, captured a nonblank OBS source
+  screenshot, and had no native-video timeout or libdatachannel queue-drop
+  warning. Diagnostics showed software VP9 alpha under this high-resolution
+  VTube sender can drop frames under load; that is publisher performance
+  pressure, not an OBS receiver crash by itself.
+- Current publisher reload stress note:
+  an overlapping internal publisher page reload run
+  `artifacts\vdoninja-chaos-20260705-220440` produced a blank
+  `mutate-final-motion` failure while the publisher report showed
+  `reload-start` without `reload-complete`. The native receiver stayed alive
+  and kept retrying; this is useful reload pressure, but it is not the stable
+  full-pass gate because an absent or half-reloaded test publisher cannot
+  provide media. Use `-PublisherReloads N` as an opt-in reload-specific run and
+  inspect publisher completion before assigning the failure to the plugin.
 - Current OBS native receiver data-channel fuzz validation:
   a focused live-source run with aggressive publisher data fuzz and no OBS
   rapid scene mutation passed while the publisher produced 23 iterations, 56
@@ -3076,6 +3170,10 @@ Hazard: stale session
 - Check every use of peer `UUID` without session.
 - Check every path that accepts mismatched session while negotiating.
 - Check pending viewer signaling data-channel bindings by `UUID + session`.
+- Current native viewer offer handling recreates a viewer peer when the
+  existing peer for the same UUID has a rotated non-empty session, is terminal,
+  or is already retired for deferred cleanup. Publisher answers/candidates
+  still require normal session-match gates.
 
 Hazard: callback lifetime
 

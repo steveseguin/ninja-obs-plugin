@@ -36,9 +36,10 @@ $publisherOut = Join-Path $repoRoot "artifacts\\obs-source-smoke-publisher.out.l
 $publisherErr = Join-Path $repoRoot "artifacts\\obs-source-smoke-publisher.err.log"
 $checkOut = Join-Path $repoRoot "artifacts\\obs-source-smoke-$Mode.out.log"
 $checkErr = Join-Path $repoRoot "artifacts\\obs-source-smoke-$Mode.err.log"
+$checkResultJson = Join-Path $repoRoot "artifacts\\obs-source-smoke-$Mode.result.json"
 $sentinelDir = Join-Path $repoRoot "_obs-portable\\config\\obs-studio\\.sentinel"
 
-foreach ($path in @($obsStdout, $obsStderr, $publisherOut, $publisherErr, $checkOut, $checkErr)) {
+foreach ($path in @($obsStdout, $obsStderr, $publisherOut, $publisherErr, $checkOut, $checkErr, $checkResultJson)) {
     if (Test-Path $path) {
         Remove-Item $path -Force
     }
@@ -135,23 +136,49 @@ try {
     $checkStartInfo.UseShellExecute = $false
     $checkStartInfo.RedirectStandardOutput = $true
     $checkStartInfo.RedirectStandardError = $true
+    $checkStartInfo.Environment["VDONINJA_SOURCE_CHECK_RESULT_JSON"] = $checkResultJson
 
     $checkProc = [System.Diagnostics.Process]::new()
     $checkProc.StartInfo = $checkStartInfo
     [void]$checkProc.Start()
+    $checkTimedOutAfterResult = $false
     if (-not $checkProc.WaitForExit($CheckTimeoutSeconds * 1000)) {
-        $checkProc.Kill()
-        throw "Timed out waiting for source check process PID $($checkProc.Id) after $CheckTimeoutSeconds seconds"
+        $timedOutPid = $checkProc.Id
+        try {
+            $checkProc.Kill()
+        } catch {
+        }
+        [void]$checkProc.WaitForExit(10000)
+        $checkStdout = ""
+        $checkStderr = ""
+        if ($checkProc.HasExited) {
+            $checkStdout = $checkProc.StandardOutput.ReadToEnd()
+            $checkStderr = $checkProc.StandardError.ReadToEnd()
+            Set-Content -Path $checkOut -Value $checkStdout -Encoding UTF8
+            Set-Content -Path $checkErr -Value $checkStderr -Encoding UTF8
+        }
+        if (Test-Path $checkResultJson) {
+            $checkTimedOutAfterResult = $true
+            $checkExit = 0
+            if ([string]::IsNullOrWhiteSpace($checkStdout)) {
+                $checkStdout = Get-Content $checkResultJson -Raw
+                Set-Content -Path $checkOut -Value $checkStdout -Encoding UTF8
+            }
+        } else {
+            throw "Timed out waiting for source check process PID $timedOutPid after $CheckTimeoutSeconds seconds"
+        }
+    } else {
+        $checkStdout = $checkProc.StandardOutput.ReadToEnd()
+        $checkStderr = $checkProc.StandardError.ReadToEnd()
+        $checkExit = $checkProc.ExitCode
+        Set-Content -Path $checkOut -Value $checkStdout -Encoding UTF8
+        Set-Content -Path $checkErr -Value $checkStderr -Encoding UTF8
     }
-    $checkStdout = $checkProc.StandardOutput.ReadToEnd()
-    $checkStderr = $checkProc.StandardError.ReadToEnd()
-    $checkExit = $checkProc.ExitCode
-    Set-Content -Path $checkOut -Value $checkStdout -Encoding UTF8
-    Set-Content -Path $checkErr -Value $checkStderr -Encoding UTF8
 
     Write-Output "OBS_PID=$($obsProc.Id)"
     Write-Output "PUBLISHER_PID=$($publisherProc.Id)"
     Write-Output "CHECK_EXIT=$checkExit"
+    Write-Output "CHECK_TIMEOUT_AFTER_RESULT=$checkTimedOutAfterResult"
     if (Test-Path $checkOut) {
         Get-Content $checkOut
     }

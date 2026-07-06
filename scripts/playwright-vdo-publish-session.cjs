@@ -176,7 +176,11 @@ async function startPublisherChurn(page, config) {
 
   return page.evaluate((churnConfig) => {
     if (window.__publisherChurn && window.__publisherChurn.timer) {
-      clearInterval(window.__publisherChurn.timer);
+      if (typeof window.__publisherChurn.stop === "function") {
+        window.__publisherChurn.stop("replaced");
+      } else {
+        clearInterval(window.__publisherChurn.timer);
+      }
     }
 
     const state = {
@@ -199,6 +203,7 @@ async function startPublisherChurn(page, config) {
       errors: [],
       events: [],
       timer: null,
+      stop: null,
     };
     window.__publisherChurn = state;
 
@@ -239,6 +244,25 @@ async function startPublisherChurn(page, config) {
       return allPeerConnections().filter((pc) => {
         return pc && pc.signalingState !== "closed" && pc.connectionState !== "closed";
       });
+    }
+
+    function restoreSenderTracksEnabled(reason) {
+      let restored = 0;
+      for (const pc of livePeerConnections()) {
+        const senders = typeof pc.getSenders === "function" ? pc.getSenders() : [];
+        for (const sender of senders) {
+          if (!sender || !sender.track || sender.track.readyState === "ended") {
+            continue;
+          }
+          if (sender.track.enabled !== true) {
+            sender.track.enabled = true;
+            restored += 1;
+          }
+        }
+      }
+      if (restored > 0) {
+        remember("restore-enabled", { reason, restored });
+      }
     }
 
     function makeVideoTrack(iteration) {
@@ -342,6 +366,9 @@ async function startPublisherChurn(page, config) {
     }
 
     async function replaceSenderTrack(sender, nextTrack, context) {
+      if (nextTrack) {
+        nextTrack.enabled = true;
+      }
       const previousTrack = sender.track;
       await sender.replaceTrack(nextTrack);
       state.replacements += 1;
@@ -354,6 +381,16 @@ async function startPublisherChurn(page, config) {
         stopChurnTrack(previousTrack);
       }
     }
+
+    state.stop = (reason) => {
+      if (state.timer) {
+        clearInterval(state.timer);
+        state.timer = null;
+      }
+      restoreSenderTracksEnabled(reason);
+      state.stoppedAt = Date.now();
+      remember("stopped", { reason, iteration: state.iteration });
+    };
 
     function officialStateMessages(iteration) {
       const resolutionCases = [
@@ -613,10 +650,7 @@ async function startPublisherChurn(page, config) {
       sendDataMessages(iteration);
 
       if (state.maxIterations > 0 && iteration >= state.maxIterations) {
-        clearInterval(state.timer);
-        state.timer = null;
-        state.stoppedAt = Date.now();
-        remember("stopped", { iteration });
+        state.stop("max-iterations");
       }
     }
 
