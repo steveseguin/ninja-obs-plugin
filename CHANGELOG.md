@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.51] - 2026-07-06
+
 ### Added
 - Added portable OBS chaos stress and seeded replay harnesses covering source mutation, scene churn, duplicate sources, OBS restart, publisher outage/recovery, publisher track/data-channel churn, and crash dump capture.
 - Added Game Capture Spout2 VP9-alpha smoke validation, including deterministic Spout sender support, live VTube Studio window churn, OBS alpha-composite pixel checks, and local-control diagnostics capture.
