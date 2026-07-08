@@ -26,6 +26,7 @@ struct ConsumePendingAlphaResult {
 	bool hasMatch = false;
 	bool dimensionsMatch = false;
 	bool futureFramePending = false;
+	bool approximateTimestampMatch = false;
 	int width = 0;
 	int height = 0;
 	int yLinesize = 0;
@@ -35,6 +36,7 @@ struct ConsumePendingAlphaResult {
 bool isRtpTimestampBefore(uint32_t lhs, uint32_t rhs);
 void upsertPendingAlphaFrame(std::deque<PendingAlphaFrame> &frames, PendingAlphaFrame frame, size_t maxFrames = 64);
 ConsumePendingAlphaResult consumePendingAlphaFrame(std::deque<PendingAlphaFrame> &frames, uint32_t rtpTimestamp,
-                                                   int expectedWidth, int expectedHeight);
+                                                   int expectedWidth, int expectedHeight,
+                                                   uint32_t maxRtpTimestampDelta = 0);
 
 } // namespace vdoninja

@@ -35,14 +35,12 @@ void upsertPendingAlphaFrame(std::deque<PendingAlphaFrame> &frames, PendingAlpha
 }
 
 ConsumePendingAlphaResult consumePendingAlphaFrame(std::deque<PendingAlphaFrame> &frames, uint32_t rtpTimestamp,
-                                                   int expectedWidth, int expectedHeight)
+                                                   int expectedWidth, int expectedHeight,
+                                                   uint32_t maxRtpTimestampDelta)
 {
 	ConsumePendingAlphaResult result;
 
-	auto match = std::find_if(frames.begin(), frames.end(), [rtpTimestamp](const PendingAlphaFrame &pendingFrame) {
-		return pendingFrame.rtpTimestamp == rtpTimestamp;
-	});
-	if (match != frames.end()) {
+	auto consumeMatch = [&](std::deque<PendingAlphaFrame>::iterator match) {
 		result.hasMatch = true;
 		result.width = match->width;
 		result.height = match->height;
@@ -50,7 +48,33 @@ ConsumePendingAlphaResult consumePendingAlphaFrame(std::deque<PendingAlphaFrame>
 		result.dimensionsMatch = (match->width == expectedWidth && match->height == expectedHeight);
 		result.yData = std::move(match->yData);
 		frames.erase(frames.begin(), std::next(match));
+	};
+
+	auto match = std::find_if(frames.begin(), frames.end(), [rtpTimestamp](const PendingAlphaFrame &pendingFrame) {
+		return pendingFrame.rtpTimestamp == rtpTimestamp;
+	});
+	if (match != frames.end()) {
+		consumeMatch(match);
 		return result;
+	}
+
+	if (maxRtpTimestampDelta > 0) {
+		auto nearest = frames.end();
+		uint32_t nearestDelta = maxRtpTimestampDelta + 1;
+		for (auto it = frames.begin(); it != frames.end(); ++it) {
+			const int64_t signedDelta = static_cast<int32_t>(it->rtpTimestamp - rtpTimestamp);
+			const uint32_t absDelta =
+			    static_cast<uint32_t>(signedDelta < 0 ? -signedDelta : signedDelta);
+			if (absDelta <= maxRtpTimestampDelta && absDelta < nearestDelta) {
+				nearest = it;
+				nearestDelta = absDelta;
+			}
+		}
+		if (nearest != frames.end()) {
+			result.approximateTimestampMatch = true;
+			consumeMatch(nearest);
+			return result;
+		}
 	}
 
 	auto staleEnd = std::find_if(frames.begin(), frames.end(), [rtpTimestamp](const PendingAlphaFrame &pendingFrame) {

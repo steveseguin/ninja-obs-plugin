@@ -20,6 +20,7 @@ param(
 $ErrorActionPreference = "Stop"
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
+. (Join-Path $PSScriptRoot "test-alpha-validation-common.ps1")
 $obsExePath = (Resolve-Path $ObsExe).Path
 $obsWorkingDirPath = (Resolve-Path $ObsWorkingDirectory).Path
 $installPrefixPath = (Resolve-Path $InstallPrefix).Path
@@ -76,6 +77,8 @@ if ($ResetPortableSceneCollection -and (Test-Path $portableScenesDir)) {
     Get-ChildItem $portableScenesDir -Filter "Untitled.json*" -File -ErrorAction SilentlyContinue |
         Remove-Item -Force -ErrorAction SilentlyContinue
 }
+
+Sync-PortableObsPluginPayload -RepoRoot $repoRoot -InstallPrefixPath $installPrefixPath
 
 if (-not (Test-Path $obsWebSocketConfigPath)) {
     throw "obs-websocket config not found at $obsWebSocketConfigPath"

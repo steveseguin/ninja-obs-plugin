@@ -542,8 +542,14 @@ std::string buildInboundViewUrl(const std::string &baseUrl, const std::string &s
 
 int chooseViewerTargetBitrateKbps(uint32_t width, uint32_t height)
 {
+	if (width >= 3840 || height >= 2160) {
+		return 25000;
+	}
+	if (width >= 2560 || height >= 1440) {
+		return 12000;
+	}
 	if (width >= 1920 || height >= 1080) {
-		return 4000;
+		return 8000;
 	}
 	if (width >= 1280 || height >= 720) {
 		return 2500;

@@ -16,6 +16,7 @@ param(
     [string]$VideoCodec = "vp9",
     [string]$VideoEncoder = "",
     [string]$FfmpegOptions = "",
+    [switch]$NoAlphaWorkflow,
     [switch]$ControlVTubeStudioWindow,
     [switch]$RequireVTubeStudioWindowControl,
     [string]$VTubeWindowSizes = "1280x720,1600x900,1920x1080",
@@ -27,6 +28,7 @@ param(
     [int]$TestSpoutWidth = 640,
     [int]$TestSpoutHeight = 360,
     [int]$TestSpoutFps = 30,
+    [string]$TestSpoutPattern = "",
     [int]$TestSpoutResizeAfterMs = 0,
     [int]$TestSpoutResizeWidth = 960,
     [int]$TestSpoutResizeHeight = 540,
@@ -187,7 +189,6 @@ $gameCaptureArgs = @(
     "--duration-ms=$GameCaptureDurationMs",
     "--source=spout",
     "--video-codec=$VideoCodec",
-    "--alpha-workflow",
     "--audio-source=none",
     "--local-control",
     "--local-control-port=47634",
@@ -195,6 +196,9 @@ $gameCaptureArgs = @(
     "--local-control-discovery=$discoveryPath",
     "--diagnostics-out=$diagnosticsPath"
 )
+if (-not $NoAlphaWorkflow) {
+    $gameCaptureArgs += "--alpha-workflow"
+}
 if (-not [string]::IsNullOrWhiteSpace($SpoutSender)) {
     $gameCaptureArgs += "--spout-sender=$SpoutSender"
 }
@@ -245,6 +249,9 @@ try {
             "--fps=$TestSpoutFps",
             "--duration-ms=$testSpoutDurationMs"
         )
+        if (-not [string]::IsNullOrWhiteSpace($TestSpoutPattern)) {
+            $testSpoutArgs += "--pattern=$TestSpoutPattern"
+        }
         if ($TestSpoutResizeAfterMs -gt 0) {
             $testSpoutArgs += "--resize-after-ms=$TestSpoutResizeAfterMs"
             $testSpoutArgs += "--resize-width=$TestSpoutResizeWidth"
@@ -292,7 +299,21 @@ try {
     }
 
     $env:VDONINJA_WAIT_MS = [string]$ObsWaitMs
-    if ($SkipAlphaPixelCheck) {
+    if ($OutputWidth -gt 0) {
+        $env:VDONINJA_SOURCE_WIDTH = [string]$OutputWidth
+        $env:VDONINJA_CANVAS_WIDTH = [string]$OutputWidth
+    } else {
+        Remove-Item Env:VDONINJA_SOURCE_WIDTH -ErrorAction SilentlyContinue
+        Remove-Item Env:VDONINJA_CANVAS_WIDTH -ErrorAction SilentlyContinue
+    }
+    if ($OutputHeight -gt 0) {
+        $env:VDONINJA_SOURCE_HEIGHT = [string]$OutputHeight
+        $env:VDONINJA_CANVAS_HEIGHT = [string]$OutputHeight
+    } else {
+        Remove-Item Env:VDONINJA_SOURCE_HEIGHT -ErrorAction SilentlyContinue
+        Remove-Item Env:VDONINJA_CANVAS_HEIGHT -ErrorAction SilentlyContinue
+    }
+    if ($SkipAlphaPixelCheck -or $NoAlphaWorkflow) {
         $env:VDONINJA_ALPHA_PIXEL_CHECK = "0"
     } else {
         $env:VDONINJA_ALPHA_PIXEL_CHECK = "1"
@@ -383,7 +404,7 @@ try {
         $null
     }
 
-    $alphaPixelCheckOk = if ($SkipAlphaPixelCheck) {
+    $alphaPixelCheckOk = if ($SkipAlphaPixelCheck -or $NoAlphaWorkflow) {
         $true
     } elseif ($sourceCheck -and $sourceCheck.alphaPixelCheck) {
         [bool]$sourceCheck.alphaPixelCheck.ok
@@ -396,8 +417,8 @@ try {
             $smokeExit -eq 0 -and
             $alphaPixelCheckOk -and
             $gameCaptureLogText -match "Found \d+ Spout2 senders" -and
-            $gameCaptureLogText -match "VP9 alpha encoder active" -and
-            $obsLogText -match "Native receiver alpha composition active" -and
+            ($NoAlphaWorkflow -or $gameCaptureLogText -match "VP9 alpha encoder active") -and
+            ($NoAlphaWorkflow -or $obsLogText -match "Native receiver alpha composition active") -and
             ($AllowQueueDrops -or $obsLogText -notmatch "Number of media packets dropped due to a full queue") -and
             ($AllowNativeVideoTimeout -or $obsLogText -notmatch "No native video packets")
         )
@@ -405,6 +426,7 @@ try {
         runDir = $runDir
         gameCaptureExe = $GameCaptureExe
         gameCaptureArgs = $gameCaptureArgs
+        alphaWorkflow = (-not [bool]$NoAlphaWorkflow)
         gameCaptureRunningDuringValidation = (-not $gameCaptureProc.HasExited)
         gameCaptureExitCode = if ($gameCaptureProc.HasExited) { $gameCaptureProc.ExitCode } else { $null }
         smokeExit = $smokeExit
@@ -422,6 +444,7 @@ try {
             width = if ($UseTestSpoutSender) { $TestSpoutWidth } else { $null }
             height = if ($UseTestSpoutSender) { $TestSpoutHeight } else { $null }
             fps = if ($UseTestSpoutSender) { $TestSpoutFps } else { $null }
+            pattern = if ($UseTestSpoutSender) { $TestSpoutPattern } else { $null }
             resizeAfterMs = if ($UseTestSpoutSender) { $TestSpoutResizeAfterMs } else { $null }
             resizeWidth = if ($UseTestSpoutSender) { $TestSpoutResizeWidth } else { $null }
             resizeHeight = if ($UseTestSpoutSender) { $TestSpoutResizeHeight } else { $null }
