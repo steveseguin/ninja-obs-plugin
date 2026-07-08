@@ -48,9 +48,7 @@ ConsumePendingAlphaResult consumePendingAlphaFrame(std::deque<PendingAlphaFrame>
 		result.height = match->height;
 		result.yLinesize = match->yLinesize;
 		result.dimensionsMatch = (match->width == expectedWidth && match->height == expectedHeight);
-		if (result.dimensionsMatch) {
-			result.yData = std::move(match->yData);
-		}
+		result.yData = std::move(match->yData);
 		frames.erase(frames.begin(), std::next(match));
 		return result;
 	}

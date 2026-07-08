@@ -100,6 +100,29 @@ const char *pixelFormatName(AVPixelFormat format)
 	return name ? name : "unknown";
 }
 
+bool scaleAlphaPlaneNearest(const std::vector<uint8_t> &src, int srcWidth, int srcHeight, int srcLinesize,
+                            int dstWidth, int dstHeight, std::vector<uint8_t> &dst)
+{
+	if (srcWidth <= 0 || srcHeight <= 0 || srcLinesize <= 0 || dstWidth <= 0 || dstHeight <= 0) {
+		return false;
+	}
+	if (src.size() < static_cast<size_t>(srcLinesize) * static_cast<size_t>(srcHeight)) {
+		return false;
+	}
+
+	dst.resize(static_cast<size_t>(dstWidth) * static_cast<size_t>(dstHeight));
+	for (int y = 0; y < dstHeight; ++y) {
+		const int srcY = std::min(srcHeight - 1, (y * srcHeight) / dstHeight);
+		const uint8_t *srcRow = src.data() + static_cast<size_t>(srcY) * static_cast<size_t>(srcLinesize);
+		uint8_t *dstRow = dst.data() + static_cast<size_t>(y) * static_cast<size_t>(dstWidth);
+		for (int x = 0; x < dstWidth; ++x) {
+			const int srcX = std::min(srcWidth - 1, (x * srcWidth) / dstWidth);
+			dstRow[x] = srcRow[srcX];
+		}
+	}
+	return true;
+}
+
 obs_data_t *createBrowserSourceSettings(const std::string &url, uint32_t width, uint32_t height)
 {
 	obs_data_t *settings = obs_data_create();
@@ -1864,7 +1887,7 @@ void VDONinjaSource::onAlphaVideoTrack(const std::string &uuid, std::shared_ptr<
 		return;
 	}
 
-	bool resetPrimaryVp9Decoder = false;
+	bool resetPrimaryDecoder = false;
 	{
 		std::scoped_lock stateLock(nativeStateMutex_, videoDecodeMutex_, alphaAssemblyMutex_, alphaDecodeMutex_);
 		if (alphaVideoTrack_ == track) {
@@ -1902,14 +1925,14 @@ void VDONinjaSource::onAlphaVideoTrack(const std::string &uuid, std::shared_ptr<
 		alphaTimestampMissStreak_ = 0;
 		resetAlphaDecoder();
 		loggedFirstAlphaRtpPacket_ = false;
-		if (nativeVideoCodec_ == NativeVideoCodec::VP9 && videoDecoder_) {
+		if (videoDecoder_) {
 			resetVideoDecoder();
-			resetPrimaryVp9Decoder = true;
+			resetPrimaryDecoder = true;
 		}
 	}
 
-	if (resetPrimaryVp9Decoder) {
-		logInfo("Reset primary VP9 decoder so alpha composition uses software frames");
+	if (resetPrimaryDecoder) {
+		logInfo("Reset primary decoder so alpha composition uses software frames");
 	}
 
 	logInfo("Attaching native VP9 alpha video receive callbacks (mid=%s)", track->mid().c_str());
@@ -2568,7 +2591,7 @@ bool VDONinjaSource::initializeVideoDecoder()
 	const bool isVP9 = (nativeVideoCodec_ == NativeVideoCodec::VP9);
 	const AVCodecID codecId = isVP9 ? AV_CODEC_ID_VP9 : AV_CODEC_ID_H264;
 	const char *codecName = isVP9 ? "VP9" : "H.264";
-	const bool preferSoftwareForAlpha = isVP9 && preferSoftwareVp9DecodeForAlpha_.load(std::memory_order_relaxed);
+	const bool preferSoftwareForAlpha = preferSoftwareVp9DecodeForAlpha_.load(std::memory_order_relaxed);
 
 	const AVCodec *codec = avcodec_find_decoder(codecId);
 	if (!codec) {
@@ -3082,10 +3105,10 @@ void VDONinjaSource::outputDecodedVideoFrame(const AVFrame *frame, uint64_t time
 	// We require a matching RTP timestamp so stale alpha cannot bleed into newer
 	// primary frames if network ordering shifts between the two tracks.
 	std::vector<uint8_t> alphaYCopy;
+	std::vector<uint8_t> scaledAlphaY;
 	int alphaYLinesize = 0;
 	bool hasAlpha = false;
 	bool alphaTimestampPending = false;
-	bool alphaDimensionsMismatch = false;
 	int alphaWidth = 0;
 	int alphaHeight = 0;
 	{
@@ -3097,8 +3120,11 @@ void VDONinjaSource::outputDecodedVideoFrame(const AVFrame *frame, uint64_t time
 				alphaYCopy = alphaResult.yData;
 				alphaYLinesize = alphaResult.yLinesize;
 				hasAlpha = true;
-			} else {
-				alphaDimensionsMismatch = true;
+			} else if (scaleAlphaPlaneNearest(alphaResult.yData, alphaResult.width, alphaResult.height,
+			                                  alphaResult.yLinesize, frame->width, frame->height, scaledAlphaY)) {
+				alphaYCopy = std::move(scaledAlphaY);
+				alphaYLinesize = frame->width;
+				hasAlpha = true;
 				alphaWidth = alphaResult.width;
 				alphaHeight = alphaResult.height;
 			}
@@ -3107,13 +3133,13 @@ void VDONinjaSource::outputDecodedVideoFrame(const AVFrame *frame, uint64_t time
 		}
 	}
 
-	if (alphaDimensionsMismatch && !loggedAlphaDimensionMismatch_.exchange(true, std::memory_order_relaxed)) {
-		logWarning("Discarded VP9 alpha frame for RTP timestamp %u because dimensions did not match primary "
-		           "video (%dx%d vs %dx%d)",
+	if (hasAlpha && alphaWidth > 0 && alphaHeight > 0 &&
+	    !loggedAlphaDimensionMismatch_.exchange(true, std::memory_order_relaxed)) {
+		logInfo("Scaled VP9 alpha frame for RTP timestamp %u from %dx%d to primary video %dx%d",
 		           rtpTimestamp, alphaWidth, alphaHeight, frame->width, frame->height);
 	}
 	const bool alphaTrackActive = alphaTrackActive_.load(std::memory_order_relaxed);
-	if (!alphaTrackActive || hasAlpha || alphaDimensionsMismatch) {
+	if (!alphaTrackActive || hasAlpha) {
 		alphaTimestampPendingStreak_ = 0;
 		alphaTimestampMissStreak_ = 0;
 	} else if (alphaTimestampPending) {
@@ -3162,7 +3188,6 @@ void VDONinjaSource::outputDecodedVideoFrame(const AVFrame *frame, uint64_t time
 		loggedAlphaTimestampSyncWait_.store(false, std::memory_order_relaxed);
 		loggedAlphaTimestampMiss_.store(false, std::memory_order_relaxed);
 		loggedAlphaPixelFormatMismatch_.store(false, std::memory_order_relaxed);
-		loggedAlphaDimensionMismatch_.store(false, std::memory_order_relaxed);
 	} else if (hasAlpha && !loggedAlphaPixelFormatMismatch_.exchange(true, std::memory_order_relaxed)) {
 		logWarning("Skipping VP9 alpha composition because primary frame format %s is not planar YUV420P",
 		           pixelFormatName(primaryFmt));

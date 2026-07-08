@@ -155,6 +155,11 @@ function parseNumber(value, fallback) {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+function clampInt(value, fallback, minValue, maxValue) {
+  const parsed = Math.trunc(parseNumber(value, fallback));
+  return Math.max(minValue, Math.min(maxValue, parsed));
+}
+
 function logStep(message) {
   console.error(`[obs-source-check] ${message}`);
 }
@@ -484,11 +489,13 @@ async function captureSourceScreenshot(client, sourceName, outputPath, options =
   const minScreenshotBytes = Number(
     options.minScreenshotBytes || process.env.VDONINJA_MIN_SCREENSHOT_BYTES || 10000
   );
+  const imageWidth = clampInt(options.imageWidth, 1280, 2, 7680);
+  const imageHeight = clampInt(options.imageHeight, 720, 2, 4320);
   const response = await client.request("GetSourceScreenshot", {
     sourceName,
     imageFormat: "png",
-    imageWidth: 1280,
-    imageHeight: 720,
+    imageWidth,
+    imageHeight,
     imageCompressionQuality: 0,
   });
 
@@ -518,7 +525,9 @@ async function stretchSceneItemToCanvas(client, sceneName, sceneItemId, label) {
     return;
   }
 
-  logStep(`stretching ${label} to 1280x720 canvas`);
+  const canvasWidth = clampInt(process.env.VDONINJA_CANVAS_WIDTH, 1280, 2, 7680);
+  const canvasHeight = clampInt(process.env.VDONINJA_CANVAS_HEIGHT, 720, 2, 4320);
+  logStep(`stretching ${label} to ${canvasWidth}x${canvasHeight} canvas`);
   await client.request("SetSceneItemTransform", {
     sceneName,
     sceneItemId,
@@ -531,8 +540,8 @@ async function stretchSceneItemToCanvas(client, sceneName, sceneItemId, label) {
       alignment: 5,
       boundsType: "OBS_BOUNDS_STRETCH",
       boundsAlignment: 5,
-      boundsWidth: 1280,
-      boundsHeight: 720,
+      boundsWidth: canvasWidth,
+      boundsHeight: canvasHeight,
       cropLeft: 0,
       cropRight: 0,
       cropTop: 0,
@@ -560,6 +569,10 @@ async function main() {
   const checkAudioMeter = parseBoolean(process.env.VDONINJA_CHECK_AUDIO_METER, false);
   const failOnAudioClip = parseBoolean(process.env.VDONINJA_FAIL_ON_AUDIO_CLIP, false);
   const minAudioMeterSamples = Number(process.env.VDONINJA_MIN_AUDIO_METER_SAMPLES || 3);
+  const sourceWidth = clampInt(process.env.VDONINJA_SOURCE_WIDTH, 1280, 320, 4096);
+  const sourceHeight = clampInt(process.env.VDONINJA_SOURCE_HEIGHT, 720, 240, 2160);
+  const canvasWidth = clampInt(process.env.VDONINJA_CANVAS_WIDTH, 1280, 2, 7680);
+  const canvasHeight = clampInt(process.env.VDONINJA_CANVAS_HEIGHT, 720, 2, 4320);
 
   if (!streamId) {
     throw new Error("Usage: node scripts/obs-websocket-vdoninja-source-check.cjs <browser|native> <streamId> [password] [roomId]");
@@ -619,8 +632,8 @@ async function main() {
         inputName: backgroundInputName,
         inputKind: colorSourceKind,
         inputSettings: {
-          width: 1280,
-          height: 720,
+          width: canvasWidth,
+          height: canvasHeight,
           color: alphaBackgroundColor,
         },
         sceneItemEnabled: true,
@@ -635,11 +648,11 @@ async function main() {
         client,
         targetSceneName,
         path.resolve(process.cwd(), "artifacts", `obs-source-${mode}-background-${stamp}.png`),
-        { minScreenshotBytes: 1000 }
+        { minScreenshotBytes: 1000, imageWidth: canvasWidth, imageHeight: canvasHeight }
       );
     }
 
-    logStep(`creating input ${inputName}`);
+    logStep(`creating input ${inputName} (${sourceWidth}x${sourceHeight})`);
     const sourceInput = await client.request("CreateInput", {
       sceneName: targetSceneName,
       inputName,
@@ -651,8 +664,8 @@ async function main() {
         use_native_receiver: useNativeReceiver,
         enable_data_channel: true,
         auto_reconnect: true,
-        width: 1280,
-        height: 720,
+        width: sourceWidth,
+        height: sourceHeight,
       },
       sceneItemEnabled: true,
     });
@@ -678,7 +691,10 @@ async function main() {
     let screenshot = null;
     if (!skipCapture) {
       logStep(`capturing screenshot for ${targetSceneName}`);
-      screenshot = await captureSourceScreenshot(client, targetSceneName, screenshotPath);
+      screenshot = await captureSourceScreenshot(client, targetSceneName, screenshotPath, {
+        imageWidth: canvasWidth,
+        imageHeight: canvasHeight,
+      });
     }
     if (alphaPixelCheckEnabled && backgroundScreenshot && screenshot) {
       logStep("analyzing alpha composite pixels");
@@ -709,6 +725,10 @@ async function main() {
       inputName,
       backgroundInputName,
       sceneName: targetSceneName,
+      requestedSourceWidth: sourceWidth,
+      requestedSourceHeight: sourceHeight,
+      canvasWidth,
+      canvasHeight,
       sourceSettings: inputSettings && inputSettings.inputSettings ? inputSettings.inputSettings : null,
       useNativeReceiver:
         inputSettings && inputSettings.inputSettings

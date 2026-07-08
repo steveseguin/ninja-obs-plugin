@@ -13,6 +13,9 @@ param(
     [int]$OutputHeight = 0,
     [int]$OutputFps = 0,
     [int]$BitrateKbps = 0,
+    [string]$VideoCodec = "vp9",
+    [string]$VideoEncoder = "",
+    [string]$FfmpegOptions = "",
     [switch]$ControlVTubeStudioWindow,
     [switch]$RequireVTubeStudioWindowControl,
     [string]$VTubeWindowSizes = "1280x720,1600x900,1920x1080",
@@ -150,6 +153,7 @@ $gameCaptureDir = Split-Path $GameCaptureExe -Parent
 $gameCaptureOut = Join-Path $runDir "game-capture.out.log"
 $gameCaptureErr = Join-Path $runDir "game-capture.err.log"
 $diagnosticsPath = Join-Path $runDir "game-capture-diagnostics.json"
+$liveDiagnosticsPath = Join-Path $runDir "game-capture-live-diagnostics.json"
 $discoveryPath = Join-Path $runDir "control.json"
 $spoutSourcesPath = Join-Path $runDir "local-control-spout.json"
 $smokeOut = Join-Path $runDir "source-smoke.out.log"
@@ -182,7 +186,7 @@ $gameCaptureArgs = @(
     "--password=false",
     "--duration-ms=$GameCaptureDurationMs",
     "--source=spout",
-    "--video-codec=vp9",
+    "--video-codec=$VideoCodec",
     "--alpha-workflow",
     "--audio-source=none",
     "--local-control",
@@ -205,6 +209,13 @@ if ($OutputFps -gt 0) {
 }
 if ($BitrateKbps -gt 0) {
     $gameCaptureArgs += "--bitrate-kbps=$BitrateKbps"
+}
+if (-not [string]::IsNullOrWhiteSpace($VideoEncoder)) {
+    $gameCaptureArgs += "--video-encoder=$VideoEncoder"
+}
+if (-not [string]::IsNullOrWhiteSpace($FfmpegOptions)) {
+    $escapedFfmpegOptions = $FfmpegOptions.Replace('"', '\"')
+    $gameCaptureArgs += "--ffmpeg-options=`"$escapedFfmpegOptions`""
 }
 
 Write-Output "GAMECAPTURE_SPOUT_SMOKE_START=1"
@@ -339,6 +350,10 @@ try {
         $headers = @{ Authorization = "Bearer $($control.token)" }
         $finalSpoutSources = Invoke-RestMethod "$($control.base_url)/sources/spout" -Headers $headers
         $finalSpoutSources | ConvertTo-Json -Depth 8 | Set-Content (Join-Path $runDir "local-control-spout-final.json") -Encoding UTF8
+        if (-not $gameCaptureProc.HasExited) {
+            $liveDiagnostics = Invoke-RestMethod "$($control.base_url)/diagnostics" -Headers $headers
+            $liveDiagnostics | ConvertTo-Json -Depth 20 | Set-Content $liveDiagnosticsPath -Encoding UTF8
+        }
     }
 
     Start-Sleep -Seconds 2
@@ -352,8 +367,13 @@ try {
     } else {
         $null
     }
-    $diagnostics = if (Test-Path $diagnosticsPath) {
-        Get-Content $diagnosticsPath -Raw | ConvertFrom-Json
+    $preferredDiagnosticsPath = if ((Test-Path $liveDiagnosticsPath) -and ((Get-Item $liveDiagnosticsPath).Length -gt 0)) {
+        $liveDiagnosticsPath
+    } else {
+        $diagnosticsPath
+    }
+    $diagnostics = if ((Test-Path $preferredDiagnosticsPath) -and ((Get-Item $preferredDiagnosticsPath).Length -gt 0)) {
+        Get-Content $preferredDiagnosticsPath -Raw | ConvertFrom-Json
     } else {
         $null
     }
@@ -420,7 +440,7 @@ try {
         obsQueueDrops = ($obsLogText -match "Number of media packets dropped due to a full queue")
         obsLog = $obsLogCopy
         gameCaptureLog = $gameCaptureOut
-        gameCaptureDiagnostics = if (Test-Path $diagnosticsPath) { $diagnosticsPath } else { $null }
+        gameCaptureDiagnostics = if ((Test-Path $preferredDiagnosticsPath) -and ((Get-Item $preferredDiagnosticsPath).Length -gt 0)) { $preferredDiagnosticsPath } else { $null }
         sourceSmokeLog = $smokeOut
         sourceScreenshot = $sourceScreenshot
     }
