@@ -22,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Forwarded RTCP keyframe requests to the output keyframe cache and made sender-report timing use the correct audio/video RTP clock rates.
 - Tightened VP9 alpha-frame matching and scaling so delayed or differently sized alpha tracks do not reuse future or unrelated masks.
 - Refused plaintext signaling fallback when encrypted SDP or ICE candidate generation fails.
+- Serialized MSVC program-database writes for parallel unit-test builds to prevent intermittent `C1041` release-verification failures.
 
 ## [1.1.51] - 2026-07-06
 
