@@ -7,6 +7,7 @@
 #include <chrono>
 #include <cstddef>
 #include <functional>
+#include <mutex>
 #include <optional>
 #include <string>
 #include <utility>
@@ -49,7 +50,19 @@ public:
 		std::optional<size_t> maxMessageSize;
 	};
 
-	explicit WebSocket(const Configuration &) {}
+	explicit WebSocket(const Configuration &)
+	{
+		std::lock_guard<std::mutex> lock(instanceMutex_);
+		lastInstance_ = this;
+	}
+
+	~WebSocket()
+	{
+		std::lock_guard<std::mutex> lock(instanceMutex_);
+		if (lastInstance_ == this) {
+			lastInstance_ = nullptr;
+		}
+	}
 
 	void onOpen(std::function<void()> callback) { onOpen_ = std::move(callback); }
 	void onClosed(std::function<void()> callback) { onClosed_ = std::move(callback); }
@@ -80,6 +93,16 @@ public:
 		}
 	}
 
+	static bool simulateRemoteClose()
+	{
+		std::lock_guard<std::mutex> lock(instanceMutex_);
+		if (!lastInstance_) {
+			return false;
+		}
+		lastInstance_->close();
+		return true;
+	}
+
 private:
 	bool open_ = false;
 	std::function<void()> onOpen_;
@@ -87,6 +110,8 @@ private:
 	std::function<void(const std::string &)> onError_;
 	std::function<void(Message)> onMessage_;
 	std::string lastMessage_;
+	inline static std::mutex instanceMutex_;
+	inline static WebSocket *lastInstance_ = nullptr;
 };
 
 } // namespace rtc

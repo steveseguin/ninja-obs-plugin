@@ -300,6 +300,7 @@ if(BUILD_PLUGIN)
     set(PLUGIN_SOURCES
         src/plugin-main.cpp
         src/vdoninja-alpha-sync.cpp
+        src/vdoninja-ice-candidate-queue.cpp
         src/vdoninja-output.cpp
         src/vdoninja-reliability.cpp
         src/vdoninja-rtp-utils.cpp
@@ -318,6 +319,8 @@ if(BUILD_PLUGIN)
     set(PLUGIN_HEADERS
         src/plugin-main.h
         src/vdoninja-alpha-sync.h
+        src/vdoninja-auto-inbound-state.h
+        src/vdoninja-ice-candidate-queue.h
         src/vdoninja-common.h
         src/vdoninja-output.h
         src/vdoninja-reliability.h
@@ -505,6 +508,7 @@ if(BUILD_TESTS)
     # Test sources that don't depend on OBS
     set(TESTABLE_SOURCES
         src/vdoninja-alpha-sync.cpp
+        src/vdoninja-ice-candidate-queue.cpp
         src/vdoninja-rtp-utils.cpp
         src/vdoninja-utils.cpp
         src/vdoninja-reliability.cpp
@@ -538,6 +542,8 @@ if(BUILD_TESTS)
     # Unit tests
     add_executable(vdoninja-tests
         tests/test-alpha-sync.cpp
+        tests/test-auto-inbound.cpp
+        tests/test-ice-candidate-queue.cpp
         tests/test-peer-manager.cpp
         tests/test-utils.cpp
         tests/test-reliability.cpp
@@ -560,6 +566,7 @@ if(BUILD_TESTS)
         GTest::gtest_main
         GTest::gmock
     )
+    target_compile_definitions(vdoninja-tests PRIVATE TESTING_BUILD)
 
     include(GoogleTest)
     gtest_discover_tests(vdoninja-tests)

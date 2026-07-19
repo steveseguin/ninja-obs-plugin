@@ -753,9 +753,10 @@ Data-channel message matrix:
   Current output-side behavior is no-op because the plugin does not currently
   initiate its own data-channel ping recovery loop.
 - `iceRestartRequest`: official peer recovery request. Direct data-channel
-  input is recognized by field presence and asks the peer manager to create a
-  fresh publisher offer for that peer; WebSocket input dispatches through the
-  dedicated signaling ICE-restart callback when the request is truthy.
+  input is recognized by field presence and asks the peer manager to rebuild
+  that publisher peer with fresh ICE credentials; WebSocket input dispatches
+  through the dedicated signaling ICE-restart callback when the request is
+  truthy.
 - `refreshVideo`: official remote/director recovery control. OBS publisher
   output honors it only when `enableRemote` is enabled, and maps it to cached
   keyframe priming for the requesting peer because OBS already owns a native
@@ -768,7 +769,7 @@ Data-channel message matrix:
   device. Field presence means requested, even when the JSON value is false.
 - `refreshConnection`: official remote/director recovery control. OBS
   publisher output honors it only when `enableRemote` is enabled, and maps it
-  to the existing peer-manager ICE restart/re-offer path for every current
+  to the peer-manager ICE recovery path for every current
   publisher peer snapshot. When remote control is disabled, publisher output
   returns `{"rejected":"refreshConnection"}`. Field presence means requested,
   even when the JSON value is false.
@@ -1293,8 +1294,9 @@ Flow: publisher inbound data message
    - ping sends `pong` to the same peer with the same raw JSON token; this keeps
      official disconnected-peer liveness checks from timing out.
    - pong is accepted as a known liveness response and is currently a no-op.
-   - ICE restart request asks peer manager to create a fresh publisher offer
-     for the same peer when the peer is live and signaling state is stable.
+   - ICE restart request asks peer manager to rebuild the publisher connection
+     with the same UUID/session and send an offer with fresh ICE credentials
+     when the peer is live and signaling state is stable.
    - hangup is rejected as director-only because the plugin does not have
      director identity. Hangup outranks passive mute/video state because it is
      endpoint-stop control, not media availability state.
@@ -2359,7 +2361,7 @@ processing on publisher and native/source receive paths.
 - Review rule: when direct data-channel signaling is accepted, preserve the
   official sender identity behavior before feeding the shared signaling parser.
 
-Fix: official ICE-restart recovery requests reach publisher re-offer handling.
+Fix: official ICE-restart recovery requests reach publisher recovery handling.
 
 - Source anchors: `VDONinjaDataChannel::parseMessage`,
   `parseSignalingMessage`, `VDONinjaSignaling::handleRequest`,
@@ -2376,8 +2378,10 @@ Fix: official ICE-restart recovery requests reach publisher re-offer handling.
   branch. WebSocket `iceRestartRequest` is normalized into a signaling request
   and dispatched through a dedicated ICE-restart callback, not the ordinary
   offer-request path that suppresses duplicate connected-session offers. The
-  peer manager creates a fresh publisher offer for a live publisher peer only
-  when the libdatachannel signaling state is stable.
+  bundled libdatachannel cannot restart an existing ICE transport, so the peer
+  manager rebuilds the live publisher PeerConnection while retaining its
+  UUID/session and media-send state, then sends a fresh offer. Recovery starts
+  only when the previous libdatachannel signaling state is stable.
 - Validation: `DataChannelTest.ParsesOfficialIceRestartRequest`,
   `SignalingProtocolTest.ParsesOfficialIceRestartRequest`, and
   `SignalingStateTest.OfficialIceRestartRequestDispatchesIceRestartRequest`

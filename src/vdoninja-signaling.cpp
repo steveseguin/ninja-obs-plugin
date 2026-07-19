@@ -50,6 +50,10 @@ constexpr const char *kProxySignalingHost = "wss://proxywss.rtc.ninja:443";
 constexpr int kInitialConnectWaitMs = 12000;
 constexpr int kSignalingConnectionTimeoutMs = 4000;
 
+#ifdef TESTING_BUILD
+std::atomic<bool> gForceEncryptionFailureForTesting{false};
+#endif
+
 template <typename Fn> void runRtcCallbackNoexcept(const char *context, Fn &&fn)
 {
 	try {
@@ -118,6 +122,11 @@ bool hexToBytes(const std::string &hex, std::vector<uint8_t> &out)
 bool encryptAesCbcHex(const std::string &plaintext, const std::string &phrase, std::string &cipherHex,
                       std::string &vectorHex)
 {
+#ifdef TESTING_BUILD
+	if (gForceEncryptionFailureForTesting.load()) {
+		return false;
+	}
+#endif
 #if VDONINJA_HAS_OPENSSL
 	if (phrase.empty()) {
 		return false;
@@ -497,6 +506,7 @@ bool VDONinjaSignaling::connect(const std::string &wssHost)
 	shouldRun_ = true;
 	needsReconnect_ = false;
 	initialConnectionFinished_ = false;
+	disconnectNotified_ = true;
 
 	// Start WebSocket thread
 	wsThread_ = std::thread(&VDONinjaSignaling::wsThreadFunc, this);
@@ -515,7 +525,7 @@ bool VDONinjaSignaling::connect(const std::string &wssHost)
 void VDONinjaSignaling::disconnect()
 {
 	shouldRun_ = false;
-	connected_ = false;
+	const bool wasConnected = connected_.exchange(false);
 
 	// Signal send thread to exit
 	clearSendQueue();
@@ -554,13 +564,8 @@ void VDONinjaSignaling::disconnect()
 
 	logInfo("Disconnected from signaling server");
 
-	OnDisconnectedCallback cb;
-	{
-		std::lock_guard<std::mutex> lock(callbackMutex_);
-		cb = onDisconnected_;
-	}
-	if (cb) {
-		cb();
+	if (wasConnected) {
+		notifyDisconnected();
 	}
 }
 
@@ -621,6 +626,7 @@ void VDONinjaSignaling::wsThreadFunc()
 					logInfo("WebSocket connected to signaling server: %s", host.c_str());
 					opened->store(true);
 					connected_ = true;
+					disconnectNotified_ = false;
 					initialConnectionFinished_ = true;
 					reconnectAttempts->store(0, std::memory_order_relaxed);
 					{
@@ -648,8 +654,11 @@ void VDONinjaSignaling::wsThreadFunc()
 					} else {
 						logWarning("WebSocket closed before opening: %s", host.c_str());
 					}
-					connected_ = false;
+					const bool wasConnected = connected_.exchange(false);
 					needsReconnect_ = true;
+					if (opened->load() && wasConnected) {
+						notifyDisconnected();
+					}
 					// Wake send loop so it can exit
 					std::lock_guard<std::mutex> lock(sendMutex_);
 					sendCv_.notify_all();
@@ -1230,6 +1239,34 @@ void VDONinjaSignaling::clearSendQueue()
 	}
 }
 
+void VDONinjaSignaling::notifyDisconnected()
+{
+	if (disconnectNotified_.exchange(true)) {
+		return;
+	}
+
+	OnDisconnectedCallback cb;
+	{
+		std::lock_guard<std::mutex> lock(callbackMutex_);
+		cb = onDisconnected_;
+	}
+	if (cb) {
+		cb();
+	}
+}
+
+void VDONinjaSignaling::notifyError(const std::string &error)
+{
+	OnErrorCallback cb;
+	{
+		std::lock_guard<std::mutex> lock(callbackMutex_);
+		cb = onError_;
+	}
+	if (cb) {
+		cb(error);
+	}
+}
+
 void VDONinjaSignaling::queueMessage(const std::string &message)
 {
 	sendMessage(message);
@@ -1483,8 +1520,9 @@ void VDONinjaSignaling::sendOffer(const std::string &uuid, const std::string &sd
 			msg.add("description", encryptedDescription);
 			msg.add("vector", vector);
 		} else {
-			logWarning("Failed to encrypt offer SDP; sending plaintext");
-			msg.addRaw("description", description.build());
+			logError("Failed to encrypt offer SDP; refusing plaintext fallback");
+			notifyError("Failed to encrypt offer SDP");
+			return;
 		}
 	} else {
 		msg.addRaw("description", description.build());
@@ -1518,8 +1556,9 @@ void VDONinjaSignaling::sendAnswer(const std::string &uuid, const std::string &s
 			msg.add("description", encryptedDescription);
 			msg.add("vector", vector);
 		} else {
-			logWarning("Failed to encrypt answer SDP; sending plaintext");
-			msg.addRaw("description", description.build());
+			logError("Failed to encrypt answer SDP; refusing plaintext fallback");
+			notifyError("Failed to encrypt answer SDP");
+			return;
 		}
 	} else {
 		msg.addRaw("description", description.build());
@@ -1558,8 +1597,9 @@ void VDONinjaSignaling::sendAnswerViaDataChannel(const std::shared_ptr<rtc::Data
 			msg.add("description", encryptedDescription);
 			msg.add("vector", vector);
 		} else {
-			logWarning("Failed to encrypt answer SDP for datachannel; sending plaintext");
-			msg.addRaw("description", description.build());
+			logError("Failed to encrypt answer SDP for datachannel; refusing plaintext fallback");
+			notifyError("Failed to encrypt answer SDP for datachannel");
+			return;
 		}
 	} else {
 		msg.addRaw("description", description.build());
@@ -1601,12 +1641,9 @@ void VDONinjaSignaling::sendIceCandidate(const std::string &uuid, const std::str
 			msg.add("candidate", encryptedCandidate);
 			msg.add("vector", vector);
 		} else {
-			logWarning("Failed to encrypt ICE candidate; sending plaintext");
-			JsonBuilder candidateObj;
-			candidateObj.add("candidate", normalizedCandidate);
-			candidateObj.add("mid", mid);
-			candidateObj.add("sdpMid", mid);
-			msg.addRaw("candidate", candidateObj.build());
+			logError("Failed to encrypt ICE candidate; refusing plaintext fallback");
+			notifyError("Failed to encrypt ICE candidate");
+			return;
 		}
 	} else {
 		JsonBuilder candidateObj;
@@ -1658,12 +1695,9 @@ bool VDONinjaSignaling::sendIceCandidateViaDataChannel(const std::shared_ptr<rtc
 			msg.add("candidate", encryptedCandidate);
 			msg.add("vector", vector);
 		} else {
-			logWarning("Failed to encrypt ICE candidate for datachannel; sending plaintext");
-			JsonBuilder candidateObj;
-			candidateObj.add("candidate", normalizedCandidate);
-			candidateObj.add("mid", mid);
-			candidateObj.add("sdpMid", mid);
-			msg.addRaw("candidate", candidateObj.build());
+			logError("Failed to encrypt ICE candidate for datachannel; refusing plaintext fallback");
+			notifyError("Failed to encrypt ICE candidate for datachannel");
+			return false;
 		}
 	} else {
 		JsonBuilder candidateObj;
@@ -1693,6 +1727,12 @@ void VDONinjaSignaling::setOnDisconnected(OnDisconnectedCallback callback)
 	std::lock_guard<std::mutex> lock(callbackMutex_);
 	onDisconnected_ = callback;
 }
+#ifdef TESTING_BUILD
+void VDONinjaSignaling::setEncryptionFailureForTesting(bool forceFailure)
+{
+	gForceEncryptionFailureForTesting.store(forceFailure);
+}
+#endif
 void VDONinjaSignaling::setOnError(OnErrorCallback callback)
 {
 	std::lock_guard<std::mutex> lock(callbackMutex_);

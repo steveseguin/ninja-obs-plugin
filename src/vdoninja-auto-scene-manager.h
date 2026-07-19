@@ -7,12 +7,15 @@
 
 #include <obs-module.h>
 
+#include <condition_variable>
 #include <functional>
 #include <mutex>
 #include <set>
 #include <string>
+#include <thread>
 #include <vector>
 
+#include "vdoninja-auto-inbound-state.h"
 #include "vdoninja-common.h"
 
 namespace vdoninja
@@ -39,6 +42,8 @@ private:
 	std::string sourceNameForStream(const std::string &streamId) const;
 	std::string buildSourceUrl(const std::string &streamId) const;
 	void queueLayoutRefresh() const;
+	void removalWorkerLoop();
+	bool queueStreamRemovalLocked(const std::string &streamId);
 	static std::string makeSourceName(std::string prefix, const std::string &streamId);
 	static std::string sanitizeNameToken(const std::string &input);
 
@@ -47,6 +52,9 @@ private:
 	mutable std::mutex stateMutex_;
 	std::set<std::string> ownStreamIds_;
 	std::set<std::string> managedStreamIds_;
+	AutoInboundRemovalGraceState pendingListingRemovals_;
+	std::condition_variable removalCv_;
+	std::thread removalThread_;
 };
 
 } // namespace vdoninja

@@ -40,6 +40,21 @@ TEST(PeerManagerTrackClassificationTest, FallsBackToAlphaWhenTrackHandleMatchesA
 	EXPECT_EQ(classifyIncomingTrackKind("video", "", "video", "video-alpha", true), TrackType::AlphaVideo);
 }
 
+TEST(PeerManagerTrackClassificationTest, RenegotiationKeepsFirstRepeatedVideoSectionAsPrimary)
+{
+	EXPECT_TRUE(isExistingPrimaryVideoSection(0, "video", "video", true));
+}
+
+TEST(PeerManagerTrackClassificationTest, GameCaptureVideoAlphaSectionIsNotTheRepeatedPrimary)
+{
+	EXPECT_FALSE(isExistingPrimaryVideoSection(1, "video-alpha", "video", true));
+}
+
+TEST(PeerManagerTrackClassificationTest, ExplicitVideoAlphaMidWorksWhenItIsTheOnlyOfferedVideoSection)
+{
+	EXPECT_FALSE(isExistingPrimaryVideoSection(0, "video-alpha", "video", true));
+}
+
 TEST(PeerManagerSnapshotTest, ExposesPerPeerMediaSendState)
 {
 	PeerSnapshot snapshot;

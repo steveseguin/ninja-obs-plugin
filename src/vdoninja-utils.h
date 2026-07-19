@@ -55,7 +55,7 @@ std::string deriveViewStreamId(const std::string &streamId, const std::string &p
 std::string buildViewerPageUrl(const std::string &baseUrl, const std::string &streamId, const std::string &password,
                                const std::string &roomId, const std::string &salt, const std::string &wssHost = "");
 std::string buildInboundViewUrl(const std::string &baseUrl, const std::string &streamId, const std::string &password,
-                                const std::string &roomId, const std::string &salt);
+                                const std::string &roomId, const std::string &salt, const std::string &wssHost = "");
 int chooseViewerTargetBitrateKbps(uint32_t width, uint32_t height);
 uint32_t normalizeSourceDimension(int64_t value, uint32_t fallback, uint32_t minValue, uint32_t maxValue);
 int normalizeOpusSampleRate(int sampleRate);

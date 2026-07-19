@@ -144,4 +144,9 @@ Vp9DescriptorResult parseVP9PayloadDescriptor(const uint8_t *payload, size_t siz
 	return result;
 }
 
+bool isRtcpSenderReportDue(uint32_t currentTimestamp, uint32_t lastReportedTimestamp, uint32_t clockRate)
+{
+	return clockRate > 0 && static_cast<uint32_t>(currentTimestamp - lastReportedTimestamp) >= clockRate;
+}
+
 } // namespace vdoninja

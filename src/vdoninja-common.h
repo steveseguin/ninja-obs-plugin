@@ -25,6 +25,7 @@ class PeerConnection;
 class DataChannel;
 class Track;
 class RtcpSrReporter;
+class RtpPacketizationConfig;
 struct Configuration;
 } // namespace rtc
 
@@ -71,15 +72,21 @@ struct PeerInfo {
 	std::string uuid;
 	std::string streamId;
 	std::string session;
+	uint64_t generation = 0;
 	ConnectionType type;
 	std::atomic<ConnectionState> state{ConnectionState::New};
 	std::atomic<int64_t> terminalStateTimeMs{0};
 	std::atomic<bool> disconnectNotified{false};
 	std::atomic<bool> cleanupRetired{false};
+	std::atomic<bool> signalingActive{false};
 	std::atomic<bool> localOfferRequested{false};
+	std::atomic<bool> localOfferDispatched{false};
+	std::atomic<bool> remoteDescriptionSet{false};
 	mutable std::mutex negotiationMutex;
 	std::string lastLocalOfferSdp;
 	mutable std::mutex mediaMutex;
+	mutable std::mutex audioSendMutex;
+	mutable std::mutex videoSendMutex;
 	bool hasDataChannel = false;
 	bool awaitingVideoKeyframe = true;
 	bool audioSendEnabled = true;
@@ -92,6 +99,8 @@ struct PeerInfo {
 	std::shared_ptr<rtc::Track> alphaVideoTrack;
 	std::shared_ptr<rtc::RtcpSrReporter> audioSrReporter;
 	std::shared_ptr<rtc::RtcpSrReporter> videoSrReporter;
+	std::shared_ptr<rtc::RtpPacketizationConfig> audioRtpConfig;
+	std::shared_ptr<rtc::RtpPacketizationConfig> videoRtpConfig;
 	bool useAudioPacketizer = false;
 	bool useVideoPacketizer = false;
 	bool localDescriptionCallbackInstalled = false;
@@ -155,6 +164,7 @@ struct AutoInboundSettings {
 	std::string targetScene;
 	std::string sourcePrefix = "VDO";
 	std::string baseUrl = "https://vdo.ninja";
+	std::string wssHost = DEFAULT_WSS_HOST;
 	bool removeOnDisconnect = true;
 	AutoLayoutMode layoutMode = AutoLayoutMode::Grid;
 	bool switchToSceneOnNewStream = false;

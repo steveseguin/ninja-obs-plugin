@@ -100,6 +100,10 @@ public:
 	// Get our UUID (assigned by server or generated locally)
 	std::string getLocalUUID() const;
 
+#ifdef TESTING_BUILD
+	static void setEncryptionFailureForTesting(bool forceFailure);
+#endif
+
 private:
 	// WebSocket handling (using a simple implementation)
 	void wsThreadFunc();
@@ -108,6 +112,8 @@ private:
 	void queueMessage(const std::string &message);
 	void clearSendQueue();
 	void applyServerAlertPolicy(const std::string &alert);
+	void notifyDisconnected();
+	void notifyError(const std::string &error);
 
 	// Message handlers
 	void handleRequest(const ParsedSignalMessage &message);
@@ -132,6 +138,7 @@ private:
 	std::atomic<bool> shouldRun_{false};
 	std::atomic<bool> needsReconnect_{false};
 	std::atomic<bool> initialConnectionFinished_{false};
+	std::atomic<bool> disconnectNotified_{true};
 
 	// Config (protected by stateMutex_)
 	bool autoReconnect_ = true;

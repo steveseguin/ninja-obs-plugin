@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Added bounded, session-aware buffering for remote ICE candidates that arrive before peer creation or remote SDP, including expiry and global memory limits.
+- Added automatic inbound room-listing reconciliation with a removal grace period and custom signaling-server propagation for auto-created sources.
+
+### Changed
+- Increased the native viewer target bitrate ceiling for full-resolution streams and kept established media active while signaling reconnects.
+- Required every GitHub macOS release build to be Developer ID signed, notarized, stapled, and validated before artifacts are uploaded.
+
+### Fixed
+- Rebuilt publisher peer connections for ICE restart requests while preserving UUID, session, RTP sequence/timestamp, and media-send state, and isolated candidate bundles by peer generation to prevent stale signaling races.
+- Forwarded RTCP keyframe requests to the output keyframe cache and made sender-report timing use the correct audio/video RTP clock rates.
+- Tightened VP9 alpha-frame matching and scaling so delayed or differently sized alpha tracks do not reuse future or unrelated masks.
+- Refused plaintext signaling fallback when encrypted SDP or ICE candidate generation fails.
+
 ## [1.1.51] - 2026-07-06
 
 ### Added

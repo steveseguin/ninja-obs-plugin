@@ -100,8 +100,8 @@ const char *pixelFormatName(AVPixelFormat format)
 	return name ? name : "unknown";
 }
 
-bool scaleAlphaPlaneNearest(const std::vector<uint8_t> &src, int srcWidth, int srcHeight, int srcLinesize,
-                            int dstWidth, int dstHeight, std::vector<uint8_t> &dst)
+bool scaleAlphaPlaneNearest(const std::vector<uint8_t> &src, int srcWidth, int srcHeight, int srcLinesize, int dstWidth,
+                            int dstHeight, std::vector<uint8_t> &dst)
 {
 	if (srcWidth <= 0 || srcHeight <= 0 || srcLinesize <= 0 || dstWidth <= 0 || dstHeight <= 0) {
 		return false;
@@ -1304,8 +1304,7 @@ void VDONinjaSource::connectionThread()
 			if (!guard) {
 				return;
 			}
-			logInfo("Disconnected from signaling server");
-			guard.owner()->connected_ = false;
+			logInfo("Disconnected from signaling server; existing native media remains active during reconnect");
 		});
 
 		signaling_->setOnError([callbackState](const std::string &error) {
@@ -3101,9 +3100,9 @@ void VDONinjaSource::outputDecodedVideoFrame(const AVFrame *frame, uint64_t time
 		lastDecodedVideoHeight_ = frame->height;
 	}
 
-	// Check for a pending alpha Y-plane (VP9 alpha dual-track support).
-	// We require a matching RTP timestamp so stale alpha cannot bleed into newer
-	// primary frames if network ordering shifts between the two tracks.
+	// Check for a pending alpha Y-plane (VP9 alpha dual-track support). Prefer an
+	// exact RTP timestamp and only tolerate a narrowly bounded past frame; future
+	// alpha must remain queued for its matching primary frame.
 	std::vector<uint8_t> alphaYCopy;
 	std::vector<uint8_t> scaledAlphaY;
 	int alphaYLinesize = 0;
@@ -3113,10 +3112,12 @@ void VDONinjaSource::outputDecodedVideoFrame(const AVFrame *frame, uint64_t time
 	int alphaHeight = 0;
 	{
 		std::lock_guard<std::mutex> alphaLock(pendingAlphaMutex_);
-		constexpr uint32_t kAlphaTimestampTolerance90k = 45000;
-		const auto alphaResult =
-		    consumePendingAlphaFrame(pendingAlphaFrames_, rtpTimestamp, frame->width, frame->height,
-		                             kAlphaTimestampTolerance90k);
+		// game-capture's asynchronous alpha encoder may trail primary video by a
+		// small number of frames. Accept up to 100 ms of past alpha, but never a
+		// future mask or the previous half-second of unrelated motion.
+		constexpr uint32_t kAlphaTimestampTolerance90k = 9000;
+		const auto alphaResult = consumePendingAlphaFrame(pendingAlphaFrames_, rtpTimestamp, frame->width,
+		                                                  frame->height, kAlphaTimestampTolerance90k);
 		if (alphaResult.hasMatch) {
 			if (alphaResult.dimensionsMatch) {
 				alphaYCopy = alphaResult.yData;
@@ -3137,8 +3138,8 @@ void VDONinjaSource::outputDecodedVideoFrame(const AVFrame *frame, uint64_t time
 
 	if (hasAlpha && alphaWidth > 0 && alphaHeight > 0 &&
 	    !loggedAlphaDimensionMismatch_.exchange(true, std::memory_order_relaxed)) {
-		logInfo("Scaled VP9 alpha frame for RTP timestamp %u from %dx%d to primary video %dx%d",
-		           rtpTimestamp, alphaWidth, alphaHeight, frame->width, frame->height);
+		logInfo("Scaled VP9 alpha frame for RTP timestamp %u from %dx%d to primary video %dx%d", rtpTimestamp,
+		        alphaWidth, alphaHeight, frame->width, frame->height);
 	}
 	const bool alphaTrackActive = alphaTrackActive_.load(std::memory_order_relaxed);
 	if (!alphaTrackActive || hasAlpha) {
@@ -3209,20 +3210,19 @@ void VDONinjaSource::outputDecodedVideoFrame(const AVFrame *frame, uint64_t time
 		uint64_t nonZeroAppliedAlpha = 0;
 		uint64_t appliedAlphaPixels = 0;
 		for (uint32_t y = 0; y < layout.contentHeight; ++y) {
-			const int srcY = std::min(frame->height - 1,
-			                          static_cast<int>((static_cast<uint64_t>(y) *
-			                                            static_cast<uint64_t>(frame->height)) /
-			                                           std::max<uint32_t>(1, layout.contentHeight)));
+			const int srcY = std::min(
+			    frame->height - 1, static_cast<int>((static_cast<uint64_t>(y) * static_cast<uint64_t>(frame->height)) /
+			                                        std::max<uint32_t>(1, layout.contentHeight)));
 			const uint8_t *alphaRow =
 			    alphaYCopy.data() + static_cast<size_t>(srcY) * static_cast<size_t>(alphaYLinesize);
 			uint8_t *dstRow = output.data() +
 			                  (static_cast<size_t>(layout.offsetY + y) * static_cast<size_t>(outputStride)) +
 			                  (static_cast<size_t>(layout.offsetX) * 4);
 			for (uint32_t x = 0; x < layout.contentWidth; ++x) {
-				const int srcX = std::min(frame->width - 1,
-				                          static_cast<int>((static_cast<uint64_t>(x) *
-				                                            static_cast<uint64_t>(frame->width)) /
-				                                           std::max<uint32_t>(1, layout.contentWidth)));
+				const int srcX =
+				    std::min(frame->width - 1,
+				             static_cast<int>((static_cast<uint64_t>(x) * static_cast<uint64_t>(frame->width)) /
+				                              std::max<uint32_t>(1, layout.contentWidth)));
 				const uint8_t alpha = alphaRow[srcX];
 				dstRow[static_cast<size_t>(x) * 4 + 3] = alpha;
 				minAppliedAlpha = std::min(minAppliedAlpha, alpha);
@@ -3235,8 +3235,8 @@ void VDONinjaSource::outputDecodedVideoFrame(const AVFrame *frame, uint64_t time
 		}
 		static std::atomic<bool> loggedAppliedAlphaOutputRange{false};
 		if (!loggedAppliedAlphaOutputRange.exchange(true, std::memory_order_relaxed)) {
-			logInfo("Applied VP9 alpha plane to BGRA output (rtp ts=%u, range=%u-%u, nonzero=%llu/%llu)",
-			        rtpTimestamp, static_cast<unsigned>(minAppliedAlpha), static_cast<unsigned>(maxAppliedAlpha),
+			logInfo("Applied VP9 alpha plane to BGRA output (rtp ts=%u, range=%u-%u, nonzero=%llu/%llu)", rtpTimestamp,
+			        static_cast<unsigned>(minAppliedAlpha), static_cast<unsigned>(maxAppliedAlpha),
 			        static_cast<unsigned long long>(nonZeroAppliedAlpha),
 			        static_cast<unsigned long long>(appliedAlphaPixels));
 		}

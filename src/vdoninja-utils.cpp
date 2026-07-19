@@ -519,7 +519,7 @@ std::string buildViewerPageUrl(const std::string &baseUrl, const std::string &st
 }
 
 std::string buildInboundViewUrl(const std::string &baseUrl, const std::string &streamId, const std::string &password,
-                                const std::string &roomId, const std::string &salt)
+                                const std::string &roomId, const std::string &salt, const std::string &wssHost)
 {
 	const std::string normalizedStreamId = normalizeInboundPlaybackTarget(trim(streamId));
 	const std::string normalizedBaseUrl = normalizeBaseBrowserUrl(baseUrl);
@@ -537,7 +537,7 @@ std::string buildInboundViewUrl(const std::string &baseUrl, const std::string &s
 		return normalizedBaseUrl + "/?whepplay=" + urlEncode(normalizedStreamId);
 	}
 
-	return buildViewerPageUrl(normalizedBaseUrl, normalizedStreamId, password, roomId, salt);
+	return buildViewerPageUrl(normalizedBaseUrl, normalizedStreamId, password, roomId, salt, wssHost);
 }
 
 int chooseViewerTargetBitrateKbps(uint32_t width, uint32_t height)

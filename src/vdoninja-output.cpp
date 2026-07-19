@@ -841,6 +841,7 @@ void VDONinjaOutput::loadSettings(obs_data_t *settings)
 	}
 	// Pass salt and room to auto-inbound for URL building
 	settings_.autoInbound.salt = settings_.salt;
+	settings_.autoInbound.wssHost = settings_.wssHost;
 	if (settings_.autoInbound.roomId.empty()) {
 		settings_.autoInbound.roomId = settings_.roomId;
 	}
@@ -1392,8 +1393,7 @@ void VDONinjaOutput::startThread(OutputSettings settingsSnap)
 				return;
 			}
 			VDONinjaOutput *self = guard.owner();
-			logInfo("Disconnected from signaling server");
-			self->connected_ = false;
+			logInfo("Disconnected from signaling server; existing viewer media remains active during reconnect");
 
 			if (self->running_ && settingsSnap.autoReconnect) {
 				logInfo("Will attempt to reconnect...");
@@ -1477,6 +1477,14 @@ void VDONinjaOutput::startThread(OutputSettings settingsSnap)
 			}
 			self->removeRemoteStatsSubscriber(uuid);
 			logInfo("Viewer disconnected: %s (total: %d)", uuid.c_str(), self->peerManager_->getViewerCount());
+		});
+		peerManager_->setOnKeyframeRequest([callbackState](const std::string &uuid) {
+			AsyncCallbackGuard<VDONinjaOutput> guard(callbackState.get());
+			if (!guard) {
+				return;
+			}
+			logInfo("Viewer %s requested a keyframe over RTCP", uuid.c_str());
+			guard.owner()->primeViewerWithCachedKeyframe(uuid);
 		});
 
 		peerManager_->setOnDataChannel([callbackState](const std::string &uuid, std::shared_ptr<rtc::DataChannel>) {

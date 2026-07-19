@@ -16,6 +16,7 @@
 #include <mutex>
 
 #include "vdoninja-common.h"
+#include "vdoninja-ice-candidate-queue.h"
 #include "vdoninja-signaling.h"
 #include "vdoninja-track-utils.h"
 
@@ -38,6 +39,7 @@ using OnPeerDisconnectedCallback = std::function<void(const std::string &uuid)>;
 using OnTrackCallback = std::function<void(const std::string &uuid, TrackType type, std::shared_ptr<rtc::Track> track)>;
 using OnDataChannelCallback = std::function<void(const std::string &uuid, std::shared_ptr<rtc::DataChannel> dc)>;
 using OnDataChannelMessageCallback = std::function<void(const std::string &uuid, const std::string &message)>;
+using OnKeyframeRequestCallback = std::function<void(const std::string &uuid)>;
 
 // Peer snapshot for runtime diagnostics / UI.
 struct PeerSnapshot {
@@ -69,7 +71,7 @@ public:
 	bool isPublishing() const;
 	int getViewerCount() const;
 	int getMaxViewers() const;
-	bool requestIceRestart(const std::string &uuid);
+	bool requestIceRestart(const std::string &uuid, const std::string &session = "");
 
 	// Send media to all connected peers (viewers)
 	void sendAudioFrame(const uint8_t *data, size_t size, uint32_t timestamp);
@@ -100,6 +102,7 @@ public:
 	void setOnTrack(OnTrackCallback callback);
 	void setOnDataChannel(OnDataChannelCallback callback);
 	void setOnDataChannelMessage(OnDataChannelMessageCallback callback);
+	void setOnKeyframeRequest(OnKeyframeRequestCallback callback);
 
 	// Get peer info
 	std::vector<std::string> getConnectedPeers() const;
@@ -113,8 +116,20 @@ public:
 	void setEnableDataChannel(bool enable);
 
 private:
+	struct PublisherMediaState {
+		bool audioSendEnabled = true;
+		bool videoSendEnabled = true;
+		bool awaitingVideoKeyframe = true;
+		uint16_t audioSeq = 0;
+		uint16_t videoSeq = 0;
+		uint32_t audioTimestamp = 0;
+		uint32_t videoTimestamp = 0;
+	};
+
 	// Create a new peer connection for a viewer (we send media to them)
-	std::shared_ptr<PeerInfo> createPublisherConnection(const std::string &uuid);
+	std::shared_ptr<PeerInfo> createPublisherConnection(const std::string &uuid, const std::string &session = "",
+	                                                    const PublisherMediaState *initialMediaState = nullptr,
+	                                                    bool registerPeer = true);
 
 	// Create a new peer connection for viewing (we receive media from them)
 	std::shared_ptr<PeerInfo> createViewerConnection(const std::string &uuid);
@@ -125,6 +140,7 @@ private:
 	void onSignalingOfferRequest(const std::string &uuid, const std::string &session);
 	void onSignalingIceCandidate(const std::string &uuid, const std::string &candidate, const std::string &mid,
 	                             const std::string &session);
+	void drainPendingRemoteIceCandidates(const std::shared_ptr<PeerInfo> &peer);
 
 	// Setup peer connection callbacks
 	void setupPeerConnectionCallbacks(std::shared_ptr<PeerInfo> peer);
@@ -137,9 +153,10 @@ private:
 	void releasePeerResources(const std::shared_ptr<PeerInfo> &peer) const;
 	void retirePeerForDeferredCleanup(const std::string &uuid, const std::shared_ptr<PeerInfo> &peer);
 	void pruneRetiredPeers(int64_t minAgeMs);
+	bool isCurrentPeer(const std::shared_ptr<PeerInfo> &peer) const;
 
 	// ICE candidate bundling
-	void bundleAndSendCandidates(const std::string &uuid);
+	void bundleAndSendCandidates(const std::shared_ptr<PeerInfo> &peer);
 	bool sendAudioFrameToPeer(const std::string &uuid, const std::shared_ptr<PeerInfo> &peer, const uint8_t *data,
 	                          size_t size, uint32_t timestamp);
 	bool sendVideoFrameToPeerHandle(const std::string &uuid, const std::shared_ptr<PeerInfo> &peer, const uint8_t *data,
@@ -182,10 +199,11 @@ private:
 	// Audio/Video SSRC for outgoing media
 	uint32_t audioSsrc_ = 0;
 	uint32_t videoSsrc_ = 0;
-	uint16_t audioSeq_ = 0;
-	uint16_t videoSeq_ = 0;
+	std::atomic<uint16_t> audioSeq_{0};
+	std::atomic<uint16_t> videoSeq_{0};
 	uint32_t audioTimestamp_ = 0;
 	uint32_t videoTimestamp_ = 0;
+	std::atomic<uint64_t> nextPeerGeneration_{1};
 
 	// ICE candidate bundling
 	struct CandidateBundle {
@@ -193,8 +211,9 @@ private:
 		int64_t lastUpdate = 0;
 		std::string session;
 	};
-	std::map<std::string, CandidateBundle> candidateBundles_;
+	std::map<uint64_t, CandidateBundle> candidateBundles_;
 	std::mutex candidateMutex_;
+	PendingRemoteIceCandidateQueue pendingRemoteIceCandidates_;
 	std::map<std::string, std::shared_ptr<rtc::DataChannel>> pendingViewerSignalingDataChannels_;
 	mutable std::mutex pendingViewerSignalingMutex_;
 	std::atomic<bool> shuttingDown_{false};
@@ -206,6 +225,7 @@ private:
 	OnTrackCallback onTrack_;
 	OnDataChannelCallback onDataChannel_;
 	OnDataChannelMessageCallback onDataChannelMessage_;
+	OnKeyframeRequestCallback onKeyframeRequest_;
 };
 
 } // namespace vdoninja

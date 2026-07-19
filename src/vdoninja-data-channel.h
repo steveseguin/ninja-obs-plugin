@@ -39,7 +39,7 @@ enum class DataMessageType {
 	Signaling,              // SDP/ICE sent directly over data channel
 	Ping,                   // Liveness ping
 	Pong,                   // Liveness response
-	IceRestartRequest,      // Request peer ICE restart/re-offer
+	IceRestartRequest,      // Request peer ICE restart/recovery
 	RecoveryControl,        // Official remote/director stream recovery controls
 	MeshControl,            // Official mesh reconnect/map controls
 	UnsupportedControl,     // Official control-center command not implemented by this native endpoint

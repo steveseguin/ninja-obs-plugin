@@ -6,11 +6,14 @@ Every release includes `checksums.txt` with SHA-256 hashes for packaged artifact
 
 ## Binary Signing Status
 
-- Windows: code signing not currently configured
-- macOS: notarization/signing not currently configured
+- Windows: the release workflow signs the plugin DLL and installer when the repository signing secrets are present.
+- macOS: GitHub release builds require Developer ID signing and Apple notarization. The plugin bundle and bundled
+  dylibs are signed with `Developer ID Application`, the `.pkg` is signed with `Developer ID Installer`, and the
+  notarization ticket is stapled and validated before upload.
 - Linux: unsigned tarball distribution
 
-This means OS trust warnings may appear, especially on Windows/macOS.
+Windows trust warnings can still appear when the signing certificate is not rooted in the user's trust store. The
+macOS ZIP is a manual-install/troubleshooting fallback; use the signed and notarized `.pkg` for the normal install.
 
 ## Recommended Verification Flow
 
@@ -27,5 +30,4 @@ This means OS trust warnings may appear, especially on Windows/macOS.
 
 ## Roadmap
 
-- Add release signing/notarization pipeline.
 - Add signed SBOM/provenance metadata if distribution requirements demand it.

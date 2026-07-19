@@ -33,4 +33,6 @@ struct Vp9DescriptorResult {
 // On success, the VP9 bitstream data begins at payload[result.payloadOffset].
 Vp9DescriptorResult parseVP9PayloadDescriptor(const uint8_t *payload, size_t size);
 
+bool isRtcpSenderReportDue(uint32_t currentTimestamp, uint32_t lastReportedTimestamp, uint32_t clockRate);
+
 } // namespace vdoninja

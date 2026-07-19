@@ -105,7 +105,8 @@ security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN
 
 If multiple valid certificates have the same display name, pass the exact SHA-1 identity from `security find-identity -v -p basic` to `--app-sign` or `--sign`.
 
-Tag CI requires these repository secrets for macOS release packages:
+Every GitHub Actions run of the release build requires these repository secrets for macOS packages. The workflow
+fails during its initial validation job if any are missing, before platform builds begin:
 
 - `MACOS_CERTIFICATE_P12`: base64-encoded `.p12` containing the Developer ID Application and Installer certificates.
 - `MACOS_CERTIFICATE_PASSWORD`: password for that `.p12`.

@@ -42,6 +42,33 @@ jobs:
           }
           & pwsh @pwshArgs
 
+      - name: Validate macOS release credentials
+        env:
+          MACOS_CERTIFICATE_P12: ${{ secrets.MACOS_CERTIFICATE_P12 }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          MACOS_NOTARY_APPLE_ID: ${{ secrets.MACOS_NOTARY_APPLE_ID }}
+          MACOS_NOTARY_TEAM_ID: ${{ secrets.MACOS_NOTARY_TEAM_ID }}
+          MACOS_NOTARY_PASSWORD: ${{ secrets.MACOS_NOTARY_PASSWORD }}
+        run: |
+          missing=0
+          for name in \
+            MACOS_CERTIFICATE_P12 \
+            MACOS_CERTIFICATE_PASSWORD \
+            MACOS_NOTARY_APPLE_ID \
+            MACOS_NOTARY_TEAM_ID \
+            MACOS_NOTARY_PASSWORD; do
+            if [ -z "${!name:-}" ]; then
+              echo "::error::Required GitHub Actions secret is missing: $name"
+              missing=1
+            fi
+          done
+
+          if [ "$missing" -ne 0 ]; then
+            exit 1
+          fi
+
+          echo "macOS signing and notarization credentials are configured."
+
   build-linux:
     name: Linux
     runs-on: ubuntu-24.04
@@ -261,12 +288,8 @@ jobs:
           MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
         run: |
           if [ -z "${MACOS_CERTIFICATE_P12:-}" ]; then
-            if [ "${{ github.ref_type }}" = "tag" ]; then
-              echo "::error::MACOS_CERTIFICATE_P12 is required for signed macOS release packages."
-              exit 1
-            fi
-            echo "No macOS signing certificate configured; package will be unsigned."
-            exit 0
+            echo "::error::MACOS_CERTIFICATE_P12 is required for signed macOS packages."
+            exit 1
           fi
 
           if [ -z "${MACOS_CERTIFICATE_PASSWORD:-}" ]; then
@@ -570,14 +593,12 @@ jobs:
               export OBS_VDONINJA_APPLE_ID_PASSWORD="$MACOS_NOTARY_PASSWORD"
               sign_args+=(--notarize)
               validate_args+=(--require-notarized)
-            elif [ "${{ github.ref_type }}" = "tag" ]; then
-              echo "::error::MACOS_NOTARY_APPLE_ID, MACOS_NOTARY_TEAM_ID, and MACOS_NOTARY_PASSWORD are required for notarized macOS release packages."
-              exit 1
             else
-              validate_args+=(--require-signed)
+              echo "::error::MACOS_NOTARY_APPLE_ID, MACOS_NOTARY_TEAM_ID, and MACOS_NOTARY_PASSWORD are required for notarized macOS packages."
+              exit 1
             fi
-          elif [ "${{ github.ref_type }}" = "tag" ]; then
-            echo "::error::macOS release packages must be signed and notarized."
+          else
+            echo "::error::macOS packages must be signed and notarized."
             exit 1
           fi
 

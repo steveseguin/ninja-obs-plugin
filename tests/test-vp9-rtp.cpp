@@ -9,6 +9,23 @@
 
 using namespace vdoninja;
 
+TEST(RtcpSenderReportTest, BecomesDueAfterOneClockSecond)
+{
+	EXPECT_FALSE(isRtcpSenderReportDue(89999, 0, 90000));
+	EXPECT_TRUE(isRtcpSenderReportDue(90000, 0, 90000));
+}
+
+TEST(RtcpSenderReportTest, HandlesRtpTimestampWrapAround)
+{
+	constexpr uint32_t last = 0xFFFF0000u;
+	EXPECT_TRUE(isRtcpSenderReportDue(last + 90000u, last, 90000));
+}
+
+TEST(RtcpSenderReportTest, RejectsInvalidClockRate)
+{
+	EXPECT_FALSE(isRtcpSenderReportDue(100, 0, 0));
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------

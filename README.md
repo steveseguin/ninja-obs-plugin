@@ -228,6 +228,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\check-build-requir
 - `main` pushes run `CI`, `Code Quality`, and `GitHub Pages`.
 - Tag pushes matching `v*` run cross-platform build/release packaging.
 - Current release workflow auto-builds Linux x86_64, Windows x64 ZIP + setup `.exe`, and macOS arm64 `.pkg` + ZIP; macOS release packages must pass strict signing/notarization validation before upload.
+- Both tag-triggered and manually dispatched release builds fail up front if any required macOS signing or notarization secret is missing; the workflow never publishes an unsigned macOS fallback.
 - Use `powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\release.ps1 -Action status` to inspect release readiness.
 - Supported staged flow: `status` -> `prepare` -> `verify` -> `cut`.
 - `prepare` promotes `CHANGELOG.md` and aligns version files for the target release; `verify` runs the release checks against that prepared version; `cut` repeats the full path, then commits/tags/pushes.

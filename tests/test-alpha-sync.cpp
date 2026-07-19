@@ -77,7 +77,7 @@ TEST(AlphaSyncTest, ConsumeMatchesTimestampAndErasesOlderFrames)
 	EXPECT_EQ(frames.front().rtpTimestamp, 300u);
 }
 
-TEST(AlphaSyncTest, ConsumeReportsDimensionMismatchAndDropsMatchedFrame)
+TEST(AlphaSyncTest, ConsumeReportsDimensionMismatchAndPreservesMatchedFrameForScaling)
 {
 	std::deque<PendingAlphaFrame> frames;
 	upsertPendingAlphaFrame(frames, makeFrame(100, 800, 600));
@@ -89,7 +89,7 @@ TEST(AlphaSyncTest, ConsumeReportsDimensionMismatchAndDropsMatchedFrame)
 	EXPECT_FALSE(result.dimensionsMatch);
 	EXPECT_EQ(result.width, 800);
 	EXPECT_EQ(result.height, 600);
-	EXPECT_TRUE(result.yData.empty());
+	EXPECT_FALSE(result.yData.empty());
 	ASSERT_EQ(frames.size(), 1u);
 	EXPECT_EQ(frames.front().rtpTimestamp, 200u);
 }
@@ -119,6 +119,33 @@ TEST(AlphaSyncTest, ConsumeLeavesQueueEmptyWhenEverythingIsStale)
 	const auto result = consumePendingAlphaFrame(frames, 300, 640, 360);
 
 	EXPECT_FALSE(result.hasMatch);
+	EXPECT_FALSE(result.futureFramePending);
+	EXPECT_TRUE(frames.empty());
+}
+
+TEST(AlphaSyncTest, ApproximateMatchNeverConsumesFutureAlpha)
+{
+	std::deque<PendingAlphaFrame> frames;
+	upsertPendingAlphaFrame(frames, makeFrame(400));
+
+	const auto result = consumePendingAlphaFrame(frames, 300, 640, 360, 150);
+
+	EXPECT_FALSE(result.hasMatch);
+	EXPECT_FALSE(result.approximateTimestampMatch);
+	EXPECT_TRUE(result.futureFramePending);
+	ASSERT_EQ(frames.size(), 1u);
+	EXPECT_EQ(frames.front().rtpTimestamp, 400u);
+}
+
+TEST(AlphaSyncTest, ApproximateMatchAcceptsRecentPastAlpha)
+{
+	std::deque<PendingAlphaFrame> frames;
+	upsertPendingAlphaFrame(frames, makeFrame(250));
+
+	const auto result = consumePendingAlphaFrame(frames, 300, 640, 360, 75);
+
+	EXPECT_TRUE(result.hasMatch);
+	EXPECT_TRUE(result.approximateTimestampMatch);
 	EXPECT_FALSE(result.futureFramePending);
 	EXPECT_TRUE(frames.empty());
 }

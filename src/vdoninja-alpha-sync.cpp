@@ -35,8 +35,7 @@ void upsertPendingAlphaFrame(std::deque<PendingAlphaFrame> &frames, PendingAlpha
 }
 
 ConsumePendingAlphaResult consumePendingAlphaFrame(std::deque<PendingAlphaFrame> &frames, uint32_t rtpTimestamp,
-                                                   int expectedWidth, int expectedHeight,
-                                                   uint32_t maxRtpTimestampDelta)
+                                                   int expectedWidth, int expectedHeight, uint32_t maxRtpTimestampDelta)
 {
 	ConsumePendingAlphaResult result;
 
@@ -63,8 +62,10 @@ ConsumePendingAlphaResult consumePendingAlphaFrame(std::deque<PendingAlphaFrame>
 		uint32_t nearestDelta = maxRtpTimestampDelta + 1;
 		for (auto it = frames.begin(); it != frames.end(); ++it) {
 			const int64_t signedDelta = static_cast<int32_t>(it->rtpTimestamp - rtpTimestamp);
-			const uint32_t absDelta =
-			    static_cast<uint32_t>(signedDelta < 0 ? -signedDelta : signedDelta);
+			if (signedDelta >= 0) {
+				continue;
+			}
+			const uint32_t absDelta = static_cast<uint32_t>(-signedDelta);
 			if (absDelta <= maxRtpTimestampDelta && absDelta < nearestDelta) {
 				nearest = it;
 				nearestDelta = absDelta;

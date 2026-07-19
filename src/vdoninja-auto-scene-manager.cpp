@@ -8,7 +8,9 @@
 #include <obs-frontend-api.h>
 
 #include <cctype>
+#include <chrono>
 
+#include "vdoninja-auto-inbound-state.h"
 #include "vdoninja-layout.h"
 #include "vdoninja-utils.h"
 
@@ -123,21 +125,24 @@ void VDOAutoSceneManager::setOwnStreamIds(const std::vector<std::string> &stream
 void VDOAutoSceneManager::start()
 {
 	std::lock_guard<std::mutex> lock(stateMutex_);
-	if (!settings_.enabled) {
+	if (!settings_.enabled || running_) {
 		return;
 	}
 
 	running_ = true;
 	managedStreamIds_.clear();
+	pendingListingRemovals_.clear();
+	removalThread_ = std::thread(&VDOAutoSceneManager::removalWorkerLoop, this);
 }
 
 void VDOAutoSceneManager::stop()
 {
 	std::set<std::string> managedStreamsSnapshot;
 	bool removeOnDisconnect = false;
+	std::thread removalThread;
 	{
 		std::lock_guard<std::mutex> lock(stateMutex_);
-		if (!running_) {
+		if (!running_ && !removalThread_.joinable()) {
 			return;
 		}
 
@@ -145,6 +150,12 @@ void VDOAutoSceneManager::stop()
 		removeOnDisconnect = settings_.removeOnDisconnect;
 		managedStreamsSnapshot = managedStreamIds_;
 		managedStreamIds_.clear();
+		pendingListingRemovals_.clear();
+		removalThread = std::move(removalThread_);
+	}
+	removalCv_.notify_all();
+	if (removalThread.joinable()) {
+		removalThread.join();
 	}
 
 	if (!removeOnDisconnect) {
@@ -166,14 +177,31 @@ void VDOAutoSceneManager::stop()
 
 void VDOAutoSceneManager::onRoomListing(const std::vector<std::string> &streamIds)
 {
+	AutoInboundListingDelta delta;
+	bool graceStateChanged = false;
 	{
 		std::lock_guard<std::mutex> lock(stateMutex_);
 		if (!running_) {
 			return;
 		}
+		delta = reconcileAutoInboundListing(managedStreamIds_, ownStreamIds_, streamIds);
+		for (const auto &streamId : streamIds) {
+			if (!streamId.empty() && ownStreamIds_.find(streamId) == ownStreamIds_.end()) {
+				pendingListingRemovals_.cancel(streamId);
+				graceStateChanged = true;
+			}
+		}
+		const int64_t now = currentTimeMs();
+		for (const auto &streamId : delta.removed) {
+			pendingListingRemovals_.schedule(streamId, now);
+			graceStateChanged = true;
+		}
 	}
 
-	for (const auto &streamId : streamIds) {
+	if (graceStateChanged) {
+		removalCv_.notify_all();
+	}
+	for (const auto &streamId : delta.added) {
 		onStreamAdded(streamId);
 	}
 }
@@ -183,6 +211,14 @@ void VDOAutoSceneManager::onStreamAdded(const std::string &streamId)
 	if (streamId.empty()) {
 		return;
 	}
+	{
+		std::lock_guard<std::mutex> lock(stateMutex_);
+		if (!running_ || ownStreamIds_.find(streamId) != ownStreamIds_.end()) {
+			return;
+		}
+		pendingListingRemovals_.cancel(streamId);
+	}
+	removalCv_.notify_all();
 
 	const std::string sourceUrl = buildSourceUrl(streamId);
 	if (sourceUrl.empty()) {
@@ -203,7 +239,10 @@ void VDOAutoSceneManager::onStreamAdded(const std::string &streamId)
 		if (ownStreamIds_.find(streamId) != ownStreamIds_.end()) {
 			return;
 		}
-		managedStreamIds_.insert(streamId);
+		pendingListingRemovals_.cancel(streamId);
+		if (!managedStreamIds_.insert(streamId).second) {
+			return;
+		}
 		switchScene = settings_.switchToSceneOnNewStream;
 		sourceWidth = settings_.width;
 		sourceHeight = settings_.height;
@@ -263,23 +302,67 @@ void VDOAutoSceneManager::onStreamAdded(const std::string &streamId)
 
 void VDOAutoSceneManager::onStreamRemoved(const std::string &streamId)
 {
-	bool removeSource = false;
-	std::string targetScene;
-	AutoLayoutMode layoutMode = AutoLayoutMode::Grid;
+	bool refreshLayout = false;
 	{
 		std::lock_guard<std::mutex> lock(stateMutex_);
 		if (streamId.empty()) {
 			return;
 		}
-
-		managedStreamIds_.erase(streamId);
-		removeSource = settings_.removeOnDisconnect;
-		targetScene = settings_.targetScene;
-		layoutMode = settings_.layoutMode;
+		pendingListingRemovals_.cancel(streamId);
+		refreshLayout = queueStreamRemovalLocked(streamId);
 	}
+	removalCv_.notify_all();
 
-	const std::string sourceName = sourceNameForStream(streamId);
+	if (refreshLayout) {
+		queueLayoutRefresh();
+	}
+}
 
+void VDOAutoSceneManager::removalWorkerLoop()
+{
+	for (;;) {
+		std::unique_lock<std::mutex> lock(stateMutex_);
+		if (!running_) {
+			return;
+		}
+
+		const int64_t nextDeadline = pendingListingRemovals_.nextDeadlineMs();
+		if (nextDeadline == 0) {
+			removalCv_.wait(lock);
+			continue;
+		}
+
+		const int64_t now = currentTimeMs();
+		if (nextDeadline > now) {
+			removalCv_.wait_for(lock, std::chrono::milliseconds(nextDeadline - now));
+			continue;
+		}
+
+		bool refreshLayout = false;
+		const auto dueStreamIds = pendingListingRemovals_.takeDue(now);
+		for (const auto &streamId : dueStreamIds) {
+			if (managedStreamIds_.find(streamId) != managedStreamIds_.end()) {
+				refreshLayout = queueStreamRemovalLocked(streamId) || refreshLayout;
+			}
+		}
+
+		lock.unlock();
+		if (refreshLayout) {
+			queueLayoutRefresh();
+		}
+	}
+}
+
+bool VDOAutoSceneManager::queueStreamRemovalLocked(const std::string &streamId)
+{
+	managedStreamIds_.erase(streamId);
+	const bool removeSource = settings_.removeOnDisconnect;
+	const std::string targetScene = settings_.targetScene;
+	const std::string sourceName = makeSourceName(settings_.sourcePrefix, streamId);
+	const bool refreshLayout = settings_.layoutMode == AutoLayoutMode::Grid;
+
+	// Queue while holding stateMutex_ so a concurrent re-add is ordered after
+	// this removal on the OBS UI queue.
 	runOnUiThread([sourceName, removeSource, targetScene]() {
 		obs_source_t *source = obs_get_source_by_name(sourceName.c_str());
 		obs_source_t *sceneSource = acquireTargetSceneSource(targetScene);
@@ -302,9 +385,7 @@ void VDOAutoSceneManager::onStreamRemoved(const std::string &streamId)
 		}
 	});
 
-	if (layoutMode == AutoLayoutMode::Grid) {
-		queueLayoutRefresh();
-	}
+	return refreshLayout;
 }
 
 void VDOAutoSceneManager::queueLayoutRefresh() const
@@ -375,18 +456,20 @@ std::string VDOAutoSceneManager::buildSourceUrl(const std::string &streamId) con
 	std::string password;
 	std::string roomId;
 	std::string salt;
+	std::string wssHost;
 	{
 		std::lock_guard<std::mutex> lock(stateMutex_);
 		baseUrl = settings_.baseUrl;
 		password = settings_.password;
 		roomId = settings_.roomId;
 		salt = settings_.salt;
+		wssHost = settings_.wssHost;
 	}
 	if (baseUrl.empty()) {
 		baseUrl = "https://vdo.ninja";
 	}
 
-	return buildInboundViewUrl(baseUrl, streamId, password, roomId, salt);
+	return buildInboundViewUrl(baseUrl, streamId, password, roomId, salt, wssHost);
 }
 
 std::string VDOAutoSceneManager::sanitizeNameToken(const std::string &input)

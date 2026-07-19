@@ -354,6 +354,14 @@ TEST_F(BuildInboundViewUrlTest, IncludesRoomSoloAndPasswordForAutoAddedSources)
 	          "https://vdo.ninja/?view=cam_3&room=greenroom&solo&password=hunter2");
 }
 
+TEST_F(BuildInboundViewUrlTest, IncludesCustomSignalingServerForAutoAddedSources)
+{
+	EXPECT_EQ(
+	    buildInboundViewUrl("https://vdo.ninja", "cam_3", "", "greenroom", DEFAULT_SALT, "wss://signal.example:4443"),
+	    "https://vdo.ninja/?view=cam_3&room=greenroom&solo&wss="
+	    "wss%3a%2f%2fsignal.example%3a4443");
+}
+
 TEST_F(BuildInboundViewUrlTest, IncludesRoomSoloAndDisabledPasswordToken)
 {
 	EXPECT_EQ(buildInboundViewUrl("https://vdo.ninja", "whep:cam_4", "false", "greenroom", DEFAULT_SALT),
@@ -1089,8 +1097,8 @@ TEST(ViewerRequestMessageTest, IncludesAudioVideoAndResolutionDefaults)
 	EXPECT_FALSE(parser.getBool("allowchunked", true));
 	EXPECT_FALSE(parser.getBool("guest", false));
 	EXPECT_EQ(parser.getString("degrade"), "maintain-resolution");
-	EXPECT_EQ(parser.getInt("bitrate"), 4000);
-	EXPECT_EQ(parser.getInt("targetBitrate"), 4000);
+	EXPECT_EQ(parser.getInt("bitrate"), 8000);
+	EXPECT_EQ(parser.getInt("targetBitrate"), 8000);
 
 	const JsonParser resolution(parser.getObject("requestResolution"));
 	EXPECT_EQ(resolution.getInt("w"), 1920);
@@ -1140,7 +1148,7 @@ TEST(ViewerRequestMessageTest, ChoosesConservativeBitrateForSmallCanvases)
 	EXPECT_EQ(chooseViewerTargetBitrateKbps(640, 360), 800);
 	EXPECT_EQ(chooseViewerTargetBitrateKbps(854, 480), 1200);
 	EXPECT_EQ(chooseViewerTargetBitrateKbps(1280, 720), 2500);
-	EXPECT_EQ(chooseViewerTargetBitrateKbps(1920, 1080), 4000);
+	EXPECT_EQ(chooseViewerTargetBitrateKbps(1920, 1080), 8000);
 }
 
 // Time Utilities Tests

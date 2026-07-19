@@ -3,6 +3,12 @@
  * SPDX-License-Identifier: AGPL-3.0-only
  */
 
+#include <rtc/rtc.hpp>
+
+#include <atomic>
+#include <chrono>
+#include <thread>
+
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
@@ -52,4 +58,69 @@ TEST(SignalingStateTest, OfficialIceRestartRequestDispatchesIceRestartRequest)
 
 	EXPECT_EQ(seenUuid, "viewer-3");
 	EXPECT_EQ(seenSession, "sess-3");
+}
+
+TEST(SignalingStateTest, NaturalTransportCloseNotifiesDisconnectedExactlyOnce)
+{
+	VDONinjaSignaling signaling;
+	std::atomic<int> connectedCount{0};
+	std::atomic<int> disconnectedCount{0};
+
+	signaling.setAutoReconnect(false, 0);
+	signaling.setOnConnected([&]() { connectedCount.fetch_add(1); });
+	signaling.setOnDisconnected([&]() { disconnectedCount.fetch_add(1); });
+
+	ASSERT_TRUE(signaling.connect("wss://unit.test"));
+	EXPECT_EQ(connectedCount.load(), 1);
+	ASSERT_TRUE(rtc::WebSocket::simulateRemoteClose());
+
+	for (int attempt = 0; attempt < 50 && disconnectedCount.load() == 0; ++attempt) {
+		std::this_thread::sleep_for(std::chrono::milliseconds(2));
+	}
+
+	EXPECT_FALSE(signaling.isConnected());
+	EXPECT_EQ(disconnectedCount.load(), 1);
+	signaling.disconnect();
+	EXPECT_EQ(disconnectedCount.load(), 1);
+}
+
+TEST(SignalingStateTest, EncryptionFailureDoesNotSendPlaintextOverDataChannel)
+{
+	VDONinjaSignaling signaling;
+	std::string error;
+	signaling.setOnError([&](const std::string &message) { error = message; });
+	ASSERT_TRUE(signaling.connect("wss://unit.test"));
+	ASSERT_TRUE(signaling.publishStream("stream-1", "secret"));
+
+	auto channel = std::make_shared<rtc::DataChannel>();
+	VDONinjaSignaling::setEncryptionFailureForTesting(true);
+	signaling.sendAnswerViaDataChannel(channel, "peer-1", "v=0\r\n", "session-1");
+	VDONinjaSignaling::setEncryptionFailureForTesting(false);
+
+	EXPECT_TRUE(channel->lastMessage().empty());
+	EXPECT_EQ(error, "Failed to encrypt answer SDP for datachannel");
+	signaling.disconnect();
+}
+
+TEST(SignalingStateTest, OfferAndIceEncryptionFailuresAreReportedAndFailClosed)
+{
+	VDONinjaSignaling signaling;
+	std::vector<std::string> errors;
+	signaling.setOnError([&](const std::string &message) { errors.push_back(message); });
+	ASSERT_TRUE(signaling.connect("wss://unit.test"));
+	ASSERT_TRUE(signaling.publishStream("stream-1", "secret"));
+
+	auto channel = std::make_shared<rtc::DataChannel>();
+	VDONinjaSignaling::setEncryptionFailureForTesting(true);
+	signaling.sendOffer("peer-1", "v=0\r\n", "session-1");
+	signaling.sendIceCandidate("peer-1", "candidate:1 1 udp 1 127.0.0.1 5000 typ host", "video", "session-1");
+	const bool sentViaDataChannel = signaling.sendIceCandidateViaDataChannel(
+	    channel, "peer-1", "candidate:1 1 udp 1 127.0.0.1 5000 typ host", "video", "session-1");
+	VDONinjaSignaling::setEncryptionFailureForTesting(false);
+
+	EXPECT_FALSE(sentViaDataChannel);
+	EXPECT_TRUE(channel->lastMessage().empty());
+	EXPECT_THAT(errors, ElementsAre("Failed to encrypt offer SDP", "Failed to encrypt ICE candidate",
+	                                "Failed to encrypt ICE candidate for datachannel"));
+	signaling.disconnect();
 }
