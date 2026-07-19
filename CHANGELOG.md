@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.52] - 2026-07-19
+
 ### Added
 - Added bounded, session-aware buffering for remote ICE candidates that arrive before peer creation or remote SDP, including expiry and global memory limits.
 - Added automatic inbound room-listing reconciliation with a removal grace period and custom signaling-server propagation for auto-created sources.

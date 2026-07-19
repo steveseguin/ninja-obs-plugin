@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.16)
 
-project(obs-vdoninja VERSION 1.1.51 LANGUAGES C CXX)
+project(obs-vdoninja VERSION 1.1.52 LANGUAGES C CXX)
 
 # Plugin configuration
 set(PLUGIN_AUTHOR "VDO.Ninja Community")
@@ -538,6 +538,9 @@ if(BUILD_TESTS)
     endif()
 
     target_compile_definitions(vdoninja-testable PRIVATE TESTING_BUILD)
+    if(MSVC)
+        target_compile_options(vdoninja-testable PRIVATE /FS)
+    endif()
 
     # Unit tests
     add_executable(vdoninja-tests
@@ -567,6 +570,9 @@ if(BUILD_TESTS)
         GTest::gmock
     )
     target_compile_definitions(vdoninja-tests PRIVATE TESTING_BUILD)
+    if(MSVC)
+        target_compile_options(vdoninja-tests PRIVATE /FS)
+    endif()
 
     include(GoogleTest)
     gtest_discover_tests(vdoninja-tests)
