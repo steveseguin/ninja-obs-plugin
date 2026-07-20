@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Prevented Windows PowerShell from treating normal Git push progress on stderr as a release-script failure.
+
 ## [1.1.53] - 2026-07-19
 
 ### Fixed

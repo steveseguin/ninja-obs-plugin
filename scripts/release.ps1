@@ -134,8 +134,18 @@ function Invoke-Git {
         [string[]]$Arguments
     )
 
-    $output = & git @Arguments 2>&1 | ForEach-Object { "$_" }
-    if ($LASTEXITCODE -ne 0) {
+    $previousErrorActionPreference = $ErrorActionPreference
+    try {
+        # Windows PowerShell promotes native stderr (including normal git push
+        # progress) to ErrorRecord objects when the global preference is Stop.
+        $ErrorActionPreference = "Continue"
+        $output = & git @Arguments 2>&1 | ForEach-Object { "$_" }
+        $exitCode = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $previousErrorActionPreference
+    }
+
+    if ($exitCode -ne 0) {
         $joined = ($Arguments -join " ")
         throw "git $joined failed.`n$($output -join "`n")"
     }
