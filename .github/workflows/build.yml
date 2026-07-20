@@ -1145,4 +1145,6 @@ jobs:
           else
             retry gh release edit "$tag" --title "Release $tag" --notes-file artifacts/release-notes.md
           fi
-          retry gh release upload "$tag" "${release_files[@]}" --clobber
+          for file in "${release_files[@]}"; do
+            retry gh release upload "$tag" "$file" --clobber
+          done

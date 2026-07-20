@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - Prevented Windows PowerShell from treating normal Git push progress on stderr as a release-script failure.
+- Retried GitHub release assets independently so one failed upload cannot invalidate binaries that already succeeded.
 
 ## [1.1.53] - 2026-07-19
 
