@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Made VirusTotal submission advisory and added explicit GitHub CLI retries plus idempotent asset uploads so transient external-service failures cannot block release publication.
+
 ## [1.1.52] - 2026-07-19
 
 ### Added

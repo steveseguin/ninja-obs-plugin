@@ -1078,6 +1078,7 @@ jobs:
 
       - name: Submit Artifacts to VirusTotal
         if: ${{ env.VT_API_KEY != '' }}
+        continue-on-error: true
         run: |
           cd artifacts
           shopt -s nullglob
@@ -1104,14 +1105,44 @@ jobs:
           done
 
       - name: Create Release
-        uses: softprops/action-gh-release@v2
-        with:
-          draft: false
-          prerelease: ${{ contains(github.ref, '-beta') || contains(github.ref, '-alpha') || contains(github.ref, '-rc') }}
-          body_path: artifacts/release-notes.md
-          files: |
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="${{ github.ref_name }}"
+          release_args=(
+            "$tag"
+            --verify-tag
+            --title "Release $tag"
+            --notes-file artifacts/release-notes.md
+          )
+          if [[ "$tag" == *-beta* || "$tag" == *-alpha* || "$tag" == *-rc* ]]; then
+            release_args+=(--prerelease)
+          fi
+
+          release_files=(
             artifacts/*.zip
             artifacts/*.tar.gz
             artifacts/*.exe
             artifacts/*.pkg
             artifacts/checksums.txt
+          )
+
+          retry() {
+            local attempt
+            for attempt in 1 2 3 4 5; do
+              if "$@"; then
+                return 0
+              fi
+              if [ "$attempt" -lt 5 ]; then
+                sleep $((attempt * 10))
+              fi
+            done
+            return 1
+          }
+
+          if ! gh release view "$tag" >/dev/null 2>&1; then
+            retry gh release create "${release_args[@]}"
+          else
+            retry gh release edit "$tag" --title "Release $tag" --notes-file artifacts/release-notes.md
+          fi
+          retry gh release upload "$tag" "${release_files[@]}" --clobber
