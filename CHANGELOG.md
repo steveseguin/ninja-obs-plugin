@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.57] - 2026-07-25
+
 ### Added
 - The OBS log now carries a one-line publish summary every 30 seconds while streaming, plus a final one when the stream stops: encoded frame rate, video and audio bitrate, measured keyframe interval, average and largest keyframe size and how many times larger the largest is than an average frame, viewer count, send-queue depth, dropped frames, and how many keyframes viewers asked for. Diagnosing the stutter fixed below required inferring most of that from indirect evidence, because nothing in the log stated the encoder's real cadence or what viewers were asking for.
 - Repeated viewer keyframe requests no longer get a log line each. A viewer on a lossy link asks about once a second for as long as the loss lasts, which buried the rest of the log; the first request is still logged with its peer id and transport, and the rest are counted into the publish summary.
