@@ -677,6 +677,16 @@ jobs:
             }
             Write-Warning "OBS SDK install returned $installExit after required import libraries were built; continuing with manual SDK staging."
           }
+          # The tolerated failure above leaves $LASTEXITCODE non-zero. Everything
+          # that follows in this step is pure cmdlets, which never reset it, and
+          # GitHub appends "exit $LASTEXITCODE" to pwsh steps -- so an install
+          # hiccup we deliberately continued past would still fail the whole
+          # Windows release build. Clear it now that it has been handled.
+          # (Upstream OBS intermittently trips this: win-capture's graphics-hook
+          # copies x86 artifacts that the x64-only build never produces, and
+          # libobs-opengl.dll hits a "cannot find ... File exists" install race.
+          # Neither affects obs.lib/obs-frontend-api.lib, which we verify above.)
+          $global:LASTEXITCODE = 0
           # Copy headers that aren't installed by default
           # OBS headers expect: include/obs.h, include/util/c99defs.h (not include/obs/...)
           New-Item -ItemType Directory -Force -Path "${{ github.workspace }}\obs-sdk\include"

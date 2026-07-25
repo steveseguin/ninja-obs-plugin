@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- Stopped a tolerated OBS SDK install hiccup from failing the whole Windows release build. The step already continued past a non-fatal `cmake --install` failure once the required import libraries existed, but left `$LASTEXITCODE` non-zero; since every following command is a PowerShell cmdlet and GitHub appends `exit $LASTEXITCODE` to `pwsh` steps, the step still failed. Upstream OBS trips this intermittently via a `libobs-opengl.dll` install race, which is what broke the v1.1.56 Windows job.
 - Made GitHub release titles consistent. The workflow titled new releases "Release v1.2.3" while all 41 earlier releases used the bare tag, so the releases page appeared to use two naming schemes; it now always titles a release with its tag, and the existing outliers were renamed to match.
 - Guaranteed a tagged build never leaves a release sitting as a draft. The publish step now explicitly clears the draft flag after every asset is uploaded, and marks non-prerelease builds as the latest release.
 
