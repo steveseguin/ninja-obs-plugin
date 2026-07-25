@@ -1109,14 +1109,19 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           tag="${{ github.ref_name }}"
+          # Title is the bare tag ("v1.2.3") to match every historical release on
+          # this repo. Do not prefix it with "Release" -- that inconsistency is
+          # what made the releases page look like two different naming schemes.
           release_args=(
             "$tag"
             --verify-tag
-            --title "Release $tag"
+            --title "$tag"
             --notes-file artifacts/release-notes.md
           )
           if [[ "$tag" == *-beta* || "$tag" == *-alpha* || "$tag" == *-rc* ]]; then
             release_args+=(--prerelease)
+          else
+            release_args+=(--latest)
           fi
 
           release_files=(
@@ -1143,8 +1148,17 @@ jobs:
           if ! gh release view "$tag" >/dev/null 2>&1; then
             retry gh release create "${release_args[@]}"
           else
-            retry gh release edit "$tag" --title "Release $tag" --notes-file artifacts/release-notes.md
+            edit_args=("$tag" --title "$tag" --notes-file artifacts/release-notes.md)
+            if [[ "$tag" != *-beta* && "$tag" != *-alpha* && "$tag" != *-rc* ]]; then
+              edit_args+=(--latest)
+            fi
+            retry gh release edit "${edit_args[@]}"
           fi
           for file in "${release_files[@]}"; do
             retry gh release upload "$tag" "$file" --clobber
           done
+
+          # All assets are attached by this point, so publish. This also rescues a
+          # release that an earlier interrupted run left as a draft: a draft is
+          # invisible to users and is never a state a tagged build should end in.
+          retry gh release edit "$tag" --draft=false

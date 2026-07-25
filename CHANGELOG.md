@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Made GitHub release titles consistent. The workflow titled new releases "Release v1.2.3" while all 41 earlier releases used the bare tag, so the releases page appeared to use two naming schemes; it now always titles a release with its tag, and the existing outliers were renamed to match.
+- Guaranteed a tagged build never leaves a release sitting as a draft. The publish step now explicitly clears the draft flag after every asset is uploaded, and marks non-prerelease builds as the latest release.
+
 ## [1.1.56] - 2026-07-24
 
 ### Fixed
