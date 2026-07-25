@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.56] - 2026-07-24
+
 ### Fixed
 - Moved the bundled macOS CA-certificate store from `Contents/MacOS` into `Contents/Resources/data`, where the plugin already looks for it. `codesign` treats every file in a bundle's `MacOS` directory as a nested code object, so the stray `.pem` failed bundle signing with "code object is not signed at all" and blocked the 1.1.55 macOS package.
 - Fixed `install.sh` failing with "Could not find plugin binaries in package." on Debian/Ubuntu. The Linux tarball places the plugin under `lib/x86_64-linux-gnu/obs-plugins` (multiarch `CMAKE_INSTALL_LIBDIR`), which the installer did not probe; it now also handles `lib64`, multiarch, and portable layouts, and reports the paths it searched when it genuinely finds nothing. Root installs now prefer an `obs-plugins` directory OBS already scans instead of hardcoding `/usr/lib/obs-plugins`. ([#15](https://github.com/steveseguin/ninja-obs-plugin/issues/15))
