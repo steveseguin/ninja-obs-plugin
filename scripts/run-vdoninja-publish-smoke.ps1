@@ -116,7 +116,54 @@ try {
     }
 
     $obsLogPath = Get-LatestPortableObsLogPath -RepoRoot $repoRoot
+    $pacerTelemetry = @(
+        Select-String -Path $obsLogPath -Pattern "Publish:.*pacer max batch" |
+            ForEach-Object {
+                if ($_.Line -match "max ([0-9.]+) KB, [0-9.]+x avg frame\), ([1-9][0-9]*) viewers.*pacer max batch ([0-9.]+) KB.*delay ([0-9]+) ms, dropped ([0-9]+), send errors ([0-9]+)") {
+                    [pscustomobject]@{
+                        maxKeyframeKb = [double]$matches[1]
+                        viewers = [int]$matches[2]
+                        maxBatchKb = [double]$matches[3]
+                        maxDelayMs = [int]$matches[4]
+                        droppedFrames = [uint64]$matches[5]
+                        sendErrors = [uint64]$matches[6]
+                    }
+                }
+            }
+    )
+    if ($env:VDONINJA_REQUIRE_PACER_SPLIT -eq "1") {
+        $splitSample = $pacerTelemetry |
+            Where-Object { $_.maxKeyframeKb -gt $_.maxBatchKb -and $_.maxBatchKb -gt 0 } |
+            Select-Object -First 1
+        if (-not $splitSample) {
+            throw "OBS publish check did not split a keyframe across multiple pacer batches"
+        }
+        $pacerFailure = $pacerTelemetry |
+            Where-Object { $_.droppedFrames -ne 0 -or $_.sendErrors -ne 0 } |
+            Select-Object -First 1
+        if ($pacerFailure) {
+            throw "OBS publish check recorded RTP pacer drops or send errors"
+        }
+    }
     $obsProcess = Get-CimInstance Win32_Process -Filter "ProcessId = $($obsProc.Id)" -ErrorAction SilentlyContinue
+    $expectedPluginHash = (Get-FileHash (Join-Path $installPrefixPath "obs-plugins\64bit\obs-vdoninja.dll") -Algorithm SHA256).Hash
+    $loadedPluginModules = @(
+        (Get-Process -Id $obsProc.Id -ErrorAction Stop).Modules |
+            Where-Object { $_.ModuleName -ieq "obs-vdoninja.dll" } |
+            ForEach-Object {
+                [pscustomobject]@{
+                    path = $_.FileName
+                    sha256 = (Get-FileHash $_.FileName -Algorithm SHA256).Hash
+                }
+            }
+    )
+    if ($loadedPluginModules.Count -eq 0) {
+        throw "Portable OBS did not load obs-vdoninja.dll"
+    }
+    $staleLoadedModule = $loadedPluginModules | Where-Object { $_.sha256 -ne $expectedPluginHash } | Select-Object -First 1
+    if ($staleLoadedModule) {
+        throw "Portable OBS loaded a stale plugin DLL from $($staleLoadedModule.path)"
+    }
     [pscustomobject]@{
         ok = $true
         streamId = $StreamId
@@ -125,6 +172,8 @@ try {
         obsLog = $obsLogPath
         obsProcessPath = if ($obsProcess) { $obsProcess.ExecutablePath } else { $obsExePath }
         pluginDll = Join-Path $repoRoot "_obs-portable\config\obs-studio\plugins\obs-vdoninja\bin\64bit\obs-vdoninja.dll"
+        loadedPluginModules = $loadedPluginModules
+        pacerTelemetry = $pacerTelemetry
         report = $checkOut
         stderr = $checkErr
     } | ConvertTo-Json -Depth 4

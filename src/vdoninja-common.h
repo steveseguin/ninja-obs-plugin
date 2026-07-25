@@ -18,6 +18,8 @@
 #include <thread>
 #include <vector>
 
+#include "vdoninja-video-keyframe-gate.h"
+
 // Forward declarations for libdatachannel
 namespace rtc
 {
@@ -31,6 +33,8 @@ struct Configuration;
 
 namespace vdoninja
 {
+
+class RtpPacketPacer;
 
 // VDO.Ninja default configuration
 constexpr const char *DEFAULT_WSS_HOST = "wss://wss.vdo.ninja";
@@ -88,7 +92,7 @@ struct PeerInfo {
 	mutable std::mutex audioSendMutex;
 	mutable std::mutex videoSendMutex;
 	bool hasDataChannel = false;
-	bool awaitingVideoKeyframe = true;
+	VideoKeyframeGate videoKeyframeGate;
 	bool audioSendEnabled = true;
 	bool videoSendEnabled = true;
 	std::shared_ptr<rtc::PeerConnection> pc;
@@ -101,6 +105,7 @@ struct PeerInfo {
 	std::shared_ptr<rtc::RtcpSrReporter> videoSrReporter;
 	std::shared_ptr<rtc::RtpPacketizationConfig> audioRtpConfig;
 	std::shared_ptr<rtc::RtpPacketizationConfig> videoRtpConfig;
+	std::shared_ptr<RtpPacketPacer> videoPacer;
 	bool useAudioPacketizer = false;
 	bool useVideoPacketizer = false;
 	bool localDescriptionCallbackInstalled = false;

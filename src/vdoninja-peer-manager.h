@@ -17,6 +17,7 @@
 
 #include "vdoninja-common.h"
 #include "vdoninja-ice-candidate-queue.h"
+#include "vdoninja-rtp-pacer.h"
 #include "vdoninja-signaling.h"
 #include "vdoninja-track-utils.h"
 
@@ -76,11 +77,11 @@ public:
 	// Send media to all connected peers (viewers)
 	void sendAudioFrame(const uint8_t *data, size_t size, uint32_t timestamp);
 	void sendVideoFrame(const uint8_t *data, size_t size, uint32_t timestamp, bool keyframe);
-	// onlyIfAwaitingKeyframe restricts the send to peers that have not decoded a
-	// keyframe yet; used when replaying the cached keyframe, which must never be
-	// pushed at a viewer that is already synchronized.
+	// cachedReplay identifies the cached startup keyframe. It is only safe before
+	// a peer first synchronizes, never for recovery after packet loss.
 	bool sendVideoFrameToPeer(const std::string &uuid, const uint8_t *data, size_t size, uint32_t timestamp,
-	                          bool keyframe, bool onlyIfAwaitingKeyframe = false);
+	                          bool keyframe, bool cachedReplay = false);
+	bool notePeerKeyframeRequest(const std::string &uuid);
 	bool setPeerMediaSendEnabled(const std::string &uuid, bool hasVideo, bool videoEnabled, bool hasAudio,
 	                             bool audioEnabled, bool *videoBecameEnabled = nullptr);
 
@@ -117,12 +118,13 @@ public:
 	void setAudioCodec(AudioCodec codec);
 	void setBitrate(int bitrate);
 	void setEnableDataChannel(bool enable);
+	RtpPacerStats takeVideoPacerStats();
 
 private:
 	struct PublisherMediaState {
 		bool audioSendEnabled = true;
 		bool videoSendEnabled = true;
-		bool awaitingVideoKeyframe = true;
+		VideoKeyframeGate videoKeyframeGate;
 		uint16_t audioSeq = 0;
 		uint16_t videoSeq = 0;
 		uint32_t audioTimestamp = 0;
@@ -163,8 +165,7 @@ private:
 	bool sendAudioFrameToPeer(const std::string &uuid, const std::shared_ptr<PeerInfo> &peer, const uint8_t *data,
 	                          size_t size, uint32_t timestamp);
 	bool sendVideoFrameToPeerHandle(const std::string &uuid, const std::shared_ptr<PeerInfo> &peer, const uint8_t *data,
-	                                size_t size, uint32_t timestamp, bool keyframe,
-	                                bool onlyIfAwaitingKeyframe = false);
+	                                size_t size, uint32_t timestamp, bool keyframe, bool cachedReplay = false);
 
 	// Get RTC configuration
 	rtc::Configuration getRtcConfig() const;

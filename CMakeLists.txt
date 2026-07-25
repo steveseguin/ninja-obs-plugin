@@ -303,6 +303,7 @@ if(BUILD_PLUGIN)
         src/vdoninja-ice-candidate-queue.cpp
         src/vdoninja-output.cpp
         src/vdoninja-reliability.cpp
+        src/vdoninja-rtp-pacer.cpp
         src/vdoninja-rtp-utils.cpp
         src/vdoninja-source.cpp
         src/vdoninja-signaling.cpp
@@ -324,6 +325,7 @@ if(BUILD_PLUGIN)
         src/vdoninja-common.h
         src/vdoninja-output.h
         src/vdoninja-reliability.h
+        src/vdoninja-rtp-pacer.h
         src/vdoninja-source.h
         src/vdoninja-signaling.h
         src/vdoninja-signaling-protocol.h
@@ -333,6 +335,7 @@ if(BUILD_PLUGIN)
         src/vdoninja-data-channel.h
         src/vdoninja-system-cpu.h
         src/vdoninja-utils.h
+        src/vdoninja-video-keyframe-gate.h
         src/vdoninja-dock.h
     )
 
@@ -512,6 +515,7 @@ if(BUILD_TESTS)
         src/vdoninja-rtp-utils.cpp
         src/vdoninja-utils.cpp
         src/vdoninja-reliability.cpp
+        src/vdoninja-rtp-pacer.cpp
         src/vdoninja-data-channel.cpp
         src/vdoninja-signaling.cpp
         src/vdoninja-signaling-protocol.cpp
@@ -550,6 +554,7 @@ if(BUILD_TESTS)
         tests/test-peer-manager.cpp
         tests/test-utils.cpp
         tests/test-reliability.cpp
+        tests/test-rtp-pacer.cpp
         tests/test-json.cpp
         tests/test-data-channel.cpp
         tests/test-signaling-protocol.cpp

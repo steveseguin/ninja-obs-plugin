@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>VDO.Ninja RTP pacing motion source</title>
+    <style>
+      html,
+      body,
+      canvas {
+        width: 100%;
+        height: 100%;
+        margin: 0;
+        overflow: hidden;
+        background: #05070d;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="motion" width="1920" height="1080"></canvas>
+    <script>
+      const canvas = document.getElementById("motion");
+      const ctx = canvas.getContext("2d", { alpha: false });
+      const texture = document.createElement("canvas");
+      texture.width = 960;
+      texture.height = 540;
+      const textureContext = texture.getContext("2d", { alpha: false });
+      const texturePixels = textureContext.createImageData(texture.width, texture.height);
+      let frame = 0;
+      let randomState = 0x6d2b79f5;
+
+      function randomByte() {
+        randomState ^= randomState << 13;
+        randomState ^= randomState >>> 17;
+        randomState ^= randomState << 5;
+        return randomState & 255;
+      }
+
+      for (let offset = 0; offset < texturePixels.data.length; offset += 4) {
+        texturePixels.data[offset] = randomByte();
+        texturePixels.data[offset + 1] = randomByte();
+        texturePixels.data[offset + 2] = randomByte();
+        texturePixels.data[offset + 3] = 255;
+      }
+      textureContext.putImageData(texturePixels, 0, 0);
+      ctx.imageSmoothingEnabled = false;
+
+      // Keep the OBS mix carrying real Opus audio so concealment counters test
+      // the same audio/video interaction as the reported hitch, not DTX silence.
+      const AudioContext = window.AudioContext || window.webkitAudioContext;
+      if (AudioContext) {
+        const audioContext = new AudioContext();
+        const oscillator = audioContext.createOscillator();
+        const gain = audioContext.createGain();
+        oscillator.type = "sawtooth";
+        oscillator.frequency.value = 440;
+        gain.gain.value = 0.04;
+        oscillator.connect(gain).connect(audioContext.destination);
+        oscillator.start();
+        audioContext.resume();
+        setInterval(() => {
+          oscillator.frequency.setValueAtTime(oscillator.frequency.value === 440 ? 660 : 440, audioContext.currentTime);
+        }, 500);
+      }
+
+      function draw() {
+        frame += 1;
+        // The fixed noise texture makes every intra frame expensive while
+        // inter frames stay cheap. The moving sweep keeps playback visibly
+        // advancing without making every encoded frame the same size as an IDR.
+        ctx.drawImage(texture, 0, 0, canvas.width, canvas.height);
+        const sweep = ((frame * 23) % (canvas.width + 500)) - 250;
+        ctx.fillStyle = "rgba(255,255,255,0.9)";
+        ctx.fillRect(sweep, 0, 110, canvas.height);
+        ctx.fillStyle = "rgba(0,0,0,0.82)";
+        ctx.fillRect(48, 48, 690, 118);
+        ctx.fillStyle = "#fff";
+        ctx.font = "bold 52px sans-serif";
+        ctx.fillText(`HIGH-MOTION FRAME ${frame}`, 78, 123);
+        requestAnimationFrame(draw);
+      }
+
+      requestAnimationFrame(draw);
+    </script>
+  </body>
+</html>

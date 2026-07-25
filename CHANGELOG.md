@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Extended the rolling publish summary with RTP-pacer batch size, peak queue, packet delay, dropped-frame, and send-error diagnostics.
+- Added a high-complexity 1080p60 portable-OBS smoke mode that verifies large keyframes are split, checks Chrome's freeze/loss/recovery counters, and confirms playback advances in an actual OBS Browser Source.
+
+### Fixed
+- Paced each viewer's H.264 RTP packets in bounded 5 ms batches instead of pushing every fragment of a large keyframe back-to-back on the shared audio/video send path. Audio can now pass between video batches, and an overloaded pacer drops a complete encoded frame rather than corrupting a GOP with a partial send.
+- Kept initial cached-keyframe priming separate from decoder recovery state. RTCP PLI previously re-enabled the v1.1.57 cache guard immediately before the cache was checked, so synchronized viewers could still receive the stale keyframe that the guard was meant to reject.
+- Made portable-OBS validation synchronize and hash-check every DLL discovery path so an older installation copy cannot silently register the plugin before the build under test.
+
 ## [1.1.57] - 2026-07-25
 
 ### Added

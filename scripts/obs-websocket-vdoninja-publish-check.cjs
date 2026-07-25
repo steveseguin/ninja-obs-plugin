@@ -1,5 +1,6 @@
 const fs = require("fs");
 const path = require("path");
+const crypto = require("crypto");
 const { chromium } = require("playwright");
 
 function sleep(ms) {
@@ -57,8 +58,8 @@ class ObsWebSocketClient {
                 op: 1,
                 d: {
                   rpcVersion: 1,
-                  eventSubscriptions: this.eventSubscriptions,
-                },
+                  eventSubscriptions: this.eventSubscriptions
+                }
               })
             );
             return;
@@ -90,8 +91,7 @@ class ObsWebSocketClient {
             return;
           }
 
-          const comment =
-            (message.d.requestStatus && message.d.requestStatus.comment) || "OBS request failed";
+          const comment = (message.d.requestStatus && message.d.requestStatus.comment) || "OBS request failed";
           pending.reject(new Error(`${message.d.requestType}: ${comment}`));
         } catch (error) {
           reject(error);
@@ -128,7 +128,7 @@ class ObsWebSocketClient {
         reject: (error) => {
           clearTimeout(timeout);
           reject(error);
-        },
+        }
       });
     });
 
@@ -138,8 +138,8 @@ class ObsWebSocketClient {
         d: {
           requestType,
           requestId,
-          requestData,
-        },
+          requestData
+        }
       })
     );
     return response;
@@ -176,7 +176,7 @@ function logStep(message) {
 function compactConsoleMessages(messages) {
   return messages.slice(-20).map((message) => ({
     type: message.type,
-    text: message.text.length > 500 ? `${message.text.slice(0, 500)}...(truncated)` : message.text,
+    text: message.text.length > 500 ? `${message.text.slice(0, 500)}...(truncated)` : message.text
   }));
 }
 
@@ -203,7 +203,7 @@ async function collectViewerSnapshot(page) {
         videoWidth: v.videoWidth,
         videoHeight: v.videoHeight,
         audioTracks,
-        videoTracks,
+        videoTracks
       };
     });
 
@@ -215,14 +215,34 @@ async function collectViewerSnapshot(page) {
           let inboundVideoBytes = 0;
           let inboundAudioBytes = 0;
           let framesDecoded = 0;
+          let framesReceived = 0;
+          let framesDropped = 0;
+          let freezeCount = 0;
+          let totalFreezesDuration = 0;
+          let packetsLost = 0;
+          let nackCount = 0;
+          let pliCount = 0;
+          let keyFramesDecoded = 0;
+          let concealedSamples = 0;
+          let concealmentEvents = 0;
           stats.forEach((s) => {
             if (s.type === "inbound-rtp" && !s.isRemote) {
+              packetsLost += s.packetsLost || 0;
               if (s.kind === "video") {
                 inboundVideoBytes += s.bytesReceived || 0;
                 framesDecoded += s.framesDecoded || 0;
+                framesReceived += s.framesReceived || 0;
+                framesDropped += s.framesDropped || 0;
+                freezeCount += s.freezeCount || 0;
+                totalFreezesDuration += s.totalFreezesDuration || 0;
+                nackCount += s.nackCount || 0;
+                pliCount += s.pliCount || 0;
+                keyFramesDecoded += s.keyFramesDecoded || 0;
               }
               if (s.kind === "audio") {
                 inboundAudioBytes += s.bytesReceived || 0;
+                concealedSamples += s.concealedSamples || 0;
+                concealmentEvents += s.concealmentEvents || 0;
               }
             }
           });
@@ -231,6 +251,16 @@ async function collectViewerSnapshot(page) {
             inboundVideoBytes,
             inboundAudioBytes,
             framesDecoded,
+            framesReceived,
+            framesDropped,
+            freezeCount,
+            totalFreezesDuration,
+            packetsLost,
+            nackCount,
+            pliCount,
+            keyFramesDecoded,
+            concealedSamples,
+            concealmentEvents
           });
         } catch (error) {
           pcStats.push({ error: String(error) });
@@ -244,7 +274,7 @@ async function collectViewerSnapshot(page) {
       textSample: (document.body ? document.body.innerText || "" : "").slice(0, 300),
       videos,
       pcStats,
-      timestamp: Date.now(),
+      timestamp: Date.now()
     };
   });
 }
@@ -267,6 +297,24 @@ function playbackAdvanced(before, after) {
   });
 }
 
+function totalPcMetric(snapshot, key) {
+  return snapshot.pcStats.reduce((total, stat) => total + (Number(stat[key]) || 0), 0);
+}
+
+function saveObsScreenshot(imageData, filePath) {
+  const match = /^data:image\/[^;]+;base64,(.+)$/s.exec(imageData || "");
+  if (!match) {
+    throw new Error("OBS returned an invalid source screenshot");
+  }
+  const bytes = Buffer.from(match[1], "base64");
+  fs.writeFileSync(filePath, bytes);
+  return {
+    path: filePath,
+    bytes: bytes.length,
+    sha256: crypto.createHash("sha256").update(bytes).digest("hex")
+  };
+}
+
 async function waitForStreamActive(client, timeoutMs) {
   const deadline = Date.now() + timeoutMs;
   let lastStatus = null;
@@ -286,10 +334,17 @@ async function main() {
   const roomId = process.env.VDONINJA_ROOM_ID || process.argv[4] || "";
   const websocketUrl = process.env.OBS_WEBSOCKET_URL || "ws://127.0.0.1:4455";
   const waitMs = Number(process.env.VDONINJA_WAIT_MS || 90000);
+  const soakMs = Number(process.env.VDONINJA_SOAK_MS || 7000);
+  const sourceMode = String(process.env.VDONINJA_SOURCE_MODE || "static").toLowerCase();
+  const useMotionSource = sourceMode === "motion";
+  const useObsBrowserViewer = process.env.VDONINJA_OBS_BROWSER_VIEWER === "1";
+  const requireZeroFreezes = process.env.VDONINJA_REQUIRE_ZERO_FREEZES === "1";
   const outputDir = path.resolve(process.cwd(), "artifacts");
   const stamp = Date.now();
   const sceneName = `Codex OBS Publish ${stamp}`;
-  const inputName = `Codex Color Program ${stamp}`;
+  const inputName = `Codex ${useMotionSource ? "Motion" : "Color"} Program ${stamp}`;
+  const obsBrowserViewerName = `Codex OBS Browser Viewer ${stamp}`;
+  const motionSourcePath = path.resolve(process.cwd(), "tests", "tools", "publish-motion-source.html");
   const viewParams = new URLSearchParams();
   viewParams.set("view", streamId);
   if (roomId) {
@@ -306,6 +361,8 @@ async function main() {
   const streamEvents = [];
   let previousSceneName = null;
   let createdScene = false;
+  let createdObsBrowserViewer = false;
+  let obsBrowserViewerUuid = null;
   let browser = null;
 
   const client = new ObsWebSocketClient(websocketUrl, {
@@ -314,7 +371,7 @@ async function main() {
       if (event.eventType && /Stream|Output/i.test(event.eventType)) {
         streamEvents.push(event);
       }
-    },
+    }
   });
 
   try {
@@ -323,14 +380,22 @@ async function main() {
 
     logStep("querying OBS/plugin capabilities");
     const version = await client.request("GetVersion");
-    const kinds = await client.request("GetInputKindList", { unversioned: false });
+    const kinds = await client.request("GetInputKindList", {
+      unversioned: false
+    });
     const inputKinds = Array.isArray(kinds.inputKinds) ? kinds.inputKinds : [];
     if (!inputKinds.includes("vdoninja_source")) {
       throw new Error("OBS does not have the vdoninja_source input kind registered");
     }
     const colorKind = selectColorSourceKind(inputKinds);
-    if (!colorKind) {
+    if (!useMotionSource && !colorKind) {
       throw new Error("OBS does not expose a color source input kind");
+    }
+    if ((useMotionSource || useObsBrowserViewer) && !inputKinds.includes("browser_source")) {
+      throw new Error("OBS does not expose the browser_source input kind");
+    }
+    if (useMotionSource && !fs.existsSync(motionSourcePath)) {
+      throw new Error(`Motion source file is missing: ${motionSourcePath}`);
     }
 
     const currentProgram = await client.request("GetCurrentProgramScene").catch(() => ({}));
@@ -339,17 +404,36 @@ async function main() {
     logStep(`creating scene ${sceneName}`);
     await client.request("CreateScene", { sceneName });
     createdScene = true;
-    await client.request("CreateInput", {
-      sceneName,
-      inputName,
-      inputKind: colorKind,
-      inputSettings: {
-        color: 4278233600,
-        width: 1280,
-        height: 720,
-      },
-      sceneItemEnabled: true,
-    });
+    if (useMotionSource) {
+      await client.request("CreateInput", {
+        sceneName,
+        inputName,
+        inputKind: "browser_source",
+        inputSettings: {
+          is_local_file: true,
+          local_file: motionSourcePath,
+          width: 1920,
+          height: 1080,
+          fps: 60,
+          reroute_audio: true,
+          shutdown: false,
+          restart_when_active: false
+        },
+        sceneItemEnabled: true
+      });
+    } else {
+      await client.request("CreateInput", {
+        sceneName,
+        inputName,
+        inputKind: colorKind,
+        inputSettings: {
+          color: 4278233600,
+          width: 1280,
+          height: 720
+        },
+        sceneItemEnabled: true
+      });
+    }
     await client.request("SetCurrentProgramScene", { sceneName });
 
     logStep(`configuring VDO.Ninja stream service for ${streamId}`);
@@ -364,17 +448,37 @@ async function main() {
         max_viewers: 10,
         video_codec: 0,
         enable_data_channel: true,
-        auto_reconnect: true,
-      },
+        auto_reconnect: true
+      }
     });
 
     logStep("starting OBS stream");
     await client.request("StartStream");
     const activeStatus = await waitForStreamActive(client, 30000);
+    if (useObsBrowserViewer) {
+      logStep(`creating actual OBS Browser Source viewer ${obsBrowserViewerName}`);
+      const createdViewer = await client.request("CreateInput", {
+        sceneName,
+        inputName: obsBrowserViewerName,
+        inputKind: "browser_source",
+        inputSettings: {
+          is_local_file: false,
+          url: ensureQuery(viewUrl, "autostart", "1"),
+          width: 640,
+          height: 360,
+          fps: 60,
+          shutdown: false,
+          restart_when_active: false
+        },
+        sceneItemEnabled: true
+      });
+      createdObsBrowserViewer = true;
+      obsBrowserViewerUuid = createdViewer.inputUuid || null;
+    }
 
     browser = await chromium.launch({
       headless: process.env.HEADLESS === "0" ? false : true,
-      args: ["--autoplay-policy=no-user-gesture-required"],
+      args: ["--autoplay-policy=no-user-gesture-required"]
     });
     const context = await browser.newContext();
     await context.addInitScript(() => {
@@ -425,14 +529,57 @@ async function main() {
       throw new Error(`Viewer did not receive playable media; latest=${JSON.stringify(latestSnapshot)}`);
     }
 
-    await sleep(7000);
-    const secondPlayable = await collectViewerSnapshot(page);
+    fs.mkdirSync(outputDir, { recursive: true });
+    let firstObsBrowserScreenshot = null;
+    if (createdObsBrowserViewer) {
+      await sleep(3000);
+      const screenshot = await client.request("GetSourceScreenshot", {
+        ...(obsBrowserViewerUuid ? { sourceUuid: obsBrowserViewerUuid } : { sourceName: obsBrowserViewerName }),
+        imageFormat: "png",
+        imageWidth: 640,
+        imageHeight: 360
+      });
+      firstObsBrowserScreenshot = saveObsScreenshot(
+        screenshot.imageData,
+        path.join(outputDir, `obs-browser-viewer-first-${stamp}.png`)
+      );
+    }
+
+    const samples = [firstPlayable];
+    const soakDeadline = Date.now() + soakMs;
+    while (Date.now() < soakDeadline) {
+      await sleep(Math.min(1000, Math.max(1, soakDeadline - Date.now())));
+      samples.push(await collectViewerSnapshot(page));
+    }
+    const secondPlayable = samples[samples.length - 1];
     if (!playbackAdvanced(firstPlayable, secondPlayable)) {
       throw new Error("Viewer media did not advance after initial playback");
     }
+    const newFreezes = totalPcMetric(secondPlayable, "freezeCount") - totalPcMetric(firstPlayable, "freezeCount");
+    if (requireZeroFreezes && newFreezes !== 0) {
+      throw new Error(`Chrome recorded ${newFreezes} new video freeze(s) during the ${soakMs} ms soak`);
+    }
 
-    const streamStatusAfterViewer = await client.request("GetStreamStatus").catch((error) => ({ error: String(error) }));
-    fs.mkdirSync(outputDir, { recursive: true });
+    let secondObsBrowserScreenshot = null;
+    if (createdObsBrowserViewer) {
+      const screenshot = await client.request("GetSourceScreenshot", {
+        ...(obsBrowserViewerUuid ? { sourceUuid: obsBrowserViewerUuid } : { sourceName: obsBrowserViewerName }),
+        imageFormat: "png",
+        imageWidth: 640,
+        imageHeight: 360
+      });
+      secondObsBrowserScreenshot = saveObsScreenshot(
+        screenshot.imageData,
+        path.join(outputDir, `obs-browser-viewer-final-${stamp}.png`)
+      );
+      if (firstObsBrowserScreenshot.sha256 === secondObsBrowserScreenshot.sha256) {
+        throw new Error("The actual OBS Browser Source viewer did not render an advancing image");
+      }
+    }
+
+    const streamStatusAfterViewer = await client
+      .request("GetStreamStatus")
+      .catch((error) => ({ error: String(error) }));
     const screenshotPath = path.join(outputDir, `obs-publish-viewer-${stamp}.png`);
     const reportPath = path.join(outputDir, `obs-publish-report-${stamp}.json`);
     await page.screenshot({ path: screenshotPath, fullPage: true });
@@ -443,17 +590,25 @@ async function main() {
       password,
       roomId,
       viewUrl,
+      sourceMode,
+      soakMs,
       obsVersion: version.obsVersion,
       obsWebSocketVersion: version.obsWebSocketVersion,
       activeStatus,
       streamStatusAfterViewer,
       firstPlayable,
       secondPlayable,
+      samples,
+      newFreezes,
+      firstObsBrowserScreenshot,
+      secondObsBrowserScreenshot,
       consoleMessages: compactConsoleMessages(consoleMessages),
-      pageErrors: pageErrors.slice(-10).map((error) => (error.length > 500 ? `${error.slice(0, 500)}...(truncated)` : error)),
+      pageErrors: pageErrors
+        .slice(-10)
+        .map((error) => (error.length > 500 ? `${error.slice(0, 500)}...(truncated)` : error)),
       streamEvents,
       screenshotPath,
-      reportPath,
+      reportPath
     };
     fs.writeFileSync(reportPath, `${JSON.stringify(report, null, 2)}\n`, "utf8");
     console.log(
@@ -464,9 +619,17 @@ async function main() {
         roomId,
         viewUrl,
         inboundBytes: totalInboundBytes(secondPlayable),
+        framesReceived: totalPcMetric(secondPlayable, "framesReceived"),
+        framesDropped: totalPcMetric(secondPlayable, "framesDropped"),
+        freezeCount: totalPcMetric(secondPlayable, "freezeCount"),
+        totalFreezesDuration: totalPcMetric(secondPlayable, "totalFreezesDuration"),
+        packetsLost: totalPcMetric(secondPlayable, "packetsLost"),
+        nackCount: totalPcMetric(secondPlayable, "nackCount"),
+        pliCount: totalPcMetric(secondPlayable, "pliCount"),
+        keyFramesDecoded: totalPcMetric(secondPlayable, "keyFramesDecoded"),
         currentTime: secondPlayable.videos[0] ? secondPlayable.videos[0].currentTime : null,
         screenshotPath,
-        reportPath,
+        reportPath
       })
     );
 
@@ -482,6 +645,15 @@ async function main() {
           logStep("stopping OBS stream");
           await client.request("StopStream").catch(() => {});
           await sleep(3000);
+        }
+        if (createdObsBrowserViewer) {
+          logStep(`removing input ${obsBrowserViewerName}`);
+          await client
+            .request(
+              "RemoveInput",
+              obsBrowserViewerUuid ? { inputUuid: obsBrowserViewerUuid } : { inputName: obsBrowserViewerName }
+            )
+            .catch(() => {});
         }
         logStep(`removing input ${inputName}`);
         await client.request("RemoveInput", { inputName }).catch(() => {});

@@ -7,6 +7,7 @@
 
 #include "vdoninja-peer-manager.h"
 #include "vdoninja-track-utils.h"
+#include "vdoninja-video-keyframe-gate.h"
 
 using namespace vdoninja;
 
@@ -61,4 +62,61 @@ TEST(PeerManagerSnapshotTest, ExposesPerPeerMediaSendState)
 
 	EXPECT_TRUE(snapshot.audioSendEnabled);
 	EXPECT_TRUE(snapshot.videoSendEnabled);
+}
+
+TEST(VideoKeyframeGateTest, NewViewerAcceptsOneCachedPrime)
+{
+	VideoKeyframeGate gate;
+
+	EXPECT_TRUE(gate.isAwaitingKeyframe());
+	EXPECT_TRUE(gate.isCachedPrimeAllowed());
+	EXPECT_FALSE(gate.canQueueFrame(false, false));
+	EXPECT_TRUE(gate.canQueueFrame(true, true));
+
+	gate.onKeyframeQueued();
+	EXPECT_FALSE(gate.isAwaitingKeyframe());
+	EXPECT_FALSE(gate.canQueueFrame(true, true));
+	EXPECT_TRUE(gate.canQueueFrame(false, false));
+}
+
+TEST(VideoKeyframeGateTest, InitialDecoderRequestStillAllowsCachedPrime)
+{
+	VideoKeyframeGate gate;
+
+	gate.onDecoderKeyframeRequest();
+
+	EXPECT_TRUE(gate.isAwaitingKeyframe());
+	EXPECT_TRUE(gate.isCachedPrimeAllowed());
+	EXPECT_TRUE(gate.canQueueFrame(true, true));
+}
+
+TEST(VideoKeyframeGateTest, RecoveryRequestRejectsStaleCacheUntilLiveKeyframe)
+{
+	VideoKeyframeGate gate;
+	gate.onKeyframeQueued();
+
+	gate.onDecoderKeyframeRequest();
+
+	EXPECT_TRUE(gate.isAwaitingKeyframe());
+	EXPECT_FALSE(gate.isCachedPrimeAllowed());
+	EXPECT_FALSE(gate.canQueueFrame(true, true));
+	EXPECT_FALSE(gate.canQueueFrame(false, false));
+	EXPECT_TRUE(gate.canQueueFrame(true, false));
+
+	gate.onKeyframeQueued();
+	EXPECT_FALSE(gate.isAwaitingKeyframe());
+	EXPECT_TRUE(gate.canQueueFrame(false, false));
+}
+
+TEST(VideoKeyframeGateTest, ReenabledVideoCanUseCachedPrimeAgain)
+{
+	VideoKeyframeGate gate;
+	gate.onKeyframeQueued();
+	gate.onDecoderKeyframeRequest();
+
+	gate.resetForCachedPrime();
+
+	EXPECT_TRUE(gate.isAwaitingKeyframe());
+	EXPECT_TRUE(gate.isCachedPrimeAllowed());
+	EXPECT_TRUE(gate.canQueueFrame(true, true));
 }

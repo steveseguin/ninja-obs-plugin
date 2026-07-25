@@ -11,10 +11,18 @@ function Sync-PortableObsPluginPayload {
         throw "Portable OBS sync requires plugin DLL at $sourceDll"
     }
 
-    $portablePluginRoot = Join-Path $RepoRoot "_obs-portable\\config\\obs-studio\\plugins\\obs-vdoninja"
-    $portableDll = Join-Path $portablePluginRoot "bin\\64bit\\obs-vdoninja.dll"
-    New-Item -ItemType Directory -Force -Path (Split-Path $portableDll -Parent) | Out-Null
-    Copy-Item $sourceDll $portableDll -Force
+    # Portable OBS discovers both its installation plugin directory and the
+    # portable user-plugin directory. Keep both copies identical: otherwise the
+    # installation copy loads first, registers the output, and silently makes a
+    # newer user-plugin DLL look active even though its implementation is not.
+    $portableDlls = @(
+        (Join-Path $RepoRoot "_obs-portable\\obs-plugins\\64bit\\obs-vdoninja.dll"),
+        (Join-Path $RepoRoot "_obs-portable\\config\\obs-studio\\plugins\\obs-vdoninja\\bin\\64bit\\obs-vdoninja.dll")
+    )
+    foreach ($portableDll in $portableDlls) {
+        New-Item -ItemType Directory -Force -Path (Split-Path $portableDll -Parent) | Out-Null
+        Copy-Item $sourceDll $portableDll -Force
+    }
 }
 
 function Stop-AlphaMotionDemoProcesses {

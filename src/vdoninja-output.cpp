@@ -13,6 +13,7 @@
 #include <cmath>
 #include <cstring>
 #include <initializer_list>
+#include <limits>
 
 #include <util/config-file.h>
 #include <util/dstr.h>
@@ -39,6 +40,29 @@ constexpr int64_t kKeyframeIntervalWarnMs = 4500;
 // a brief reproduction still produces a couple of samples, long enough that a
 // multi-hour stream does not drown out everything else in the log.
 constexpr int64_t kPublishSummaryIntervalMs = 30000;
+
+int resolveVideoEncoderBitrate(obs_output_t *output, int fallbackBitsPerSecond)
+{
+	if (!output) {
+		return fallbackBitsPerSecond;
+	}
+
+	obs_encoder_t *encoder = obs_output_get_video_encoder(output);
+	if (!encoder) {
+		return fallbackBitsPerSecond;
+	}
+
+	obs_data_t *encoderSettings = obs_encoder_get_settings(encoder);
+	if (!encoderSettings) {
+		return fallbackBitsPerSecond;
+	}
+	const int64_t bitrateKbps = obs_data_get_int(encoderSettings, "bitrate");
+	obs_data_release(encoderSettings);
+	if (bitrateKbps <= 0 || bitrateKbps > std::numeric_limits<int>::max() / 1000) {
+		return fallbackBitsPerSecond;
+	}
+	return static_cast<int>(bitrateKbps * 1000);
+}
 
 const char *tr(const char *key, const char *fallback)
 {
@@ -1328,14 +1352,22 @@ void VDONinjaOutput::maybeLogPublishSummary(bool force)
 
 	const uint64_t requests = keyframeRequests_.exchange(0, std::memory_order_relaxed);
 	const uint64_t primed = keyframeRequestsPrimed_.exchange(0, std::memory_order_relaxed);
+	const RtpPacerStats pacerStats = peerManager_ ? peerManager_->takeVideoPacerStats() : RtpPacerStats{};
 
 	logInfo("Publish: %.1f fps, %.0f kbps video, %.0f kbps audio, keyframe every %.1fs (avg %.0f KB, max %.0f KB, "
-	        "%.0fx avg frame), %d viewers, queue %zu, dropped %llu, keyframe requests %llu (%llu primed)",
+	        "%.0fx avg frame), %d viewers, queue %zu, dropped %llu, keyframe requests %llu (%llu primed), "
+	        "pacer max batch %.0f KB, queued %.0f KB (max %.0f KB), delay %llu ms, dropped %llu, send errors %llu",
 	        fps, videoKbps, audioKbps, keyframeIntervalSec, avgKeyframeKb,
 	        static_cast<double>(summaryMaxKeyframeBytes_) / 1024.0, burstRatio,
 	        peerManager_ ? peerManager_->getViewerCount() : 0, queueDepth,
 	        static_cast<unsigned long long>(droppedMediaFrames_.load(std::memory_order_relaxed)),
-	        static_cast<unsigned long long>(requests), static_cast<unsigned long long>(primed));
+	        static_cast<unsigned long long>(requests), static_cast<unsigned long long>(primed),
+	        static_cast<double>(pacerStats.maxBatchBytes) / 1024.0,
+	        static_cast<double>(pacerStats.queuedBytes) / 1024.0,
+	        static_cast<double>(pacerStats.maxQueuedBytes) / 1024.0,
+	        static_cast<unsigned long long>(pacerStats.maxPacketDelayMs),
+	        static_cast<unsigned long long>(pacerStats.droppedFrames),
+	        static_cast<unsigned long long>(pacerStats.sendFailures));
 
 	summaryVideoFrames_ = 0;
 	summaryVideoBytes_ = 0;
@@ -1425,6 +1457,12 @@ bool VDONinjaOutput::start()
 	{
 		std::lock_guard<std::mutex> lock(settingsMutex_);
 		settingsSnap = settings_;
+	}
+	const int configuredBitrate = settingsSnap.quality.bitrate;
+	settingsSnap.quality.bitrate = resolveVideoEncoderBitrate(output_, configuredBitrate);
+	if (settingsSnap.quality.bitrate != configuredBitrate) {
+		logInfo("Using active video encoder bitrate %d kbps for RTP pacing (service setting: %d kbps)",
+		        settingsSnap.quality.bitrate / 1000, configuredBitrate / 1000);
 	}
 
 	startStopThread_ = std::thread(&VDONinjaOutput::startThread, this, settingsSnap);
@@ -1649,6 +1687,7 @@ void VDONinjaOutput::startThread(OutputSettings settingsSnap)
 
 			if (self->dataChannel_.hasKeyframeRequest(message)) {
 				self->noteKeyframeRequest(uuid, "data channel");
+				self->peerManager_->notePeerKeyframeRequest(uuid);
 				self->primeViewerWithCachedKeyframe(uuid);
 			}
 
