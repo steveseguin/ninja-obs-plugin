@@ -76,8 +76,11 @@ public:
 	// Send media to all connected peers (viewers)
 	void sendAudioFrame(const uint8_t *data, size_t size, uint32_t timestamp);
 	void sendVideoFrame(const uint8_t *data, size_t size, uint32_t timestamp, bool keyframe);
+	// onlyIfAwaitingKeyframe restricts the send to peers that have not decoded a
+	// keyframe yet; used when replaying the cached keyframe, which must never be
+	// pushed at a viewer that is already synchronized.
 	bool sendVideoFrameToPeer(const std::string &uuid, const uint8_t *data, size_t size, uint32_t timestamp,
-	                          bool keyframe);
+	                          bool keyframe, bool onlyIfAwaitingKeyframe = false);
 	bool setPeerMediaSendEnabled(const std::string &uuid, bool hasVideo, bool videoEnabled, bool hasAudio,
 	                             bool audioEnabled, bool *videoBecameEnabled = nullptr);
 
@@ -160,7 +163,8 @@ private:
 	bool sendAudioFrameToPeer(const std::string &uuid, const std::shared_ptr<PeerInfo> &peer, const uint8_t *data,
 	                          size_t size, uint32_t timestamp);
 	bool sendVideoFrameToPeerHandle(const std::string &uuid, const std::shared_ptr<PeerInfo> &peer, const uint8_t *data,
-	                                size_t size, uint32_t timestamp, bool keyframe);
+	                                size_t size, uint32_t timestamp, bool keyframe,
+	                                bool onlyIfAwaitingKeyframe = false);
 
 	// Get RTC configuration
 	rtc::Configuration getRtcConfig() const;

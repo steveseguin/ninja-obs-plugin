@@ -33,6 +33,9 @@ struct Vp9DescriptorResult {
 // On success, the VP9 bitstream data begins at payload[result.payloadOffset].
 Vp9DescriptorResult parseVP9PayloadDescriptor(const uint8_t *payload, size_t size);
 
+// True when at least one clock-second of RTP time has elapsed since the last
+// sender report. RTP timestamps wrap, so the comparison is made on a wrapped
+// delta; a timestamp that moved backwards is never treated as due.
 bool isRtcpSenderReportDue(uint32_t currentTimestamp, uint32_t lastReportedTimestamp, uint32_t clockRate);
 
 } // namespace vdoninja

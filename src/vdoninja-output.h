@@ -161,6 +161,13 @@ private:
 	uint32_t lastAudioRtpTimestamp_ = 0;
 	bool hasLastAudioRtpTimestamp_ = false;
 
+	// Observed encoder keyframe cadence. The GOP length bounds how long a viewer
+	// stays broken after packet loss, so an oversized interval is worth surfacing
+	// even when the service settings that should cap it were bypassed.
+	int64_t lastKeyframeWallClockMs_ = 0;
+	int longKeyframeGaps_ = 0;
+	bool loggedKeyframeIntervalWarning_ = false;
+
 	// OBS can provide multiple encoded audio tracks. VDO.Ninja publish uses one
 	// Opus stream, so we forward exactly one selected track index.
 	size_t selectedAudioTrackIdx_ = 0;

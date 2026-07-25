@@ -146,7 +146,21 @@ Vp9DescriptorResult parseVP9PayloadDescriptor(const uint8_t *payload, size_t siz
 
 bool isRtcpSenderReportDue(uint32_t currentTimestamp, uint32_t lastReportedTimestamp, uint32_t clockRate)
 {
-	return clockRate > 0 && static_cast<uint32_t>(currentTimestamp - lastReportedTimestamp) >= clockRate;
+	if (clockRate == 0) {
+		return false;
+	}
+
+	// Modular subtraction keeps forward progress correct across the 32-bit
+	// wrap, but it also turns a backwards timestamp into a value just under
+	// 2^32, which would read as a hugely overdue report. Anything landing in
+	// the upper half of the range is a regression, not elapsed time.
+	constexpr uint32_t kBackwardsThreshold = 0x80000000u;
+	const uint32_t elapsed = currentTimestamp - lastReportedTimestamp;
+	if (elapsed >= kBackwardsThreshold) {
+		return false;
+	}
+
+	return elapsed >= clockRate;
 }
 
 } // namespace vdoninja

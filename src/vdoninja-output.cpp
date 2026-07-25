@@ -30,6 +30,11 @@ namespace
 constexpr size_t kMaxQueuedMediaFrames = 240;
 constexpr int kRemoteStatsIntervalMs = 3000;
 
+// The service clamps the encoder to a 2s keyframe interval, so a sustained gap
+// well past that means the cap was bypassed (for example via the advanced
+// "ignore streaming service setting recommendations" toggle).
+constexpr int64_t kKeyframeIntervalWarnMs = 4500;
+
 const char *tr(const char *key, const char *fallback)
 {
 	const char *localized = obs_module_text(key);
@@ -1231,7 +1236,11 @@ void VDONinjaOutput::primeViewerWithCachedKeyframe(const std::string &uuid)
 		keyframeTimestamp = cachedKeyframeTimestamp_;
 	}
 
-	if (peerManager_->sendVideoFrameToPeer(uuid, keyframeCopy.data(), keyframeCopy.size(), keyframeTimestamp, true)) {
+	// Only viewers still waiting on their first keyframe. Replaying the cache at a
+	// synchronized viewer rewinds its RTP timestamp without repairing the decode,
+	// which turns a single recovery request into a self-sustaining request loop.
+	if (peerManager_->sendVideoFrameToPeer(uuid, keyframeCopy.data(), keyframeCopy.size(), keyframeTimestamp, true,
+	                                       true)) {
 		logInfo("Primed viewer %s with cached keyframe (%zu bytes)", uuid.c_str(), keyframeCopy.size());
 	}
 }
@@ -1302,6 +1311,9 @@ bool VDONinjaOutput::start()
 	lastVideoRtpTimestamp_ = 0;
 	hasLastAudioRtpTimestamp_ = false;
 	lastAudioRtpTimestamp_ = 0;
+	lastKeyframeWallClockMs_ = 0;
+	longKeyframeGaps_ = 0;
+	loggedKeyframeIntervalWarning_ = false;
 	droppedMediaFrames_ = 0;
 
 	startMediaSendWorker();
@@ -1843,6 +1855,9 @@ void VDONinjaOutput::stop()
 	lastVideoRtpTimestamp_ = 0;
 	hasLastAudioRtpTimestamp_ = false;
 	lastAudioRtpTimestamp_ = 0;
+	lastKeyframeWallClockMs_ = 0;
+	longKeyframeGaps_ = 0;
+	loggedKeyframeIntervalWarning_ = false;
 
 	logInfo("VDO.Ninja output stopped");
 }
@@ -2025,6 +2040,28 @@ void VDONinjaOutput::processVideoPacket(encoder_packet *packet)
 		std::lock_guard<std::mutex> lock(keyframeCacheMutex_);
 		cachedKeyframe_.assign(packet->data, packet->data + packet->size);
 		cachedKeyframeTimestamp_ = timestamp;
+	}
+
+	if (keyframe) {
+		const int64_t nowMs = currentTimeMs();
+		if (lastKeyframeWallClockMs_ != 0) {
+			const int64_t gapMs = nowMs - lastKeyframeWallClockMs_;
+			if (gapMs > kKeyframeIntervalWarnMs) {
+				// Require a second oversized gap so a one-off encoder hiccup
+				// cannot send someone chasing a setting that is already fine.
+				if (++longKeyframeGaps_ >= 2 && !loggedKeyframeIntervalWarning_) {
+					loggedKeyframeIntervalWarning_ = true;
+					logWarning("Encoder is emitting keyframes about every %.1f seconds. Viewers cannot recover from "
+					           "packet loss until the next keyframe, which looks like a periodic freeze. Set Settings "
+					           "-> Output -> Streaming -> Keyframe Interval to 1-2 seconds; 0 (auto) leaves it near 8 "
+					           "seconds.",
+					           static_cast<double>(gapMs) / 1000.0);
+				}
+			} else {
+				longKeyframeGaps_ = 0;
+			}
+		}
+		lastKeyframeWallClockMs_ = nowMs;
 	}
 
 	QueuedMediaFrame frame;

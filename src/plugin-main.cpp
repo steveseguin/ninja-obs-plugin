@@ -1224,6 +1224,13 @@ static const char *vdoninja_service_connect_info(void *data, uint32_t type)
 	}
 }
 
+// VDO.Ninja publishes over WebRTC, where the GOP length doubles as the worst-case
+// recovery time: libobs exposes no way to force an on-demand keyframe, so a viewer
+// that loses a frame stays broken until the encoder emits its next IDR. OBS leaves
+// the keyframe interval at the encoder's own default (250 frames — 8.3s at 30fps)
+// whenever "Keyframe Interval" is 0/auto, which viewers see as a periodic freeze.
+constexpr int64_t kMaxStreamKeyintSec = 2;
+
 static void vdoninja_service_apply_encoder_settings(void *, obs_data_t *video_settings, obs_data_t *audio_settings)
 {
 	UNUSED_PARAMETER(audio_settings);
@@ -1231,6 +1238,12 @@ static void vdoninja_service_apply_encoder_settings(void *, obs_data_t *video_se
 	if (video_settings) {
 		obs_data_set_int(video_settings, "bf", 0);
 		obs_data_set_bool(video_settings, "repeat_headers", true);
+
+		// Clamp rather than force, so a deliberately tighter interval is kept.
+		const int64_t keyintSec = obs_data_get_int(video_settings, "keyint_sec");
+		if (keyintSec <= 0 || keyintSec > kMaxStreamKeyintSec) {
+			obs_data_set_int(video_settings, "keyint_sec", kMaxStreamKeyintSec);
+		}
 	}
 }
 

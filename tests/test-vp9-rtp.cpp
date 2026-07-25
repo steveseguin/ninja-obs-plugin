@@ -32,6 +32,29 @@ TEST(RtcpSenderReportTest, RejectsInvalidClockRate)
 	EXPECT_FALSE(isRtcpSenderReportDue(100, 0, 0));
 }
 
+// A cached keyframe replayed to a viewer carries the RTP timestamp of the GOP it
+// was captured in, which can be seconds behind the live stream. Modular
+// subtraction turns that regression into a delta just under 2^32, which used to
+// read as a long-overdue report and emitted a sender report advertising a
+// rewound RTP timestamp — corrupting the viewer's RTP/NTP mapping and stalling
+// both audio and video while it resynchronized.
+TEST(RtcpSenderReportTest, RejectsLargeTimestampRegression)
+{
+	constexpr uint32_t last = 720000u; // 8 seconds of 90kHz media
+	EXPECT_FALSE(isRtcpSenderReportDue(0, last, 90000));
+}
+
+TEST(RtcpSenderReportTest, RejectsSmallTimestampRegression)
+{
+	EXPECT_FALSE(isRtcpSenderReportDue(1000, 2000, 90000));
+}
+
+TEST(RtcpSenderReportTest, TreatsHalfRangeAsTheForwardBoundary)
+{
+	EXPECT_TRUE(isRtcpSenderReportDue(0x7FFFFFFFu, 0, 90000));
+	EXPECT_FALSE(isRtcpSenderReportDue(0x80000000u, 0, 90000));
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------

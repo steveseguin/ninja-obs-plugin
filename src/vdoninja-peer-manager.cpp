@@ -2167,7 +2167,7 @@ void VDONinjaPeerManager::sendVideoFrame(const uint8_t *data, size_t size, uint3
 }
 
 bool VDONinjaPeerManager::sendVideoFrameToPeer(const std::string &uuid, const uint8_t *data, size_t size,
-                                               uint32_t timestamp, bool keyframe)
+                                               uint32_t timestamp, bool keyframe, bool onlyIfAwaitingKeyframe)
 {
 	if (!publishing_ || uuid.empty() || !data || size == 0) {
 		return false;
@@ -2183,12 +2183,12 @@ bool VDONinjaPeerManager::sendVideoFrameToPeer(const std::string &uuid, const ui
 		peer = it->second;
 	}
 
-	return sendVideoFrameToPeerHandle(uuid, peer, data, size, timestamp, keyframe);
+	return sendVideoFrameToPeerHandle(uuid, peer, data, size, timestamp, keyframe, onlyIfAwaitingKeyframe);
 }
 
 bool VDONinjaPeerManager::sendVideoFrameToPeerHandle(const std::string &uuid, const std::shared_ptr<PeerInfo> &peer,
                                                      const uint8_t *data, size_t size, uint32_t timestamp,
-                                                     bool keyframe)
+                                                     bool keyframe, bool onlyIfAwaitingKeyframe)
 {
 	if (!peer || !data || size == 0) {
 		return false;
@@ -2204,6 +2204,17 @@ bool VDONinjaPeerManager::sendVideoFrameToPeerHandle(const std::string &uuid, co
 			return false;
 		}
 		if (!peer->videoSendEnabled) {
+			return false;
+		}
+
+		// Replaying the cached keyframe only helps a viewer that has not decoded
+		// one yet. For an already-synchronized peer the cached frame still carries
+		// the RTP timestamp of the GOP it was captured in, so re-sending it rewinds
+		// this peer's timestamp (and its RTCP sender report) while the encoder's
+		// live frames keep advancing. That stalls playback without repairing the
+		// decode, because the delta frames that follow still reference the
+		// encoder's real frame sequence rather than the replayed keyframe.
+		if (onlyIfAwaitingKeyframe && !peer->awaitingVideoKeyframe) {
 			return false;
 		}
 
