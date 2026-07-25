@@ -93,6 +93,9 @@ private:
 	void processVideoPacket(encoder_packet *packet);
 	void sendInitialPeerInfo(const std::string &uuid);
 	void primeViewerWithCachedKeyframe(const std::string &uuid);
+	void noteKeyframeRequest(const std::string &uuid, const char *transport);
+	void maybeLogPublishSummary(bool force = false);
+	void resetPublishTelemetry();
 	std::string buildInitialInfoMessage() const;
 	std::string buildObsStateMessage() const;
 	std::string buildRemoteStatsMessage(const std::string &requestingUuid) const;
@@ -167,6 +170,22 @@ private:
 	int64_t lastKeyframeWallClockMs_ = 0;
 	int longKeyframeGaps_ = 0;
 	bool loggedKeyframeIntervalWarning_ = false;
+
+	// Rolling publish telemetry, flushed to one log line at a fixed interval.
+	// Encoder cadence, keyframe burst size and viewer keyframe requests are the
+	// three things that explain most "it stutters every few seconds" reports, and
+	// none of them could previously be read off a user's log. Accumulated only
+	// from the encoded-packet callback, which libobs serializes across A/V.
+	int64_t lastPublishSummaryMs_ = 0;
+	uint64_t summaryVideoFrames_ = 0;
+	uint64_t summaryVideoBytes_ = 0;
+	uint64_t summaryKeyframes_ = 0;
+	uint64_t summaryKeyframeBytes_ = 0;
+	uint64_t summaryMaxKeyframeBytes_ = 0;
+	uint64_t summaryAudioBytes_ = 0;
+	std::atomic<uint64_t> keyframeRequests_{0};
+	std::atomic<uint64_t> keyframeRequestsPrimed_{0};
+	std::atomic<bool> loggedFirstKeyframeRequest_{false};
 
 	// OBS can provide multiple encoded audio tracks. VDO.Ninja publish uses one
 	// Opus stream, so we forward exactly one selected track index.

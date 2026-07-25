@@ -35,6 +35,11 @@ constexpr int kRemoteStatsIntervalMs = 3000;
 // "ignore streaming service setting recommendations" toggle).
 constexpr int64_t kKeyframeIntervalWarnMs = 4500;
 
+// How often the rolling publish summary is flushed to the log. Short enough that
+// a brief reproduction still produces a couple of samples, long enough that a
+// multi-hour stream does not drown out everything else in the log.
+constexpr int64_t kPublishSummaryIntervalMs = 30000;
+
 const char *tr(const char *key, const char *fallback)
 {
 	const char *localized = obs_module_text(key);
@@ -1241,8 +1246,103 @@ void VDONinjaOutput::primeViewerWithCachedKeyframe(const std::string &uuid)
 	// which turns a single recovery request into a self-sustaining request loop.
 	if (peerManager_->sendVideoFrameToPeer(uuid, keyframeCopy.data(), keyframeCopy.size(), keyframeTimestamp, true,
 	                                       true)) {
+		keyframeRequestsPrimed_.fetch_add(1, std::memory_order_relaxed);
 		logInfo("Primed viewer %s with cached keyframe (%zu bytes)", uuid.c_str(), keyframeCopy.size());
 	}
+}
+
+void VDONinjaOutput::noteKeyframeRequest(const std::string &uuid, const char *transport)
+{
+	keyframeRequests_.fetch_add(1, std::memory_order_relaxed);
+
+	// A viewer on a lossy link asks about once a second for as long as the loss
+	// lasts, so logging every request buries the rest of the log. Record the first
+	// one for its timestamp and peer id; the rest are counted into the summary.
+	if (!loggedFirstKeyframeRequest_.exchange(true, std::memory_order_relaxed)) {
+		logInfo("Viewer %s requested a keyframe over %s; further requests are counted in the publish summary",
+		        uuid.c_str(), transport);
+	}
+}
+
+void VDONinjaOutput::resetPublishTelemetry()
+{
+	lastKeyframeWallClockMs_ = 0;
+	longKeyframeGaps_ = 0;
+	loggedKeyframeIntervalWarning_ = false;
+	lastPublishSummaryMs_ = 0;
+	summaryVideoFrames_ = 0;
+	summaryVideoBytes_ = 0;
+	summaryKeyframes_ = 0;
+	summaryKeyframeBytes_ = 0;
+	summaryMaxKeyframeBytes_ = 0;
+	summaryAudioBytes_ = 0;
+	keyframeRequests_.store(0, std::memory_order_relaxed);
+	keyframeRequestsPrimed_.store(0, std::memory_order_relaxed);
+	loggedFirstKeyframeRequest_.store(false, std::memory_order_relaxed);
+}
+
+void VDONinjaOutput::maybeLogPublishSummary(bool force)
+{
+	const int64_t nowMs = currentTimeMs();
+	if (lastPublishSummaryMs_ == 0) {
+		lastPublishSummaryMs_ = nowMs;
+		return;
+	}
+
+	const int64_t elapsedMs = nowMs - lastPublishSummaryMs_;
+	if (elapsedMs <= 0 || (!force && elapsedMs < kPublishSummaryIntervalMs)) {
+		return;
+	}
+	lastPublishSummaryMs_ = nowMs;
+
+	// Only reachable with no frames via the forced flush at stop; a row of zeroes
+	// would say nothing that the surrounding stop/start lines do not.
+	if (summaryVideoFrames_ == 0) {
+		return;
+	}
+
+	const double seconds = static_cast<double>(elapsedMs) / 1000.0;
+	const double fps = static_cast<double>(summaryVideoFrames_) / seconds;
+	const double videoKbps = static_cast<double>(summaryVideoBytes_) * 8.0 / seconds / 1000.0;
+	const double audioKbps = static_cast<double>(summaryAudioBytes_) * 8.0 / seconds / 1000.0;
+
+	double keyframeIntervalSec = 0.0;
+	double avgKeyframeKb = 0.0;
+	if (summaryKeyframes_ > 0) {
+		keyframeIntervalSec = seconds / static_cast<double>(summaryKeyframes_);
+		avgKeyframeKb = static_cast<double>(summaryKeyframeBytes_) / static_cast<double>(summaryKeyframes_) / 1024.0;
+	}
+
+	// A keyframe many times the size of an average frame goes out as one burst and
+	// is the usual reason an otherwise healthy stream hitches once per GOP.
+	const double avgFrameBytes =
+	    summaryVideoFrames_ > 0 ? static_cast<double>(summaryVideoBytes_) / static_cast<double>(summaryVideoFrames_)
+	                            : 0.0;
+	const double burstRatio = avgFrameBytes > 0.0 ? static_cast<double>(summaryMaxKeyframeBytes_) / avgFrameBytes : 0.0;
+
+	size_t queueDepth = 0;
+	{
+		std::lock_guard<std::mutex> lock(mediaSendMutex_);
+		queueDepth = mediaSendQueue_.size();
+	}
+
+	const uint64_t requests = keyframeRequests_.exchange(0, std::memory_order_relaxed);
+	const uint64_t primed = keyframeRequestsPrimed_.exchange(0, std::memory_order_relaxed);
+
+	logInfo("Publish: %.1f fps, %.0f kbps video, %.0f kbps audio, keyframe every %.1fs (avg %.0f KB, max %.0f KB, "
+	        "%.0fx avg frame), %d viewers, queue %zu, dropped %llu, keyframe requests %llu (%llu primed)",
+	        fps, videoKbps, audioKbps, keyframeIntervalSec, avgKeyframeKb,
+	        static_cast<double>(summaryMaxKeyframeBytes_) / 1024.0, burstRatio,
+	        peerManager_ ? peerManager_->getViewerCount() : 0, queueDepth,
+	        static_cast<unsigned long long>(droppedMediaFrames_.load(std::memory_order_relaxed)),
+	        static_cast<unsigned long long>(requests), static_cast<unsigned long long>(primed));
+
+	summaryVideoFrames_ = 0;
+	summaryVideoBytes_ = 0;
+	summaryKeyframes_ = 0;
+	summaryKeyframeBytes_ = 0;
+	summaryMaxKeyframeBytes_ = 0;
+	summaryAudioBytes_ = 0;
 }
 
 bool VDONinjaOutput::start()
@@ -1311,9 +1411,7 @@ bool VDONinjaOutput::start()
 	lastVideoRtpTimestamp_ = 0;
 	hasLastAudioRtpTimestamp_ = false;
 	lastAudioRtpTimestamp_ = 0;
-	lastKeyframeWallClockMs_ = 0;
-	longKeyframeGaps_ = 0;
-	loggedKeyframeIntervalWarning_ = false;
+	resetPublishTelemetry();
 	droppedMediaFrames_ = 0;
 
 	startMediaSendWorker();
@@ -1495,7 +1593,7 @@ void VDONinjaOutput::startThread(OutputSettings settingsSnap)
 			if (!guard) {
 				return;
 			}
-			logInfo("Viewer %s requested a keyframe over RTCP", uuid.c_str());
+			guard.owner()->noteKeyframeRequest(uuid, "RTCP");
 			guard.owner()->primeViewerWithCachedKeyframe(uuid);
 		});
 
@@ -1550,7 +1648,7 @@ void VDONinjaOutput::startThread(OutputSettings settingsSnap)
 			}
 
 			if (self->dataChannel_.hasKeyframeRequest(message)) {
-				logInfo("Viewer %s requested keyframe over data channel", uuid.c_str());
+				self->noteKeyframeRequest(uuid, "data channel");
 				self->primeViewerWithCachedKeyframe(uuid);
 			}
 
@@ -1855,9 +1953,11 @@ void VDONinjaOutput::stop()
 	lastVideoRtpTimestamp_ = 0;
 	hasLastAudioRtpTimestamp_ = false;
 	lastAudioRtpTimestamp_ = 0;
-	lastKeyframeWallClockMs_ = 0;
-	longKeyframeGaps_ = 0;
-	loggedKeyframeIntervalWarning_ = false;
+	// Data capture has already ended, so the encoder callback can no longer be
+	// touching these counters. Flush whatever the last partial window holds so a
+	// short reproduction still leaves one summary behind.
+	maybeLogPublishSummary(true);
+	resetPublishTelemetry();
 
 	logInfo("VDO.Ninja output stopped");
 }
@@ -2070,6 +2170,17 @@ void VDONinjaOutput::processVideoPacket(encoder_packet *packet)
 	frame.timestamp = timestamp;
 	frame.keyframe = keyframe;
 	enqueueMediaFrame(std::move(frame));
+
+	summaryVideoFrames_++;
+	summaryVideoBytes_ += packet->size;
+	if (keyframe) {
+		summaryKeyframes_++;
+		summaryKeyframeBytes_ += packet->size;
+		if (static_cast<uint64_t>(packet->size) > summaryMaxKeyframeBytes_) {
+			summaryMaxKeyframeBytes_ = static_cast<uint64_t>(packet->size);
+		}
+	}
+	maybeLogPublishSummary();
 }
 
 void VDONinjaOutput::processAudioPacket(encoder_packet *packet)
@@ -2099,6 +2210,8 @@ void VDONinjaOutput::processAudioPacket(encoder_packet *packet)
 	frame.payload.assign(packet->data, packet->data + packet->size);
 	frame.timestamp = timestamp;
 	enqueueMediaFrame(std::move(frame));
+
+	summaryAudioBytes_ += packet->size;
 }
 
 uint64_t VDONinjaOutput::getTotalBytes() const
