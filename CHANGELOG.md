@@ -7,8 +7,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [1.1.58] - 2026-07-25
-
 ### Added
 - Extended the rolling publish summary with RTP-pacer batch size, peak queue, packet delay, dropped-frame, and send-error diagnostics.
 - Added a high-complexity 1080p60 portable-OBS smoke mode that verifies large keyframes are split, checks Chrome's freeze/loss/recovery counters, and confirms playback advances in an actual OBS Browser Source.
