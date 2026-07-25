@@ -3,6 +3,12 @@
  * SPDX-License-Identifier: AGPL-3.0-only
  */
 
+#include <iomanip>
+#include <random>
+#include <sstream>
+#include <string>
+#include <vector>
+
 #include <gtest/gtest.h>
 
 #include "vdoninja-rtp-utils.h"
@@ -454,4 +460,138 @@ TEST(Vp9DescriptorTest, AlphaStream_KeyframeWithScalabilityStructure)
 	EXPECT_TRUE(r.endOfFrame);
 	EXPECT_EQ(r.payloadOffset, 2u);
 	EXPECT_EQ(buf[r.payloadOffset], 0xDE);
+}
+
+// ---------------------------------------------------------------------------
+// Fuzz / robustness coverage
+//
+// parseVP9PayloadDescriptor consumes raw bytes straight off the network from an
+// untrusted peer, so malformed input must never read past the buffer and must
+// never report a payloadOffset beyond it. Both callers in vdoninja-source.cpp
+// compute `payloadSize - desc.payloadOffset`; if payloadOffset ever exceeded
+// payloadSize that subtraction would wrap into a huge size_t and the assembly
+// buffers would copy far out of bounds.
+//
+// Buffers here are sized exactly to the input so that an over-read lands
+// outside a heap allocation, where a sanitizer build can see it.
+// ---------------------------------------------------------------------------
+
+namespace
+{
+
+struct FuzzCheck {
+	bool ok = true;
+	std::string detail;
+};
+
+// Assert the invariants every caller depends on, whatever the input was.
+FuzzCheck checkDescriptorInvariants(const std::vector<uint8_t> &input)
+{
+	// Exact-size copy: reading input[size] is then a heap overflow, not a read of
+	// some adjacent stack byte that happens to be harmless.
+	std::vector<uint8_t> exact(input.begin(), input.end());
+	const uint8_t *ptr = exact.empty() ? nullptr : exact.data();
+	const Vp9DescriptorResult r = parseVP9PayloadDescriptor(ptr, exact.size());
+
+	FuzzCheck check;
+	auto fail = [&](const std::string &why) {
+		std::ostringstream os;
+		os << why << " (size=" << exact.size() << ", bytes=";
+		for (size_t i = 0; i < exact.size() && i < 24; ++i) {
+			os << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(exact[i]) << " ";
+		}
+		os << ")";
+		check.ok = false;
+		check.detail = os.str();
+	};
+
+	if (r.valid) {
+		if (r.payloadOffset > exact.size()) {
+			fail("payloadOffset past end of payload; callers would underflow size - payloadOffset");
+		} else if (r.payloadOffset < 1) {
+			fail("valid descriptor must consume at least the mandatory byte");
+		}
+	} else if (r.payloadOffset != 0) {
+		fail("invalid descriptor must not report a payload offset");
+	}
+
+	// Parsing is pure: the same bytes must always produce the same answer.
+	const Vp9DescriptorResult again = parseVP9PayloadDescriptor(ptr, exact.size());
+	if (check.ok && (again.valid != r.valid || again.payloadOffset != r.payloadOffset ||
+	                 again.startOfFrame != r.startOfFrame || again.endOfFrame != r.endOfFrame)) {
+		fail("parser is not deterministic for identical input");
+	}
+
+	return check;
+}
+
+} // namespace
+
+// Every possible mandatory descriptor byte, truncated at every length, against
+// several tail fillers. Truncation is where descriptor parsers overrun, because
+// each optional field has to re-check the remaining length.
+TEST(Vp9DescriptorFuzzTest, ExhaustiveTruncationNeverOverruns)
+{
+	// 0x00 and 0xFF drive the length-bearing fields (N_S, N_G, R, M, N) to their
+	// extremes; 0x5A/0xA5 mix the flag bits within each optional field.
+	const uint8_t fillers[] = {0x00, 0xFF, 0x5A, 0xA5};
+	constexpr size_t kMaxLen = 48;
+
+	for (int first = 0; first <= 0xFF; ++first) {
+		for (uint8_t filler : fillers) {
+			for (size_t len = 1; len <= kMaxLen; ++len) {
+				std::vector<uint8_t> buf(len, filler);
+				buf[0] = static_cast<uint8_t>(first);
+				const FuzzCheck check = checkDescriptorInvariants(buf);
+				ASSERT_TRUE(check.ok) << check.detail;
+			}
+		}
+	}
+}
+
+// Fully random payloads, including empty and single-byte ones.
+TEST(Vp9DescriptorFuzzTest, RandomPayloadsNeverOverrun)
+{
+	// Fixed seed: fuzz failures here must be reproducible from the test name alone.
+	std::mt19937 rng(0x9E3779B9u);
+	std::uniform_int_distribution<int> sizeDist(0, 64);
+	std::uniform_int_distribution<int> byteDist(0, 255);
+
+	for (int iteration = 0; iteration < 20000; ++iteration) {
+		std::vector<uint8_t> buf(static_cast<size_t>(sizeDist(rng)));
+		for (uint8_t &b : buf) {
+			b = static_cast<uint8_t>(byteDist(rng));
+		}
+		const FuzzCheck check = checkDescriptorInvariants(buf);
+		ASSERT_TRUE(check.ok) << check.detail << " (iteration=" << iteration << ")";
+	}
+}
+
+// A scalability structure declares its own lengths (N_S resolutions, N_G picture
+// group entries, R references each), so it is the easiest place to walk off the
+// end. Drive those counts to their maximums against a too-short buffer.
+TEST(Vp9DescriptorFuzzTest, ScalabilityStructureLengthsAreBounded)
+{
+	for (int nS = 0; nS <= 7; ++nS) {
+		for (int y = 0; y <= 1; ++y) {
+			for (int g = 0; g <= 1; ++g) {
+				const uint8_t ss = static_cast<uint8_t>((nS << 5) | (y ? 0x10 : 0) | (g ? 0x08 : 0));
+				for (int nG = 0; nG <= 255; nG += 17) {
+					for (size_t len = 1; len <= 40; ++len) {
+						std::vector<uint8_t> buf(len, 0xFF);
+						buf[0] = descByte(0, 0, 0, 0, 1, 1, 1, 0); // V=1 only
+						if (len > 1) {
+							buf[1] = ss;
+						}
+						if (len > 2) {
+							buf[2] = static_cast<uint8_t>(nG);
+						}
+						const FuzzCheck check = checkDescriptorInvariants(buf);
+						ASSERT_TRUE(check.ok)
+						    << check.detail << " (N_S=" << nS << " Y=" << y << " G=" << g << " N_G=" << nG << ")";
+					}
+				}
+			}
+		}
+	}
 }

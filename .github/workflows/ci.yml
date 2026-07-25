@@ -30,6 +30,46 @@ jobs:
       - name: Run tests
         run: ctest --test-dir build --output-on-failure
 
+  # Run the same suite under AddressSanitizer and UndefinedBehaviorSanitizer.
+  # The suite includes byte-level fuzzers for the VP9 RTP payload descriptor, the
+  # data-channel message parser and signaling normalization, all of which chew on
+  # untrusted network input. Without a sanitizer those fuzzers only catch hard
+  # crashes -- an out-of-bounds read or signed overflow passes silently.
+  sanitizers:
+    name: Unit Tests (ASan + UBSan)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake build-essential libssl-dev
+
+      - name: Configure CMake (tests only, sanitized)
+        run: |
+          cmake -B build-asan \
+            -DBUILD_TESTS=ON \
+            -DBUILD_PLUGIN=OFF \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_C_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer -fno-sanitize-recover=undefined" \
+            -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer -fno-sanitize-recover=undefined" \
+            -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined"
+
+      - name: Build tests
+        run: cmake --build build-asan --target vdoninja-tests -j$(nproc)
+
+      - name: Run tests
+        env:
+          # Leak detection is off: this gate is for memory-safety and UB in the
+          # parsers, and LeakSanitizer would also flag one-time allocations in
+          # third-party test scaffolding that are not defects.
+          ASAN_OPTIONS: detect_leaks=0:abort_on_error=1
+          UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
+        run: ctest --test-dir build-asan --output-on-failure
+
   # Format check
   format:
     name: Format Check

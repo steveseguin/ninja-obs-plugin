@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Added byte-level fuzz coverage for the VP9 RTP payload descriptor parser, which consumes untrusted packet bytes from remote peers and previously had none. It sweeps all 256 mandatory descriptor bytes against every truncation length, drives scalability-structure lengths (`N_S`, `N_G`, `R`) to their maximums, and checks random payloads, asserting the invariant both callers depend on: a valid result never reports a `payloadOffset` past the end, which would underflow `payloadSize - payloadOffset` into a huge value.
+- Added a CI job that runs the unit tests under AddressSanitizer and UndefinedBehaviorSanitizer. The suite already contained fuzzers for data-channel and signaling message parsing, but with no sanitizer in CI they could only catch hard crashes, not out-of-bounds reads or undefined behavior.
+
 ### Fixed
 - Stopped a tolerated OBS SDK install hiccup from failing the whole Windows release build. The step already continued past a non-fatal `cmake --install` failure once the required import libraries existed, but left `$LASTEXITCODE` non-zero; since every following command is a PowerShell cmdlet and GitHub appends `exit $LASTEXITCODE` to `pwsh` steps, the step still failed. Upstream OBS trips this intermittently via a `libobs-opengl.dll` install race, which is what broke the v1.1.56 Windows job.
 - Made GitHub release titles consistent. The workflow titled new releases "Release v1.2.3" while all 41 earlier releases used the bare tag, so the releases page appeared to use two naming schemes; it now always titles a release with its tag, and the existing outliers were renamed to match.
