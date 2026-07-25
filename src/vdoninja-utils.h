@@ -134,10 +134,12 @@ SignalingConnectErrorCategory classifySignalingConnectError(const std::string &e
 const char *signalingConnectErrorCategoryName(SignalingConnectErrorCategory category);
 const char *signalingConnectErrorLikelyCauses(SignalingConnectErrorCategory category);
 
-// Filename of the CA-certificate bundle shipped alongside the plugin binary so
-// that a self-contained OpenSSL build can verify TLS peers on machines that do
-// not provide their own trust store (e.g. macOS without Homebrew). The macOS
-// installer copies the bundle next to the plugin under this exact name.
+// Filename of the CA-certificate bundle shipped with the plugin so that a
+// self-contained OpenSSL build can verify TLS peers on machines that do not
+// provide their own trust store (e.g. macOS without Homebrew). The macOS
+// installer copies the bundle into the .plugin bundle's Contents/Resources/data
+// under this exact name — it deliberately does NOT sit next to the binary in
+// Contents/MacOS, because codesign rejects unsigned non-code files there.
 inline constexpr const char *kBundledCaCertificateFileName = "vdoninja-ca-bundle.pem";
 
 // Builds an ordered list of candidate CA-bundle file paths to try for TLS

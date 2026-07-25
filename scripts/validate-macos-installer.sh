@@ -224,6 +224,20 @@ inspect_plugin_bundle() {
     fail "English locale file is missing"
   fi
 
+  if [[ -f "$bundle/Contents/Resources/data/vdoninja-ca-bundle.pem" ]]; then
+    log "CA certificate bundle: present"
+  else
+    warn "Contents/Resources/data/vdoninja-ca-bundle.pem is missing; TLS falls back to the host trust store"
+  fi
+
+  # Guard the packaging mistake that breaks bundle signing: codesign treats every
+  # file in Contents/MacOS as a nested code object, so a stray data file there
+  # fails the whole bundle with "code object is not signed at all".
+  while read -r stray; do
+    [[ -n "$stray" ]] || continue
+    fail "Non-code file in Contents/MacOS breaks codesign: $(basename "$stray")"
+  done < <(find "$bundle/Contents/MacOS" -type f ! -name 'obs-vdoninja' ! -name '*.dylib' 2>/dev/null)
+
   while read -r dep; do
     [[ -n "$dep" ]] || continue
     case "$dep" in

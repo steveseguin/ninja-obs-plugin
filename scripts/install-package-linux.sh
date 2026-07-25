@@ -2,20 +2,39 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Locate the plugin binaries inside an extracted package. The layout depends on
+# how CMAKE_INSTALL_LIBDIR expanded at build time: plain "lib" on most distros,
+# "lib64" on RPM-based ones, and "lib/<arch-triplet>" on Debian/Ubuntu multiarch
+# (e.g. lib/x86_64-linux-gnu/obs-plugins). "obs-plugins/64bit" is the portable
+# layout. Unmatched globs simply fail the -d test, so no nullglob is needed.
+find_plugin_dir() {
+  local root="$1"
+  local dir
+  for dir in "$root"/lib/obs-plugins "$root"/lib64/obs-plugins "$root"/obs-plugins/64bit \
+             "$root"/lib/*/obs-plugins "$root"/lib64/*/obs-plugins; do
+    if [[ -d "$dir" ]]; then
+      printf '%s\n' "$dir"
+      return 0
+    fi
+  done
+  return 1
+}
+
 PKG_ROOT="$SCRIPT_DIR"
-if [[ ! -d "$PKG_ROOT/lib/obs-plugins" && ! -d "$PKG_ROOT/obs-plugins/64bit" ]]; then
-  if [[ -d "$(dirname "$SCRIPT_DIR")/lib/obs-plugins" || -d "$(dirname "$SCRIPT_DIR")/obs-plugins/64bit" ]]; then
-    PKG_ROOT="$(dirname "$SCRIPT_DIR")"
+SRC_PLUGIN_DIR="$(find_plugin_dir "$PKG_ROOT" || true)"
+if [[ -z "$SRC_PLUGIN_DIR" ]]; then
+  PARENT_DIR="$(dirname "$SCRIPT_DIR")"
+  SRC_PLUGIN_DIR="$(find_plugin_dir "$PARENT_DIR" || true)"
+  if [[ -n "$SRC_PLUGIN_DIR" ]]; then
+    PKG_ROOT="$PARENT_DIR"
   fi
 fi
 
-SRC_PLUGIN_DIR=""
-if [[ -d "$PKG_ROOT/lib/obs-plugins" ]]; then
-  SRC_PLUGIN_DIR="$PKG_ROOT/lib/obs-plugins"
-elif [[ -d "$PKG_ROOT/obs-plugins/64bit" ]]; then
-  SRC_PLUGIN_DIR="$PKG_ROOT/obs-plugins/64bit"
-else
-  echo "Could not find plugin binaries in package."
+if [[ -z "$SRC_PLUGIN_DIR" ]]; then
+  echo "Could not find plugin binaries in package." >&2
+  echo "Searched under $PKG_ROOT for: lib/obs-plugins, lib64/obs-plugins," >&2
+  echo "obs-plugins/64bit, lib/<arch>/obs-plugins, lib64/<arch>/obs-plugins" >&2
   exit 1
 fi
 
@@ -30,7 +49,17 @@ else
 fi
 
 if [[ "${EUID}" -eq 0 ]]; then
-  DST_PLUGIN_DIR="/usr/lib/obs-plugins"
+  # Install where this system's OBS actually scans. Debian/Ubuntu multiarch
+  # builds use /usr/lib/<arch-triplet>/obs-plugins, so prefer an obs-plugins
+  # directory that already exists over the plain /usr/lib default.
+  DST_PLUGIN_DIR=""
+  for dir in /usr/lib/obs-plugins /usr/lib64/obs-plugins /usr/lib/*/obs-plugins; do
+    if [[ -d "$dir" ]]; then
+      DST_PLUGIN_DIR="$dir"
+      break
+    fi
+  done
+  DST_PLUGIN_DIR="${DST_PLUGIN_DIR:-/usr/lib/obs-plugins}"
   DST_DATA_DIR="/usr/share/obs/obs-plugins/obs-vdoninja"
 else
   DST_PLUGIN_DIR="$HOME/.config/obs-studio/plugins/obs-vdoninja/bin/64bit"

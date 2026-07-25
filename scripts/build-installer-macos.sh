@@ -209,10 +209,13 @@ for dylib in "$SRC_PLUGIN_DIR"/*.dylib; do
   [[ -f "$dylib" ]] && cp -a "$dylib" "$DST_PLUGIN_DIR/"
 done
 
-# Ship a CA-certificate bundle next to the plugin binary so the bundled
-# OpenSSL can verify TLS peers on machines that do not provide their own
-# trust store (e.g. a Mac without Homebrew's openssl@3 cert.pem). The plugin
-# looks for this exact filename alongside its binary at runtime.
+# Ship a CA-certificate bundle inside the plugin bundle so the bundled OpenSSL
+# can verify TLS peers on machines that do not provide their own trust store
+# (e.g. a Mac without Homebrew's openssl@3 cert.pem). This must live under
+# Contents/Resources, NOT Contents/MacOS: codesign treats every file in a
+# bundle's MacOS directory as a nested executable subcomponent and fails the
+# whole bundle with "code object is not signed at all" for a plain .pem there.
+# The plugin probes Contents/Resources/data at runtime via ../Resources/data.
 CA_BUNDLE_NAME="vdoninja-ca-bundle.pem"
 CA_BUNDLE_SRC="${OBS_VDONINJA_CA_BUNDLE:-}"
 if [[ -z "$CA_BUNDLE_SRC" ]]; then
@@ -235,7 +238,7 @@ if [[ -z "$CA_BUNDLE_SRC" ]]; then
 fi
 if [[ -n "$CA_BUNDLE_SRC" && -f "$CA_BUNDLE_SRC" ]]; then
   # Follow symlinks (Homebrew's cert.pem is usually a symlink into ca-certificates).
-  cp -aL "$CA_BUNDLE_SRC" "$DST_PLUGIN_DIR/$CA_BUNDLE_NAME"
+  cp -aL "$CA_BUNDLE_SRC" "$DST_DATA_DIR/$CA_BUNDLE_NAME"
   echo "Bundled CA certificate store from $CA_BUNDLE_SRC"
 else
   echo "Warning: no CA certificate bundle found to ship with the plugin; TLS may rely on the host trust store." >&2
