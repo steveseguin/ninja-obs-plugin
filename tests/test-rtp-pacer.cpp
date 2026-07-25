@@ -31,7 +31,8 @@ RtpPacketPacer::Packet packetWithValue(size_t size, uint8_t value)
 TEST(RtpPacketPacerTest, RejectsAnOversizedFrameWithoutSendingAnyPart)
 {
 	std::atomic<int> sent{0};
-	RtpPacketPacer pacer(80000, 20ms, [&sent](RtpPacketPacer::Packet &&) { sent.fetch_add(1); }, 250);
+	auto sendPacket = [&sent](RtpPacketPacer::Packet &&) { sent.fetch_add(1); };
+	RtpPacketPacer pacer(80000, 20ms, sendPacket, 250);
 
 	std::vector<RtpPacketPacer::Packet> frame;
 	frame.push_back(packetWithValue(100, 1));
