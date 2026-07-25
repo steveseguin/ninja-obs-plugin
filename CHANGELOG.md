@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.55] - 2026-07-25
+
+### Fixed
+- Shipped a CA-certificate bundle inside the macOS plugin and pointed the signaling TLS client at it — honoring an `SSL_CERT_FILE` override and falling back to common system trust stores — so WebSocket signaling no longer fails with "TLS connection failed" on Macs that lack a Homebrew OpenSSL trust store.
+
 ## [1.1.54] - 2026-07-19
 
 ### Fixed

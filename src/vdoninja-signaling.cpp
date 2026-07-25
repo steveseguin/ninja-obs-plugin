@@ -15,10 +15,20 @@
 #include <array>
 #include <cctype>
 #include <chrono>
+#include <cstdlib>
 #include <cwchar>
+#include <fstream>
 #include <initializer_list>
 #include <new>
+#include <string>
 #include <vector>
+
+#if defined(__APPLE__) || defined(__linux__) || defined(__unix__)
+#define VDONINJA_HAS_DLADDR 1
+#include <dlfcn.h>
+#else
+#define VDONINJA_HAS_DLADDR 0
+#endif
 
 #if __has_include(<openssl/evp.h>) && __has_include(<openssl/rand.h>)
 #define VDONINJA_HAS_OPENSSL 1
@@ -53,6 +63,57 @@ constexpr int kSignalingConnectionTimeoutMs = 4000;
 #ifdef TESTING_BUILD
 std::atomic<bool> gForceEncryptionFailureForTesting{false};
 #endif
+
+bool fileIsReadable(const std::string &path)
+{
+	if (path.empty()) {
+		return false;
+	}
+	std::ifstream stream(path, std::ios::binary);
+	return stream.good();
+}
+
+// Returns directories to search for a CA bundle shipped alongside this module.
+// The plugin binary's own directory is the primary location; on macOS the CA
+// bundle is installed there next to obs-vdoninja inside the .plugin bundle.
+std::vector<std::string> moduleDirectories()
+{
+	std::vector<std::string> dirs;
+#if VDONINJA_HAS_DLADDR
+	Dl_info info{};
+	// Use the address of a symbol defined in this shared object so dladdr
+	// resolves to the plugin module rather than to libc or another library.
+	if (dladdr(reinterpret_cast<const void *>(&fileIsReadable), &info) != 0 && info.dli_fname != nullptr) {
+		std::string modulePath = info.dli_fname;
+		const std::string::size_type slash = modulePath.find_last_of('/');
+		if (slash != std::string::npos) {
+			dirs.push_back(modulePath.substr(0, slash));
+		}
+	}
+#endif
+	return dirs;
+}
+
+// Resolves the CA-certificate bundle to hand to the TLS layer, or an empty
+// string to fall back to OpenSSL's compiled-in default trust store. Probes an
+// explicit SSL_CERT_FILE override, a bundle shipped with the plugin, then
+// well-known system locations. Computed once and cached.
+const std::string &resolveCaCertificateFile()
+{
+	static const std::string cached = []() -> std::string {
+		std::string envCertFile;
+		if (const char *env = std::getenv("SSL_CERT_FILE")) {
+			envCertFile = env;
+		}
+		for (const std::string &candidate : buildCaCertificateCandidatePaths(envCertFile, moduleDirectories())) {
+			if (fileIsReadable(candidate)) {
+				return candidate;
+			}
+		}
+		return std::string();
+	}();
+	return cached;
+}
 
 template <typename Fn> void runRtcCallbackNoexcept(const char *context, Fn &&fn)
 {
@@ -610,7 +671,19 @@ void VDONinjaSignaling::wsThreadFunc()
 			wsConfig.connectionTimeout = std::chrono::milliseconds(kSignalingConnectionTimeoutMs);
 			wsConfig.pingInterval.reset();
 			wsConfig.maxOutstandingPings.reset();
-			wsConfig.caCertificatePemFile.reset();
+			// Point OpenSSL at an explicit CA bundle when one is available so a
+			// self-contained build can verify TLS peers even on machines that
+			// do not provide OpenSSL's default trust store (e.g. macOS without
+			// Homebrew). Falls back to the compiled-in default when empty.
+			{
+				const std::string &caFile = resolveCaCertificateFile();
+				if (caFile.empty()) {
+					wsConfig.caCertificatePemFile.reset();
+				} else {
+					wsConfig.caCertificatePemFile = caFile;
+					logDebug("Using CA certificate bundle for signaling TLS: %s", caFile.c_str());
+				}
+			}
 			wsConfig.certificatePemFile.reset();
 			wsConfig.keyPemFile.reset();
 			wsConfig.keyPemPass.reset();

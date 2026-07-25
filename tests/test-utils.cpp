@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: AGPL-3.0-only
  */
 
+#include <algorithm>
 #include <regex>
 #include <set>
 #include <thread>
@@ -399,6 +400,77 @@ TEST(SignalingConnectErrorTest, FallsBackToUnknownForUnclassifiedErrors)
 	EXPECT_STREQ(signalingConnectErrorLikelyCauses(SignalingConnectErrorCategory::Unknown),
 	             "check the surrounding [VDO.Ninja/RTC] lines; likely candidates are DNS/routing issues, TLS "
 	             "interception, or the remote closing before WebSocket open");
+}
+
+// CA certificate bundle resolution
+static bool containsPath(const std::vector<std::string> &paths, const std::string &value)
+{
+	return std::find(paths.begin(), paths.end(), value) != paths.end();
+}
+
+TEST(CaCertificateCandidatesTest, EnvOverrideComesFirst)
+{
+	auto paths = buildCaCertificateCandidatePaths("/custom/ca.pem", {});
+	ASSERT_FALSE(paths.empty());
+	EXPECT_EQ(paths.front(), "/custom/ca.pem");
+}
+
+TEST(CaCertificateCandidatesTest, TrimsWhitespaceFromEnvOverride)
+{
+	auto paths = buildCaCertificateCandidatePaths("  /custom/ca.pem\n", {});
+	ASSERT_FALSE(paths.empty());
+	EXPECT_EQ(paths.front(), "/custom/ca.pem");
+}
+
+TEST(CaCertificateCandidatesTest, EmptyEnvIsSkipped)
+{
+	auto paths = buildCaCertificateCandidatePaths("   ", {});
+	for (const auto &p : paths) {
+		EXPECT_FALSE(p.empty());
+	}
+	// System fallbacks should still be present.
+	EXPECT_TRUE(containsPath(paths, "/etc/ssl/cert.pem"));
+}
+
+TEST(CaCertificateCandidatesTest, IncludesModuleAdjacentAndResourcesPaths)
+{
+	const std::string base = "/Applications/OBS.app/plugins/obs-vdoninja.plugin/Contents/MacOS";
+	auto paths = buildCaCertificateCandidatePaths("", {base});
+	EXPECT_TRUE(containsPath(paths, base + "/" + kBundledCaCertificateFileName));
+	EXPECT_TRUE(containsPath(paths, base + "/../Resources/data/" + kBundledCaCertificateFileName));
+}
+
+TEST(CaCertificateCandidatesTest, StripsTrailingSlashesFromModuleDir)
+{
+	auto paths = buildCaCertificateCandidatePaths("", {"/opt/plugin/MacOS///"});
+	EXPECT_TRUE(containsPath(paths, std::string("/opt/plugin/MacOS/") + kBundledCaCertificateFileName));
+}
+
+TEST(CaCertificateCandidatesTest, ModuleBundlePrecedesSystemPaths)
+{
+	auto paths = buildCaCertificateCandidatePaths("", {"/opt/plugin/MacOS"});
+	auto moduleIt =
+	    std::find(paths.begin(), paths.end(), std::string("/opt/plugin/MacOS/") + kBundledCaCertificateFileName);
+	auto systemIt = std::find(paths.begin(), paths.end(), std::string("/etc/ssl/cert.pem"));
+	ASSERT_NE(moduleIt, paths.end());
+	ASSERT_NE(systemIt, paths.end());
+	EXPECT_LT(moduleIt - paths.begin(), systemIt - paths.begin());
+}
+
+TEST(CaCertificateCandidatesTest, DeduplicatesRepeatedPaths)
+{
+	auto paths = buildCaCertificateCandidatePaths("/etc/ssl/cert.pem", {});
+	std::set<std::string> unique(paths.begin(), paths.end());
+	EXPECT_EQ(unique.size(), paths.size());
+	EXPECT_EQ(paths.front(), "/etc/ssl/cert.pem");
+}
+
+TEST(CaCertificateCandidatesTest, IncludesKnownSystemBundles)
+{
+	auto paths = buildCaCertificateCandidatePaths("", {});
+	EXPECT_TRUE(containsPath(paths, "/etc/ssl/cert.pem"));
+	EXPECT_TRUE(containsPath(paths, "/etc/ssl/certs/ca-certificates.crt"));
+	EXPECT_TRUE(containsPath(paths, "/opt/homebrew/etc/openssl@3/cert.pem"));
 }
 
 // Base64 Encoding/Decoding Tests

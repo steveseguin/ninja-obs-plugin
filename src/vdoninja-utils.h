@@ -134,6 +134,20 @@ SignalingConnectErrorCategory classifySignalingConnectError(const std::string &e
 const char *signalingConnectErrorCategoryName(SignalingConnectErrorCategory category);
 const char *signalingConnectErrorLikelyCauses(SignalingConnectErrorCategory category);
 
+// Filename of the CA-certificate bundle shipped alongside the plugin binary so
+// that a self-contained OpenSSL build can verify TLS peers on machines that do
+// not provide their own trust store (e.g. macOS without Homebrew). The macOS
+// installer copies the bundle next to the plugin under this exact name.
+inline constexpr const char *kBundledCaCertificateFileName = "vdoninja-ca-bundle.pem";
+
+// Builds an ordered list of candidate CA-bundle file paths to try for TLS
+// verification. Precedence: an explicit SSL_CERT_FILE override, then a bundle
+// shipped alongside the plugin module (checked in each provided module
+// directory), then well-known system locations. The caller probes the returned
+// paths in order and uses the first that exists. Duplicate paths are collapsed.
+std::vector<std::string> buildCaCertificateCandidatePaths(const std::string &sslCertFileEnv,
+                                                          const std::vector<std::string> &moduleDirs);
+
 // Time utilities
 int64_t currentTimeMs();
 std::string formatTimestamp(int64_t ms);

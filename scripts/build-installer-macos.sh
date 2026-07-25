@@ -209,6 +209,38 @@ for dylib in "$SRC_PLUGIN_DIR"/*.dylib; do
   [[ -f "$dylib" ]] && cp -a "$dylib" "$DST_PLUGIN_DIR/"
 done
 
+# Ship a CA-certificate bundle next to the plugin binary so the bundled
+# OpenSSL can verify TLS peers on machines that do not provide their own
+# trust store (e.g. a Mac without Homebrew's openssl@3 cert.pem). The plugin
+# looks for this exact filename alongside its binary at runtime.
+CA_BUNDLE_NAME="vdoninja-ca-bundle.pem"
+CA_BUNDLE_SRC="${OBS_VDONINJA_CA_BUNDLE:-}"
+if [[ -z "$CA_BUNDLE_SRC" ]]; then
+  ca_candidates=()
+  if command -v brew >/dev/null 2>&1; then
+    for formula in openssl@3 ca-certificates; do
+      prefix="$(brew --prefix "$formula" 2>/dev/null || true)"
+      [[ -n "$prefix" ]] || continue
+      ca_candidates+=("$prefix/etc/openssl@3/cert.pem" "$prefix/etc/ca-certificates/cert.pem" \
+        "$prefix/share/ca-certificates/cacert.pem")
+    done
+  fi
+  ca_candidates+=(/opt/homebrew/etc/openssl@3/cert.pem /usr/local/etc/openssl@3/cert.pem /etc/ssl/cert.pem)
+  for candidate in "${ca_candidates[@]}"; do
+    if [[ -f "$candidate" ]]; then
+      CA_BUNDLE_SRC="$candidate"
+      break
+    fi
+  done
+fi
+if [[ -n "$CA_BUNDLE_SRC" && -f "$CA_BUNDLE_SRC" ]]; then
+  # Follow symlinks (Homebrew's cert.pem is usually a symlink into ca-certificates).
+  cp -aL "$CA_BUNDLE_SRC" "$DST_PLUGIN_DIR/$CA_BUNDLE_NAME"
+  echo "Bundled CA certificate store from $CA_BUNDLE_SRC"
+else
+  echo "Warning: no CA certificate bundle found to ship with the plugin; TLS may rely on the host trust store." >&2
+fi
+
 cat > "$BUNDLE_DIR/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">

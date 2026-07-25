@@ -1390,6 +1390,54 @@ const char *signalingConnectErrorLikelyCauses(SignalingConnectErrorCategory cate
 	}
 }
 
+std::vector<std::string> buildCaCertificateCandidatePaths(const std::string &sslCertFileEnv,
+                                                          const std::vector<std::string> &moduleDirs)
+{
+	std::vector<std::string> candidates;
+	auto addCandidate = [&candidates](const std::string &path) {
+		if (path.empty()) {
+			return;
+		}
+		if (std::find(candidates.begin(), candidates.end(), path) != candidates.end()) {
+			return;
+		}
+		candidates.push_back(path);
+	};
+
+	// 1. Explicit user/environment override wins.
+	addCandidate(trim(sslCertFileEnv));
+
+	// 2. A CA bundle shipped next to the plugin binary. On macOS the plugin
+	//    lives at <bundle>/Contents/MacOS/obs-vdoninja, so also probe the
+	//    sibling Resources/data directory used for plugin resources.
+	for (const std::string &dir : moduleDirs) {
+		std::string base = trim(dir);
+		while (base.size() > 1 && base.back() == '/') {
+			base.pop_back();
+		}
+		if (base.empty()) {
+			continue;
+		}
+		addCandidate(base + "/" + kBundledCaCertificateFileName);
+		addCandidate(base + "/../Resources/data/" + kBundledCaCertificateFileName);
+	}
+
+	// 3. Well-known system trust stores as a last resort.
+	static const char *const kSystemCaBundles[] = {
+	    "/etc/ssl/cert.pem",                    // macOS, some BSDs
+	    "/etc/ssl/certs/ca-certificates.crt",   // Debian/Ubuntu/Alpine
+	    "/etc/pki/tls/certs/ca-bundle.crt",     // RHEL/Fedora/CentOS
+	    "/etc/ssl/ca-bundle.pem",               // openSUSE
+	    "/usr/local/etc/openssl@3/cert.pem",    // Intel Homebrew OpenSSL 3
+	    "/opt/homebrew/etc/openssl@3/cert.pem", // Apple Silicon Homebrew OpenSSL 3
+	};
+	for (const char *path : kSystemCaBundles) {
+		addCandidate(path);
+	}
+
+	return candidates;
+}
+
 // Time utilities
 int64_t currentTimeMs()
 {
