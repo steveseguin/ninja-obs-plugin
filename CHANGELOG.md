@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.59] - 2026-07-26
+
 ### Added
 - Extended the rolling publish summary with encoded-audio RTP cadence, media-queue peak and audio delay, audio queue drops, successful packet sends, and transport send errors.
 - Added deterministic published-audio continuity tests: byte-exact Opus RTP coverage, timestamp/send-result accounting, PCM click/dropout detection, and a portable-OBS soak that validates raw decoded Chromium audio alongside Chrome WebRTC counters and an optional local recording.
