@@ -12,7 +12,9 @@
     "test:e2e:reload": "playwright test tests/e2e/vdoninja-publish-view-reload.spec.js --reporter=line",
     "test:e2e:multi": "playwright test tests/e2e/vdoninja-multi-viewers.spec.js --reporter=line",
     "test:e2e:firefox-view": "node scripts/playwright-vdo-firefox-view-check.cjs",
-    "test:e2e:vp9": "playwright test tests/e2e/vdoninja-vp9-view.spec.js --reporter=line"
+    "test:e2e:vp9": "playwright test tests/e2e/vdoninja-vp9-view.spec.js --reporter=line",
+    "test:audio-continuity": "node --test tests/test-audio-continuity.cjs",
+    "test:audio-capture-control": "node scripts/playwright-audio-capture-control.cjs"
   },
   "keywords": [],
   "author": "",

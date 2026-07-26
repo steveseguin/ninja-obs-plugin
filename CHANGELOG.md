@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Extended the rolling publish summary with encoded-audio RTP cadence, media-queue peak and audio delay, audio queue drops, successful packet sends, and transport send errors.
+- Added deterministic published-audio continuity tests: byte-exact Opus RTP coverage, timestamp/send-result accounting, PCM click/dropout detection, and a portable-OBS soak that validates raw decoded Chromium audio alongside Chrome WebRTC counters and an optional local recording.
+
+### Fixed
+- Moved rolling publish-summary collection and OBS logfile writes off libobs's serialized encoded A/V callback. OBS synchronously flushes each log line, so a slow disk or logfile lock could pause both audio and video packet intake every 30 seconds.
+- Counted libdatachannel `Track::send()` false returns as transport failures for audio and paced video instead of silently reporting those rejected packets as successfully sent.
+- Prevented long portable-OBS validation reports from deadlocking on a full redirected-output pipe, and excluded deliberate second-viewer startup/screenshot work from steady-state freeze counts.
+
 ## [1.1.58] - 2026-07-25
 
 ### Added

@@ -80,6 +80,7 @@ $checkProc = $null
 try {
     $obsProc = Start-Process -FilePath $obsExePath -ArgumentList "--portable", "--disable-shutdown-check", "--disable-updater" `
         -WorkingDirectory $obsWorkingDirPath `
+        -WindowStyle Hidden `
         -RedirectStandardOutput $obsStdout `
         -RedirectStandardError $obsStderr `
         -PassThru
@@ -97,13 +98,18 @@ try {
     $checkProc = [System.Diagnostics.Process]::new()
     $checkProc.StartInfo = $checkStartInfo
     [void]$checkProc.Start()
+    # Drain redirected pipes while Node runs. Waiting first and reading later can
+    # deadlock once a long soak's JSON report fills the Windows pipe buffer.
+    $checkStdoutTask = $checkProc.StandardOutput.ReadToEndAsync()
+    $checkStderrTask = $checkProc.StandardError.ReadToEndAsync()
     if (-not $checkProc.WaitForExit($CheckTimeoutSeconds * 1000)) {
         $checkProc.Kill()
+        $checkProc.WaitForExit()
         throw "Timed out waiting for OBS publish check PID $($checkProc.Id) after $CheckTimeoutSeconds seconds"
     }
 
-    $checkStdout = $checkProc.StandardOutput.ReadToEnd()
-    $checkStderr = $checkProc.StandardError.ReadToEnd()
+    $checkStdout = $checkStdoutTask.GetAwaiter().GetResult()
+    $checkStderr = $checkStderrTask.GetAwaiter().GetResult()
     Set-Content -Path $checkOut -Value $checkStdout -Encoding UTF8
     Set-Content -Path $checkErr -Value $checkStderr -Encoding UTF8
 
@@ -119,14 +125,38 @@ try {
     $pacerTelemetry = @(
         Select-String -Path $obsLogPath -Pattern "Publish:.*pacer max batch" |
             ForEach-Object {
-                if ($_.Line -match "max ([0-9.]+) KB, [0-9.]+x avg frame\), ([1-9][0-9]*) viewers.*pacer max batch ([0-9.]+) KB.*delay ([0-9]+) ms, dropped ([0-9]+), send errors ([0-9]+)") {
+                $line = $_.Line
+                if ($line -match "max ([0-9.]+) KB, [0-9.]+x avg frame\), ([1-9][0-9]*) viewers.*pacer max batch ([0-9.]+) KB.*delay ([0-9]+) ms, dropped ([0-9]+), send errors ([0-9]+)") {
+                    $maxKeyframeKb = [double]$matches[1]
+                    $viewers = [int]$matches[2]
+                    $maxBatchKb = [double]$matches[3]
+                    $maxDelayMs = [int]$matches[4]
+                    $droppedFrames = [uint64]$matches[5]
+                    $sendErrors = [uint64]$matches[6]
+                    $audioTelemetryPresent = $false
+                    $audioLargeSteps = 0
+                    $audioNonForwardSteps = 0
+                    $audioDroppedFrames = 0
+                    $audioSendErrors = 0
+                    if ($line -match "audio packets [0-9]+, RTP max step [0-9.]+ ms \(large ([0-9]+), non-forward ([0-9]+)\).*dropped ([0-9]+), sent [0-9]+, send errors ([0-9]+)") {
+                        $audioTelemetryPresent = $true
+                        $audioLargeSteps = [uint64]$matches[1]
+                        $audioNonForwardSteps = [uint64]$matches[2]
+                        $audioDroppedFrames = [uint64]$matches[3]
+                        $audioSendErrors = [uint64]$matches[4]
+                    }
                     [pscustomobject]@{
-                        maxKeyframeKb = [double]$matches[1]
-                        viewers = [int]$matches[2]
-                        maxBatchKb = [double]$matches[3]
-                        maxDelayMs = [int]$matches[4]
-                        droppedFrames = [uint64]$matches[5]
-                        sendErrors = [uint64]$matches[6]
+                        maxKeyframeKb = $maxKeyframeKb
+                        viewers = $viewers
+                        maxBatchKb = $maxBatchKb
+                        maxDelayMs = $maxDelayMs
+                        droppedFrames = $droppedFrames
+                        sendErrors = $sendErrors
+                        audioTelemetryPresent = $audioTelemetryPresent
+                        audioLargeSteps = $audioLargeSteps
+                        audioNonForwardSteps = $audioNonForwardSteps
+                        audioDroppedFrames = $audioDroppedFrames
+                        audioSendErrors = $audioSendErrors
                     }
                 }
             }
@@ -143,6 +173,25 @@ try {
             Select-Object -First 1
         if ($pacerFailure) {
             throw "OBS publish check recorded RTP pacer drops or send errors"
+        }
+    }
+    if ($env:VDONINJA_SOURCE_MODE -eq "audio-continuity") {
+        $audioSample = $pacerTelemetry |
+            Where-Object { $_.audioTelemetryPresent } |
+            Select-Object -First 1
+        if (-not $audioSample) {
+            throw "OBS publish check did not record audio continuity telemetry"
+        }
+        $audioFailure = $pacerTelemetry |
+            Where-Object {
+                $_.audioLargeSteps -ne 0 -or
+                $_.audioNonForwardSteps -ne 0 -or
+                $_.audioDroppedFrames -ne 0 -or
+                $_.audioSendErrors -ne 0
+            } |
+            Select-Object -First 1
+        if ($audioFailure) {
+            throw "OBS publish check recorded audio RTP discontinuity, queue drops, or send errors"
         }
     }
     $obsProcess = Get-CimInstance Win32_Process -Filter "ProcessId = $($obsProc.Id)" -ErrorAction SilentlyContinue

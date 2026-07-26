@@ -20,6 +20,7 @@
 #include "vdoninja-common.h"
 #include "vdoninja-data-channel.h"
 #include "vdoninja-peer-manager.h"
+#include "vdoninja-rtp-utils.h"
 #include "vdoninja-signaling.h"
 
 namespace vdoninja
@@ -83,6 +84,7 @@ private:
 		std::vector<uint8_t> payload;
 		uint32_t timestamp = 0;
 		bool keyframe = false;
+		uint64_t queuedAtMs = 0;
 	};
 
 	void startMediaSendWorker();
@@ -94,6 +96,9 @@ private:
 	void sendInitialPeerInfo(const std::string &uuid);
 	void primeViewerWithCachedKeyframe(const std::string &uuid);
 	void noteKeyframeRequest(const std::string &uuid, const char *transport);
+	void startPublishSummaryWorker();
+	void stopPublishSummaryWorker(bool flush);
+	void publishSummaryThread();
 	void maybeLogPublishSummary(bool force = false);
 	void resetPublishTelemetry();
 	std::string buildInitialInfoMessage() const;
@@ -139,6 +144,9 @@ private:
 	std::deque<QueuedMediaFrame> mediaSendQueue_;
 	bool mediaSendWorkerRunning_ = false;
 	std::atomic<uint64_t> droppedMediaFrames_{0};
+	std::atomic<uint64_t> droppedAudioMediaFrames_{0};
+	std::atomic<uint64_t> maxMediaQueueDepth_{0};
+	std::atomic<uint64_t> maxAudioQueueDelayMs_{0};
 
 	// Statistics
 	std::atomic<uint64_t> totalBytes_{0};
@@ -174,8 +182,13 @@ private:
 	// Rolling publish telemetry, flushed to one log line at a fixed interval.
 	// Encoder cadence, keyframe burst size and viewer keyframe requests are the
 	// three things that explain most "it stutters every few seconds" reports, and
-	// none of them could previously be read off a user's log. Accumulated only
-	// from the encoded-packet callback, which libobs serializes across A/V.
+	// none of them could previously be read off a user's log. Packet callbacks
+	// only update the protected counters; a worker performs snapshotting and
+	// synchronous OBS logfile I/O away from libobs's serialized A/V callback.
+	std::mutex publishSummaryMutex_;
+	std::condition_variable publishSummaryCv_;
+	std::thread publishSummaryThread_;
+	bool publishSummaryWorkerRunning_ = false;
 	int64_t lastPublishSummaryMs_ = 0;
 	uint64_t summaryVideoFrames_ = 0;
 	uint64_t summaryVideoBytes_ = 0;
@@ -183,6 +196,7 @@ private:
 	uint64_t summaryKeyframeBytes_ = 0;
 	uint64_t summaryMaxKeyframeBytes_ = 0;
 	uint64_t summaryAudioBytes_ = 0;
+	RtpTimestampStepTracker audioTimestampSteps_{960};
 	std::atomic<uint64_t> keyframeRequests_{0};
 	std::atomic<uint64_t> keyframeRequestsPrimed_{0};
 	std::atomic<bool> loggedFirstKeyframeRequest_{false};

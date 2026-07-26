@@ -660,6 +660,7 @@ bool VDONinjaPeerManager::startPublishing(int maxViewers)
 	}
 
 	maxViewers_ = maxViewers;
+	audioSendTracker_.reset();
 	publishing_ = true;
 
 	logInfo("Started publishing, max viewers: %d", maxViewers);
@@ -1474,7 +1475,7 @@ void VDONinjaPeerManager::setupPublisherTracks(std::shared_ptr<PeerInfo> peer)
 				    pacerSrReporter->setNeedsToReport();
 			    }
 		    }
-		    pacerTrack->send(std::move(packet));
+		    return pacerTrack->send(std::move(packet));
 	    });
 	logInfo("Viewer %s video RTP pacer: %.1f Mbps, %zu KB per %lld ms batch, %zu KB queue limit", peer->uuid.c_str(),
 	        static_cast<double>(pacerBitrate) / 1000000.0, peer->videoPacer->batchBudgetBytes() / 1024,
@@ -2143,15 +2144,6 @@ bool VDONinjaPeerManager::sendAudioFrameToPeer(const std::string &uuid, const st
 			packet = rtc::binary(size);
 			std::memcpy(packet.data(), data, size);
 		} else {
-			std::vector<uint8_t> rtpPacket;
-			rtpPacket.reserve(12 + size);
-
-			rtpPacket.push_back(0x80); // V=2, P=0, X=0, CC=0
-			rtpPacket.push_back(111);  // PT=111 (Opus), M=0
-			rtpPacket.push_back((peer->audioSeq >> 8) & 0xFF);
-			rtpPacket.push_back(peer->audioSeq & 0xFF);
-			peer->audioSeq++;
-
 			uint32_t ts = timestamp ? timestamp : peer->audioTimestamp;
 			if (peer->audioRtpConfig) {
 				peer->audioRtpConfig->timestamp = ts;
@@ -2160,27 +2152,17 @@ bool VDONinjaPeerManager::sendAudioFrameToPeer(const std::string &uuid, const st
 					peer->audioSrReporter->setNeedsToReport();
 				}
 			}
-			rtpPacket.push_back((ts >> 24) & 0xFF);
-			rtpPacket.push_back((ts >> 16) & 0xFF);
-			rtpPacket.push_back((ts >> 8) & 0xFF);
-			rtpPacket.push_back(ts & 0xFF);
 			peer->audioTimestamp = ts + 960; // 48kHz, 20ms frames
 
-			rtpPacket.push_back((audioSsrc_ >> 24) & 0xFF);
-			rtpPacket.push_back((audioSsrc_ >> 16) & 0xFF);
-			rtpPacket.push_back((audioSsrc_ >> 8) & 0xFF);
-			rtpPacket.push_back(audioSsrc_ & 0xFF);
-
-			rtpPacket.insert(rtpPacket.end(), data, data + size);
-
+			const std::vector<uint8_t> rtpPacket =
+			    buildOpusRtpPacket(data, size, kOpusPayloadType, peer->audioSeq++, ts, audioSsrc_);
 			packet = rtc::binary(rtpPacket.size());
 			std::memcpy(packet.data(), rtpPacket.data(), rtpPacket.size());
 		}
 	}
 
 	try {
-		track->send(std::move(packet));
-		return true;
+		return audioSendTracker_.send([&]() { return track->send(std::move(packet)); });
 	} catch (const std::exception &e) {
 		logError("Failed to send audio to %s: %s", uuid.c_str(), e.what());
 		return false;
@@ -2782,6 +2764,11 @@ RtpPacerStats VDONinjaPeerManager::takeVideoPacerStats()
 		combined.sendFailures += snapshot.sendFailures;
 	}
 	return combined;
+}
+
+RtpSendStats VDONinjaPeerManager::takeAudioSendStats()
+{
+	return audioSendTracker_.take();
 }
 
 } // namespace vdoninja

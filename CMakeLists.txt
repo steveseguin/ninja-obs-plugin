@@ -554,6 +554,7 @@ if(BUILD_TESTS)
         tests/test-peer-manager.cpp
         tests/test-utils.cpp
         tests/test-reliability.cpp
+        tests/test-rtp-audio.cpp
         tests/test-rtp-pacer.cpp
         tests/test-json.cpp
         tests/test-data-channel.cpp

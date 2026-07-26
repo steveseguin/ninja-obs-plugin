@@ -18,6 +18,7 @@
 #include "vdoninja-common.h"
 #include "vdoninja-ice-candidate-queue.h"
 #include "vdoninja-rtp-pacer.h"
+#include "vdoninja-rtp-send-tracker.h"
 #include "vdoninja-signaling.h"
 #include "vdoninja-track-utils.h"
 
@@ -119,6 +120,7 @@ public:
 	void setBitrate(int bitrate);
 	void setEnableDataChannel(bool enable);
 	RtpPacerStats takeVideoPacerStats();
+	RtpSendStats takeAudioSendStats();
 
 private:
 	struct PublisherMediaState {
@@ -209,6 +211,7 @@ private:
 	uint32_t audioTimestamp_ = 0;
 	uint32_t videoTimestamp_ = 0;
 	std::atomic<uint64_t> nextPeerGeneration_{1};
+	RtpSendTracker audioSendTracker_;
 
 	// ICE candidate bundling
 	struct CandidateBundle {

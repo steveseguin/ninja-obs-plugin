@@ -6,6 +6,9 @@
 
 #include "vdoninja-rtp-utils.h"
 
+#include <algorithm>
+#include <cstring>
+
 namespace vdoninja
 {
 
@@ -161,6 +164,72 @@ bool isRtcpSenderReportDue(uint32_t currentTimestamp, uint32_t lastReportedTimes
 	}
 
 	return elapsed >= clockRate;
+}
+
+std::vector<uint8_t> buildOpusRtpPacket(const uint8_t *payload, size_t payloadSize, uint8_t payloadType,
+                                        uint16_t sequenceNumber, uint32_t timestamp, uint32_t ssrc)
+{
+	if (!payload && payloadSize != 0) {
+		return {};
+	}
+
+	std::vector<uint8_t> packet(12 + payloadSize);
+	packet[0] = 0x80;               // V=2, P=0, X=0, CC=0
+	packet[1] = payloadType & 0x7F; // M=0
+	packet[2] = sequenceNumber >> 8;
+	packet[3] = sequenceNumber & 0xFF;
+	packet[4] = timestamp >> 24;
+	packet[5] = (timestamp >> 16) & 0xFF;
+	packet[6] = (timestamp >> 8) & 0xFF;
+	packet[7] = timestamp & 0xFF;
+	packet[8] = ssrc >> 24;
+	packet[9] = (ssrc >> 16) & 0xFF;
+	packet[10] = (ssrc >> 8) & 0xFF;
+	packet[11] = ssrc & 0xFF;
+	if (payloadSize != 0) {
+		std::memcpy(packet.data() + 12, payload, payloadSize);
+	}
+	return packet;
+}
+
+RtpTimestampStepTracker::RtpTimestampStepTracker(uint32_t expectedStep) : expectedStep_(expectedStep) {}
+
+void RtpTimestampStepTracker::observe(uint32_t timestamp)
+{
+	interval_.packets++;
+	if (!hasLastTimestamp_) {
+		hasLastTimestamp_ = true;
+		lastTimestamp_ = timestamp;
+		return;
+	}
+
+	const uint32_t step = timestamp - lastTimestamp_;
+	lastTimestamp_ = timestamp;
+
+	constexpr uint32_t kBackwardsThreshold = 0x80000000u;
+	if (step == 0 || step >= kBackwardsThreshold) {
+		interval_.nonForwardSteps++;
+		return;
+	}
+
+	interval_.maxForwardStep = std::max(interval_.maxForwardStep, step);
+	if (expectedStep_ != 0 && step > expectedStep_) {
+		interval_.largeSteps++;
+	}
+}
+
+RtpTimestampStepStats RtpTimestampStepTracker::takeInterval()
+{
+	const RtpTimestampStepStats snapshot = interval_;
+	interval_ = {};
+	return snapshot;
+}
+
+void RtpTimestampStepTracker::reset()
+{
+	hasLastTimestamp_ = false;
+	lastTimestamp_ = 0;
+	interval_ = {};
 }
 
 } // namespace vdoninja

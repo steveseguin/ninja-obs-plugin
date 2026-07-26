@@ -186,6 +186,50 @@ Important:
 4. Confirm the loaded plugin module path from the OBS process.
 5. Confirm the latest portable OBS log records the expected connect/publish/view sequence.
 
+## Published Audio Continuity Check
+
+The packet and PCM analyzer tests do not require OBS:
+
+```powershell
+npm run test:audio-continuity
+npm run test:audio-capture-control
+```
+
+For an end-to-end check through portable OBS, the real plugin, VDO.Ninja signaling, and both Chromium and OBS
+Browser Source viewers:
+
+```powershell
+$env:VDONINJA_SOURCE_MODE = "audio-continuity"
+$env:VDONINJA_SOAK_MS = "60000"
+$env:VDONINJA_VIEW_BUFFER_MS = "500"
+$env:VDONINJA_REQUIRE_ZERO_FREEZES = "1"
+$env:VDONINJA_REQUIRE_PACER_SPLIT = "1"
+$env:VDONINJA_OBS_BROWSER_VIEWER = "1"
+powershell -ExecutionPolicy Bypass -File .\scripts\run-vdoninja-publish-smoke.ps1
+```
+
+The harness uses a Browser Source for high-motion video and a separate Media Source for a precomputed 997 Hz
+WAV. Keeping the tone out of Chromium makes the sender-side control deterministic: a busy Browser Source can
+itself underrun before the plugin receives the audio. The check fails on raw decoded-track dropouts, click-sized
+discontinuities, non-forward timestamps, new Chrome concealment, packet loss, media queue drops, transport send
+rejection, or video freezes. It saves the source WAV, raw decoded PCM, Web Audio playout PCM, screenshots, and a
+JSON report under `artifacts/`.
+
+Use `$env:VDONINJA_RECORD_LOCAL_OUTPUT = "1"` to record the OBS mix at the same time for an upstream control.
+The raw decoded `MediaStreamTrack` is the continuity authority. Feeding that track through a second Web Audio
+clock can periodically insert or remove samples even when the raw decoded track, RTP cadence, and local recording
+are clean; those playout-clock shifts remain in the report as diagnostics.
+
+When the actual OBS Browser Source viewer is enabled, the harness routes its audio through OBS and mutes it so
+the viewer cannot feed the published tone back into the mix. It establishes Chrome's freeze-counter baseline
+after that viewer starts and after the first OBS screenshot; the PCM capture still spans setup, but steady-state
+video assertions do not mistake deliberate setup work for a transport freeze. Decoded-track timestamp gaps over
+12 ms are recorded with sample and wall-clock positions for correlation against OBS's 30-second publish lines.
+
+The publish lines themselves are emitted by a dedicated summary worker. Never move their `logInfo` call back
+into the encoded-packet callback: OBS takes a global logfile lock and synchronously flushes each line, which can
+stall both encoded audio and video delivery.
+
 ## Alpha Validation
 
 Status as of `2026-04-12`: validated locally with `game-capture` publishing `VP9 + Alpha` into the OBS native receiver path.

@@ -41,6 +41,19 @@ constexpr int64_t kKeyframeIntervalWarnMs = 4500;
 // multi-hour stream does not drown out everything else in the log.
 constexpr int64_t kPublishSummaryIntervalMs = 30000;
 
+int64_t steadyTimeMs()
+{
+	return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch())
+	    .count();
+}
+
+void updateAtomicMaximum(std::atomic<uint64_t> &target, uint64_t value)
+{
+	uint64_t current = target.load(std::memory_order_relaxed);
+	while (current < value &&
+	       !target.compare_exchange_weak(current, value, std::memory_order_relaxed, std::memory_order_relaxed)) {}
+}
+
 int resolveVideoEncoderBitrate(obs_output_t *output, int fallbackBitsPerSecond)
 {
 	if (!output) {
@@ -1288,18 +1301,76 @@ void VDONinjaOutput::noteKeyframeRequest(const std::string &uuid, const char *tr
 	}
 }
 
+void VDONinjaOutput::startPublishSummaryWorker()
+{
+	stopPublishSummaryWorker(false);
+
+	{
+		std::lock_guard<std::mutex> lock(publishSummaryMutex_);
+		publishSummaryWorkerRunning_ = true;
+	}
+	publishSummaryThread_ = std::thread(&VDONinjaOutput::publishSummaryThread, this);
+}
+
+void VDONinjaOutput::stopPublishSummaryWorker(bool flush)
+{
+	{
+		std::lock_guard<std::mutex> lock(publishSummaryMutex_);
+		publishSummaryWorkerRunning_ = false;
+	}
+	publishSummaryCv_.notify_all();
+
+	if (publishSummaryThread_.joinable()) {
+		publishSummaryThread_.join();
+	}
+
+	if (flush) {
+		maybeLogPublishSummary(true);
+	}
+}
+
+void VDONinjaOutput::publishSummaryThread()
+{
+	std::unique_lock<std::mutex> lock(publishSummaryMutex_);
+	while (publishSummaryWorkerRunning_) {
+		if (lastPublishSummaryMs_ == 0) {
+			publishSummaryCv_.wait(lock,
+			                       [this]() { return !publishSummaryWorkerRunning_ || lastPublishSummaryMs_ != 0; });
+			continue;
+		}
+
+		const int64_t elapsedMs = steadyTimeMs() - lastPublishSummaryMs_;
+		const int64_t waitMs = std::max<int64_t>(1, kPublishSummaryIntervalMs - elapsedMs);
+		const bool stopping = publishSummaryCv_.wait_for(lock, std::chrono::milliseconds(waitMs),
+		                                                 [this]() { return !publishSummaryWorkerRunning_; });
+		if (stopping) {
+			break;
+		}
+
+		lock.unlock();
+		maybeLogPublishSummary();
+		lock.lock();
+	}
+}
+
 void VDONinjaOutput::resetPublishTelemetry()
 {
 	lastKeyframeWallClockMs_ = 0;
 	longKeyframeGaps_ = 0;
 	loggedKeyframeIntervalWarning_ = false;
-	lastPublishSummaryMs_ = 0;
-	summaryVideoFrames_ = 0;
-	summaryVideoBytes_ = 0;
-	summaryKeyframes_ = 0;
-	summaryKeyframeBytes_ = 0;
-	summaryMaxKeyframeBytes_ = 0;
-	summaryAudioBytes_ = 0;
+	{
+		std::lock_guard<std::mutex> lock(publishSummaryMutex_);
+		lastPublishSummaryMs_ = 0;
+		summaryVideoFrames_ = 0;
+		summaryVideoBytes_ = 0;
+		summaryKeyframes_ = 0;
+		summaryKeyframeBytes_ = 0;
+		summaryMaxKeyframeBytes_ = 0;
+		summaryAudioBytes_ = 0;
+		audioTimestampSteps_.reset();
+	}
+	maxMediaQueueDepth_.store(0, std::memory_order_relaxed);
+	maxAudioQueueDelayMs_.store(0, std::memory_order_relaxed);
 	keyframeRequests_.store(0, std::memory_order_relaxed);
 	keyframeRequestsPrimed_.store(0, std::memory_order_relaxed);
 	loggedFirstKeyframeRequest_.store(false, std::memory_order_relaxed);
@@ -1307,74 +1378,107 @@ void VDONinjaOutput::resetPublishTelemetry()
 
 void VDONinjaOutput::maybeLogPublishSummary(bool force)
 {
-	const int64_t nowMs = currentTimeMs();
-	if (lastPublishSummaryMs_ == 0) {
+	const int64_t nowMs = steadyTimeMs();
+	int64_t elapsedMs = 0;
+	uint64_t videoFrames = 0;
+	uint64_t videoBytes = 0;
+	uint64_t keyframes = 0;
+	uint64_t keyframeBytes = 0;
+	uint64_t maxKeyframeBytes = 0;
+	uint64_t audioBytes = 0;
+	RtpTimestampStepStats audioTimestampStats;
+	{
+		std::lock_guard<std::mutex> lock(publishSummaryMutex_);
+		if (lastPublishSummaryMs_ == 0) {
+			lastPublishSummaryMs_ = nowMs;
+			return;
+		}
+
+		elapsedMs = nowMs - lastPublishSummaryMs_;
+		if (elapsedMs <= 0 || (!force && elapsedMs < kPublishSummaryIntervalMs)) {
+			return;
+		}
 		lastPublishSummaryMs_ = nowMs;
-		return;
-	}
 
-	const int64_t elapsedMs = nowMs - lastPublishSummaryMs_;
-	if (elapsedMs <= 0 || (!force && elapsedMs < kPublishSummaryIntervalMs)) {
-		return;
-	}
-	lastPublishSummaryMs_ = nowMs;
+		// A row of zeroes says nothing that the surrounding stop/start lines do
+		// not. Reset the empty interval so a later rate never spans two windows.
+		if (summaryVideoFrames_ == 0) {
+			summaryAudioBytes_ = 0;
+			audioTimestampSteps_.takeInterval();
+			return;
+		}
 
-	// Only reachable with no frames via the forced flush at stop; a row of zeroes
-	// would say nothing that the surrounding stop/start lines do not.
-	if (summaryVideoFrames_ == 0) {
-		return;
+		videoFrames = summaryVideoFrames_;
+		videoBytes = summaryVideoBytes_;
+		keyframes = summaryKeyframes_;
+		keyframeBytes = summaryKeyframeBytes_;
+		maxKeyframeBytes = summaryMaxKeyframeBytes_;
+		audioBytes = summaryAudioBytes_;
+		audioTimestampStats = audioTimestampSteps_.takeInterval();
+
+		summaryVideoFrames_ = 0;
+		summaryVideoBytes_ = 0;
+		summaryKeyframes_ = 0;
+		summaryKeyframeBytes_ = 0;
+		summaryMaxKeyframeBytes_ = 0;
+		summaryAudioBytes_ = 0;
 	}
 
 	const double seconds = static_cast<double>(elapsedMs) / 1000.0;
-	const double fps = static_cast<double>(summaryVideoFrames_) / seconds;
-	const double videoKbps = static_cast<double>(summaryVideoBytes_) * 8.0 / seconds / 1000.0;
-	const double audioKbps = static_cast<double>(summaryAudioBytes_) * 8.0 / seconds / 1000.0;
+	const double fps = static_cast<double>(videoFrames) / seconds;
+	const double videoKbps = static_cast<double>(videoBytes) * 8.0 / seconds / 1000.0;
+	const double audioKbps = static_cast<double>(audioBytes) * 8.0 / seconds / 1000.0;
 
 	double keyframeIntervalSec = 0.0;
 	double avgKeyframeKb = 0.0;
-	if (summaryKeyframes_ > 0) {
-		keyframeIntervalSec = seconds / static_cast<double>(summaryKeyframes_);
-		avgKeyframeKb = static_cast<double>(summaryKeyframeBytes_) / static_cast<double>(summaryKeyframes_) / 1024.0;
+	if (keyframes > 0) {
+		keyframeIntervalSec = seconds / static_cast<double>(keyframes);
+		avgKeyframeKb = static_cast<double>(keyframeBytes) / static_cast<double>(keyframes) / 1024.0;
 	}
 
 	// A keyframe many times the size of an average frame goes out as one burst and
 	// is the usual reason an otherwise healthy stream hitches once per GOP.
 	const double avgFrameBytes =
-	    summaryVideoFrames_ > 0 ? static_cast<double>(summaryVideoBytes_) / static_cast<double>(summaryVideoFrames_)
-	                            : 0.0;
-	const double burstRatio = avgFrameBytes > 0.0 ? static_cast<double>(summaryMaxKeyframeBytes_) / avgFrameBytes : 0.0;
+	    videoFrames > 0 ? static_cast<double>(videoBytes) / static_cast<double>(videoFrames) : 0.0;
+	const double burstRatio = avgFrameBytes > 0.0 ? static_cast<double>(maxKeyframeBytes) / avgFrameBytes : 0.0;
 
 	size_t queueDepth = 0;
 	{
 		std::lock_guard<std::mutex> lock(mediaSendMutex_);
 		queueDepth = mediaSendQueue_.size();
 	}
+	const uint64_t maxQueueDepth =
+	    std::max<uint64_t>(queueDepth, maxMediaQueueDepth_.exchange(0, std::memory_order_relaxed));
+	const uint64_t maxAudioQueueDelayMs = maxAudioQueueDelayMs_.exchange(0, std::memory_order_relaxed);
 
 	const uint64_t requests = keyframeRequests_.exchange(0, std::memory_order_relaxed);
 	const uint64_t primed = keyframeRequestsPrimed_.exchange(0, std::memory_order_relaxed);
 	const RtpPacerStats pacerStats = peerManager_ ? peerManager_->takeVideoPacerStats() : RtpPacerStats{};
+	const RtpSendStats audioSendStats = peerManager_ ? peerManager_->takeAudioSendStats() : RtpSendStats{};
+	const double maxAudioTimestampStepMs = static_cast<double>(audioTimestampStats.maxForwardStep) * 1000.0 / 48000.0;
 
-	logInfo("Publish: %.1f fps, %.0f kbps video, %.0f kbps audio, keyframe every %.1fs (avg %.0f KB, max %.0f KB, "
-	        "%.0fx avg frame), %d viewers, queue %zu, dropped %llu, keyframe requests %llu (%llu primed), "
-	        "pacer max batch %.0f KB, queued %.0f KB (max %.0f KB), delay %llu ms, dropped %llu, send errors %llu",
-	        fps, videoKbps, audioKbps, keyframeIntervalSec, avgKeyframeKb,
-	        static_cast<double>(summaryMaxKeyframeBytes_) / 1024.0, burstRatio,
-	        peerManager_ ? peerManager_->getViewerCount() : 0, queueDepth,
-	        static_cast<unsigned long long>(droppedMediaFrames_.load(std::memory_order_relaxed)),
-	        static_cast<unsigned long long>(requests), static_cast<unsigned long long>(primed),
-	        static_cast<double>(pacerStats.maxBatchBytes) / 1024.0,
-	        static_cast<double>(pacerStats.queuedBytes) / 1024.0,
-	        static_cast<double>(pacerStats.maxQueuedBytes) / 1024.0,
-	        static_cast<unsigned long long>(pacerStats.maxPacketDelayMs),
-	        static_cast<unsigned long long>(pacerStats.droppedFrames),
-	        static_cast<unsigned long long>(pacerStats.sendFailures));
-
-	summaryVideoFrames_ = 0;
-	summaryVideoBytes_ = 0;
-	summaryKeyframes_ = 0;
-	summaryKeyframeBytes_ = 0;
-	summaryMaxKeyframeBytes_ = 0;
-	summaryAudioBytes_ = 0;
+	logInfo(
+	    "Publish: %.1f fps, %.0f kbps video, %.0f kbps audio, keyframe every %.1fs (avg %.0f KB, max %.0f KB, "
+	    "%.0fx avg frame), %d viewers, queue %zu, dropped %llu, keyframe requests %llu (%llu primed), "
+	    "pacer max batch %.0f KB, queued %.0f KB (max %.0f KB), delay %llu ms, dropped %llu, send errors %llu, "
+	    "audio packets %llu, RTP max step %.1f ms (large %llu, non-forward %llu), queue max %llu, delay %llu ms, "
+	    "dropped %llu, sent %llu, send errors %llu",
+	    fps, videoKbps, audioKbps, keyframeIntervalSec, avgKeyframeKb, static_cast<double>(maxKeyframeBytes) / 1024.0,
+	    burstRatio, peerManager_ ? peerManager_->getViewerCount() : 0, queueDepth,
+	    static_cast<unsigned long long>(droppedMediaFrames_.load(std::memory_order_relaxed)),
+	    static_cast<unsigned long long>(requests), static_cast<unsigned long long>(primed),
+	    static_cast<double>(pacerStats.maxBatchBytes) / 1024.0, static_cast<double>(pacerStats.queuedBytes) / 1024.0,
+	    static_cast<double>(pacerStats.maxQueuedBytes) / 1024.0,
+	    static_cast<unsigned long long>(pacerStats.maxPacketDelayMs),
+	    static_cast<unsigned long long>(pacerStats.droppedFrames),
+	    static_cast<unsigned long long>(pacerStats.sendFailures),
+	    static_cast<unsigned long long>(audioTimestampStats.packets), maxAudioTimestampStepMs,
+	    static_cast<unsigned long long>(audioTimestampStats.largeSteps),
+	    static_cast<unsigned long long>(audioTimestampStats.nonForwardSteps),
+	    static_cast<unsigned long long>(maxQueueDepth), static_cast<unsigned long long>(maxAudioQueueDelayMs),
+	    static_cast<unsigned long long>(droppedAudioMediaFrames_.load(std::memory_order_relaxed)),
+	    static_cast<unsigned long long>(audioSendStats.sentPackets),
+	    static_cast<unsigned long long>(audioSendStats.sendFailures));
 }
 
 bool VDONinjaOutput::start()
@@ -1445,8 +1549,10 @@ bool VDONinjaOutput::start()
 	lastAudioRtpTimestamp_ = 0;
 	resetPublishTelemetry();
 	droppedMediaFrames_ = 0;
+	droppedAudioMediaFrames_ = 0;
 
 	startMediaSendWorker();
+	startPublishSummaryWorker();
 
 	if (startStopThread_.joinable()) {
 		startStopThread_.join();
@@ -1909,6 +2015,7 @@ void VDONinjaOutput::stop()
 	const bool wasCapturing = capturing_.load();
 	if (!wasRunning && !wasCapturing) {
 		connected_ = false;
+		stopPublishSummaryWorker(true);
 		stopRemoteStatsWorker();
 		stopMediaSendWorker();
 		// Still join the thread in case startThread failed and set running_=false
@@ -1923,6 +2030,7 @@ void VDONinjaOutput::stop()
 
 	logInfo("Stopping VDO.Ninja output...");
 
+	stopPublishSummaryWorker(true);
 	stopRemoteStatsWorker();
 	stopMediaSendWorker();
 
@@ -1992,10 +2100,6 @@ void VDONinjaOutput::stop()
 	lastVideoRtpTimestamp_ = 0;
 	hasLastAudioRtpTimestamp_ = false;
 	lastAudioRtpTimestamp_ = 0;
-	// Data capture has already ended, so the encoder callback can no longer be
-	// touching these counters. Flush whatever the last partial window holds so a
-	// short reproduction still leaves one summary behind.
-	maybeLogPublishSummary(true);
 	resetPublishTelemetry();
 
 	logInfo("VDO.Ninja output stopped");
@@ -2032,6 +2136,7 @@ void VDONinjaOutput::enqueueMediaFrame(QueuedMediaFrame frame)
 	if (frame.payload.empty()) {
 		return;
 	}
+	frame.queuedAtMs = static_cast<uint64_t>(steadyTimeMs());
 
 	uint64_t dropped = 0;
 	{
@@ -2040,10 +2145,14 @@ void VDONinjaOutput::enqueueMediaFrame(QueuedMediaFrame frame)
 			return;
 		}
 		while (mediaSendQueue_.size() >= kMaxQueuedMediaFrames) {
+			if (mediaSendQueue_.front().type == MediaFrameType::Audio) {
+				droppedAudioMediaFrames_.fetch_add(1, std::memory_order_relaxed);
+			}
 			mediaSendQueue_.pop_front();
 			dropped = ++droppedMediaFrames_;
 		}
 		mediaSendQueue_.push_back(std::move(frame));
+		updateAtomicMaximum(maxMediaQueueDepth_, static_cast<uint64_t>(mediaSendQueue_.size()));
 	}
 
 	if (dropped != 0 && (dropped == 1 || (dropped % 300) == 0)) {
@@ -2077,6 +2186,9 @@ void VDONinjaOutput::mediaSendThread()
 				peerManager_->sendVideoFrame(frame.payload.data(), frame.payload.size(), frame.timestamp,
 				                             frame.keyframe);
 			} else {
+				const uint64_t nowMs = static_cast<uint64_t>(steadyTimeMs());
+				const uint64_t queueDelayMs = nowMs >= frame.queuedAtMs ? nowMs - frame.queuedAtMs : 0;
+				updateAtomicMaximum(maxAudioQueueDelayMs_, queueDelayMs);
 				peerManager_->sendAudioFrame(frame.payload.data(), frame.payload.size(), frame.timestamp);
 			}
 		} catch (const std::exception &e) {
@@ -2210,16 +2322,26 @@ void VDONinjaOutput::processVideoPacket(encoder_packet *packet)
 	frame.keyframe = keyframe;
 	enqueueMediaFrame(std::move(frame));
 
-	summaryVideoFrames_++;
-	summaryVideoBytes_ += packet->size;
-	if (keyframe) {
-		summaryKeyframes_++;
-		summaryKeyframeBytes_ += packet->size;
-		if (static_cast<uint64_t>(packet->size) > summaryMaxKeyframeBytes_) {
-			summaryMaxKeyframeBytes_ = static_cast<uint64_t>(packet->size);
+	bool startSummaryInterval = false;
+	{
+		std::lock_guard<std::mutex> lock(publishSummaryMutex_);
+		if (lastPublishSummaryMs_ == 0) {
+			lastPublishSummaryMs_ = steadyTimeMs();
+			startSummaryInterval = true;
+		}
+		summaryVideoFrames_++;
+		summaryVideoBytes_ += packet->size;
+		if (keyframe) {
+			summaryKeyframes_++;
+			summaryKeyframeBytes_ += packet->size;
+			if (static_cast<uint64_t>(packet->size) > summaryMaxKeyframeBytes_) {
+				summaryMaxKeyframeBytes_ = static_cast<uint64_t>(packet->size);
+			}
 		}
 	}
-	maybeLogPublishSummary();
+	if (startSummaryInterval) {
+		publishSummaryCv_.notify_one();
+	}
 }
 
 void VDONinjaOutput::processAudioPacket(encoder_packet *packet)
@@ -2242,6 +2364,11 @@ void VDONinjaOutput::processAudioPacket(encoder_packet *packet)
 	}
 
 	uint32_t timestamp = timestampFromPacket(packet, 48000.0);
+	{
+		std::lock_guard<std::mutex> lock(publishSummaryMutex_);
+		audioTimestampSteps_.observe(timestamp);
+		summaryAudioBytes_ += packet->size;
+	}
 	timestamp = sanitizeMonotonicTimestamp(timestamp, hasLastAudioRtpTimestamp_, lastAudioRtpTimestamp_, 960);
 
 	QueuedMediaFrame frame;
@@ -2249,8 +2376,6 @@ void VDONinjaOutput::processAudioPacket(encoder_packet *packet)
 	frame.payload.assign(packet->data, packet->data + packet->size);
 	frame.timestamp = timestamp;
 	enqueueMediaFrame(std::move(frame));
-
-	summaryAudioBytes_ += packet->size;
 }
 
 uint64_t VDONinjaOutput::getTotalBytes() const

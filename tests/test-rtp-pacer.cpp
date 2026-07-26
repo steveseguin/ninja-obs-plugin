@@ -31,7 +31,10 @@ RtpPacketPacer::Packet packetWithValue(size_t size, uint8_t value)
 TEST(RtpPacketPacerTest, RejectsAnOversizedFrameWithoutSendingAnyPart)
 {
 	std::atomic<int> sent{0};
-	auto sendPacket = [&sent](RtpPacketPacer::Packet &&) { sent.fetch_add(1); };
+	auto sendPacket = [&sent](RtpPacketPacer::Packet &&) {
+		sent.fetch_add(1);
+		return true;
+	};
 	RtpPacketPacer pacer(80000, 20ms, sendPacket, 250);
 
 	std::vector<RtpPacketPacer::Packet> frame;
@@ -61,6 +64,7 @@ TEST(RtpPacketPacerTest, PreservesPacketOrder)
 			    received.push_back(static_cast<uint8_t>(packet.front()));
 		    }
 		    cv.notify_one();
+		    return true;
 	    },
 	    4096);
 
@@ -96,6 +100,7 @@ TEST(RtpPacketPacerTest, SpreadsLargeFrameAcrossBitrateSizedBatches)
 			    sendTimes.push_back(std::chrono::steady_clock::now());
 		    }
 		    cv.notify_one();
+		    return true;
 	    },
 	    4096);
 
@@ -117,4 +122,36 @@ TEST(RtpPacketPacerTest, SpreadsLargeFrameAcrossBitrateSizedBatches)
 	EXPECT_LE(stats.maxBatchBytes, 200u);
 	EXPECT_GE(stats.maxPacketDelayMs, 30u);
 	EXPECT_EQ(stats.sentPackets, 5u);
+}
+
+TEST(RtpPacketPacerTest, CountsFalseTransportReturnAsSendFailure)
+{
+	std::mutex mutex;
+	std::condition_variable cv;
+	bool attempted = false;
+	RtpPacketPacer pacer(
+	    8000000, 1ms,
+	    [&](RtpPacketPacer::Packet &&) {
+		    {
+			    std::lock_guard<std::mutex> lock(mutex);
+			    attempted = true;
+		    }
+		    cv.notify_one();
+		    return false;
+	    },
+	    4096);
+
+	std::vector<RtpPacketPacer::Packet> frame;
+	frame.push_back(packetWithValue(20, 1));
+	ASSERT_TRUE(pacer.enqueueFrame(std::move(frame)));
+
+	{
+		std::unique_lock<std::mutex> lock(mutex);
+		ASSERT_TRUE(cv.wait_for(lock, 1s, [&attempted]() { return attempted; }));
+	}
+	pacer.stop();
+	const RtpPacerStats stats = pacer.getStats();
+
+	EXPECT_EQ(stats.sentPackets, 0u);
+	EXPECT_EQ(stats.sendFailures, 1u);
 }

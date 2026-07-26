@@ -2,25 +2,44 @@ const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
 const { chromium } = require("playwright");
+const {
+  analyzePcm16Le,
+  createPcm16Wav,
+} = require("../tests/tools/audio-continuity-analysis.cjs");
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function createToneWav(sampleRate, toneHz, durationSeconds, amplitude = 0.08) {
+  const sampleCount = Math.ceil(sampleRate * durationSeconds);
+  const pcm = Buffer.allocUnsafe(sampleCount * 2);
+  for (let index = 0; index < sampleCount; index += 1) {
+    const sample = Math.sin((2 * Math.PI * toneHz * index) / sampleRate);
+    pcm.writeInt16LE(Math.round(sample * amplitude * 32767), index * 2);
+  }
+  return createPcm16Wav(pcm, sampleRate);
 }
 
 class ObsWebSocketClient {
   constructor(url, options = {}) {
     this.url = url;
     this.eventSubscriptions = options.eventSubscriptions || 0;
-    this.onEvent = typeof options.onEvent === "function" ? options.onEvent : null;
+    this.onEvent =
+      typeof options.onEvent === "function" ? options.onEvent : null;
     this.socket = null;
     this.requestId = 0;
     this.pending = new Map();
     this.identified = false;
-    this.requestTimeoutMs = Number(process.env.OBS_WEBSOCKET_REQUEST_TIMEOUT_MS || 20000);
+    this.requestTimeoutMs = Number(
+      process.env.OBS_WEBSOCKET_REQUEST_TIMEOUT_MS || 20000,
+    );
   }
 
   async connect() {
-    const deadline = Date.now() + Number(process.env.OBS_WEBSOCKET_CONNECT_TIMEOUT_MS || 60000);
+    const deadline =
+      Date.now() +
+      Number(process.env.OBS_WEBSOCKET_CONNECT_TIMEOUT_MS || 60000);
     let lastError = null;
 
     while (Date.now() < deadline) {
@@ -39,7 +58,9 @@ class ObsWebSocketClient {
       }
     }
 
-    throw new Error(`Timed out connecting to obs-websocket at ${this.url}: ${lastError || "unknown error"}`);
+    throw new Error(
+      `Timed out connecting to obs-websocket at ${this.url}: ${lastError || "unknown error"}`,
+    );
   }
 
   async connectOnce() {
@@ -48,7 +69,9 @@ class ObsWebSocketClient {
       this.socket = socket;
 
       socket.addEventListener("open", () => resolve());
-      socket.addEventListener("error", (error) => reject(new Error(error.message || "WebSocket error")));
+      socket.addEventListener("error", (error) =>
+        reject(new Error(error.message || "WebSocket error")),
+      );
       socket.addEventListener("message", (event) => {
         try {
           const message = JSON.parse(event.data.toString());
@@ -58,9 +81,9 @@ class ObsWebSocketClient {
                 op: 1,
                 d: {
                   rpcVersion: 1,
-                  eventSubscriptions: this.eventSubscriptions
-                }
-              })
+                  eventSubscriptions: this.eventSubscriptions,
+                },
+              }),
             );
             return;
           }
@@ -91,7 +114,9 @@ class ObsWebSocketClient {
             return;
           }
 
-          const comment = (message.d.requestStatus && message.d.requestStatus.comment) || "OBS request failed";
+          const comment =
+            (message.d.requestStatus && message.d.requestStatus.comment) ||
+            "OBS request failed";
           pending.reject(new Error(`${message.d.requestType}: ${comment}`));
         } catch (error) {
           reject(error);
@@ -117,7 +142,11 @@ class ObsWebSocketClient {
     const response = new Promise((resolve, reject) => {
       const timeout = setTimeout(() => {
         this.pending.delete(requestId);
-        reject(new Error(`${requestType}: Timed out after ${this.requestTimeoutMs}ms`));
+        reject(
+          new Error(
+            `${requestType}: Timed out after ${this.requestTimeoutMs}ms`,
+          ),
+        );
       }, this.requestTimeoutMs);
 
       this.pending.set(requestId, {
@@ -128,7 +157,7 @@ class ObsWebSocketClient {
         reject: (error) => {
           clearTimeout(timeout);
           reject(error);
-        }
+        },
       });
     });
 
@@ -138,9 +167,9 @@ class ObsWebSocketClient {
         d: {
           requestType,
           requestId,
-          requestData
-        }
-      })
+          requestData,
+        },
+      }),
     );
     return response;
   }
@@ -176,7 +205,10 @@ function logStep(message) {
 function compactConsoleMessages(messages) {
   return messages.slice(-20).map((message) => ({
     type: message.type,
-    text: message.text.length > 500 ? `${message.text.slice(0, 500)}...(truncated)` : message.text
+    text:
+      message.text.length > 500
+        ? `${message.text.slice(0, 500)}...(truncated)`
+        : message.text,
   }));
 }
 
@@ -191,21 +223,25 @@ function selectColorSourceKind(inputKinds) {
 
 async function collectViewerSnapshot(page) {
   return page.evaluate(async () => {
-    const videos = Array.from(document.querySelectorAll("video")).map((v, index) => {
-      const stream = v.srcObject;
-      const audioTracks = stream && stream.getAudioTracks ? stream.getAudioTracks().length : 0;
-      const videoTracks = stream && stream.getVideoTracks ? stream.getVideoTracks().length : 0;
-      return {
-        index,
-        readyState: v.readyState,
-        paused: v.paused,
-        currentTime: v.currentTime,
-        videoWidth: v.videoWidth,
-        videoHeight: v.videoHeight,
-        audioTracks,
-        videoTracks
-      };
-    });
+    const videos = Array.from(document.querySelectorAll("video")).map(
+      (v, index) => {
+        const stream = v.srcObject;
+        const audioTracks =
+          stream && stream.getAudioTracks ? stream.getAudioTracks().length : 0;
+        const videoTracks =
+          stream && stream.getVideoTracks ? stream.getVideoTracks().length : 0;
+        return {
+          index,
+          readyState: v.readyState,
+          paused: v.paused,
+          currentTime: v.currentTime,
+          videoWidth: v.videoWidth,
+          videoHeight: v.videoHeight,
+          audioTracks,
+          videoTracks,
+        };
+      },
+    );
 
     const pcStats = [];
     if (Array.isArray(window.__pcList)) {
@@ -224,7 +260,14 @@ async function collectViewerSnapshot(page) {
           let pliCount = 0;
           let keyFramesDecoded = 0;
           let concealedSamples = 0;
+          let silentConcealedSamples = 0;
           let concealmentEvents = 0;
+          let insertedSamplesForDeceleration = 0;
+          let removedSamplesForAcceleration = 0;
+          let totalSamplesReceived = 0;
+          let jitterBufferDelay = 0;
+          let jitterBufferEmittedCount = 0;
+          let packetsDiscarded = 0;
           stats.forEach((s) => {
             if (s.type === "inbound-rtp" && !s.isRemote) {
               packetsLost += s.packetsLost || 0;
@@ -242,7 +285,16 @@ async function collectViewerSnapshot(page) {
               if (s.kind === "audio") {
                 inboundAudioBytes += s.bytesReceived || 0;
                 concealedSamples += s.concealedSamples || 0;
+                silentConcealedSamples += s.silentConcealedSamples || 0;
                 concealmentEvents += s.concealmentEvents || 0;
+                insertedSamplesForDeceleration +=
+                  s.insertedSamplesForDeceleration || 0;
+                removedSamplesForAcceleration +=
+                  s.removedSamplesForAcceleration || 0;
+                totalSamplesReceived += s.totalSamplesReceived || 0;
+                jitterBufferDelay += s.jitterBufferDelay || 0;
+                jitterBufferEmittedCount += s.jitterBufferEmittedCount || 0;
+                packetsDiscarded += s.packetsDiscarded || 0;
               }
             }
           });
@@ -260,7 +312,14 @@ async function collectViewerSnapshot(page) {
             pliCount,
             keyFramesDecoded,
             concealedSamples,
-            concealmentEvents
+            silentConcealedSamples,
+            concealmentEvents,
+            insertedSamplesForDeceleration,
+            removedSamplesForAcceleration,
+            totalSamplesReceived,
+            jitterBufferDelay,
+            jitterBufferEmittedCount,
+            packetsDiscarded,
           });
         } catch (error) {
           pcStats.push({ error: String(error) });
@@ -271,22 +330,29 @@ async function collectViewerSnapshot(page) {
     return {
       url: location.href,
       title: document.title || "",
-      textSample: (document.body ? document.body.innerText || "" : "").slice(0, 300),
+      textSample: (document.body ? document.body.innerText || "" : "").slice(
+        0,
+        300,
+      ),
       videos,
       pcStats,
-      timestamp: Date.now()
+      timestamp: Date.now(),
     };
   });
 }
 
 function hasPlayableMedia(snapshot) {
-  return snapshot.videos.some((video) => video.videoTracks > 0 && video.videoWidth > 0 && video.videoHeight > 0);
+  return snapshot.videos.some(
+    (video) =>
+      video.videoTracks > 0 && video.videoWidth > 0 && video.videoHeight > 0,
+  );
 }
 
 function totalInboundBytes(snapshot) {
   return snapshot.pcStats.reduce(
-    (total, stat) => total + (stat.inboundVideoBytes || 0) + (stat.inboundAudioBytes || 0),
-    0
+    (total, stat) =>
+      total + (stat.inboundVideoBytes || 0) + (stat.inboundAudioBytes || 0),
+    0,
   );
 }
 
@@ -298,7 +364,10 @@ function playbackAdvanced(before, after) {
 }
 
 function totalPcMetric(snapshot, key) {
-  return snapshot.pcStats.reduce((total, stat) => total + (Number(stat[key]) || 0), 0);
+  return snapshot.pcStats.reduce(
+    (total, stat) => total + (Number(stat[key]) || 0),
+    0,
+  );
 }
 
 function saveObsScreenshot(imageData, filePath) {
@@ -311,40 +380,298 @@ function saveObsScreenshot(imageData, filePath) {
   return {
     path: filePath,
     bytes: bytes.length,
-    sha256: crypto.createHash("sha256").update(bytes).digest("hex")
+    sha256: crypto.createHash("sha256").update(bytes).digest("hex"),
   };
+}
+
+async function startDecodedAudioCapture(page) {
+  return page.evaluate(async () => {
+    const mediaElement = Array.from(document.querySelectorAll("video")).find(
+      (candidate) => {
+        const stream = candidate.srcObject;
+        return (
+          stream && stream.getAudioTracks && stream.getAudioTracks().length > 0
+        );
+      },
+    );
+    if (!mediaElement) {
+      throw new Error(
+        "No viewer media element with an audio track is available for PCM capture",
+      );
+    }
+
+    const AudioContext = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContext) {
+      throw new Error("The viewer runtime does not expose Web Audio");
+    }
+
+    const audioTrack = mediaElement.srcObject.getAudioTracks()[0];
+    const audioContext = new AudioContext({ sampleRate: 48000 });
+    const sourceStream = new MediaStream([audioTrack]);
+    const source = audioContext.createMediaStreamSource(sourceStream);
+    const processor = audioContext.createScriptProcessor(4096, 1, 1);
+    const silentOutput = audioContext.createGain();
+    silentOutput.gain.value = 0;
+
+    const capture = {
+      audioContext,
+      source,
+      processor,
+      silentOutput,
+      chunks: [],
+      sampleCount: 0,
+      rawTrack: null,
+    };
+    processor.onaudioprocess = (event) => {
+      const samples = event.inputBuffer.getChannelData(0);
+      capture.chunks.push(new Float32Array(samples));
+      capture.sampleCount += samples.length;
+    };
+    source.connect(processor);
+    processor.connect(silentOutput);
+    silentOutput.connect(audioContext.destination);
+
+    if (typeof MediaStreamTrackProcessor === "function") {
+      const clonedTrack = audioTrack.clone();
+      const trackProcessor = new MediaStreamTrackProcessor({
+        track: clonedTrack,
+      });
+      const reader = trackProcessor.readable.getReader();
+      const rawTrack = {
+        clonedTrack,
+        reader,
+        chunks: [],
+        sampleCount: 0,
+        sampleRate: 0,
+        firstTimestamp: null,
+        lastTimestamp: null,
+        lastDuration: null,
+        maxTimestampStep: 0,
+        nonForwardTimestamps: 0,
+        timestampGaps: [],
+        active: true,
+        error: null,
+        loop: null,
+      };
+      rawTrack.loop = (async () => {
+        try {
+          while (rawTrack.active) {
+            const { value, done } = await reader.read();
+            if (done || !value) {
+              break;
+            }
+            try {
+              const chunkStartSample = rawTrack.sampleCount;
+              const samples = new Float32Array(value.numberOfFrames);
+              value.copyTo(samples, { planeIndex: 0, format: "f32-planar" });
+              rawTrack.chunks.push(samples);
+              rawTrack.sampleCount += samples.length;
+              rawTrack.sampleRate = value.sampleRate;
+              if (rawTrack.firstTimestamp === null) {
+                rawTrack.firstTimestamp = value.timestamp;
+              } else {
+                const timestampStep = value.timestamp - rawTrack.lastTimestamp;
+                rawTrack.maxTimestampStep = Math.max(
+                  rawTrack.maxTimestampStep,
+                  timestampStep,
+                );
+                if (timestampStep <= 0) {
+                  rawTrack.nonForwardTimestamps += 1;
+                } else if (
+                  timestampStep >
+                    Math.max(
+                      12000,
+                      Number(rawTrack.lastDuration || value.duration || 0) +
+                        2000,
+                    ) &&
+                  rawTrack.timestampGaps.length < 50
+                ) {
+                  rawTrack.timestampGaps.push({
+                    chunkStartSample,
+                    captureTimeSeconds:
+                      rawTrack.sampleRate > 0
+                        ? chunkStartSample / rawTrack.sampleRate
+                        : null,
+                    previousTimestamp: rawTrack.lastTimestamp,
+                    timestamp: value.timestamp,
+                    timestampStep,
+                    previousDuration: rawTrack.lastDuration,
+                    receiveWallTimeMs: Date.now(),
+                  });
+                }
+              }
+              rawTrack.lastTimestamp = value.timestamp;
+              rawTrack.lastDuration = value.duration;
+            } finally {
+              value.close();
+            }
+          }
+        } catch (error) {
+          rawTrack.error = String(error && error.stack ? error.stack : error);
+        }
+      })();
+      capture.rawTrack = rawTrack;
+    }
+
+    window.__vdoninjaDecodedAudioCapture = capture;
+    await audioContext.resume();
+
+    return {
+      sampleRate: audioContext.sampleRate,
+      contextState: audioContext.state,
+      trackSettings: audioTrack.getSettings ? audioTrack.getSettings() : {},
+      rawTrackCaptureAvailable: Boolean(capture.rawTrack),
+    };
+  });
+}
+
+async function stopDecodedAudioCapture(page) {
+  return page.evaluate(async () => {
+    const capture = window.__vdoninjaDecodedAudioCapture;
+    if (!capture) {
+      throw new Error("Decoded-audio capture was not started");
+    }
+
+    capture.processor.onaudioprocess = null;
+    capture.source.disconnect();
+    capture.processor.disconnect();
+    capture.silentOutput.disconnect();
+
+    if (capture.rawTrack) {
+      capture.rawTrack.active = false;
+      await capture.rawTrack.reader.cancel().catch(() => {});
+      await capture.rawTrack.loop;
+      capture.rawTrack.clonedTrack.stop();
+    }
+
+    function encodeChunks(chunks, sampleCount) {
+      const pcm = new Int16Array(sampleCount);
+      let destinationOffset = 0;
+      for (const chunk of chunks) {
+        for (let index = 0; index < chunk.length; index += 1) {
+          const sample = Math.max(-1, Math.min(1, chunk[index]));
+          pcm[destinationOffset + index] = Math.round(sample * 32767);
+        }
+        destinationOffset += chunk.length;
+      }
+
+      const bytes = new Uint8Array(pcm.buffer);
+      let binary = "";
+      const blockSize = 32768;
+      for (let offset = 0; offset < bytes.length; offset += blockSize) {
+        binary += String.fromCharCode(
+          ...bytes.subarray(offset, Math.min(offset + blockSize, bytes.length)),
+        );
+      }
+      return btoa(binary);
+    }
+
+    const result = {
+      sampleRate: capture.audioContext.sampleRate,
+      sampleCount: capture.sampleCount,
+      pcmBase64: encodeChunks(capture.chunks, capture.sampleCount),
+      rawTrack: capture.rawTrack
+        ? {
+            sampleRate: capture.rawTrack.sampleRate,
+            sampleCount: capture.rawTrack.sampleCount,
+            pcmBase64: encodeChunks(
+              capture.rawTrack.chunks,
+              capture.rawTrack.sampleCount,
+            ),
+            firstTimestamp: capture.rawTrack.firstTimestamp,
+            lastTimestamp: capture.rawTrack.lastTimestamp,
+            lastDuration: capture.rawTrack.lastDuration,
+            maxTimestampStep: capture.rawTrack.maxTimestampStep,
+            nonForwardTimestamps: capture.rawTrack.nonForwardTimestamps,
+            timestampGaps: capture.rawTrack.timestampGaps,
+            error: capture.rawTrack.error,
+          }
+        : null,
+    };
+    await capture.audioContext.close();
+    delete window.__vdoninjaDecodedAudioCapture;
+    return result;
+  });
 }
 
 async function waitForStreamActive(client, timeoutMs) {
   const deadline = Date.now() + timeoutMs;
   let lastStatus = null;
   while (Date.now() < deadline) {
-    lastStatus = await client.request("GetStreamStatus").catch((error) => ({ error: String(error) }));
+    lastStatus = await client
+      .request("GetStreamStatus")
+      .catch((error) => ({ error: String(error) }));
     if (lastStatus && lastStatus.outputActive) {
       return lastStatus;
     }
     await sleep(1000);
   }
-  throw new Error(`OBS stream did not become active; last status=${JSON.stringify(lastStatus)}`);
+  throw new Error(
+    `OBS stream did not become active; last status=${JSON.stringify(lastStatus)}`,
+  );
 }
 
 async function main() {
-  const streamId = process.env.VDONINJA_STREAM_ID || process.argv[2] || `codexObs${Date.now()}`;
+  const streamId =
+    process.env.VDONINJA_STREAM_ID ||
+    process.argv[2] ||
+    `codexObs${Date.now()}`;
   const password = process.env.VDONINJA_PASSWORD || process.argv[3] || "false";
   const roomId = process.env.VDONINJA_ROOM_ID || process.argv[4] || "";
   const websocketUrl = process.env.OBS_WEBSOCKET_URL || "ws://127.0.0.1:4455";
   const waitMs = Number(process.env.VDONINJA_WAIT_MS || 90000);
   const soakMs = Number(process.env.VDONINJA_SOAK_MS || 7000);
-  const sourceMode = String(process.env.VDONINJA_SOURCE_MODE || "static").toLowerCase();
+  const sourceMode = String(
+    process.env.VDONINJA_SOURCE_MODE || "static",
+  ).toLowerCase();
   const useMotionSource = sourceMode === "motion";
+  const useAudioContinuitySource = sourceMode === "audio-continuity";
+  const useGeneratedBrowserSource = useMotionSource || useAudioContinuitySource;
+  const requireAudioContinuity =
+    useAudioContinuitySource ||
+    process.env.VDONINJA_REQUIRE_AUDIO_CONTINUITY === "1";
+  const captureDecodedAudio =
+    requireAudioContinuity ||
+    process.env.VDONINJA_CAPTURE_DECODED_AUDIO === "1";
+  const recordLocalOutput = process.env.VDONINJA_RECORD_LOCAL_OUTPUT === "1";
   const useObsBrowserViewer = process.env.VDONINJA_OBS_BROWSER_VIEWER === "1";
   const requireZeroFreezes = process.env.VDONINJA_REQUIRE_ZERO_FREEZES === "1";
+  const viewBufferMs = Math.max(
+    0,
+    Number(process.env.VDONINJA_VIEW_BUFFER_MS || 0),
+  );
   const outputDir = path.resolve(process.cwd(), "artifacts");
   const stamp = Date.now();
   const sceneName = `Codex OBS Publish ${stamp}`;
-  const inputName = `Codex ${useMotionSource ? "Motion" : "Color"} Program ${stamp}`;
+  const sourceLabel = useAudioContinuitySource
+    ? "Audio Continuity"
+    : useMotionSource
+      ? "Motion"
+      : "Color";
+  const inputName = `Codex ${sourceLabel} Program ${stamp}`;
+  const audioInputName = `Codex Audio Continuity Tone ${stamp}`;
   const obsBrowserViewerName = `Codex OBS Browser Viewer ${stamp}`;
-  const motionSourcePath = path.resolve(process.cwd(), "tests", "tools", "publish-motion-source.html");
+  const motionSourcePath = path.resolve(
+    process.cwd(),
+    "tests",
+    "tools",
+    "publish-motion-source.html",
+  );
+  const audioContinuitySourcePath = path.resolve(
+    process.cwd(),
+    "tests",
+    "tools",
+    "publish-audio-continuity-source.html",
+  );
+  const generatedSourcePath = useAudioContinuitySource
+    ? audioContinuitySourcePath
+    : motionSourcePath;
+  const sourceToneDurationSeconds = useAudioContinuitySource
+    ? Math.ceil((soakMs + waitMs + 30000) / 1000)
+    : 0;
+  const sourceTonePath = useAudioContinuitySource
+    ? path.join(outputDir, `obs-publish-source-tone-${stamp}.wav`)
+    : null;
   const viewParams = new URLSearchParams();
   viewParams.set("view", streamId);
   if (roomId) {
@@ -354,8 +681,15 @@ async function main() {
   if (password) {
     viewParams.set("password", password);
   }
+  if (viewBufferMs > 0) {
+    viewParams.set("buffer", String(viewBufferMs));
+  }
   viewParams.set("debug", "");
-  const viewUrl = ensureQuery(`https://vdo.ninja/?${viewParams.toString()}`, "cleanoutput", "1");
+  const viewUrl = ensureQuery(
+    `https://vdo.ninja/?${viewParams.toString()}`,
+    "cleanoutput",
+    "1",
+  );
   const consoleMessages = [];
   const pageErrors = [];
   const streamEvents = [];
@@ -363,7 +697,10 @@ async function main() {
   let createdScene = false;
   let createdObsBrowserViewer = false;
   let obsBrowserViewerUuid = null;
+  let obsBrowserViewerSceneItemId = null;
   let browser = null;
+  let recordingStarted = false;
+  let localRecording = null;
 
   const client = new ObsWebSocketClient(websocketUrl, {
     eventSubscriptions: EVENT_SUBSCRIPTION_OUTPUTS,
@@ -371,7 +708,7 @@ async function main() {
       if (event.eventType && /Stream|Output/i.test(event.eventType)) {
         streamEvents.push(event);
       }
-    }
+    },
   });
 
   try {
@@ -381,45 +718,63 @@ async function main() {
     logStep("querying OBS/plugin capabilities");
     const version = await client.request("GetVersion");
     const kinds = await client.request("GetInputKindList", {
-      unversioned: false
+      unversioned: false,
     });
     const inputKinds = Array.isArray(kinds.inputKinds) ? kinds.inputKinds : [];
     if (!inputKinds.includes("vdoninja_source")) {
-      throw new Error("OBS does not have the vdoninja_source input kind registered");
+      throw new Error(
+        "OBS does not have the vdoninja_source input kind registered",
+      );
     }
     const colorKind = selectColorSourceKind(inputKinds);
-    if (!useMotionSource && !colorKind) {
+    if (!useGeneratedBrowserSource && !colorKind) {
       throw new Error("OBS does not expose a color source input kind");
     }
-    if ((useMotionSource || useObsBrowserViewer) && !inputKinds.includes("browser_source")) {
+    if (
+      (useGeneratedBrowserSource || useObsBrowserViewer) &&
+      !inputKinds.includes("browser_source")
+    ) {
       throw new Error("OBS does not expose the browser_source input kind");
     }
-    if (useMotionSource && !fs.existsSync(motionSourcePath)) {
-      throw new Error(`Motion source file is missing: ${motionSourcePath}`);
+    if (useGeneratedBrowserSource && !fs.existsSync(generatedSourcePath)) {
+      throw new Error(
+        `Generated browser source file is missing: ${generatedSourcePath}`,
+      );
+    }
+    if (useAudioContinuitySource && !inputKinds.includes("ffmpeg_source")) {
+      throw new Error("OBS does not expose the Media Source input kind");
+    }
+    if (useAudioContinuitySource) {
+      fs.mkdirSync(outputDir, { recursive: true });
+      fs.writeFileSync(
+        sourceTonePath,
+        createToneWav(48000, 997, sourceToneDurationSeconds),
+      );
     }
 
-    const currentProgram = await client.request("GetCurrentProgramScene").catch(() => ({}));
+    const currentProgram = await client
+      .request("GetCurrentProgramScene")
+      .catch(() => ({}));
     previousSceneName = currentProgram.currentProgramSceneName || null;
 
     logStep(`creating scene ${sceneName}`);
     await client.request("CreateScene", { sceneName });
     createdScene = true;
-    if (useMotionSource) {
+    if (useGeneratedBrowserSource) {
       await client.request("CreateInput", {
         sceneName,
         inputName,
         inputKind: "browser_source",
         inputSettings: {
           is_local_file: true,
-          local_file: motionSourcePath,
+          local_file: generatedSourcePath,
           width: 1920,
           height: 1080,
           fps: 60,
-          reroute_audio: true,
           shutdown: false,
-          restart_when_active: false
+          restart_when_active: false,
         },
-        sceneItemEnabled: true
+        sceneItemEnabled: true,
       });
     } else {
       await client.request("CreateInput", {
@@ -429,12 +784,33 @@ async function main() {
         inputSettings: {
           color: 4278233600,
           width: 1280,
-          height: 720
+          height: 720,
         },
-        sceneItemEnabled: true
+        sceneItemEnabled: true,
+      });
+    }
+    if (useAudioContinuitySource) {
+      await client.request("CreateInput", {
+        sceneName,
+        inputName: audioInputName,
+        inputKind: "ffmpeg_source",
+        inputSettings: {
+          is_local_file: true,
+          local_file: sourceTonePath,
+          looping: false,
+          restart_on_activate: false,
+          close_when_inactive: false,
+          clear_on_media_end: false,
+        },
+        sceneItemEnabled: true,
       });
     }
     await client.request("SetCurrentProgramScene", { sceneName });
+    if (recordLocalOutput) {
+      logStep("starting a simultaneous local OBS recording");
+      await client.request("StartRecord");
+      recordingStarted = true;
+    }
 
     logStep(`configuring VDO.Ninja stream service for ${streamId}`);
     await client.request("SetStreamServiceSettings", {
@@ -448,15 +824,17 @@ async function main() {
         max_viewers: 10,
         video_codec: 0,
         enable_data_channel: true,
-        auto_reconnect: true
-      }
+        auto_reconnect: true,
+      },
     });
 
     logStep("starting OBS stream");
     await client.request("StartStream");
     const activeStatus = await waitForStreamActive(client, 30000);
     if (useObsBrowserViewer) {
-      logStep(`creating actual OBS Browser Source viewer ${obsBrowserViewerName}`);
+      logStep(
+        `creating actual OBS Browser Source viewer ${obsBrowserViewerName}`,
+      );
       const createdViewer = await client.request("CreateInput", {
         sceneName,
         inputName: obsBrowserViewerName,
@@ -468,17 +846,37 @@ async function main() {
           height: 360,
           fps: 60,
           shutdown: false,
-          restart_when_active: false
+          restart_when_active: false,
+          reroute_audio: true,
         },
-        sceneItemEnabled: true
+        sceneItemEnabled: true,
       });
       createdObsBrowserViewer = true;
       obsBrowserViewerUuid = createdViewer.inputUuid || null;
+      obsBrowserViewerSceneItemId = createdViewer.sceneItemId ?? null;
+      await client.request("SetInputMute", {
+        ...(obsBrowserViewerUuid
+          ? { inputUuid: obsBrowserViewerUuid }
+          : { inputName: obsBrowserViewerName }),
+        inputMuted: true,
+      });
+      if (obsBrowserViewerSceneItemId !== null) {
+        // Keep the real OBS Browser Source active and renderable without
+        // publishing a recursive copy of either its video or audio.
+        await client.request("SetSceneItemTransform", {
+          sceneName,
+          sceneItemId: obsBrowserViewerSceneItemId,
+          sceneItemTransform: {
+            positionX: 4096,
+            positionY: 0,
+          },
+        });
+      }
     }
 
     browser = await chromium.launch({
       headless: process.env.HEADLESS === "0" ? false : true,
-      args: ["--autoplay-policy=no-user-gesture-required"]
+      args: ["--autoplay-policy=no-user-gesture-required"],
     });
     const context = await browser.newContext();
     await context.addInitScript(() => {
@@ -507,18 +905,26 @@ async function main() {
     logStep(`opening browser viewer ${viewUrl}`);
     await page.goto(viewUrl, { waitUntil: "domcontentloaded", timeout: 60000 });
     const viewport = page.viewportSize() || { width: 1280, height: 720 };
-    await page.mouse.click(Math.floor(viewport.width / 2), Math.floor(viewport.height / 2));
+    await page.mouse.click(
+      Math.floor(viewport.width / 2),
+      Math.floor(viewport.height / 2),
+    );
 
     let firstPlayable = null;
     let latestSnapshot = null;
     const deadline = Date.now() + waitMs;
     while (Date.now() < deadline) {
       latestSnapshot = await collectViewerSnapshot(page);
-      const invalidSdp = consoleMessages.find((message) => /Invalid SCTP max message size/i.test(message.text));
+      const invalidSdp = consoleMessages.find((message) =>
+        /Invalid SCTP max message size/i.test(message.text),
+      );
       if (invalidSdp) {
         throw new Error(`Browser rejected plugin SDP: ${invalidSdp.text}`);
       }
-      if (hasPlayableMedia(latestSnapshot) && totalInboundBytes(latestSnapshot) > 5000) {
+      if (
+        hasPlayableMedia(latestSnapshot) &&
+        totalInboundBytes(latestSnapshot) > 5000
+      ) {
         firstPlayable = latestSnapshot;
         break;
       }
@@ -526,91 +932,260 @@ async function main() {
     }
 
     if (!firstPlayable) {
-      throw new Error(`Viewer did not receive playable media; latest=${JSON.stringify(latestSnapshot)}`);
+      throw new Error(
+        `Viewer did not receive playable media; latest=${JSON.stringify(latestSnapshot)}`,
+      );
     }
 
     fs.mkdirSync(outputDir, { recursive: true });
+    let decodedAudioCaptureStart = null;
+    if (captureDecodedAudio) {
+      logStep("capturing decoded viewer audio as PCM");
+      decodedAudioCaptureStart = await startDecodedAudioCapture(page);
+    }
     let firstObsBrowserScreenshot = null;
     if (createdObsBrowserViewer) {
       await sleep(3000);
       const screenshot = await client.request("GetSourceScreenshot", {
-        ...(obsBrowserViewerUuid ? { sourceUuid: obsBrowserViewerUuid } : { sourceName: obsBrowserViewerName }),
+        ...(obsBrowserViewerUuid
+          ? { sourceUuid: obsBrowserViewerUuid }
+          : { sourceName: obsBrowserViewerName }),
         imageFormat: "png",
         imageWidth: 640,
-        imageHeight: 360
+        imageHeight: 360,
       });
       firstObsBrowserScreenshot = saveObsScreenshot(
         screenshot.imageData,
-        path.join(outputDir, `obs-browser-viewer-first-${stamp}.png`)
+        path.join(outputDir, `obs-browser-viewer-first-${stamp}.png`),
       );
+      // The screenshot and second browser initialization can briefly stall
+      // rendering. Establish the continuity baseline after that deliberate
+      // setup work so the soak measures steady-state delivery.
+      await sleep(1000);
     }
 
-    const samples = [firstPlayable];
+    const continuityBaseline = await collectViewerSnapshot(page);
+    const samples = [continuityBaseline];
     const soakDeadline = Date.now() + soakMs;
     while (Date.now() < soakDeadline) {
       await sleep(Math.min(1000, Math.max(1, soakDeadline - Date.now())));
       samples.push(await collectViewerSnapshot(page));
     }
     const secondPlayable = samples[samples.length - 1];
-    if (!playbackAdvanced(firstPlayable, secondPlayable)) {
+    let decodedAudioCapture = null;
+    if (captureDecodedAudio) {
+      const captured = await stopDecodedAudioCapture(page);
+      const pcm = Buffer.from(captured.pcmBase64, "base64");
+      const wavPath = path.join(
+        outputDir,
+        `obs-publish-decoded-audio-${stamp}.wav`,
+      );
+      fs.writeFileSync(wavPath, createPcm16Wav(pcm, captured.sampleRate));
+      let rawTrack = null;
+      if (captured.rawTrack && captured.rawTrack.sampleCount > 0) {
+        const rawPcm = Buffer.from(captured.rawTrack.pcmBase64, "base64");
+        const rawWavPath = path.join(
+          outputDir,
+          `obs-publish-raw-track-audio-${stamp}.wav`,
+        );
+        fs.writeFileSync(
+          rawWavPath,
+          createPcm16Wav(rawPcm, captured.rawTrack.sampleRate),
+        );
+        rawTrack = {
+          sampleRate: captured.rawTrack.sampleRate,
+          sampleCount: captured.rawTrack.sampleCount,
+          durationSeconds:
+            captured.rawTrack.sampleCount / captured.rawTrack.sampleRate,
+          firstTimestampUs: captured.rawTrack.firstTimestamp,
+          lastTimestampUs: captured.rawTrack.lastTimestamp,
+          lastDurationUs: captured.rawTrack.lastDuration,
+          maxTimestampStepUs: captured.rawTrack.maxTimestampStep,
+          nonForwardTimestamps: captured.rawTrack.nonForwardTimestamps,
+          timestampGaps: captured.rawTrack.timestampGaps,
+          error: captured.rawTrack.error,
+          wavPath: rawWavPath,
+          analysis: analyzePcm16Le(rawPcm, {
+            sampleRate: captured.rawTrack.sampleRate,
+            toneHz: 997,
+          }),
+        };
+      }
+      decodedAudioCapture = {
+        ...decodedAudioCaptureStart,
+        sampleRate: captured.sampleRate,
+        sampleCount: captured.sampleCount,
+        durationSeconds: captured.sampleCount / captured.sampleRate,
+        wavPath,
+        continuityBasis: rawTrack
+          ? "raw decoded MediaStreamTrack"
+          : "Web Audio fallback",
+        rawTrack,
+        webAudioPlayoutAnalysis: analyzePcm16Le(pcm, {
+          sampleRate: captured.sampleRate,
+          toneHz: 997,
+        }),
+      };
+    }
+    if (recordingStarted) {
+      logStep("stopping the simultaneous local OBS recording");
+      localRecording = await client.request("StopRecord");
+      recordingStarted = false;
+      await sleep(1000);
+    }
+    if (!playbackAdvanced(continuityBaseline, secondPlayable)) {
       throw new Error("Viewer media did not advance after initial playback");
     }
-    const newFreezes = totalPcMetric(secondPlayable, "freezeCount") - totalPcMetric(firstPlayable, "freezeCount");
+    const newFreezes =
+      totalPcMetric(secondPlayable, "freezeCount") -
+      totalPcMetric(continuityBaseline, "freezeCount");
+    let videoContinuityFailure = null;
     if (requireZeroFreezes && newFreezes !== 0) {
-      throw new Error(`Chrome recorded ${newFreezes} new video freeze(s) during the ${soakMs} ms soak`);
+      videoContinuityFailure = `Chrome recorded ${newFreezes} new video freeze(s) during the ${soakMs} ms soak`;
+    }
+    const newConcealedSamples =
+      totalPcMetric(secondPlayable, "concealedSamples") -
+      totalPcMetric(continuityBaseline, "concealedSamples");
+    const newConcealmentEvents =
+      totalPcMetric(secondPlayable, "concealmentEvents") -
+      totalPcMetric(continuityBaseline, "concealmentEvents");
+    const newSilentConcealedSamples =
+      totalPcMetric(secondPlayable, "silentConcealedSamples") -
+      totalPcMetric(continuityBaseline, "silentConcealedSamples");
+    const newInsertedSamplesForDeceleration =
+      totalPcMetric(secondPlayable, "insertedSamplesForDeceleration") -
+      totalPcMetric(continuityBaseline, "insertedSamplesForDeceleration");
+    const newRemovedSamplesForAcceleration =
+      totalPcMetric(secondPlayable, "removedSamplesForAcceleration") -
+      totalPcMetric(continuityBaseline, "removedSamplesForAcceleration");
+    const newPacketsDiscarded =
+      totalPcMetric(secondPlayable, "packetsDiscarded") -
+      totalPcMetric(continuityBaseline, "packetsDiscarded");
+    const newPacketsLost =
+      totalPcMetric(secondPlayable, "packetsLost") -
+      totalPcMetric(continuityBaseline, "packetsLost");
+    let audioContinuityFailure = null;
+    if (requireAudioContinuity) {
+      if (newPacketsLost > 0 || newPacketsDiscarded > 0) {
+        audioContinuityFailure =
+          `Chrome recorded ${newPacketsLost} newly lost packet(s) and ` +
+          `${newPacketsDiscarded} newly discarded packet(s)`;
+      } else if (newConcealedSamples > 0 || newConcealmentEvents > 0) {
+        audioContinuityFailure =
+          `Chrome recorded ${newConcealedSamples} newly concealed audio samples in ` +
+          `${newConcealmentEvents} event(s)`;
+      } else if (!decodedAudioCapture) {
+        audioContinuityFailure = "decoded PCM capture did not produce a result";
+      } else if (
+        decodedAudioCapture.rawTrack &&
+        decodedAudioCapture.rawTrack.error
+      ) {
+        audioContinuityFailure = `decoded-track capture failed: ${decodedAudioCapture.rawTrack.error}`;
+      } else {
+        const authoritativeAnalysis = decodedAudioCapture.rawTrack
+          ? decodedAudioCapture.rawTrack.analysis
+          : decodedAudioCapture.webAudioPlayoutAnalysis;
+        if (!authoritativeAnalysis.ok) {
+          audioContinuityFailure =
+            `decoded PCM failed continuity analysis: ` +
+            `${JSON.stringify(authoritativeAnalysis)}`;
+        } else if (
+          decodedAudioCapture.rawTrack &&
+          decodedAudioCapture.rawTrack.nonForwardTimestamps !== 0
+        ) {
+          audioContinuityFailure =
+            `decoded track recorded ${decodedAudioCapture.rawTrack.nonForwardTimestamps} ` +
+            `non-forward timestamp(s)`;
+        }
+      }
     }
 
     let secondObsBrowserScreenshot = null;
     if (createdObsBrowserViewer) {
       const screenshot = await client.request("GetSourceScreenshot", {
-        ...(obsBrowserViewerUuid ? { sourceUuid: obsBrowserViewerUuid } : { sourceName: obsBrowserViewerName }),
+        ...(obsBrowserViewerUuid
+          ? { sourceUuid: obsBrowserViewerUuid }
+          : { sourceName: obsBrowserViewerName }),
         imageFormat: "png",
         imageWidth: 640,
-        imageHeight: 360
+        imageHeight: 360,
       });
       secondObsBrowserScreenshot = saveObsScreenshot(
         screenshot.imageData,
-        path.join(outputDir, `obs-browser-viewer-final-${stamp}.png`)
+        path.join(outputDir, `obs-browser-viewer-final-${stamp}.png`),
       );
-      if (firstObsBrowserScreenshot.sha256 === secondObsBrowserScreenshot.sha256) {
-        throw new Error("The actual OBS Browser Source viewer did not render an advancing image");
+      if (
+        firstObsBrowserScreenshot.sha256 === secondObsBrowserScreenshot.sha256
+      ) {
+        throw new Error(
+          "The actual OBS Browser Source viewer did not render an advancing image",
+        );
       }
     }
 
     const streamStatusAfterViewer = await client
       .request("GetStreamStatus")
       .catch((error) => ({ error: String(error) }));
-    const screenshotPath = path.join(outputDir, `obs-publish-viewer-${stamp}.png`);
+    const screenshotPath = path.join(
+      outputDir,
+      `obs-publish-viewer-${stamp}.png`,
+    );
     const reportPath = path.join(outputDir, `obs-publish-report-${stamp}.json`);
     await page.screenshot({ path: screenshotPath, fullPage: true });
 
     const report = {
-      ok: true,
+      ok: !audioContinuityFailure && !videoContinuityFailure,
       streamId,
       password,
       roomId,
       viewUrl,
       sourceMode,
       soakMs,
+      sourceTonePath,
+      sourceToneDurationSeconds,
       obsVersion: version.obsVersion,
       obsWebSocketVersion: version.obsWebSocketVersion,
       activeStatus,
       streamStatusAfterViewer,
       firstPlayable,
+      continuityBaseline,
       secondPlayable,
       samples,
       newFreezes,
+      videoContinuityFailure,
+      newConcealedSamples,
+      newSilentConcealedSamples,
+      newConcealmentEvents,
+      newInsertedSamplesForDeceleration,
+      newRemovedSamplesForAcceleration,
+      newPacketsDiscarded,
+      newPacketsLost,
+      decodedAudioCapture,
+      localRecording,
+      audioContinuityFailure,
       firstObsBrowserScreenshot,
       secondObsBrowserScreenshot,
       consoleMessages: compactConsoleMessages(consoleMessages),
       pageErrors: pageErrors
         .slice(-10)
-        .map((error) => (error.length > 500 ? `${error.slice(0, 500)}...(truncated)` : error)),
+        .map((error) =>
+          error.length > 500 ? `${error.slice(0, 500)}...(truncated)` : error,
+        ),
       streamEvents,
       screenshotPath,
-      reportPath
+      reportPath,
     };
-    fs.writeFileSync(reportPath, `${JSON.stringify(report, null, 2)}\n`, "utf8");
+    fs.writeFileSync(
+      reportPath,
+      `${JSON.stringify(report, null, 2)}\n`,
+      "utf8",
+    );
+    if (videoContinuityFailure) {
+      throw new Error(videoContinuityFailure);
+    }
+    if (audioContinuityFailure) {
+      throw new Error(audioContinuityFailure);
+    }
     console.log(
       JSON.stringify({
         ok: true,
@@ -622,15 +1197,36 @@ async function main() {
         framesReceived: totalPcMetric(secondPlayable, "framesReceived"),
         framesDropped: totalPcMetric(secondPlayable, "framesDropped"),
         freezeCount: totalPcMetric(secondPlayable, "freezeCount"),
-        totalFreezesDuration: totalPcMetric(secondPlayable, "totalFreezesDuration"),
+        totalFreezesDuration: totalPcMetric(
+          secondPlayable,
+          "totalFreezesDuration",
+        ),
         packetsLost: totalPcMetric(secondPlayable, "packetsLost"),
         nackCount: totalPcMetric(secondPlayable, "nackCount"),
         pliCount: totalPcMetric(secondPlayable, "pliCount"),
         keyFramesDecoded: totalPcMetric(secondPlayable, "keyFramesDecoded"),
-        currentTime: secondPlayable.videos[0] ? secondPlayable.videos[0].currentTime : null,
+        concealedSamples: totalPcMetric(secondPlayable, "concealedSamples"),
+        silentConcealedSamples: totalPcMetric(
+          secondPlayable,
+          "silentConcealedSamples",
+        ),
+        concealmentEvents: totalPcMetric(secondPlayable, "concealmentEvents"),
+        newConcealedSamples,
+        newSilentConcealedSamples,
+        newConcealmentEvents,
+        newInsertedSamplesForDeceleration,
+        newRemovedSamplesForAcceleration,
+        newPacketsDiscarded,
+        newPacketsLost,
+        decodedAudioCapture,
+        localRecording,
+        currentTime: secondPlayable.videos[0]
+          ? secondPlayable.videos[0].currentTime
+          : null,
         screenshotPath,
-        reportPath
-      })
+        reportPath,
+        sourceTonePath,
+      }),
     );
 
     await context.close();
@@ -640,25 +1236,42 @@ async function main() {
     }
     if (client.socket && client.socket.readyState === WebSocket.OPEN) {
       try {
-        const status = await client.request("GetStreamStatus").catch(() => null);
+        const status = await client
+          .request("GetStreamStatus")
+          .catch(() => null);
         if (status && status.outputActive) {
           logStep("stopping OBS stream");
           await client.request("StopStream").catch(() => {});
           await sleep(3000);
+        }
+        if (recordingStarted) {
+          logStep("stopping local OBS recording");
+          await client.request("StopRecord").catch(() => {});
+          recordingStarted = false;
         }
         if (createdObsBrowserViewer) {
           logStep(`removing input ${obsBrowserViewerName}`);
           await client
             .request(
               "RemoveInput",
-              obsBrowserViewerUuid ? { inputUuid: obsBrowserViewerUuid } : { inputName: obsBrowserViewerName }
+              obsBrowserViewerUuid
+                ? { inputUuid: obsBrowserViewerUuid }
+                : { inputName: obsBrowserViewerName },
             )
+            .catch(() => {});
+        }
+        if (useAudioContinuitySource) {
+          logStep(`removing input ${audioInputName}`);
+          await client
+            .request("RemoveInput", { inputName: audioInputName })
             .catch(() => {});
         }
         logStep(`removing input ${inputName}`);
         await client.request("RemoveInput", { inputName }).catch(() => {});
         if (createdScene && previousSceneName) {
-          await client.request("SetCurrentProgramScene", { sceneName: previousSceneName }).catch(() => {});
+          await client
+            .request("SetCurrentProgramScene", { sceneName: previousSceneName })
+            .catch(() => {});
         }
         if (createdScene) {
           logStep(`removing scene ${sceneName}`);

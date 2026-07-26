@@ -178,8 +178,11 @@ void RtpPacketPacer::run()
 		uint64_t sendFailures = 0;
 		for (auto &packet : batch) {
 			try {
-				sendCallback_(std::move(packet.payload));
-				sentPackets++;
+				if (sendCallback_(std::move(packet.payload))) {
+					sentPackets++;
+				} else {
+					sendFailures++;
+				}
 			} catch (...) {
 				sendFailures++;
 			}

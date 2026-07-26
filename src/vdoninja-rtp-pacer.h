@@ -34,7 +34,9 @@ class RtpPacketPacer
 {
 public:
 	using Packet = std::vector<std::byte>;
-	using SendCallback = std::function<void(Packet &&)>;
+	// Returning false reports a transport-level rejection that did not throw.
+	// libdatachannel uses this path when its ICE/UDP send cannot accept a packet.
+	using SendCallback = std::function<bool(Packet &&)>;
 
 	RtpPacketPacer(uint64_t bitrateBitsPerSecond, std::chrono::milliseconds interval, SendCallback sendCallback,
 	               size_t maxQueueBytes = 0);
