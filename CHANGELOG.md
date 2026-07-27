@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.61] - 2026-07-27
+
 ### Added
 - Added strict browser-side publishing continuity analysis for sustained frame rate, sub-second stalls, inter-frame variance, RTP jitter, decoder drops, packet loss, and freezes, with focused tests that catch recovered-average and modest sustained-cadence failures.
 
