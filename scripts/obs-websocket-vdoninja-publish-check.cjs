@@ -7,6 +7,9 @@ const {
   analyzePcm16Le,
   createPcm16Wav,
 } = require("../tests/tools/audio-continuity-analysis.cjs");
+const {
+  analyzeVideoContinuity,
+} = require("../tests/tools/video-continuity-analysis.cjs");
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -407,9 +410,14 @@ async function collectViewerSnapshot(page) {
           let freezeCount = 0;
           let totalFreezesDuration = 0;
           let packetsLost = 0;
+          let videoPacketsLost = 0;
           let nackCount = 0;
           let pliCount = 0;
           let keyFramesDecoded = 0;
+          let videoJitter = 0;
+          let totalInterFrameDelay = 0;
+          let totalSquaredInterFrameDelay = 0;
+          let framesPerSecond = 0;
           let concealedSamples = 0;
           let silentConcealedSamples = 0;
           let concealmentEvents = 0;
@@ -423,6 +431,7 @@ async function collectViewerSnapshot(page) {
             if (s.type === "inbound-rtp" && !s.isRemote) {
               packetsLost += s.packetsLost || 0;
               if (s.kind === "video") {
+                videoPacketsLost += s.packetsLost || 0;
                 inboundVideoBytes += s.bytesReceived || 0;
                 framesDecoded += s.framesDecoded || 0;
                 framesReceived += s.framesReceived || 0;
@@ -432,6 +441,11 @@ async function collectViewerSnapshot(page) {
                 nackCount += s.nackCount || 0;
                 pliCount += s.pliCount || 0;
                 keyFramesDecoded += s.keyFramesDecoded || 0;
+                videoJitter = Math.max(videoJitter, s.jitter || 0);
+                totalInterFrameDelay += s.totalInterFrameDelay || 0;
+                totalSquaredInterFrameDelay +=
+                  s.totalSquaredInterFrameDelay || 0;
+                framesPerSecond += s.framesPerSecond || 0;
               }
               if (s.kind === "audio") {
                 inboundAudioBytes += s.bytesReceived || 0;
@@ -459,9 +473,14 @@ async function collectViewerSnapshot(page) {
             freezeCount,
             totalFreezesDuration,
             packetsLost,
+            videoPacketsLost,
             nackCount,
             pliCount,
             keyFramesDecoded,
+            videoJitter,
+            totalInterFrameDelay,
+            totalSquaredInterFrameDelay,
+            framesPerSecond,
             concealedSamples,
             silentConcealedSamples,
             concealmentEvents,
@@ -831,6 +850,33 @@ async function main() {
     });
   const skipChromiumViewer = process.env.VDONINJA_SKIP_CHROMIUM_VIEWER === "1";
   const requireZeroFreezes = process.env.VDONINJA_REQUIRE_ZERO_FREEZES === "1";
+  const requireStableVideo = process.env.VDONINJA_REQUIRE_STABLE_VIDEO === "1";
+  const viewerSampleMs = Math.max(
+    100,
+    Number(process.env.VDONINJA_VIEWER_SAMPLE_MS || 1000),
+  );
+  const viewerStabilizeMs = Math.max(
+    0,
+    Number(process.env.VDONINJA_VIEWER_STABILIZE_MS || 1000),
+  );
+  const minimumAverageFpsRatio = Number(
+    process.env.VDONINJA_MIN_AVERAGE_FPS_RATIO || 0.95,
+  );
+  const maximumFrameStallMs = Number(
+    process.env.VDONINJA_MAX_FRAME_STALL_MS || 500,
+  );
+  const maximumInterFrameStddevMs = Number(
+    process.env.VDONINJA_MAX_INTERFRAME_STDDEV_MS || 20,
+  );
+  const maximumVideoJitterMs = Number(
+    process.env.VDONINJA_MAX_VIDEO_JITTER_MS || 100,
+  );
+  const maximumDroppedFrames = Number(
+    process.env.VDONINJA_MAX_DROPPED_FRAMES || 0,
+  );
+  const maximumLostVideoPackets = Number(
+    process.env.VDONINJA_MAX_LOST_VIDEO_PACKETS || 0,
+  );
   const obsBrowserSampleMs = Math.max(
     100,
     Number(process.env.VDONINJA_OBS_BROWSER_SAMPLE_MS || 1000),
@@ -884,6 +930,12 @@ async function main() {
   const requestedVideoBitrateKbps = Number(
     process.env.VDONINJA_VIDEO_BITRATE_KBPS || 0,
   );
+  const expectedStreamEncoder = String(
+    process.env.VDONINJA_EXPECT_STREAM_ENCODER || "",
+  ).trim();
+  const customIceServers = String(
+    process.env.VDONINJA_ICE_SERVERS || "",
+  ).trim();
   if (skipChromiumViewer && !useObsBrowserViewer) {
     throw new Error(
       "VDONINJA_SKIP_CHROMIUM_VIEWER requires VDONINJA_OBS_BROWSER_VIEWER=1",
@@ -978,6 +1030,7 @@ async function main() {
   let appliedVideoSettings = null;
   let originalVideoBitrateParameter = null;
   let appliedVideoBitrateParameter = null;
+  let appliedStreamEncoderParameter = null;
   let browserStackViewerCheck = null;
   let browserStackViewerReport = null;
   const obsBrowserAudioMeter = {
@@ -1077,8 +1130,9 @@ async function main() {
       );
     }
 
+    appliedVideoSettings = await client.request("GetVideoSettings");
     if (requestedVideoWidth > 0 || requestedFpsNumerator > 0) {
-      originalVideoSettings = await client.request("GetVideoSettings");
+      originalVideoSettings = appliedVideoSettings;
       const requestedSettings = {};
       if (requestedVideoWidth > 0) {
         requestedSettings.baseWidth = requestedVideoWidth;
@@ -1136,6 +1190,27 @@ async function main() {
             `${appliedVideoBitrateParameter.parameterValue}`,
         );
       }
+    }
+
+    if (expectedStreamEncoder) {
+      appliedStreamEncoderParameter = await client.request(
+        "GetProfileParameter",
+        {
+          parameterCategory: "SimpleOutput",
+          parameterName: "StreamEncoder",
+        },
+      );
+      if (
+        appliedStreamEncoderParameter.parameterValue !== expectedStreamEncoder
+      ) {
+        throw new Error(
+          `Expected OBS StreamEncoder=${expectedStreamEncoder}; observed ` +
+            `${appliedStreamEncoderParameter.parameterValue}`,
+        );
+      }
+      logStep(
+        `verified configured OBS stream encoder ${expectedStreamEncoder}`,
+      );
     }
 
     const currentProgram = await client
@@ -1199,6 +1274,15 @@ async function main() {
     }
 
     logStep(`configuring VDO.Ninja stream service for ${streamId}`);
+    if (process.env.VDONINJA_RESET_STREAM_SERVICE === "1") {
+      await client.request("SetStreamServiceSettings", {
+        streamServiceType: "rtmp_custom",
+        streamServiceSettings: {
+          server: "rtmp://127.0.0.1:1935/live",
+          key: "vdoninja-test-reset",
+        },
+      });
+    }
     await client.request("SetStreamServiceSettings", {
       streamServiceType: "vdoninja_service",
       streamServiceSettings: {
@@ -1207,6 +1291,7 @@ async function main() {
         password,
         wss_host: "",
         salt: "",
+        ...(customIceServers ? { custom_ice_servers: customIceServers } : {}),
         max_viewers: 10,
         video_codec: 0,
         enable_data_channel: true,
@@ -1527,9 +1612,13 @@ async function main() {
       return;
     }
 
+    const chromiumArgs = ["--autoplay-policy=no-user-gesture-required"];
+    if (process.env.VDONINJA_DISABLE_MDNS === "1") {
+      chromiumArgs.push("--disable-features=WebRtcHideLocalIpsWithMdns");
+    }
     browser = await chromium.launch({
       headless: process.env.HEADLESS === "0" ? false : true,
-      args: ["--autoplay-policy=no-user-gesture-required"],
+      args: chromiumArgs,
     });
     const context = await browser.newContext();
     await context.addInitScript(() => {
@@ -1617,11 +1706,16 @@ async function main() {
       await sleep(1000);
     }
 
+    if (viewerStabilizeMs > 0) {
+      await sleep(viewerStabilizeMs);
+    }
     const continuityBaseline = await collectViewerSnapshot(page);
     const samples = [continuityBaseline];
     const soakDeadline = Date.now() + soakMs;
     while (Date.now() < soakDeadline) {
-      await sleep(Math.min(1000, Math.max(1, soakDeadline - Date.now())));
+      await sleep(
+        Math.min(viewerSampleMs, Math.max(1, soakDeadline - Date.now())),
+      );
       samples.push(await collectViewerSnapshot(page));
     }
     browserStackViewerReport = await finishBrowserStackViewerCheck(
@@ -1695,11 +1789,27 @@ async function main() {
     if (!playbackAdvanced(continuityBaseline, secondPlayable)) {
       throw new Error("Viewer media did not advance after initial playback");
     }
+    const expectedFps =
+      requestedFpsNumerator > 0
+        ? requestedFpsNumerator / requestedFpsDenominator
+        : appliedVideoSettings.fpsNumerator /
+          appliedVideoSettings.fpsDenominator;
+    const videoContinuityAnalysis = analyzeVideoContinuity(samples, {
+      expectedFps,
+      minimumAverageFpsRatio,
+      maximumFrameStallMs,
+      maximumInterFrameStddevMs,
+      maximumVideoJitterMs,
+      maximumDroppedFrames,
+      maximumLostPackets: maximumLostVideoPackets,
+    });
     const newFreezes =
       totalPcMetric(secondPlayable, "freezeCount") -
       totalPcMetric(continuityBaseline, "freezeCount");
     let videoContinuityFailure = null;
-    if (requireZeroFreezes && newFreezes !== 0) {
+    if (requireStableVideo && !videoContinuityAnalysis.ok) {
+      videoContinuityFailure = videoContinuityAnalysis.failures.join("; ");
+    } else if (requireZeroFreezes && newFreezes !== 0) {
       videoContinuityFailure = `Chrome recorded ${newFreezes} new video freeze(s) during the ${soakMs} ms soak`;
     }
     const newConcealedSamples =
@@ -1810,6 +1920,7 @@ async function main() {
       adaptiveBitrateMinimumKbps,
       appliedVideoSettings,
       appliedVideoBitrateParameter,
+      appliedStreamEncoderParameter,
       sourceTonePath,
       sourceToneDurationSeconds,
       obsVersion: version.obsVersion,
@@ -1820,6 +1931,7 @@ async function main() {
       continuityBaseline,
       secondPlayable,
       samples,
+      videoContinuityAnalysis,
       newFreezes,
       videoContinuityFailure,
       newConcealedSamples,
@@ -1875,6 +1987,10 @@ async function main() {
         nackCount: totalPcMetric(secondPlayable, "nackCount"),
         pliCount: totalPcMetric(secondPlayable, "pliCount"),
         keyFramesDecoded: totalPcMetric(secondPlayable, "keyFramesDecoded"),
+        videoContinuityAnalysis: {
+          ...videoContinuityAnalysis,
+          intervals: undefined,
+        },
         concealedSamples: totalPcMetric(secondPlayable, "concealedSamples"),
         silentConcealedSamples: totalPcMetric(
           secondPlayable,

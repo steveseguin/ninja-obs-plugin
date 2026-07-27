@@ -1570,7 +1570,10 @@ void VDONinjaPeerManager::setupPublisherTracks(std::shared_ptr<PeerInfo> peer)
 		std::lock_guard<std::mutex> codecLock(codecMutex_);
 		h264ProfileLevelId = h264ProfileLevelId_;
 	}
-	videoDesc.addH264Codec(96, h264FmtpForProfileLevelId(h264ProfileLevelId));
+	// Keep the SDP offer on libdatachannel's WebRTC compatibility profile.
+	// Advertising the encoder's High profile here prevents some VDO.Ninja
+	// browser viewers from completing peer connection setup on macOS.
+	videoDesc.addH264Codec(kH264PayloadType);
 	videoDesc.addSSRC(videoSsrc_, "video-stream");
 	peer->videoTrack = peer->pc->addTrack(videoDesc);
 	peer->videoRtpConfig =
@@ -1658,7 +1661,7 @@ void VDONinjaPeerManager::setupPublisherTracks(std::shared_ptr<PeerInfo> peer)
 	peer->videoSrReporter->addToChain(videoPliHandler);
 	peer->videoTrack->setMediaHandler(peer->videoSrReporter);
 	logInfo("Viewer %s video RTP pacer: %.1f Mbps, %zu KB per %lld ms batch, %zu KB queue limit, %zu KB shared "
-	        "aggregate burst, H.264 profile-level-id=%s",
+	        "aggregate burst, encoder H.264 profile-level-id=%s, SDP uses the WebRTC compatibility profile",
 	        peer->uuid.c_str(), static_cast<double>(pacerBitrate) / 1000000.0,
 	        peer->videoPacer->batchBudgetBytes() / 1024, static_cast<long long>(kVideoPacerInterval.count()),
 	        peer->videoPacer->maxQueueBytes() / 1024, videoPacerBudget_->burstBudgetBytes() / 1024,

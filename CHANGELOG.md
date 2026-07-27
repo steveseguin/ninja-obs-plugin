@@ -7,7 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Added strict browser-side publishing continuity analysis for sustained frame rate, sub-second stalls, inter-frame variance, RTP jitter, decoder drops, packet loss, and freezes, with focused tests that catch recovered-average and modest sustained-cadence failures.
+
 ### Fixed
+- Disabled VideoToolbox's encoder-specific B-frame setting in addition to the x264/NVENC setting. Hardware-encoded Mac streams no longer deliver every frame but decode only around periodic keyframes, which appeared as a roughly two-second freeze-and-jump cycle in browser viewers.
+- Restored the libdatachannel WebRTC-compatible H.264 SDP offer while retaining live encoder-profile diagnostics. Advertising the encoder's High profile prevented some VDO.Ninja browser viewers from completing publisher negotiation.
 - Pinned local release formatting verification to clang-format 14, matching CI, and added a WSL fallback on Windows so a newer Visual Studio formatter cannot approve a tree that the required CI formatter rejects.
 
 ## [1.1.60] - 2026-07-26

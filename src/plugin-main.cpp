@@ -1277,7 +1277,13 @@ static void vdoninja_service_apply_encoder_settings(void *, obs_data_t *video_se
 	UNUSED_PARAMETER(audio_settings);
 
 	if (video_settings) {
+		// x264/NVENC use the integer "bf" setting while VideoToolbox uses the
+		// boolean "bframes" setting. WebRTC H.264 packetization is
+		// non-interleaved, so both forms must be disabled. Leaving
+		// VideoToolbox frame reordering enabled makes browsers decode only the
+		// periodic IDRs and appears as a two-second freeze.
 		obs_data_set_int(video_settings, "bf", 0);
+		obs_data_set_bool(video_settings, "bframes", false);
 		obs_data_set_bool(video_settings, "repeat_headers", true);
 
 		// Clamp rather than force, so a deliberately tighter interval is kept.

@@ -1477,7 +1477,8 @@ void VDONinjaOutput::configureH264ProfileLevelId()
 		h264ProfileLevelId_ = *profileLevelId;
 	}
 	peerManager_->setH264ProfileLevelId(*profileLevelId);
-	logInfo("H.264 SDP profile-level-id=%s (%s)", profileLevelId->c_str(),
+	logInfo("H.264 encoder profile-level-id=%s (%s); SDP uses the WebRTC compatibility profile",
+	        profileLevelId->c_str(),
 	        usedFallback ? "resolution/FPS fallback until SPS is available" : "derived from encoder SPS");
 }
 
