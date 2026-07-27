@@ -262,8 +262,7 @@ TEST(RtpPacketPacerTest, SharedBudgetWaitEndsEachReportedBurst)
 TEST(RtpPacketPacerTest, RuntimeBitrateUpdateChangesLocalAndAggregateRates)
 {
 	auto sharedBudget = std::make_shared<RtpSharedPacerBudget>(4096);
-	RtpPacketPacer pacer(
-	    8000000, 2ms, [](RtpPacketPacer::Packet &&) { return true; }, 4096, sharedBudget);
+	RtpPacketPacer pacer(8000000, 2ms, [](RtpPacketPacer::Packet &&) { return true; }, 4096, sharedBudget);
 
 	EXPECT_EQ(pacer.bitrateBitsPerSecond(), 8000000u);
 	EXPECT_EQ(pacer.batchBudgetBytes(), 2000u);
@@ -364,8 +363,7 @@ TEST(RtpPacketPacerTest, LowModeDoesNotCopyDeltaPackets)
 	RtpPacketDuplicationConfig duplication;
 	duplication.mode = VideoProtectionMode::Low;
 	duplication.averageBitrateBitsPerSecond = 1600000;
-	RtpPacketPacer pacer(
-	    8000000, 2ms, [](RtpPacketPacer::Packet &&) { return true; }, 4096, {}, duplication);
+	RtpPacketPacer pacer(8000000, 2ms, [](RtpPacketPacer::Packet &&) { return true; }, 4096, {}, duplication);
 
 	std::vector<RtpPacketPacer::Packet> frame;
 	frame.push_back(rtpPacketWithSequence(100, 10, 1));
@@ -428,8 +426,7 @@ TEST(RtpPacketPacerTest, DuplicationYieldsWhenLiveMediaIsBacklogged)
 	}
 	pacer.stop();
 
-	EXPECT_GE(sendsAtFrameCompletion, 20u);
-	EXPECT_LT(sendsAtFrameCompletion, 35u);
+	EXPECT_EQ(sendsAtFrameCompletion, 20u);
 	EXPECT_GT(pacer.getStats().queuedDuplicates, 0u);
 }
 
@@ -631,8 +628,7 @@ TEST(RtpPacketPacerTest, RepairBudgetExpiresStaleNackWorkInsteadOfStarvingLiveMe
 	size_t completed = 0;
 	size_t sent = 0;
 	size_t expired = 0;
-	RtpPacketPacer pacer(
-	    80000, 20ms, [](RtpPacketPacer::Packet &&) { return true; }, 4096);
+	RtpPacketPacer pacer(80000, 20ms, [](RtpPacketPacer::Packet &&) { return true; }, 4096);
 
 	for (uint8_t value = 1; value <= 20; ++value) {
 		ASSERT_TRUE(pacer.enqueueRepair(

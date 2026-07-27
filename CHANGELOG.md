@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added default-off `Low`, `Medium`, and `High` paced video packet-duplication modes. Copies are delayed, bandwidth-limited, subordinate to live media, and allowed to expire; the UI identifies this as duplication rather than RED/ULPFEC and states its possible extra upload.
 - Added default-off REMB-driven adaptive bitrate for encoders advertising dynamic-bitrate support, with a configured floor, minimum-fresh-estimate-across-all-viewers policy, staged decreases, conservative increases, cooldowns, and original-bitrate restoration.
 - Added controlled pacer, recovery-gate, RTCP, retransmission-cache, RED-negotiation, H.264 profile, bitrate-controller, and protection-policy tests, plus portable-OBS gates for real Browser Source playback, native-viewer REMB, protection traffic, and audio fallback.
+- Added an optional BrowserStack real-browser/real-device viewer probe to the portable-OBS publishing harness. It records negotiated codecs, selected ICE candidate types, playback progress, WebRTC loss/repair/FEC/freeze counters, and whether requested BrowserStack network settings measurably reached the media path.
 
 ### Changed
 - Replaced the 10x video sender drain rate with frame-aware 2 ms token-bucket pacing at twice the encoder bitrate and a shared 4 KB aggregate burst allowance across viewers. Large IDRs are packet-spaced while ordinary frames retain bounded latency.
@@ -25,6 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Prevented recovery purges from removing a partially transmitted RTP frame or racing a frame selected while waiting on the shared multi-viewer pacing budget.
 - Reclaimed RTP sequence numbers assigned to unsent tail frames when PLI or local-loss recovery purges the pacer. The next live keyframe no longer exposes artificial sequence gaps that receivers NACK even though those packets never reached the retransmission cache.
 - Kept live deltas flowing after an established viewer sends PLI while waiting for the next bounded-interval IDR. PLI alone no longer closes a healthy sender gate and creates a guaranteed freeze; known local frame loss and transport failure still suppress dependent deltas until a complete live keyframe.
+- Prevented optional duplicate packets from taking pacing slots while any primary video frame is queued. Protection copies now use only true idle capacity and expire when none is available, so `High` protection cannot repeatedly add a frame of latency during large keyframes.
 
 ## [1.1.59] - 2026-07-26
 

@@ -212,3 +212,42 @@ Pass criteria:
 - Transparent and semi-transparent pixels composite correctly
 - Ordinary VDO.Ninja browser viewers continue to receive the color stream
 - Hiding/showing, reconnect, and source restart do not leave stale alpha frames
+
+## Test 15: BrowserStack Browser, Device, and Route Matrix
+
+Use BrowserStack to validate the real VDO.Ninja viewer in remote browser engines and real mobile devices while portable OBS remains the publisher. Credentials are read only from environment variables or an explicitly supplied secret file.
+
+Example PowerShell setup for a real Pixel viewer through TURN:
+
+```powershell
+$env:VDONINJA_OBS_BROWSER_VIEWER = "1"
+$env:VDONINJA_SKIP_CHROMIUM_VIEWER = "1"
+$env:VDONINJA_VIDEO_WIDTH = "1920"
+$env:VDONINJA_VIDEO_HEIGHT = "1080"
+$env:VDONINJA_VIDEO_FPS_NUMERATOR = "60"
+$env:VDONINJA_VIDEO_FPS_DENOMINATOR = "1"
+$env:VDONINJA_VIDEO_BITRATE_KBPS = "8000"
+$env:VDONINJA_BROWSERSTACK_PROFILE = "android-pixel9-chrome"
+$env:VDONINJA_BROWSERSTACK_SECRET_FILE = "C:\path\to\browserstack.env"
+$env:VDONINJA_BROWSERSTACK_VIEW_PARAMS = "privacy&buffer=1000"
+$env:VDONINJA_BROWSERSTACK_REQUIRE_CANDIDATE_TYPE = "relay"
+.\scripts\run-vdoninja-publish-smoke.ps1 -CheckTimeoutSeconds 240
+```
+
+The generated `artifacts/browserstack-viewer-*.json` report includes receiver codecs, the selected candidate pair, received bitrate, decoded frames, NACK/PLI/FIR/FEC counters, audio concealment, and freezes. Repeat with the supported profiles in `scripts/browserstack-vdoninja-viewer-check.cjs` and with VDO.Ninja codec steering parameters where the publisher can supply that codec.
+
+BrowserStack `customNetwork` is not automatically proof of controlled WebRTC impairment. During the 2026-07-26 validation, BrowserStack accepted bandwidth/loss updates but both direct UDP and TURN/UDP media continued above the requested cap. Treat those phases as engine/route continuity tests unless the report marks `networkEffect.status` as `observed`. To make a controlled-loss gate fail closed, set:
+
+```powershell
+$env:VDONINJA_BROWSERSTACK_PHASES = '[{"name":"cap","customNetwork":"4000,4000,80,0","durationMs":15000,"expectedMediaKbps":8000,"requireNetworkEffect":true}]'
+$env:VDONINJA_BROWSERSTACK_REQUIRE_NETWORK_EFFECT = "1"
+$env:VDONINJA_BROWSERSTACK_EXPECTED_MEDIA_KBPS = "8000"
+```
+
+If that gate reports `not-applied-to-media` or `unproven`, use an OS/router impairment tool that actually controls the selected UDP candidate path for random and burst-loss testing. BrowserStack remains useful for H.264 playback, SDP/capability comparisons, direct-versus-relay candidate proof, and remote device continuity.
+
+Validated recovery note: on the tested Pixel TURN/UDP route, `buffer=1000` gave NACK repairs enough time to arrive and removed the PLI/freezes seen with the shorter buffer. This is route-dependent; retain the counters in the report rather than assuming one buffer value fits every viewer.
+
+Video RED/ULPFEC note: Chromium, WebKit, and Firefox can advertise RED/ULPFEC payloads, and the current libwebrtc [receiver processes RED/ULPFEC](https://chromium.googlesource.com/external/webrtc/+/master/video/rtp_video_stream_receiver.cc). Its [sender disables H.264 ULPFEC when NACK is enabled](https://chromium.googlesource.com/external/webrtc/+/master/call/rtp_video_sender.cc) because the combination is inefficient. That does not prove a browser receiver will reject correctly generated native FEC, but it means SDP presence is not recovery proof. Audio RED remains a valid negotiated option. Validate H.264 RED/ULPFEC only with a native generator and induced loss; FlexFEC is the preferred H.264 FEC candidate.
+
+VP9 alpha note: BrowserStack can compare VP9 capability and ordinary color playback, but a normal browser does not composite the plugin's separate alpha track. The packaged Game Capture to native `VDO.Ninja Source` workflow in Test 14 is the release gate for transparency.

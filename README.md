@@ -180,7 +180,7 @@ Notes:
   - `Low` protects keyframes with up to 20% best-effort extra traffic.
   - `Medium` protects keyframes plus one quarter of delta packets with up to 50% best-effort extra traffic.
   - `High` can copy every video packet with up to 100% best-effort extra traffic.
-  - Copies yield to live media and expire instead of building stream latency. This is packet duplication, not negotiated video RED/ULPFEC.
+  - Copies use only idle pacing capacity and expire instead of delaying live media. This is packet duplication, not negotiated video RED/ULPFEC.
 - `Audio RED (Experimental)`: Adds the previous Opus frame to the current packet using negotiated RFC 2198 RED. It is off by default, and each viewer falls back to ordinary Opus unless its SDP answer selects the offered RED mapping.
 - `Adaptive Bitrate from REMB (Experimental)`: Dynamically changes supported OBS encoders and RTP pacing from receiver estimates. It is off by default, uses the lowest fresh estimate across every connected viewer, decreases in stages, increases conservatively, and restores the configured encoder bitrate when streaming stops.
 - `Minimum Adaptive Bitrate`: Floor used only while adaptive bitrate is enabled.
@@ -196,6 +196,8 @@ Default ICE behavior:
 The OBS log writes a rolling `Publish:` summary with keyframe size/cadence, per-peer pacer delay and drops, NACK/cache/repair counts, PLI/FIR, receiver loss/jitter/RTT, REMB, packet-duplication activity, audio RED activity, and audio continuity. Use that evidence before assuming encoder overload and compare it with the viewer's VDO.Ninja/WebRTC statistics.
 
 For a fixed-rate stream that exceeds a viewer's route, lower bitrate or resolution first. Packet duplication and RED can be useful opt-in tools, but they add traffic and do not create capacity on an already saturated route. Adaptive bitrate is the opt-in path intended to react to fresh receiver estimates.
+
+Current browsers commonly advertise video RED/ULPFEC receive payloads, and libwebrtc contains a RED/ULPFEC receive path. However, upstream libwebrtc disables its own H.264 ULPFEC sender when NACK is enabled because H.264 lacks the picture-ID behavior that makes the combination efficient. That sender policy does not prove a browser will reject plugin-generated FEC, but SDP presence alone does not prove recovery either. The plugin therefore does not offer H.264 RED/ULPFEC until a native generator passes induced-loss recovery tests in supported browsers. Audio RED is interoperable, paced duplication remains the default-off native H.264 protection option, and FlexFEC is the preferred H.264 FEC candidate for future validation.
 
 ## Testing
 

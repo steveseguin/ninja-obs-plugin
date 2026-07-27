@@ -22,8 +22,6 @@ constexpr size_t kMinimumRepairQueueBytes = 64U * 1024U;
 constexpr size_t kMaxConsecutiveRepairPackets = 4;
 constexpr auto kRepairBudgetWindow = std::chrono::milliseconds(100);
 constexpr auto kRepairMaximumAge = std::chrono::milliseconds(500);
-constexpr size_t kMaxConsecutiveDuplicatePackets = 1;
-constexpr auto kDuplicateLiveMediaDelayLimit = std::chrono::milliseconds(100);
 constexpr size_t kMinimumDuplicateQueueBytes = 64U * 1024U;
 
 size_t calculateBurstBudget(uint64_t bitrateBitsPerSecond, std::chrono::milliseconds burstWindow)
@@ -600,7 +598,6 @@ void RtpPacketPacer::run()
 	auto lastSendAt = std::chrono::steady_clock::time_point::min();
 	size_t currentBurstBytes = 0;
 	size_t consecutiveRepairPackets = 0;
-	size_t consecutiveDuplicatePackets = 0;
 
 	while (!stopping_.load(std::memory_order_acquire)) {
 		auto now = std::chrono::steady_clock::now();
@@ -630,7 +627,6 @@ void RtpPacketPacer::run()
 		if (queue_.empty() && repairQueue_.empty() && duplicateQueue_.empty()) {
 			currentBurstBytes = 0;
 			consecutiveRepairPackets = 0;
-			consecutiveDuplicatePackets = 0;
 			cv_.wait(lock, [this]() {
 				return stopping_.load(std::memory_order_acquire) || !queue_.empty() || !repairQueue_.empty() ||
 				       !duplicateQueue_.empty();
@@ -689,10 +685,13 @@ void RtpPacketPacer::run()
 			    static_cast<long double>(std::min(duplicateBytes, currentDuplicateBudget));
 			duplicateReady = duplicateTokens >= requiredDuplicateTokens;
 		}
-		const bool liveMediaBacklogged =
-		    !queue_.empty() && now - queue_.front().queuedAt >= kDuplicateLiveMediaDelayLimit;
-		const bool sendDuplicate = !sendRepair && !liveMediaBacklogged && duplicateReady &&
-		                           (queue_.empty() || consecutiveDuplicatePackets < kMaxConsecutiveDuplicatePackets);
+		// Duplication is optional protection traffic. Never spend a live-media
+		// pacing slot on it, even when the queued frame is still young: one
+		// duplicate before every primary packet can otherwise add a full frame
+		// of latency repeatedly during a large keyframe. Copies use only true
+		// idle capacity and expire when the stream leaves none available.
+		const bool liveMediaBacklogged = !queue_.empty();
+		const bool sendDuplicate = !sendRepair && !liveMediaBacklogged && duplicateReady;
 
 		if (!sendRepair && !sendDuplicate && queue_.empty()) {
 			auto wakeAt = std::chrono::steady_clock::time_point::max();
@@ -780,7 +779,6 @@ void RtpPacketPacer::run()
 			stats_.maxPacketDelayMs = std::max(stats_.maxPacketDelayMs, elapsedMilliseconds(now, repair.queuedAt));
 			repairTokens -= static_cast<long double>(packetBytes);
 			++consecutiveRepairPackets;
-			consecutiveDuplicatePackets = 0;
 
 			lock.unlock();
 			bool sent = false;
@@ -820,7 +818,6 @@ void RtpPacketPacer::run()
 			stats_.maxPacketDelayMs = std::max(stats_.maxPacketDelayMs, elapsedMilliseconds(now, duplicate.queuedAt));
 			duplicateTokens -= static_cast<long double>(packetBytes);
 			consecutiveRepairPackets = 0;
-			++consecutiveDuplicatePackets;
 
 			lock.unlock();
 			bool sent = false;
@@ -843,7 +840,6 @@ void RtpPacketPacer::run()
 		}
 
 		consecutiveRepairPackets = 0;
-		consecutiveDuplicatePackets = 0;
 		QueuedFrame &frame = queue_.front();
 		if (!frame.started) {
 			frame.started = true;

@@ -1,6 +1,7 @@
 const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
+const childProcess = require("child_process");
 const { chromium } = require("playwright");
 const {
   analyzePcm16Le,
@@ -201,6 +202,155 @@ function ensureQuery(url, key, value) {
 
 function logStep(message) {
   console.error(`[obs-publish-check] ${message}`);
+}
+
+function appendBoundedOutput(current, chunk, maximumLength = 1000000) {
+  const combined = current + String(chunk);
+  return combined.length > maximumLength
+    ? combined.slice(combined.length - maximumLength)
+    : combined;
+}
+
+function startBrowserStackViewerCheck(viewUrl, outputDir, stamp) {
+  const profile = String(
+    process.env.VDONINJA_BROWSERSTACK_PROFILE || "",
+  ).trim();
+  if (!profile) {
+    return null;
+  }
+
+  const outputPath = path.join(
+    outputDir,
+    `browserstack-viewer-${profile}-${stamp}.json`,
+  );
+  const scriptPath = path.resolve(
+    process.cwd(),
+    "scripts",
+    "browserstack-vdoninja-viewer-check.cjs",
+  );
+  const args = [
+    scriptPath,
+    "--url",
+    viewUrl,
+    "--profile",
+    profile,
+    "--output",
+    outputPath,
+    "--quiet=1",
+  ];
+  const secretFile = String(
+    process.env.VDONINJA_BROWSERSTACK_SECRET_FILE ||
+      process.env.BROWSERSTACK_SECRET_FILE ||
+      "",
+  ).trim();
+  if (secretFile) {
+    args.push("--secret-file", secretFile);
+  }
+  const phases = String(process.env.VDONINJA_BROWSERSTACK_PHASES || "").trim();
+  if (phases) {
+    args.push("--phases", phases);
+  }
+  const buildName = String(
+    process.env.VDONINJA_BROWSERSTACK_BUILD || "",
+  ).trim();
+  if (buildName) {
+    args.push("--build", buildName);
+  }
+  const viewParams = String(
+    process.env.VDONINJA_BROWSERSTACK_VIEW_PARAMS || "",
+  ).trim();
+  if (viewParams) {
+    args.push("--view-params", viewParams);
+  }
+  const requiredCandidateType = String(
+    process.env.VDONINJA_BROWSERSTACK_REQUIRE_CANDIDATE_TYPE || "",
+  ).trim();
+  if (requiredCandidateType) {
+    args.push("--require-candidate-type", requiredCandidateType);
+  }
+  const connectTimeoutMs = String(
+    process.env.VDONINJA_BROWSERSTACK_CONNECT_TIMEOUT_MS || "",
+  ).trim();
+  if (connectTimeoutMs) {
+    args.push("--connect-timeout-ms", connectTimeoutMs);
+  }
+  const expectedMediaKbps = String(
+    process.env.VDONINJA_BROWSERSTACK_EXPECTED_MEDIA_KBPS || "",
+  ).trim();
+  if (expectedMediaKbps) {
+    args.push("--expected-media-kbps", expectedMediaKbps);
+  }
+  if (process.env.VDONINJA_BROWSERSTACK_REQUIRE_NETWORK_EFFECT === "1") {
+    args.push("--require-network-effect=1");
+  }
+
+  fs.mkdirSync(outputDir, { recursive: true });
+  logStep(`starting BrowserStack viewer ${profile}`);
+  const processHandle = childProcess.spawn(process.execPath, args, {
+    cwd: process.cwd(),
+    env: process.env,
+    stdio: ["ignore", "pipe", "pipe"],
+    windowsHide: true,
+  });
+  const state = {
+    process: processHandle,
+    outputPath,
+    stdout: "",
+    stderr: "",
+    finished: false,
+    completion: null,
+  };
+  processHandle.stdout.on("data", (chunk) => {
+    state.stdout = appendBoundedOutput(state.stdout, chunk);
+  });
+  processHandle.stderr.on("data", (chunk) => {
+    state.stderr = appendBoundedOutput(state.stderr, chunk);
+  });
+  state.completion = new Promise((resolve) => {
+    let settled = false;
+    const finish = (result) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      state.finished = true;
+      resolve(result);
+    };
+    processHandle.once("error", (error) => {
+      finish({ code: null, error: String(error) });
+    });
+    processHandle.once("close", (code, signal) => {
+      finish({ code, signal });
+    });
+  });
+  return state;
+}
+
+async function finishBrowserStackViewerCheck(state) {
+  if (!state) {
+    return null;
+  }
+  const result = await state.completion;
+  let report = null;
+  if (fs.existsSync(state.outputPath)) {
+    report = JSON.parse(fs.readFileSync(state.outputPath, "utf8"));
+  }
+  if (result.code !== 0 || !report || !report.ok) {
+    throw new Error(
+      `BrowserStack viewer check failed: ` +
+        `${JSON.stringify({
+          process: result,
+          outputPath: state.outputPath,
+          error: report ? report.error || null : null,
+          stdout: state.stdout.slice(-4000),
+          stderr: state.stderr.slice(-4000),
+        })}`,
+    );
+  }
+  logStep(
+    `BrowserStack viewer ${report.profile} passed ${report.phaseResults.length} network phase(s)`,
+  );
+  return report;
 }
 
 function compactConsoleMessages(messages) {
@@ -679,8 +829,7 @@ async function main() {
       const parsed = Number(value.trim());
       return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
     });
-  const skipChromiumViewer =
-    process.env.VDONINJA_SKIP_CHROMIUM_VIEWER === "1";
+  const skipChromiumViewer = process.env.VDONINJA_SKIP_CHROMIUM_VIEWER === "1";
   const requireZeroFreezes = process.env.VDONINJA_REQUIRE_ZERO_FREEZES === "1";
   const obsBrowserSampleMs = Math.max(
     100,
@@ -719,18 +868,13 @@ async function main() {
   const audioRed = process.env.VDONINJA_AUDIO_RED === "1";
   const requestAudioRed =
     audioRed && process.env.VDONINJA_VIEWER_AUDIO_RED !== "0";
-  const adaptiveBitrate =
-    process.env.VDONINJA_ADAPTIVE_BITRATE === "1";
+  const adaptiveBitrate = process.env.VDONINJA_ADAPTIVE_BITRATE === "1";
   const adaptiveBitrateMinimumKbps = Math.max(
     100,
     Number(process.env.VDONINJA_ADAPTIVE_BITRATE_MIN_KBPS || 500),
   );
-  const requestedVideoWidth = Number(
-    process.env.VDONINJA_VIDEO_WIDTH || 0,
-  );
-  const requestedVideoHeight = Number(
-    process.env.VDONINJA_VIDEO_HEIGHT || 0,
-  );
+  const requestedVideoWidth = Number(process.env.VDONINJA_VIDEO_WIDTH || 0);
+  const requestedVideoHeight = Number(process.env.VDONINJA_VIDEO_HEIGHT || 0);
   const requestedFpsNumerator = Number(
     process.env.VDONINJA_VIDEO_FPS_NUMERATOR || 0,
   );
@@ -746,8 +890,8 @@ async function main() {
     );
   }
   if (
-    (requestedVideoWidth > 0) !== (requestedVideoHeight > 0) ||
-    (requestedFpsNumerator > 0) !== (requestedFpsDenominator > 0)
+    requestedVideoWidth > 0 !== requestedVideoHeight > 0 ||
+    requestedFpsNumerator > 0 !== requestedFpsDenominator > 0
   ) {
     throw new Error(
       "Video width/height and FPS numerator/denominator must be supplied in pairs",
@@ -834,6 +978,8 @@ async function main() {
   let appliedVideoSettings = null;
   let originalVideoBitrateParameter = null;
   let appliedVideoBitrateParameter = null;
+  let browserStackViewerCheck = null;
+  let browserStackViewerReport = null;
   const obsBrowserAudioMeter = {
     events: 0,
     nonSilentEvents: 0,
@@ -931,10 +1077,7 @@ async function main() {
       );
     }
 
-    if (
-      requestedVideoWidth > 0 ||
-      requestedFpsNumerator > 0
-    ) {
+    if (requestedVideoWidth > 0 || requestedFpsNumerator > 0) {
       originalVideoSettings = await client.request("GetVideoSettings");
       const requestedSettings = {};
       if (requestedVideoWidth > 0) {
@@ -1078,6 +1221,11 @@ async function main() {
     logStep("starting OBS stream");
     await client.request("StartStream");
     const activeStatus = await waitForStreamActive(client, 30000);
+    browserStackViewerCheck = startBrowserStackViewerCheck(
+      viewUrl,
+      outputDir,
+      stamp,
+    );
     if (useNativeViewer) {
       logStep(
         `creating native VDO.Ninja viewer ${nativeViewerName} at ` +
@@ -1127,7 +1275,11 @@ async function main() {
       }
     }
     if (useObsBrowserViewer) {
-      for (let viewerIndex = 0; viewerIndex < obsBrowserViewerCount; viewerIndex += 1) {
+      for (
+        let viewerIndex = 0;
+        viewerIndex < obsBrowserViewerCount;
+        viewerIndex += 1
+      ) {
         const viewerName =
           viewerIndex === 0
             ? obsBrowserViewerName
@@ -1249,10 +1401,7 @@ async function main() {
       const soakDeadline = Date.now() + soakMs;
       while (Date.now() < soakDeadline) {
         await sleep(
-          Math.min(
-            obsBrowserSampleMs,
-            Math.max(1, soakDeadline - Date.now()),
-          ),
+          Math.min(obsBrowserSampleMs, Math.max(1, soakDeadline - Date.now())),
         );
         const response = await client.request(
           "GetSourceScreenshot",
@@ -1287,14 +1436,12 @@ async function main() {
       );
       let obsBrowserFailure = null;
       if (
-        firstObsBrowserScreenshot.sha256 ===
-        secondObsBrowserScreenshot.sha256
+        firstObsBrowserScreenshot.sha256 === secondObsBrowserScreenshot.sha256
       ) {
         obsBrowserFailure =
           "The actual OBS Browser Source viewer did not render an advancing image";
       } else if (requireZeroFreezes && repeatedSamples !== 0) {
-        obsBrowserFailure =
-          `OBS Browser Source repeated ${repeatedSamples} one-second image sample(s) during the soak`;
+        obsBrowserFailure = `OBS Browser Source repeated ${repeatedSamples} one-second image sample(s) during the soak`;
       }
       // Browser Source volume metering depends on the local OBS audio-routing
       // configuration. Record it for diagnostics, but only make it a gate when
@@ -1315,6 +1462,9 @@ async function main() {
         recordingStarted = false;
         await sleep(1000);
       }
+      browserStackViewerReport = await finishBrowserStackViewerCheck(
+        browserStackViewerCheck,
+      );
 
       const reportPath = path.join(
         outputDir,
@@ -1351,6 +1501,7 @@ async function main() {
         firstObsBrowserScreenshot,
         secondObsBrowserScreenshot,
         localRecording,
+        browserStackViewerReport,
         streamEvents,
         reportPath,
       };
@@ -1471,6 +1622,12 @@ async function main() {
     const soakDeadline = Date.now() + soakMs;
     while (Date.now() < soakDeadline) {
       await sleep(Math.min(1000, Math.max(1, soakDeadline - Date.now())));
+      samples.push(await collectViewerSnapshot(page));
+    }
+    browserStackViewerReport = await finishBrowserStackViewerCheck(
+      browserStackViewerCheck,
+    );
+    if (browserStackViewerReport) {
       samples.push(await collectViewerSnapshot(page));
     }
     const secondPlayable = samples[samples.length - 1];
@@ -1674,6 +1831,7 @@ async function main() {
       newPacketsLost,
       decodedAudioCapture,
       localRecording,
+      browserStackViewerReport,
       audioContinuityFailure,
       firstObsBrowserScreenshot,
       secondObsBrowserScreenshot,
@@ -1743,6 +1901,13 @@ async function main() {
 
     await context.close();
   } finally {
+    if (
+      browserStackViewerCheck &&
+      !browserStackViewerCheck.finished &&
+      browserStackViewerCheck.process
+    ) {
+      browserStackViewerCheck.process.kill();
+    }
     if (browser) {
       await browser.close().catch(() => {});
     }
