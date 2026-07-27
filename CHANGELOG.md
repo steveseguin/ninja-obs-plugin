@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Pinned local release formatting verification to clang-format 14, matching CI, and added a WSL fallback on Windows so a newer Visual Studio formatter cannot approve a tree that the required CI formatter rejects.
+
 ## [1.1.60] - 2026-07-26
 
 ### Added

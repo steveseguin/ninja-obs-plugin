@@ -420,16 +420,31 @@ function Invoke-CheckedCommand {
     }
 }
 
+function Test-ClangFormat14 {
+    param([string]$FilePath)
+
+    $versionOutput = & $FilePath --version 2>$null
+    if ($LASTEXITCODE -ne 0) {
+        return $false
+    }
+
+    return [System.Text.RegularExpressions.Regex]::IsMatch(
+        ($versionOutput -join " "),
+        "\b(?:clang-format version|version) 14\."
+    )
+}
+
 function Resolve-ClangFormat {
-    # Check PATH first
     foreach ($candidate in @("clang-format-14", "clang-format")) {
         $command = Get-Command $candidate -ErrorAction SilentlyContinue
-        if ($command) {
-            return $command.Source
+        if ($command -and (Test-ClangFormat14 -FilePath $command.Source)) {
+            return [PSCustomObject]@{
+                Kind = "Native"
+                Path = $command.Source
+            }
         }
     }
 
-    # Check MSVC/LLVM bundled clang-format (Windows)
     $runningOnWindows = (($PSVersionTable.PSEdition -eq "Desktop") -or ($env:OS -eq "Windows_NT"))
     if ($runningOnWindows) {
         $vsWhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
@@ -437,14 +452,28 @@ function Resolve-ClangFormat {
             $vsPath = & $vsWhere -latest -property installationPath 2>$null
             if ($vsPath) {
                 $msvcCf = Join-Path $vsPath "VC\Tools\Llvm\x64\bin\clang-format.exe"
-                if (Test-Path $msvcCf) {
-                    return $msvcCf
+                if ((Test-Path $msvcCf) -and (Test-ClangFormat14 -FilePath $msvcCf)) {
+                    return [PSCustomObject]@{
+                        Kind = "Native"
+                        Path = $msvcCf
+                    }
+                }
+            }
+        }
+
+        $wsl = Get-Command "wsl.exe" -ErrorAction SilentlyContinue
+        if ($wsl) {
+            & $wsl.Source bash -lc "command -v clang-format-14 >/dev/null 2>&1"
+            if ($LASTEXITCODE -eq 0) {
+                return [PSCustomObject]@{
+                    Kind = "Wsl"
+                    Path = $wsl.Source
                 }
             }
         }
     }
 
-    throw "Unable to find clang-format-14 or clang-format in PATH or MSVC."
+    throw "Unable to find clang-format 14 in PATH, MSVC, or WSL. CI is pinned to clang-format-14."
 }
 
 function Invoke-FormatCheck {
@@ -455,7 +484,16 @@ function Invoke-FormatCheck {
     }
 
     Write-Host "Running clang-format dry-run on $($files.Count) files"
-    Invoke-CheckedCommand -FilePath $formatter -Arguments (@("--dry-run", "--Werror") + $files)
+    if ($formatter.Kind -eq "Wsl") {
+        Invoke-CheckedCommand -FilePath $formatter.Path -Arguments @(
+            "--cd", $repoRoot,
+            "bash", "-lc",
+            'find src tests \( -name "*.cpp" -o -name "*.h" \) -print0 | xargs -0 clang-format-14 --dry-run --Werror'
+        )
+        return
+    }
+
+    Invoke-CheckedCommand -FilePath $formatter.Path -Arguments (@("--dry-run", "--Werror") + $files)
 }
 
 function Invoke-GitDiffCheck {
