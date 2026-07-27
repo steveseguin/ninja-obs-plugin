@@ -73,9 +73,41 @@ TEST(VideoKeyframeGateTest, NewViewerAcceptsOneCachedPrime)
 	EXPECT_FALSE(gate.canQueueFrame(false, false));
 	EXPECT_TRUE(gate.canQueueFrame(true, true));
 
-	gate.onKeyframeQueued();
-	EXPECT_FALSE(gate.isAwaitingKeyframe());
+	const auto ticket = gate.onKeyframeQueued(true);
+	EXPECT_TRUE(gate.isAwaitingKeyframe());
+	EXPECT_TRUE(gate.hasPendingKeyframe());
+	EXPECT_FALSE(gate.hasPendingLiveKeyframe());
 	EXPECT_FALSE(gate.canQueueFrame(true, true));
+	EXPECT_FALSE(gate.canQueueFrame(false, false));
+
+	EXPECT_FALSE(gate.onKeyframeSendCompleted(ticket, true, true));
+	EXPECT_TRUE(gate.isAwaitingKeyframe());
+	EXPECT_FALSE(gate.hasPendingKeyframe());
+	EXPECT_FALSE(gate.canQueueFrame(true, true));
+	EXPECT_FALSE(gate.canQueueFrame(false, false));
+
+	const auto liveTicket = gate.onKeyframeQueued();
+	EXPECT_TRUE(gate.hasPendingLiveKeyframe());
+	EXPECT_TRUE(gate.canQueueFrame(false, false));
+	EXPECT_TRUE(gate.onKeyframeSendCompleted(liveTicket, true));
+	EXPECT_FALSE(gate.isAwaitingKeyframe());
+	EXPECT_FALSE(gate.hasPendingKeyframe());
+	EXPECT_FALSE(gate.canQueueFrame(true, true));
+	EXPECT_TRUE(gate.canQueueFrame(false, false));
+}
+
+TEST(VideoKeyframeGateTest, CachedPrimeCannotAuthorizeDependentLiveDeltas)
+{
+	VideoKeyframeGate gate;
+
+	const auto cachedTicket = gate.onKeyframeQueued(true);
+	EXPECT_FALSE(gate.canQueueFrame(false, false));
+	EXPECT_FALSE(gate.onKeyframeSendCompleted(cachedTicket, true, true));
+	EXPECT_FALSE(gate.canQueueFrame(false, false));
+
+	const auto liveTicket = gate.onKeyframeQueued(false);
+	EXPECT_TRUE(gate.canQueueFrame(false, false));
+	EXPECT_TRUE(gate.onKeyframeSendCompleted(liveTicket, true, false));
 	EXPECT_TRUE(gate.canQueueFrame(false, false));
 }
 
@@ -83,27 +115,61 @@ TEST(VideoKeyframeGateTest, InitialDecoderRequestStillAllowsCachedPrime)
 {
 	VideoKeyframeGate gate;
 
-	gate.onDecoderKeyframeRequest();
+	EXPECT_EQ(gate.onDecoderKeyframeRequest(), VideoKeyframeGate::DecoderRequestDisposition::CachedPrimeAllowed);
 
 	EXPECT_TRUE(gate.isAwaitingKeyframe());
 	EXPECT_TRUE(gate.isCachedPrimeAllowed());
 	EXPECT_TRUE(gate.canQueueFrame(true, true));
 }
 
-TEST(VideoKeyframeGateTest, RecoveryRequestRejectsStaleCacheUntilLiveKeyframe)
+TEST(VideoKeyframeGateTest, SynchronizedDecoderRequestKeepsLiveDeltasFlowingAndRejectsStaleCache)
 {
 	VideoKeyframeGate gate;
-	gate.onKeyframeQueued();
+	const auto initialTicket = gate.onKeyframeQueued();
+	gate.onKeyframeSendCompleted(initialTicket, true);
 
-	gate.onDecoderKeyframeRequest();
+	EXPECT_EQ(gate.onDecoderKeyframeRequest(), VideoKeyframeGate::DecoderRequestDisposition::ContinueLiveStream);
 
-	EXPECT_TRUE(gate.isAwaitingKeyframe());
+	EXPECT_FALSE(gate.isAwaitingKeyframe());
 	EXPECT_FALSE(gate.isCachedPrimeAllowed());
 	EXPECT_FALSE(gate.canQueueFrame(true, true));
-	EXPECT_FALSE(gate.canQueueFrame(false, false));
+	EXPECT_TRUE(gate.canQueueFrame(false, false));
 	EXPECT_TRUE(gate.canQueueFrame(true, false));
 
-	gate.onKeyframeQueued();
+	const auto recoveryTicket = gate.onKeyframeQueued();
+	EXPECT_FALSE(gate.isAwaitingKeyframe());
+	EXPECT_TRUE(gate.canQueueFrame(false, false));
+	EXPECT_FALSE(gate.onKeyframeSendCompleted(recoveryTicket, true));
+	EXPECT_FALSE(gate.isAwaitingKeyframe());
+	EXPECT_TRUE(gate.canQueueFrame(false, false));
+}
+
+TEST(VideoKeyframeGateTest, KnownLocalLossRemainsGatedAcrossDecoderRequests)
+{
+	VideoKeyframeGate gate;
+	const auto initialTicket = gate.onKeyframeQueued();
+	gate.onKeyframeSendCompleted(initialTicket, true);
+	gate.requireLiveKeyframe();
+
+	EXPECT_EQ(gate.onDecoderKeyframeRequest(), VideoKeyframeGate::DecoderRequestDisposition::RequireNewLiveKeyframe);
+	EXPECT_TRUE(gate.isAwaitingKeyframe());
+	EXPECT_FALSE(gate.canQueueFrame(false, false));
+
+	const auto recoveryTicket = gate.onKeyframeQueued();
+	EXPECT_TRUE(gate.canQueueFrame(false, false));
+	EXPECT_TRUE(gate.onKeyframeSendCompleted(recoveryTicket, true));
+	EXPECT_FALSE(gate.isAwaitingKeyframe());
+}
+
+TEST(VideoKeyframeGateTest, DecoderRequestKeepsAnAlreadyPendingLiveKeyframeValid)
+{
+	VideoKeyframeGate gate;
+	const auto liveTicket = gate.onKeyframeQueued();
+
+	EXPECT_EQ(gate.onDecoderKeyframeRequest(), VideoKeyframeGate::DecoderRequestDisposition::PendingLiveKeyframe);
+	EXPECT_TRUE(gate.hasPendingLiveKeyframe());
+	EXPECT_TRUE(gate.canQueueFrame(false, false));
+	EXPECT_TRUE(gate.onKeyframeSendCompleted(liveTicket, true));
 	EXPECT_FALSE(gate.isAwaitingKeyframe());
 	EXPECT_TRUE(gate.canQueueFrame(false, false));
 }
@@ -111,7 +177,8 @@ TEST(VideoKeyframeGateTest, RecoveryRequestRejectsStaleCacheUntilLiveKeyframe)
 TEST(VideoKeyframeGateTest, ReenabledVideoCanUseCachedPrimeAgain)
 {
 	VideoKeyframeGate gate;
-	gate.onKeyframeQueued();
+	const auto ticket = gate.onKeyframeQueued();
+	gate.onKeyframeSendCompleted(ticket, true);
 	gate.onDecoderKeyframeRequest();
 
 	gate.resetForCachedPrime();
@@ -119,4 +186,29 @@ TEST(VideoKeyframeGateTest, ReenabledVideoCanUseCachedPrimeAgain)
 	EXPECT_TRUE(gate.isAwaitingKeyframe());
 	EXPECT_TRUE(gate.isCachedPrimeAllowed());
 	EXPECT_TRUE(gate.canQueueFrame(true, true));
+}
+
+TEST(VideoKeyframeGateTest, FailedPendingKeyframeClosesGateAgain)
+{
+	VideoKeyframeGate gate;
+	const auto ticket = gate.onKeyframeQueued();
+
+	EXPECT_TRUE(gate.canQueueFrame(false, false));
+	EXPECT_FALSE(gate.onKeyframeSendCompleted(ticket, false));
+
+	EXPECT_TRUE(gate.isAwaitingKeyframe());
+	EXPECT_FALSE(gate.hasPendingKeyframe());
+	EXPECT_FALSE(gate.canQueueFrame(false, false));
+	EXPECT_TRUE(gate.canQueueFrame(true, false));
+}
+
+TEST(VideoKeyframeGateTest, StaleCompletionCannotReopenNewRecoveryGeneration)
+{
+	VideoKeyframeGate gate;
+	const auto staleTicket = gate.onKeyframeQueued();
+	gate.requireLiveKeyframe();
+
+	EXPECT_FALSE(gate.onKeyframeSendCompleted(staleTicket, true));
+	EXPECT_TRUE(gate.isAwaitingKeyframe());
+	EXPECT_FALSE(gate.canQueueFrame(false, false));
 }

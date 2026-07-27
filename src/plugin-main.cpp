@@ -1157,6 +1157,43 @@ static obs_properties_t *vdoninja_service_properties(void *)
 	obs_property_text_set_info_type(iceHelp, OBS_TEXT_INFO_NORMAL);
 	obs_property_text_set_info_word_wrap(iceHelp, true);
 	obs_properties_add_bool(advanced, "force_turn", tr("ForceTURN", "Force TURN Relay"));
+	obs_property_t *protection = obs_properties_add_list(advanced, "video_protection_mode",
+	                                                     tr("VideoProtection", "Packet Duplication (Experimental)"),
+	                                                     OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_INT);
+	obs_property_list_add_int(protection, tr("VideoProtection.Off", "Off"), static_cast<int>(VideoProtectionMode::Off));
+	obs_property_list_add_int(protection, tr("VideoProtection.Low", "Low — keyframes, up to 20% extra (best effort)"),
+	                          static_cast<int>(VideoProtectionMode::Low));
+	obs_property_list_add_int(
+	    protection, tr("VideoProtection.Medium", "Medium — keyframes + 25% deltas, up to 50% extra (best effort)"),
+	    static_cast<int>(VideoProtectionMode::Medium));
+	obs_property_list_add_int(protection,
+	                          tr("VideoProtection.High", "High — all packets, up to 100% extra (best effort)"),
+	                          static_cast<int>(VideoProtectionMode::High));
+	obs_property_set_long_description(
+	    protection,
+	    tr("VideoProtection.Description",
+	       "Opt-in paced copies of RTP packets, delayed so both copies are less likely to share one loss burst. "
+	       "Off is the compatibility default. This is packet duplication, not negotiated RTP RED or FEC, and it "
+	       "uses additional upload bandwidth. Copies yield to live media and can expire rather than delay the "
+	       "stream."));
+	obs_property_t *audioRed =
+	    obs_properties_add_bool(advanced, "audio_red", tr("AudioRed", "Audio RED (Experimental)"));
+	obs_property_set_long_description(
+	    audioRed,
+	    tr("AudioRed.Description",
+	       "Opt in to negotiated RFC 2198 audio redundancy. Compatible viewers receive the current and previous "
+	       "Opus frame in one audio packet; other viewers fall back to plain Opus. This adds audio bandwidth and "
+	       "remains off by default."));
+	obs_property_t *adaptiveBitrate = obs_properties_add_bool(
+	    advanced, "adaptive_bitrate", tr("AdaptiveBitrate", "Adaptive Bitrate from REMB (Experimental)"));
+	obs_property_set_long_description(
+	    adaptiveBitrate,
+	    tr("AdaptiveBitrate.Description",
+	       "Opt in to conservative browser-feedback adaptation. The lowest fresh REMB estimate across all viewers "
+	       "controls the OBS encoder and RTP pacer. Unsupported encoders fail closed, and the original bitrate is "
+	       "restored when streaming stops."));
+	obs_properties_add_int(advanced, "adaptive_bitrate_min",
+	                       tr("AdaptiveBitrate.Minimum", "Minimum Adaptive Bitrate (kbps)"), 100, 10000, 100);
 	obs_properties_add_group(props, "advanced", tr("AdvancedSettings", "Advanced Settings"), OBS_GROUP_NORMAL,
 	                         advanced);
 
@@ -1183,6 +1220,10 @@ static void vdoninja_service_defaults(obs_data_t *settings)
 	obs_data_set_default_int(settings, "video_codec", 0);
 	obs_data_set_default_int(settings, "max_viewers", 10);
 	obs_data_set_default_bool(settings, "force_turn", false);
+	obs_data_set_default_int(settings, "video_protection_mode", static_cast<int>(VideoProtectionMode::Off));
+	obs_data_set_default_bool(settings, "audio_red", false);
+	obs_data_set_default_bool(settings, "adaptive_bitrate", false);
+	obs_data_set_default_int(settings, "adaptive_bitrate_min", 500);
 }
 
 static const char *vdoninja_service_url(void *data)
@@ -1911,6 +1952,44 @@ static obs_properties_t *vdoninja_control_center_properties(void *data)
 	obs_property_text_set_info_type(iceHelp, OBS_TEXT_INFO_NORMAL);
 	obs_property_text_set_info_word_wrap(iceHelp, true);
 	forceTurn = obs_properties_add_bool(advanced, "force_turn", tr("ForceTURN", "Force TURN Relay"));
+	obs_property_t *protection = obs_properties_add_list(advanced, "video_protection_mode",
+	                                                     tr("VideoProtection", "Packet Duplication (Experimental)"),
+	                                                     OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_INT);
+	obs_property_list_add_int(protection, tr("VideoProtection.Off", "Off"), static_cast<int>(VideoProtectionMode::Off));
+	obs_property_list_add_int(protection, tr("VideoProtection.Low", "Low — keyframes, up to 20% extra (best effort)"),
+	                          static_cast<int>(VideoProtectionMode::Low));
+	obs_property_list_add_int(
+	    protection, tr("VideoProtection.Medium", "Medium — keyframes + 25% deltas, up to 50% extra (best effort)"),
+	    static_cast<int>(VideoProtectionMode::Medium));
+	obs_property_list_add_int(protection,
+	                          tr("VideoProtection.High", "High — all packets, up to 100% extra (best effort)"),
+	                          static_cast<int>(VideoProtectionMode::High));
+	obs_property_set_long_description(
+	    protection,
+	    tr("VideoProtection.Description",
+	       "Opt-in paced copies of RTP packets, delayed so both copies are less likely to share one loss burst. "
+	       "Off is the compatibility default. This is packet duplication, not negotiated RTP RED or FEC, and it "
+	       "uses additional upload bandwidth. Copies yield to live media and can expire rather than delay the "
+	       "stream."));
+	obs_property_t *audioRed =
+	    obs_properties_add_bool(advanced, "audio_red", tr("AudioRed", "Audio RED (Experimental)"));
+	obs_property_set_long_description(
+	    audioRed,
+	    tr("AudioRed.Description",
+	       "Opt in to negotiated RFC 2198 audio redundancy. Compatible viewers receive the current and previous "
+	       "Opus frame in one audio packet; other viewers fall back to plain Opus. This adds audio bandwidth and "
+	       "remains off by default."));
+	obs_property_t *adaptiveBitrate = obs_properties_add_bool(
+	    advanced, "adaptive_bitrate", tr("AdaptiveBitrate", "Adaptive Bitrate from REMB (Experimental)"));
+	obs_property_set_long_description(
+	    adaptiveBitrate,
+	    tr("AdaptiveBitrate.Description",
+	       "Opt in to conservative browser-feedback adaptation. The lowest fresh REMB estimate across all viewers "
+	       "controls the OBS encoder and RTP pacer. Unsupported encoders fail closed, and the original bitrate is "
+	       "restored when streaming stops."));
+	obs_property_t *adaptiveMinimum =
+	    obs_properties_add_int(advanced, "adaptive_bitrate_min",
+	                           tr("AdaptiveBitrate.Minimum", "Minimum Adaptive Bitrate (kbps)"), 100, 10000, 100);
 	obs_properties_add_group(props, "advanced", tr("AdvancedSettings", "Advanced Settings"), OBS_GROUP_NORMAL,
 	                         advanced);
 
@@ -1921,6 +2000,10 @@ static obs_properties_t *vdoninja_control_center_properties(void *data)
 	obs_property_set_modified_callback2(wssHost, controlCenterFieldModified, ctx);
 	obs_property_set_modified_callback2(salt, controlCenterFieldModified, ctx);
 	obs_property_set_modified_callback2(forceTurn, controlCenterFieldModified, ctx);
+	obs_property_set_modified_callback2(protection, controlCenterFieldModified, ctx);
+	obs_property_set_modified_callback2(audioRed, controlCenterFieldModified, ctx);
+	obs_property_set_modified_callback2(adaptiveBitrate, controlCenterFieldModified, ctx);
+	obs_property_set_modified_callback2(adaptiveMinimum, controlCenterFieldModified, ctx);
 
 	return props;
 }
@@ -1949,6 +2032,10 @@ static void vdoninja_control_center_defaults(obs_data_t *settings)
 	    "Leave empty to use built-in STUN defaults (Google + Cloudflare); no TURN is added automatically.");
 	obs_data_set_default_int(settings, "max_viewers", 10);
 	obs_data_set_default_bool(settings, "force_turn", false);
+	obs_data_set_default_int(settings, "video_protection_mode", static_cast<int>(VideoProtectionMode::Off));
+	obs_data_set_default_bool(settings, "audio_red", false);
+	obs_data_set_default_bool(settings, "adaptive_bitrate", false);
+	obs_data_set_default_int(settings, "adaptive_bitrate_min", 500);
 	obs_data_set_default_string(settings, "cc_push_url", "");
 	obs_data_set_default_string(settings, "cc_view_url", "");
 	obs_data_set_default_string(settings, "cc_status", "Press 'Refresh Runtime Stats' to sample live metrics.");

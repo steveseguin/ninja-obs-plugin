@@ -17,6 +17,7 @@
 #include <thread>
 
 #include "vdoninja-auto-scene-manager.h"
+#include "vdoninja-bitrate-controller.h"
 #include "vdoninja-common.h"
 #include "vdoninja-data-channel.h"
 #include "vdoninja-peer-manager.h"
@@ -100,6 +101,12 @@ private:
 	void stopPublishSummaryWorker(bool flush);
 	void publishSummaryThread();
 	void maybeLogPublishSummary(bool force = false);
+	void configureBitrateAdaptation(const OutputSettings &settings, int encoderBitrateBitsPerSecond);
+	void configureH264ProfileLevelId();
+	void maybeAdaptBitrate();
+	void maybeSettleAdaptivePacer();
+	void applyAdaptiveBitrate(uint64_t bitrateBitsPerSecond, uint64_t estimateBitsPerSecond);
+	void restoreEncoderBitrate();
 	void resetPublishTelemetry();
 	std::string buildInitialInfoMessage() const;
 	std::string buildObsStateMessage() const;
@@ -200,6 +207,14 @@ private:
 	std::atomic<uint64_t> keyframeRequests_{0};
 	std::atomic<uint64_t> keyframeRequestsPrimed_{0};
 	std::atomic<bool> loggedFirstKeyframeRequest_{false};
+	std::unique_ptr<BitrateController> bitrateController_;
+	bool adaptiveBitrateEnabled_ = false;
+	int originalEncoderBitrate_ = 0;
+	int currentEncoderBitrate_ = 0;
+	int pendingPacerBitrate_ = 0;
+	int64_t pendingPacerBitrateDueMs_ = 0;
+	std::mutex h264ProfileMutex_;
+	std::string h264ProfileLevelId_;
 
 	// OBS can provide multiple encoded audio tracks. VDO.Ninja publish uses one
 	// Opus stream, so we forward exactly one selected track index.

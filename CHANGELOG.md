@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Added per-peer RTCP diagnostics for NACK, cache hits/misses, paced retransmissions, PLI/FIR, receiver loss, jitter, RTT, malformed feedback, and REMB, and correlated them with keyframe and pacer measurements in the rolling `Publish:` summary.
+- Added negotiated, opt-in RFC 2198 audio RED carrying one previous Opus frame. Plain Opus remains the default, and viewers that do not select the offered RED mapping fall back per peer without losing audio.
+- Added default-off `Low`, `Medium`, and `High` paced video packet-duplication modes. Copies are delayed, bandwidth-limited, subordinate to live media, and allowed to expire; the UI identifies this as duplication rather than RED/ULPFEC and states its possible extra upload.
+- Added default-off REMB-driven adaptive bitrate for encoders advertising dynamic-bitrate support, with a configured floor, minimum-fresh-estimate-across-all-viewers policy, staged decreases, conservative increases, cooldowns, and original-bitrate restoration.
+- Added controlled pacer, recovery-gate, RTCP, retransmission-cache, RED-negotiation, H.264 profile, bitrate-controller, and protection-policy tests, plus portable-OBS gates for real Browser Source playback, native-viewer REMB, protection traffic, and audio fallback.
+
+### Changed
+- Replaced the 10x video sender drain rate with frame-aware 2 ms token-bucket pacing at twice the encoder bitrate and a shared 4 KB aggregate burst allowance across viewers. Large IDRs are packet-spaced while ordinary frames retain bounded latency.
+- Replaced the direct 512-packet video NACK responder with a two-second, 2048-packet/4 MiB history and deadline-limited retransmissions routed through the common pacer with a separate repair allowance.
+- Derived the offered H.264 `profile-level-id` from encoder SPS data, with a resolution/frame-rate fallback until live SPS data is available.
+
+### Fixed
+- Made decoder recovery generation-safe: cached keyframes are only for initial paint, a complete live keyframe opens the gate, known local frame loss suppresses dependent deltas, and a PLI reuses an already pending live keyframe without deleting its valid GOP.
+- Prevented adaptive bitrate decreases from turning pre-change encoder output into seconds of pacer backlog. Encoder reductions are staged and existing pacers retain their prior drain rate briefly before settling; the 8 Mbps to 720 kbps real-viewer regression now stays bounded without freezes, drops, or transport errors.
+- Prevented recovery purges from removing a partially transmitted RTP frame or racing a frame selected while waiting on the shared multi-viewer pacing budget.
+- Reclaimed RTP sequence numbers assigned to unsent tail frames when PLI or local-loss recovery purges the pacer. The next live keyframe no longer exposes artificial sequence gaps that receivers NACK even though those packets never reached the retransmission cache.
+- Kept live deltas flowing after an established viewer sends PLI while waiting for the next bounded-interval IDR. PLI alone no longer closes a healthy sender gate and creates a guaranteed freeze; known local frame loss and transport failure still suppress dependent deltas until a complete live keyframe.
+
 ## [1.1.59] - 2026-07-26
 
 ### Added

@@ -20,6 +20,7 @@
 #include <util/threading.h>
 
 #include "plugin-main.h"
+#include "vdoninja-h264-profile.h"
 #include "vdoninja-utils.h"
 
 namespace vdoninja
@@ -40,6 +41,9 @@ constexpr int64_t kKeyframeIntervalWarnMs = 4500;
 // a brief reproduction still produces a couple of samples, long enough that a
 // multi-hour stream does not drown out everything else in the log.
 constexpr int64_t kPublishSummaryIntervalMs = 30000;
+constexpr int64_t kBitrateAdaptationIntervalMs = 1000;
+constexpr int64_t kAdaptivePacerSettleDelayMs = 1500;
+constexpr auto kRecentRembMaximumAge = std::chrono::milliseconds(3000);
 
 int64_t steadyTimeMs()
 {
@@ -637,6 +641,43 @@ static obs_properties_t *vdoninja_output_properties(void *)
 	obs_property_text_set_info_type(iceHelp, OBS_TEXT_INFO_NORMAL);
 	obs_property_text_set_info_word_wrap(iceHelp, true);
 	obs_properties_add_bool(advanced, "force_turn", tr("ForceTURN", "Force TURN Relay"));
+	obs_property_t *protection = obs_properties_add_list(advanced, "video_protection_mode",
+	                                                     tr("VideoProtection", "Packet Duplication (Experimental)"),
+	                                                     OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_INT);
+	obs_property_list_add_int(protection, tr("VideoProtection.Off", "Off"), static_cast<int>(VideoProtectionMode::Off));
+	obs_property_list_add_int(protection, tr("VideoProtection.Low", "Low — keyframes, up to 20% extra (best effort)"),
+	                          static_cast<int>(VideoProtectionMode::Low));
+	obs_property_list_add_int(
+	    protection, tr("VideoProtection.Medium", "Medium — keyframes + 25% deltas, up to 50% extra (best effort)"),
+	    static_cast<int>(VideoProtectionMode::Medium));
+	obs_property_list_add_int(protection,
+	                          tr("VideoProtection.High", "High — all packets, up to 100% extra (best effort)"),
+	                          static_cast<int>(VideoProtectionMode::High));
+	obs_property_set_long_description(
+	    protection,
+	    tr("VideoProtection.Description",
+	       "Opt-in paced copies of RTP packets, delayed so both copies are less likely to share one loss burst. "
+	       "Off is the compatibility default. This is packet duplication, not negotiated RTP RED or FEC, and it "
+	       "uses additional upload bandwidth. Copies yield to live media and can expire rather than delay the "
+	       "stream."));
+	obs_property_t *audioRed =
+	    obs_properties_add_bool(advanced, "audio_red", tr("AudioRed", "Audio RED (Experimental)"));
+	obs_property_set_long_description(
+	    audioRed,
+	    tr("AudioRed.Description",
+	       "Opt in to negotiated RFC 2198 audio redundancy. Compatible viewers receive the current and previous "
+	       "Opus frame in one audio packet; other viewers fall back to plain Opus. This adds audio bandwidth and "
+	       "remains off by default."));
+	obs_property_t *adaptiveBitrate = obs_properties_add_bool(
+	    advanced, "adaptive_bitrate", tr("AdaptiveBitrate", "Adaptive Bitrate from REMB (Experimental)"));
+	obs_property_set_long_description(
+	    adaptiveBitrate,
+	    tr("AdaptiveBitrate.Description",
+	       "Opt in to conservative browser-feedback adaptation. The lowest fresh REMB estimate across all viewers "
+	       "controls the OBS encoder and RTP pacer. Unsupported encoders fail closed, and the original bitrate is "
+	       "restored when streaming stops."));
+	obs_properties_add_int(advanced, "adaptive_bitrate_min",
+	                       tr("AdaptiveBitrate.Minimum", "Minimum Adaptive Bitrate (kbps)"), 100, 10000, 100);
 	obs_properties_add_group(props, "advanced", tr("AdvancedSettings", "Advanced Settings"), OBS_GROUP_NORMAL,
 	                         advanced);
 
@@ -663,6 +704,10 @@ static void vdoninja_output_defaults(obs_data_t *settings)
 	obs_data_set_default_bool(settings, "enable_data_channel", true);
 	obs_data_set_default_bool(settings, "auto_reconnect", true);
 	obs_data_set_default_bool(settings, "force_turn", false);
+	obs_data_set_default_int(settings, "video_protection_mode", static_cast<int>(VideoProtectionMode::Off));
+	obs_data_set_default_bool(settings, "audio_red", false);
+	obs_data_set_default_bool(settings, "adaptive_bitrate", false);
+	obs_data_set_default_int(settings, "adaptive_bitrate_min", 500);
 	obs_data_set_default_bool(settings, "auto_inbound_enabled", false);
 	obs_data_set_default_string(settings, "auto_inbound_room_id", "");
 	obs_data_set_default_string(settings, "auto_inbound_password", "");
@@ -862,6 +907,12 @@ void VDONinjaOutput::loadSettings(obs_data_t *settings)
 	settings_.enableDataChannel = getBoolSetting("enable_data_channel", true);
 	settings_.autoReconnect = getBoolSetting("auto_reconnect", true);
 	settings_.forceTurn = getBoolSetting("force_turn", false);
+	settings_.videoProtectionMode =
+	    videoProtectionModeFromInt(getIntSetting("video_protection_mode", static_cast<int>(VideoProtectionMode::Off)));
+	settings_.enableAudioRed = getBoolSetting("audio_red", false);
+	settings_.enableAdaptiveBitrate = getBoolSetting("adaptive_bitrate", false);
+	const int minimumAdaptiveKbps = std::clamp(getIntSetting("adaptive_bitrate_min", 500), 100, 10000);
+	settings_.minimumAdaptiveBitrate = minimumAdaptiveKbps * 1000;
 	settings_.enableRemote = false;
 
 	settings_.autoInbound.enabled = getBoolSetting("auto_inbound_enabled", false);
@@ -1278,9 +1329,9 @@ void VDONinjaOutput::primeViewerWithCachedKeyframe(const std::string &uuid)
 		keyframeTimestamp = cachedKeyframeTimestamp_;
 	}
 
-	// Only viewers still waiting on their first keyframe. Replaying the cache at a
-	// synchronized viewer rewinds its RTP timestamp without repairing the decode,
-	// which turns a single recovery request into a self-sustaining request loop.
+	// Only viewers still waiting on their first keyframe. The cached IDR provides
+	// an immediate still image, but the peer gate keeps live deltas suppressed
+	// until a complete live IDR establishes the current prediction chain.
 	if (peerManager_->sendVideoFrameToPeer(uuid, keyframeCopy.data(), keyframeCopy.size(), keyframeTimestamp, true,
 	                                       true)) {
 		keyframeRequestsPrimed_.fetch_add(1, std::memory_order_relaxed);
@@ -1340,7 +1391,8 @@ void VDONinjaOutput::publishSummaryThread()
 		}
 
 		const int64_t elapsedMs = steadyTimeMs() - lastPublishSummaryMs_;
-		const int64_t waitMs = std::max<int64_t>(1, kPublishSummaryIntervalMs - elapsedMs);
+		const int64_t summaryWaitMs = std::max<int64_t>(1, kPublishSummaryIntervalMs - elapsedMs);
+		const int64_t waitMs = std::min<int64_t>(kBitrateAdaptationIntervalMs, summaryWaitMs);
 		const bool stopping = publishSummaryCv_.wait_for(lock, std::chrono::milliseconds(waitMs),
 		                                                 [this]() { return !publishSummaryWorkerRunning_; });
 		if (stopping) {
@@ -1348,9 +1400,192 @@ void VDONinjaOutput::publishSummaryThread()
 		}
 
 		lock.unlock();
+		maybeAdaptBitrate();
 		maybeLogPublishSummary();
 		lock.lock();
 	}
+}
+
+void VDONinjaOutput::configureBitrateAdaptation(const OutputSettings &settings, int encoderBitrateBitsPerSecond)
+{
+	adaptiveBitrateEnabled_ = false;
+	bitrateController_.reset();
+	originalEncoderBitrate_ = std::max(encoderBitrateBitsPerSecond, 1);
+	currentEncoderBitrate_ = originalEncoderBitrate_;
+	pendingPacerBitrate_ = 0;
+	pendingPacerBitrateDueMs_ = 0;
+
+	if (!settings.enableAdaptiveBitrate) {
+		return;
+	}
+
+	obs_encoder_t *encoder = output_ ? obs_output_get_video_encoder(output_) : nullptr;
+	if (!encoder) {
+		logWarning("Adaptive bitrate requested, but no active OBS video encoder was available; leaving it disabled");
+		return;
+	}
+	if ((obs_encoder_get_caps(encoder) & OBS_ENCODER_CAP_DYN_BITRATE) == 0) {
+		logWarning("Adaptive bitrate requested, but encoder '%s' does not support dynamic bitrate; leaving it disabled",
+		           obs_encoder_get_id(encoder));
+		return;
+	}
+
+	BitrateControllerConfig controllerConfig;
+	controllerConfig.maximumBitrateBitsPerSecond = static_cast<uint64_t>(originalEncoderBitrate_);
+	controllerConfig.minimumBitrateBitsPerSecond =
+	    static_cast<uint64_t>(std::min(originalEncoderBitrate_, std::max(settings.minimumAdaptiveBitrate, 100000)));
+	bitrateController_ = std::make_unique<BitrateController>(controllerConfig);
+	adaptiveBitrateEnabled_ = true;
+	const char *encoderId = obs_encoder_get_id(encoder);
+	logInfo("Adaptive bitrate enabled for encoder '%s': %d-%d kbps, minimum fresh REMB across all viewers",
+	        encoderId ? encoderId : "(unknown)", static_cast<int>(controllerConfig.minimumBitrateBitsPerSecond / 1000U),
+	        originalEncoderBitrate_ / 1000);
+}
+
+void VDONinjaOutput::configureH264ProfileLevelId()
+{
+	obs_encoder_t *encoder = output_ ? obs_output_get_video_encoder(output_) : nullptr;
+	std::optional<std::string> profileLevelId;
+	if (encoder) {
+		uint8_t *extraData = nullptr;
+		size_t extraDataSize = 0;
+		if (obs_encoder_get_extra_data(encoder, &extraData, &extraDataSize) && extraData && extraDataSize > 0) {
+			profileLevelId = deriveH264ProfileLevelId(extraData, extraDataSize);
+		}
+	}
+
+	bool usedFallback = false;
+	if (!profileLevelId) {
+		uint32_t width = encoder ? obs_encoder_get_width(encoder) : 0;
+		uint32_t height = encoder ? obs_encoder_get_height(encoder) : 0;
+		obs_video_info videoInfo = {};
+		const bool hasVideoInfo = obs_get_video_info(&videoInfo);
+		if (width == 0 && hasVideoInfo) {
+			width = videoInfo.output_width;
+		}
+		if (height == 0 && hasVideoInfo) {
+			height = videoInfo.output_height;
+		}
+		const uint32_t fpsNumerator = hasVideoInfo ? videoInfo.fps_num : 30;
+		const uint32_t fpsDenominator = hasVideoInfo ? videoInfo.fps_den : 1;
+		profileLevelId = fallbackH264ProfileLevelId(width, height, fpsNumerator, fpsDenominator);
+		usedFallback = true;
+	}
+
+	{
+		std::lock_guard<std::mutex> lock(h264ProfileMutex_);
+		h264ProfileLevelId_ = *profileLevelId;
+	}
+	peerManager_->setH264ProfileLevelId(*profileLevelId);
+	logInfo("H.264 SDP profile-level-id=%s (%s)", profileLevelId->c_str(),
+	        usedFallback ? "resolution/FPS fallback until SPS is available" : "derived from encoder SPS");
+}
+
+void VDONinjaOutput::maybeAdaptBitrate()
+{
+	if (!adaptiveBitrateEnabled_ || !bitrateController_ || !running_ || !peerManager_) {
+		return;
+	}
+
+	maybeSettleAdaptivePacer();
+	const std::optional<uint64_t> estimate = peerManager_->minimumRecentRembBitrate(kRecentRembMaximumAge);
+	const std::optional<uint64_t> target = bitrateController_->observe(estimate);
+	if (!target || *target == 0 || *target > static_cast<uint64_t>(std::numeric_limits<int>::max())) {
+		return;
+	}
+	applyAdaptiveBitrate(*target, estimate.value_or(0));
+}
+
+void VDONinjaOutput::maybeSettleAdaptivePacer()
+{
+	if (pendingPacerBitrate_ <= 0 || pendingPacerBitrateDueMs_ <= 0 || steadyTimeMs() < pendingPacerBitrateDueMs_ ||
+	    !peerManager_) {
+		return;
+	}
+
+	const int settledBitrate = pendingPacerBitrate_;
+	pendingPacerBitrate_ = 0;
+	pendingPacerBitrateDueMs_ = 0;
+	peerManager_->setBitrate(settledBitrate);
+	logInfo("Adaptive bitrate settled RTP pacers to %d kbps after the encoder drain interval", settledBitrate / 1000);
+}
+
+void VDONinjaOutput::applyAdaptiveBitrate(uint64_t bitrateBitsPerSecond, uint64_t estimateBitsPerSecond)
+{
+	obs_encoder_t *encoder = output_ ? obs_output_get_video_encoder(output_) : nullptr;
+	if (!encoder || (obs_encoder_get_caps(encoder) & OBS_ENCODER_CAP_DYN_BITRATE) == 0) {
+		if (pendingPacerBitrate_ > 0 && peerManager_) {
+			peerManager_->setBitrate(pendingPacerBitrate_);
+		}
+		pendingPacerBitrate_ = 0;
+		pendingPacerBitrateDueMs_ = 0;
+		adaptiveBitrateEnabled_ = false;
+		logWarning("Adaptive bitrate stopped because the active encoder no longer supports dynamic updates");
+		return;
+	}
+
+	const int targetKbps =
+	    std::max(1, static_cast<int>(std::min<uint64_t>(bitrateBitsPerSecond / 1000U,
+	                                                    static_cast<uint64_t>(std::numeric_limits<int>::max()))));
+	const int targetBitsPerSecond = targetKbps * 1000;
+	if (targetBitsPerSecond == currentEncoderBitrate_) {
+		return;
+	}
+
+	const bool decreasing = targetBitsPerSecond < currentEncoderBitrate_;
+	if (!decreasing) {
+		// Give the scheduler enough capacity before the encoder begins
+		// producing at the higher rate.
+		pendingPacerBitrate_ = 0;
+		pendingPacerBitrateDueMs_ = 0;
+		peerManager_->setBitrate(targetBitsPerSecond);
+	}
+
+	obs_data_t *update = obs_data_create();
+	obs_data_set_int(update, "bitrate", targetKbps);
+	obs_encoder_update(encoder, update);
+	obs_data_release(update);
+	currentEncoderBitrate_ = targetBitsPerSecond;
+	if (decreasing) {
+		// Dynamic encoders can emit pre-change frames for a short time. Keep
+		// the previous pacer rate long enough to drain those frames instead of
+		// converting the encoder transition into seconds of queued latency.
+		pendingPacerBitrate_ = targetBitsPerSecond;
+		pendingPacerBitrateDueMs_ = steadyTimeMs() + kAdaptivePacerSettleDelayMs;
+		logInfo(
+		    "Adaptive bitrate changed OBS encoder to %d kbps (minimum REMB %llu kbps); RTP pacers will settle after "
+		    "the drain interval",
+		    targetKbps, static_cast<unsigned long long>(estimateBitsPerSecond / 1000U));
+	} else {
+		logInfo("Adaptive bitrate changed OBS encoder and RTP pacers to %d kbps (minimum REMB %llu kbps)", targetKbps,
+		        static_cast<unsigned long long>(estimateBitsPerSecond / 1000U));
+	}
+}
+
+void VDONinjaOutput::restoreEncoderBitrate()
+{
+	const bool shouldRestore =
+	    originalEncoderBitrate_ > 0 && currentEncoderBitrate_ > 0 && currentEncoderBitrate_ != originalEncoderBitrate_;
+	adaptiveBitrateEnabled_ = false;
+	bitrateController_.reset();
+	pendingPacerBitrate_ = 0;
+	pendingPacerBitrateDueMs_ = 0;
+	if (!shouldRestore) {
+		originalEncoderBitrate_ = 0;
+		currentEncoderBitrate_ = 0;
+		return;
+	}
+
+	obs_encoder_t *encoder = output_ ? obs_output_get_video_encoder(output_) : nullptr;
+	if (encoder) {
+		obs_data_t *update = obs_data_create();
+		obs_data_set_int(update, "bitrate", originalEncoderBitrate_ / 1000);
+		obs_encoder_update(encoder, update);
+		obs_data_release(update);
+		logInfo("Restored OBS encoder bitrate to %d kbps after adaptive session", originalEncoderBitrate_ / 1000);
+	}
+	originalEncoderBitrate_ = 0;
+	currentEncoderBitrate_ = 0;
 }
 
 void VDONinjaOutput::resetPublishTelemetry()
@@ -1436,8 +1671,8 @@ void VDONinjaOutput::maybeLogPublishSummary(bool force)
 		avgKeyframeKb = static_cast<double>(keyframeBytes) / static_cast<double>(keyframes) / 1024.0;
 	}
 
-	// A keyframe many times the size of an average frame goes out as one burst and
-	// is the usual reason an otherwise healthy stream hitches once per GOP.
+	// Track encoded keyframe size separately from the paced RTP burst so logs can
+	// distinguish encoder output from network egress behavior.
 	const double avgFrameBytes =
 	    videoFrames > 0 ? static_cast<double>(videoBytes) / static_cast<double>(videoFrames) : 0.0;
 	const double burstRatio = avgFrameBytes > 0.0 ? static_cast<double>(maxKeyframeBytes) / avgFrameBytes : 0.0;
@@ -1453,32 +1688,74 @@ void VDONinjaOutput::maybeLogPublishSummary(bool force)
 
 	const uint64_t requests = keyframeRequests_.exchange(0, std::memory_order_relaxed);
 	const uint64_t primed = keyframeRequestsPrimed_.exchange(0, std::memory_order_relaxed);
+	const RtcpFeedbackStats feedbackStats = peerManager_ ? peerManager_->takeVideoFeedbackStats() : RtcpFeedbackStats{};
 	const RtpPacerStats pacerStats = peerManager_ ? peerManager_->takeVideoPacerStats() : RtpPacerStats{};
 	const RtpSendStats audioSendStats = peerManager_ ? peerManager_->takeAudioSendStats() : RtpSendStats{};
+	const AudioRedStats audioRedStats = peerManager_ ? peerManager_->takeAudioRedStats() : AudioRedStats{};
 	const double maxAudioTimestampStepMs = static_cast<double>(audioTimestampStats.maxForwardStep) * 1000.0 / 48000.0;
+	const double maxReceiverLossPercent = static_cast<double>(feedbackStats.maxFractionLost) * 100.0 / 256.0;
+	const double maxReceiverJitterMs = static_cast<double>(feedbackStats.maxJitterTicks) * 1000.0 / 90000.0;
 
 	logInfo(
 	    "Publish: %.1f fps, %.0f kbps video, %.0f kbps audio, keyframe every %.1fs (avg %.0f KB, max %.0f KB, "
 	    "%.0fx avg frame), %d viewers, queue %zu, dropped %llu, keyframe requests %llu (%llu primed), "
+	    "RTCP NACK %llu msgs/%llu packets, PLI %llu, FIR %llu, RR %llu, loss max %.1f%%, RTT max %llu ms, "
+	    "jitter max %.1f ms, REMB %llu (min %llu/max %llu kbps), malformed %llu, NACK cache %llu hit/%llu miss, "
+	    "repair %llu queued/%llu sent/%llu dropped/%llu expired/%llu failed, "
+	    "duplicate %llu queued/%llu sent (%.0f KB)/%llu dropped (%llu expired)/%llu failed, "
 	    "pacer max batch %.0f KB, queued %.0f KB (max %.0f KB), delay %llu ms, dropped %llu, send errors %llu, "
+	    "frames %llu (keyframes %llu, failed %llu), send max %llu ms (keyframe %llu ms), "
 	    "audio packets %llu, RTP max step %.1f ms (large %llu, non-forward %llu), queue max %llu, delay %llu ms, "
-	    "dropped %llu, sent %llu, send errors %llu",
+	    "dropped %llu, sent %llu, send errors %llu, audio RED %llu packets (%llu redundant/%llu primary-only, "
+	    "%.0f KB redundant)",
 	    fps, videoKbps, audioKbps, keyframeIntervalSec, avgKeyframeKb, static_cast<double>(maxKeyframeBytes) / 1024.0,
 	    burstRatio, peerManager_ ? peerManager_->getViewerCount() : 0, queueDepth,
 	    static_cast<unsigned long long>(droppedMediaFrames_.load(std::memory_order_relaxed)),
 	    static_cast<unsigned long long>(requests), static_cast<unsigned long long>(primed),
+	    static_cast<unsigned long long>(feedbackStats.nackMessages),
+	    static_cast<unsigned long long>(feedbackStats.nackRequestedPackets),
+	    static_cast<unsigned long long>(feedbackStats.pliMessages),
+	    static_cast<unsigned long long>(feedbackStats.firMessages),
+	    static_cast<unsigned long long>(feedbackStats.receiverReports), maxReceiverLossPercent,
+	    static_cast<unsigned long long>(feedbackStats.maxRttMs), maxReceiverJitterMs,
+	    static_cast<unsigned long long>(feedbackStats.rembMessages),
+	    static_cast<unsigned long long>(feedbackStats.minRembBitrateBps / 1000U),
+	    static_cast<unsigned long long>(feedbackStats.maxRembBitrateBps / 1000U),
+	    static_cast<unsigned long long>(feedbackStats.malformedPackets),
+	    static_cast<unsigned long long>(feedbackStats.nackCacheHits),
+	    static_cast<unsigned long long>(feedbackStats.nackCacheMisses),
+	    static_cast<unsigned long long>(feedbackStats.retransmissionsQueued),
+	    static_cast<unsigned long long>(feedbackStats.retransmissionsSent),
+	    static_cast<unsigned long long>(feedbackStats.retransmissionsDropped),
+	    static_cast<unsigned long long>(feedbackStats.retransmissionsExpired),
+	    static_cast<unsigned long long>(feedbackStats.retransmissionSendFailures),
+	    static_cast<unsigned long long>(pacerStats.queuedDuplicates),
+	    static_cast<unsigned long long>(pacerStats.sentDuplicates),
+	    static_cast<double>(pacerStats.sentDuplicateBytes) / 1024.0,
+	    static_cast<unsigned long long>(pacerStats.droppedDuplicates),
+	    static_cast<unsigned long long>(pacerStats.expiredDuplicates),
+	    static_cast<unsigned long long>(pacerStats.failedDuplicates),
 	    static_cast<double>(pacerStats.maxBatchBytes) / 1024.0, static_cast<double>(pacerStats.queuedBytes) / 1024.0,
 	    static_cast<double>(pacerStats.maxQueuedBytes) / 1024.0,
 	    static_cast<unsigned long long>(pacerStats.maxPacketDelayMs),
 	    static_cast<unsigned long long>(pacerStats.droppedFrames),
 	    static_cast<unsigned long long>(pacerStats.sendFailures),
+	    static_cast<unsigned long long>(pacerStats.sentFrames),
+	    static_cast<unsigned long long>(pacerStats.sentKeyframes),
+	    static_cast<unsigned long long>(pacerStats.failedFrames),
+	    static_cast<unsigned long long>(pacerStats.maxFrameSendDurationMs),
+	    static_cast<unsigned long long>(pacerStats.maxKeyframeSendDurationMs),
 	    static_cast<unsigned long long>(audioTimestampStats.packets), maxAudioTimestampStepMs,
 	    static_cast<unsigned long long>(audioTimestampStats.largeSteps),
 	    static_cast<unsigned long long>(audioTimestampStats.nonForwardSteps),
 	    static_cast<unsigned long long>(maxQueueDepth), static_cast<unsigned long long>(maxAudioQueueDelayMs),
 	    static_cast<unsigned long long>(droppedAudioMediaFrames_.load(std::memory_order_relaxed)),
 	    static_cast<unsigned long long>(audioSendStats.sentPackets),
-	    static_cast<unsigned long long>(audioSendStats.sendFailures));
+	    static_cast<unsigned long long>(audioSendStats.sendFailures),
+	    static_cast<unsigned long long>(audioRedStats.packets),
+	    static_cast<unsigned long long>(audioRedStats.packetsWithRedundancy),
+	    static_cast<unsigned long long>(audioRedStats.primaryOnlyPackets),
+	    static_cast<double>(audioRedStats.redundantBytes) / 1024.0);
 }
 
 bool VDONinjaOutput::start()
@@ -1528,6 +1805,7 @@ bool VDONinjaOutput::start()
 		obs_output_set_last_error(output_, "Failed to initialize OBS encoders for VDO.Ninja output.");
 		return false;
 	}
+	configureH264ProfileLevelId();
 
 	selectedAudioTrackIdx_ = resolveOutputAudioTrackIndex(output_);
 	droppedAudioPacketsOtherTracks_ = 0;
@@ -1551,13 +1829,6 @@ bool VDONinjaOutput::start()
 	droppedMediaFrames_ = 0;
 	droppedAudioMediaFrames_ = 0;
 
-	startMediaSendWorker();
-	startPublishSummaryWorker();
-
-	if (startStopThread_.joinable()) {
-		startStopThread_.join();
-	}
-
 	// Snapshot settings under lock for the start thread
 	OutputSettings settingsSnap;
 	{
@@ -1569,6 +1840,14 @@ bool VDONinjaOutput::start()
 	if (settingsSnap.quality.bitrate != configuredBitrate) {
 		logInfo("Using active video encoder bitrate %d kbps for RTP pacing (service setting: %d kbps)",
 		        settingsSnap.quality.bitrate / 1000, configuredBitrate / 1000);
+	}
+	configureBitrateAdaptation(settingsSnap, settingsSnap.quality.bitrate);
+
+	startMediaSendWorker();
+	startPublishSummaryWorker();
+
+	if (startStopThread_.joinable()) {
+		startStopThread_.join();
 	}
 
 	startStopThread_ = std::thread(&VDONinjaOutput::startThread, this, settingsSnap);
@@ -1587,6 +1866,8 @@ void VDONinjaOutput::startThread(OutputSettings settingsSnap)
 		peerManager_->setVideoCodec(settingsSnap.videoCodec);
 		peerManager_->setAudioCodec(settingsSnap.audioCodec);
 		peerManager_->setBitrate(settingsSnap.quality.bitrate);
+		peerManager_->setVideoProtectionMode(settingsSnap.videoProtectionMode);
+		peerManager_->setAudioRedEnabled(settingsSnap.enableAudioRed);
 		peerManager_->setEnableDataChannel(settingsSnap.enableDataChannel);
 		peerManager_->setIceServers(settingsSnap.customIceServers);
 		peerManager_->setForceTurn(settingsSnap.forceTurn);
@@ -1834,6 +2115,8 @@ void VDONinjaOutput::startThread(OutputSettings settingsSnap)
 
 				if (refreshVideo) {
 					logInfo("Viewer %s requested publisher video refresh over data channel", uuid.c_str());
+					self->noteKeyframeRequest(uuid, "refreshVideo");
+					self->peerManager_->notePeerKeyframeRequest(uuid);
 					self->primeViewerWithCachedKeyframe(uuid);
 				}
 				if (refreshConnection) {
@@ -2023,6 +2306,7 @@ void VDONinjaOutput::stop()
 		if (startStopThread_.joinable()) {
 			startStopThread_.join();
 		}
+		restoreEncoderBitrate();
 		return;
 	}
 
@@ -2091,6 +2375,7 @@ void VDONinjaOutput::stop()
 		obs_output_end_data_capture(output_);
 		capturing_ = false;
 	}
+	restoreEncoderBitrate();
 	{
 		std::lock_guard<std::mutex> lock(keyframeCacheMutex_);
 		cachedKeyframe_.clear();
@@ -2139,6 +2424,7 @@ void VDONinjaOutput::enqueueMediaFrame(QueuedMediaFrame frame)
 	frame.queuedAtMs = static_cast<uint64_t>(steadyTimeMs());
 
 	uint64_t dropped = 0;
+	bool droppedVideo = false;
 	{
 		std::lock_guard<std::mutex> lock(mediaSendMutex_);
 		if (!mediaSendWorkerRunning_) {
@@ -2147,9 +2433,17 @@ void VDONinjaOutput::enqueueMediaFrame(QueuedMediaFrame frame)
 		while (mediaSendQueue_.size() >= kMaxQueuedMediaFrames) {
 			if (mediaSendQueue_.front().type == MediaFrameType::Audio) {
 				droppedAudioMediaFrames_.fetch_add(1, std::memory_order_relaxed);
+			} else {
+				droppedVideo = true;
 			}
 			mediaSendQueue_.pop_front();
 			dropped = ++droppedMediaFrames_;
+		}
+		if (droppedVideo && peerManager_) {
+			// Close every peer's decode gate before the sender worker can
+			// dequeue anything newer than the missing frame. This drop happens
+			// before RTP sequence assignment, so the receiver cannot NACK it.
+			peerManager_->requireLiveKeyframeForAll();
 		}
 		mediaSendQueue_.push_back(std::move(frame));
 		updateAtomicMaximum(maxMediaQueueDepth_, static_cast<uint64_t>(mediaSendQueue_.size()));
@@ -2294,6 +2588,22 @@ void VDONinjaOutput::processVideoPacket(encoder_packet *packet)
 	}
 
 	if (keyframe) {
+		if (const auto profileLevelId = deriveH264ProfileLevelId(packet->data, packet->size)) {
+			bool changed = false;
+			{
+				std::lock_guard<std::mutex> lock(h264ProfileMutex_);
+				if (h264ProfileLevelId_ != *profileLevelId) {
+					h264ProfileLevelId_ = *profileLevelId;
+					changed = true;
+				}
+			}
+			if (changed) {
+				peerManager_->setH264ProfileLevelId(*profileLevelId);
+				logInfo("Updated H.264 profile-level-id to %s from live SPS for future viewer offers",
+				        profileLevelId->c_str());
+			}
+		}
+
 		const int64_t nowMs = currentTimeMs();
 		if (lastKeyframeWallClockMs_ != 0) {
 			const int64_t gapMs = nowMs - lastKeyframeWallClockMs_;

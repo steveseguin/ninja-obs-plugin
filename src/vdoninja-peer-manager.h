@@ -14,9 +14,12 @@
 #include <functional>
 #include <map>
 #include <mutex>
+#include <optional>
 
+#include "vdoninja-audio-red.h"
 #include "vdoninja-common.h"
 #include "vdoninja-ice-candidate-queue.h"
+#include "vdoninja-rtcp-feedback.h"
 #include "vdoninja-rtp-pacer.h"
 #include "vdoninja-rtp-send-tracker.h"
 #include "vdoninja-signaling.h"
@@ -78,6 +81,7 @@ public:
 	// Send media to all connected peers (viewers)
 	void sendAudioFrame(const uint8_t *data, size_t size, uint32_t timestamp);
 	void sendVideoFrame(const uint8_t *data, size_t size, uint32_t timestamp, bool keyframe);
+	void requireLiveKeyframeForAll();
 	// cachedReplay identifies the cached startup keyframe. It is only safe before
 	// a peer first synchronizes, never for recovery after packet loss.
 	bool sendVideoFrameToPeer(const std::string &uuid, const uint8_t *data, size_t size, uint32_t timestamp,
@@ -117,10 +121,16 @@ public:
 	// Configuration
 	void setVideoCodec(VideoCodec codec);
 	void setAudioCodec(AudioCodec codec);
+	void setH264ProfileLevelId(const std::string &profileLevelId);
 	void setBitrate(int bitrate);
+	void setVideoProtectionMode(VideoProtectionMode mode);
+	void setAudioRedEnabled(bool enable);
 	void setEnableDataChannel(bool enable);
+	RtcpFeedbackStats takeVideoFeedbackStats();
+	std::optional<uint64_t> minimumRecentRembBitrate(std::chrono::milliseconds maxAge) const;
 	RtpPacerStats takeVideoPacerStats();
 	RtpSendStats takeAudioSendStats();
+	AudioRedStats takeAudioRedStats();
 
 private:
 	struct PublisherMediaState {
@@ -200,8 +210,13 @@ private:
 	// Codec and quality settings
 	VideoCodec videoCodec_ = VideoCodec::H264;
 	AudioCodec audioCodec_ = AudioCodec::Opus;
-	int bitrate_ = 4000000;
+	mutable std::mutex codecMutex_;
+	std::string h264ProfileLevelId_ = "42e01f";
+	std::atomic<int> bitrate_{4000000};
+	VideoProtectionMode videoProtectionMode_ = VideoProtectionMode::Off;
+	std::atomic<bool> audioRedEnabled_{false};
 	bool enableDataChannel_ = true;
+	std::shared_ptr<RtpSharedPacerBudget> videoPacerBudget_;
 
 	// Audio/Video SSRC for outgoing media
 	uint32_t audioSsrc_ = 0;
@@ -212,6 +227,10 @@ private:
 	uint32_t videoTimestamp_ = 0;
 	std::atomic<uint64_t> nextPeerGeneration_{1};
 	RtpSendTracker audioSendTracker_;
+	std::atomic<uint64_t> audioRedPackets_{0};
+	std::atomic<uint64_t> audioRedPacketsWithRedundancy_{0};
+	std::atomic<uint64_t> audioRedPrimaryOnlyPackets_{0};
+	std::atomic<uint64_t> audioRedRedundantBytes_{0};
 
 	// ICE candidate bundling
 	struct CandidateBundle {

@@ -300,10 +300,16 @@ if(BUILD_PLUGIN)
     set(PLUGIN_SOURCES
         src/plugin-main.cpp
         src/vdoninja-alpha-sync.cpp
+        src/vdoninja-audio-red.cpp
+        src/vdoninja-bitrate-controller.cpp
+        src/vdoninja-h264-profile.cpp
         src/vdoninja-ice-candidate-queue.cpp
+        src/vdoninja-loss-protection.cpp
         src/vdoninja-output.cpp
         src/vdoninja-reliability.cpp
+        src/vdoninja-rtcp-feedback.cpp
         src/vdoninja-rtp-pacer.cpp
+        src/vdoninja-rtp-repair.cpp
         src/vdoninja-rtp-utils.cpp
         src/vdoninja-source.cpp
         src/vdoninja-signaling.cpp
@@ -320,12 +326,18 @@ if(BUILD_PLUGIN)
     set(PLUGIN_HEADERS
         src/plugin-main.h
         src/vdoninja-alpha-sync.h
+        src/vdoninja-audio-red.h
+        src/vdoninja-bitrate-controller.h
+        src/vdoninja-h264-profile.h
         src/vdoninja-auto-inbound-state.h
         src/vdoninja-ice-candidate-queue.h
+        src/vdoninja-loss-protection.h
         src/vdoninja-common.h
         src/vdoninja-output.h
         src/vdoninja-reliability.h
+        src/vdoninja-rtcp-feedback.h
         src/vdoninja-rtp-pacer.h
+        src/vdoninja-rtp-repair.h
         src/vdoninja-source.h
         src/vdoninja-signaling.h
         src/vdoninja-signaling-protocol.h
@@ -511,11 +523,17 @@ if(BUILD_TESTS)
     # Test sources that don't depend on OBS
     set(TESTABLE_SOURCES
         src/vdoninja-alpha-sync.cpp
+        src/vdoninja-audio-red.cpp
+        src/vdoninja-bitrate-controller.cpp
+        src/vdoninja-h264-profile.cpp
         src/vdoninja-ice-candidate-queue.cpp
+        src/vdoninja-loss-protection.cpp
         src/vdoninja-rtp-utils.cpp
         src/vdoninja-utils.cpp
         src/vdoninja-reliability.cpp
+        src/vdoninja-rtcp-feedback.cpp
         src/vdoninja-rtp-pacer.cpp
+        src/vdoninja-rtp-repair.cpp
         src/vdoninja-data-channel.cpp
         src/vdoninja-signaling.cpp
         src/vdoninja-signaling-protocol.cpp
@@ -549,13 +567,19 @@ if(BUILD_TESTS)
     # Unit tests
     add_executable(vdoninja-tests
         tests/test-alpha-sync.cpp
+        tests/test-audio-red.cpp
         tests/test-auto-inbound.cpp
+        tests/test-bitrate-controller.cpp
+        tests/test-h264-profile.cpp
         tests/test-ice-candidate-queue.cpp
+        tests/test-loss-protection.cpp
         tests/test-peer-manager.cpp
         tests/test-utils.cpp
         tests/test-reliability.cpp
+        tests/test-rtcp-feedback.cpp
         tests/test-rtp-audio.cpp
         tests/test-rtp-pacer.cpp
+        tests/test-rtp-repair.cpp
         tests/test-json.cpp
         tests/test-data-channel.cpp
         tests/test-signaling-protocol.cpp

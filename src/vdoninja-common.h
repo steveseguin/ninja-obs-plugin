@@ -18,6 +18,7 @@
 #include <thread>
 #include <vector>
 
+#include "vdoninja-loss-protection.h"
 #include "vdoninja-video-keyframe-gate.h"
 
 // Forward declarations for libdatachannel
@@ -35,6 +36,7 @@ namespace vdoninja
 {
 
 class RtpPacketPacer;
+class RtcpFeedbackTracker;
 
 // VDO.Ninja default configuration
 constexpr const char *DEFAULT_WSS_HOST = "wss://wss.vdo.ninja";
@@ -105,9 +107,14 @@ struct PeerInfo {
 	std::shared_ptr<rtc::RtcpSrReporter> videoSrReporter;
 	std::shared_ptr<rtc::RtpPacketizationConfig> audioRtpConfig;
 	std::shared_ptr<rtc::RtpPacketizationConfig> videoRtpConfig;
+	std::shared_ptr<RtcpFeedbackTracker> videoFeedbackTracker;
 	std::shared_ptr<RtpPacketPacer> videoPacer;
 	bool useAudioPacketizer = false;
 	bool useVideoPacketizer = false;
+	bool useAudioRed = false;
+	bool hasPreviousOpusPayload = false;
+	std::vector<uint8_t> previousOpusPayload;
+	uint32_t previousOpusTimestamp = 0;
 	bool localDescriptionCallbackInstalled = false;
 	uint16_t audioSeq = 0;
 	uint16_t videoSeq = 0;
@@ -192,6 +199,10 @@ struct OutputSettings {
 	int maxViewers = 10; // Max simultaneous P2P connections
 	std::vector<IceServer> customIceServers;
 	bool forceTurn = false;
+	VideoProtectionMode videoProtectionMode = VideoProtectionMode::Off;
+	bool enableAudioRed = false;
+	bool enableAdaptiveBitrate = false;
+	int minimumAdaptiveBitrate = 500000;
 	bool enableRemote = false;
 	AutoInboundSettings autoInbound;
 };

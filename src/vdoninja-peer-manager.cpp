@@ -9,11 +9,17 @@
 #include <cctype>
 #include <cstdint>
 #include <cstring>
+#include <limits>
 #include <random>
 #include <sstream>
 #include <stdexcept>
+#include <unordered_set>
 #include <vector>
 
+#include "vdoninja-audio-red.h"
+#include "vdoninja-h264-profile.h"
+#include "vdoninja-rtcp-feedback.h"
+#include "vdoninja-rtp-repair.h"
 #include "vdoninja-rtp-utils.h"
 #include "vdoninja-utils.h"
 
@@ -24,16 +30,18 @@ namespace
 {
 
 constexpr uint8_t kH264PayloadType = 96;
-constexpr uint8_t kOpusPayloadType = 111;
+constexpr uint8_t kOpusPayloadType = kDefaultOpusPayloadType;
+constexpr uint8_t kAudioRedPayloadType = kDefaultAudioRedPayloadType;
 constexpr uint8_t kH264FuAType = 28;
 constexpr size_t kMaxRtpPayloadSize = 1200;
 constexpr int64_t kRetiredPeerCleanupDelayMs = 1000;
 constexpr uint32_t kVideoClockRate = 90000;
 constexpr uint32_t kAudioClockRate = 48000;
-constexpr auto kVideoPacerInterval = std::chrono::milliseconds(5);
-constexpr uint64_t kVideoPacerRateMultiplier = 10;
+constexpr auto kVideoPacerInterval = std::chrono::milliseconds(2);
+constexpr uint64_t kVideoPacerRateMultiplier = 2;
 constexpr uint64_t kMinimumVideoPacerBitrate = 1000000;
 constexpr uint64_t kMaximumVideoPacerBitrate = 100000000;
+constexpr size_t kAggregateVideoPacerBurstBytes = 4U * 1024U;
 
 uint64_t videoPacerBitrate(int encoderBitrate)
 {
@@ -44,6 +52,20 @@ uint64_t videoPacerBitrate(int encoderBitrate)
 	return std::clamp(multiplied, kMinimumVideoPacerBitrate, kMaximumVideoPacerBitrate);
 }
 
+uint64_t videoProtectionBitrate(int encoderBitrate, VideoProtectionMode mode)
+{
+	const VideoProtectionPolicy policy = videoProtectionPolicy(mode);
+	const uint64_t positiveBitrate = static_cast<uint64_t>(std::max(encoderBitrate, 1));
+	if (policy.duplicateBudgetPercent == 0) {
+		return 0;
+	}
+	const uint64_t percent = policy.duplicateBudgetPercent;
+	if (positiveBitrate > std::numeric_limits<uint64_t>::max() / percent) {
+		return std::numeric_limits<uint64_t>::max();
+	}
+	return positiveBitrate * percent / 100U;
+}
+
 uint32_t rtpPacketTimestamp(const RtpPacketPacer::Packet &packet)
 {
 	if (packet.size() < 8) {
@@ -52,6 +74,127 @@ uint32_t rtpPacketTimestamp(const RtpPacketPacer::Packet &packet)
 	return (static_cast<uint32_t>(packet[4]) << 24) | (static_cast<uint32_t>(packet[5]) << 16) |
 	       (static_cast<uint32_t>(packet[6]) << 8) | static_cast<uint32_t>(packet[7]);
 }
+
+// The caller must hold peer.mediaMutex. RTP sequence numbers are assigned when
+// complete frames enter the pacer so NACK history remains deterministic. A
+// recovery purge removes only an unsent tail; reclaiming exactly that tail
+// prevents the next live keyframe from exposing artificial sequence gaps.
+void reclaimDiscardedVideoSequenceNumbers(PeerInfo &peer, size_t discardedPackets)
+{
+	peer.videoSeq = rewindRtpSequenceNumber(peer.videoSeq, discardedPackets);
+}
+
+class RtcpTelemetryHandler final : public rtc::MediaHandler
+{
+public:
+	explicit RtcpTelemetryHandler(std::shared_ptr<RtcpFeedbackTracker> tracker) : tracker_(std::move(tracker)) {}
+
+	void incoming(rtc::message_vector &messages, const rtc::message_callback &) override
+	{
+		const auto tracker = tracker_;
+		if (!tracker) {
+			return;
+		}
+
+		const uint32_t compactNtpNow = RtcpFeedbackTracker::currentCompactNtp();
+		for (const auto &message : messages) {
+			if (!message || message->type != rtc::Message::Control) {
+				continue;
+			}
+			tracker->observe(reinterpret_cast<const uint8_t *>(message->data()), message->size(), compactNtpNow);
+		}
+	}
+
+private:
+	std::shared_ptr<RtcpFeedbackTracker> tracker_;
+};
+
+class PacedNackResponder final : public rtc::MediaHandler
+{
+public:
+	PacedNackResponder(uint32_t mediaSsrc, std::weak_ptr<RtpPacketPacer> pacer,
+	                   std::shared_ptr<RtcpFeedbackTracker> tracker)
+	    : mediaSsrc_(mediaSsrc), pacer_(std::move(pacer)), tracker_(std::move(tracker))
+	{
+	}
+
+	void incoming(rtc::message_vector &messages, const rtc::message_callback &send) override
+	{
+		const auto pacer = pacer_.lock();
+		if (!pacer) {
+			return;
+		}
+
+		const auto self = std::static_pointer_cast<PacedNackResponder>(shared_from_this());
+		const std::weak_ptr<PacedNackResponder> weakSelf = self;
+		for (const auto &message : messages) {
+			if (!message || message->type != rtc::Message::Control) {
+				continue;
+			}
+
+			const auto requested =
+			    parseRtcpNackRequests(reinterpret_cast<const uint8_t *>(message->data()), message->size(), mediaSsrc_);
+			for (const uint16_t sequenceNumber : requested) {
+				auto packet = cache_.find(sequenceNumber);
+				tracker_->noteNackCacheResult(packet.has_value());
+				if (!packet) {
+					continue;
+				}
+
+				{
+					std::lock_guard<std::mutex> lock(pendingMutex_);
+					if (!pendingRepairs_.insert(sequenceNumber).second) {
+						continue;
+					}
+				}
+
+				auto directSend = [send](RtpPacketPacer::Packet &&repairPacket) {
+					rtc::binary payload(repairPacket.size());
+					std::memcpy(payload.data(), repairPacket.data(), repairPacket.size());
+					send(rtc::make_message(std::move(payload)));
+					return true;
+				};
+				const auto tracker = tracker_;
+				const bool queued = pacer->enqueueRepair(
+				    std::move(*packet), std::move(directSend),
+				    [weakSelf, tracker, sequenceNumber](RtpPacerRepairOutcome outcome) {
+					    if (const auto responder = weakSelf.lock()) {
+						    std::lock_guard<std::mutex> lock(responder->pendingMutex_);
+						    responder->pendingRepairs_.erase(sequenceNumber);
+					    }
+					    if (outcome == RtpPacerRepairOutcome::Expired) {
+						    tracker->noteRetransmissionExpired();
+					    } else {
+						    tracker->noteRetransmissionCompleted(outcome == RtpPacerRepairOutcome::Sent);
+					    }
+				    });
+				tracker_->noteRetransmissionQueued(queued);
+				if (!queued) {
+					std::lock_guard<std::mutex> lock(pendingMutex_);
+					pendingRepairs_.erase(sequenceNumber);
+				}
+			}
+		}
+	}
+
+	void outgoing(rtc::message_vector &messages, const rtc::message_callback &) override
+	{
+		for (const auto &message : messages) {
+			if (!message || message->type == rtc::Message::Control) {
+				continue;
+			}
+			cache_.store(reinterpret_cast<const uint8_t *>(message->data()), message->size());
+		}
+	}
+
+private:
+	const uint32_t mediaSsrc_;
+	std::weak_ptr<RtpPacketPacer> pacer_;
+	std::shared_ptr<RtcpFeedbackTracker> tracker_;
+	RtpRetransmissionCache cache_;
+	std::mutex pendingMutex_;
+	std::unordered_set<uint16_t> pendingRepairs_;
+};
 
 template <typename Fn> void runRtcCallbackNoexcept(const char *context, Fn &&fn)
 {
@@ -163,8 +306,7 @@ std::string constrainViewerOfferToNativeCodecs(const std::string &sdp)
 {
 	std::string filtered = stripUnsupportedTransportCcFeedback(sdp);
 	if (filtered != sdp) {
-		logInfo(
-		    "Stripped transport-cc feedback/extensions from native viewer offer to prefer REMB-compatible feedback");
+		logInfo("Stripped transport-cc feedback/extensions unsupported by the native receiver");
 	}
 	return filtered;
 }
@@ -485,6 +627,7 @@ void clearDataChannelCallbacks(const std::shared_ptr<rtc::DataChannel> &dataChan
 } // namespace
 
 VDONinjaPeerManager::VDONinjaPeerManager()
+    : videoPacerBudget_(std::make_shared<RtpSharedPacerBudget>(kAggregateVideoPacerBurstBytes))
 {
 	// Generate random SSRCs for audio/video
 	std::random_device rd;
@@ -661,6 +804,7 @@ bool VDONinjaPeerManager::startPublishing(int maxViewers)
 
 	maxViewers_ = maxViewers;
 	audioSendTracker_.reset();
+	takeAudioRedStats();
 	publishing_ = true;
 
 	logInfo("Started publishing, max viewers: %d", maxViewers);
@@ -1421,7 +1565,12 @@ void VDONinjaPeerManager::setupPublisherTracks(std::shared_ptr<PeerInfo> peer)
 {
 	// Set up video track
 	rtc::Description::Video videoDesc("video", rtc::Description::Direction::SendOnly);
-	videoDesc.addH264Codec(96);
+	std::string h264ProfileLevelId;
+	{
+		std::lock_guard<std::mutex> codecLock(codecMutex_);
+		h264ProfileLevelId = h264ProfileLevelId_;
+	}
+	videoDesc.addH264Codec(96, h264FmtpForProfileLevelId(h264ProfileLevelId));
 	videoDesc.addSSRC(videoSsrc_, "video-stream");
 	peer->videoTrack = peer->pc->addTrack(videoDesc);
 	peer->videoRtpConfig =
@@ -1429,7 +1578,7 @@ void VDONinjaPeerManager::setupPublisherTracks(std::shared_ptr<PeerInfo> peer)
 	peer->videoRtpConfig->sequenceNumber = peer->videoSeq;
 	peer->videoRtpConfig->timestamp = peer->videoTimestamp;
 	peer->videoSrReporter = std::make_shared<rtc::RtcpSrReporter>(peer->videoRtpConfig);
-	auto videoNackResponder = std::make_shared<rtc::RtcpNackResponder>();
+	peer->videoFeedbackTracker = std::make_shared<RtcpFeedbackTracker>(videoSsrc_);
 	auto weakPeer = std::weak_ptr<PeerInfo>(peer);
 	auto videoPliHandler = std::make_shared<rtc::PliHandler>([this, weakPeer, uuid = peer->uuid]() {
 		runRtcCallbackNoexcept("PliHandler", [&]() {
@@ -1441,9 +1590,33 @@ void VDONinjaPeerManager::setupPublisherTracks(std::shared_ptr<PeerInfo> peer)
 			    !isCurrentPeer(peer)) {
 				return;
 			}
+			size_t discardedFrames = 0;
+			size_t discardedPackets = 0;
 			{
-				std::lock_guard<std::mutex> mediaLock(peer->mediaMutex);
-				peer->videoKeyframeGate.onDecoderKeyframeRequest();
+				std::lock_guard<std::mutex> sendLock(peer->videoSendMutex);
+				std::shared_ptr<RtpPacketPacer> pacer;
+				VideoKeyframeGate::DecoderRequestDisposition disposition;
+				{
+					std::lock_guard<std::mutex> mediaLock(peer->mediaMutex);
+					if (peer->cleanupRetired.load() || isTerminalPeerState(peer->state.load())) {
+						return;
+					}
+					disposition = peer->videoKeyframeGate.onDecoderKeyframeRequest();
+					pacer = peer->videoPacer;
+				}
+				if (pacer && disposition == VideoKeyframeGate::DecoderRequestDisposition::RequireNewLiveKeyframe) {
+					discardedFrames = pacer->discardQueuedMediaFramesAfterCurrent(&discardedPackets);
+					if (discardedPackets != 0) {
+						std::lock_guard<std::mutex> mediaLock(peer->mediaMutex);
+						if (peer->videoPacer == pacer) {
+							reclaimDiscardedVideoSequenceNumbers(*peer, discardedPackets);
+						}
+					}
+				}
+			}
+			if (discardedFrames != 0) {
+				logInfo("PLI recovery discarded %zu stale queued video frames/%zu unsent packets for viewer %s",
+				        discardedFrames, discardedPackets, uuid.c_str());
 			}
 			OnKeyframeRequestCallback cb;
 			{
@@ -1455,10 +1628,11 @@ void VDONinjaPeerManager::setupPublisherTracks(std::shared_ptr<PeerInfo> peer)
 			}
 		});
 	});
-	peer->videoSrReporter->addToChain(videoNackResponder);
-	peer->videoSrReporter->addToChain(videoPliHandler);
-	peer->videoTrack->setMediaHandler(peer->videoSrReporter);
-	const uint64_t pacerBitrate = videoPacerBitrate(bitrate_);
+	const int currentEncoderBitrate = bitrate_.load(std::memory_order_acquire);
+	const uint64_t pacerBitrate = videoPacerBitrate(currentEncoderBitrate);
+	RtpPacketDuplicationConfig duplicationConfig;
+	duplicationConfig.mode = videoProtectionMode_;
+	duplicationConfig.averageBitrateBitsPerSecond = videoProtectionBitrate(currentEncoderBitrate, videoProtectionMode_);
 	const auto pacerTrack = peer->videoTrack;
 	const auto pacerRtpConfig = peer->videoRtpConfig;
 	const auto pacerSrReporter = peer->videoSrReporter;
@@ -1476,14 +1650,34 @@ void VDONinjaPeerManager::setupPublisherTracks(std::shared_ptr<PeerInfo> peer)
 			    }
 		    }
 		    return pacerTrack->send(std::move(packet));
-	    });
-	logInfo("Viewer %s video RTP pacer: %.1f Mbps, %zu KB per %lld ms batch, %zu KB queue limit", peer->uuid.c_str(),
-	        static_cast<double>(pacerBitrate) / 1000000.0, peer->videoPacer->batchBudgetBytes() / 1024,
-	        static_cast<long long>(kVideoPacerInterval.count()), peer->videoPacer->maxQueueBytes() / 1024);
+	    },
+	    0, videoPacerBudget_, duplicationConfig);
+	peer->videoSrReporter->addToChain(std::make_shared<RtcpTelemetryHandler>(peer->videoFeedbackTracker));
+	peer->videoSrReporter->addToChain(
+	    std::make_shared<PacedNackResponder>(videoSsrc_, peer->videoPacer, peer->videoFeedbackTracker));
+	peer->videoSrReporter->addToChain(videoPliHandler);
+	peer->videoTrack->setMediaHandler(peer->videoSrReporter);
+	logInfo("Viewer %s video RTP pacer: %.1f Mbps, %zu KB per %lld ms batch, %zu KB queue limit, %zu KB shared "
+	        "aggregate burst, H.264 profile-level-id=%s",
+	        peer->uuid.c_str(), static_cast<double>(pacerBitrate) / 1000000.0,
+	        peer->videoPacer->batchBudgetBytes() / 1024, static_cast<long long>(kVideoPacerInterval.count()),
+	        peer->videoPacer->maxQueueBytes() / 1024, videoPacerBudget_->burstBudgetBytes() / 1024,
+	        h264ProfileLevelId.c_str());
+	if (videoProtectionMode_ != VideoProtectionMode::Off) {
+		logInfo("Viewer %s paced RTP duplication: %s, %.1f Mbps average repair budget, %lld ms separation, %lld ms "
+		        "deadline (not RTP RED/FEC)",
+		        peer->uuid.c_str(), videoProtectionModeName(videoProtectionMode_),
+		        static_cast<double>(duplicationConfig.averageBitrateBitsPerSecond) / 1000000.0,
+		        static_cast<long long>(duplicationConfig.delay.count()),
+		        static_cast<long long>(duplicationConfig.maxAge.count()));
+	}
 
 	// Set up audio track
 	rtc::Description::Audio audioDesc("audio", rtc::Description::Direction::SendOnly);
-	audioDesc.addOpusCodec(111);
+	if (audioRedEnabled_.load(std::memory_order_acquire) && audioCodec_ == AudioCodec::Opus) {
+		audioDesc.addAudioCodec(kAudioRedPayloadType, "red", "111/111");
+	}
+	audioDesc.addOpusCodec(kOpusPayloadType);
 	audioDesc.addSSRC(audioSsrc_, "audio-stream");
 	peer->audioTrack = peer->pc->addTrack(audioDesc);
 	peer->audioRtpConfig =
@@ -1586,7 +1780,7 @@ void VDONinjaPeerManager::prepareViewerTracks(const std::shared_ptr<PeerInfo> &p
 		trackCallback = onTrack_;
 	}
 
-	const int requestedVideoBitrateKbps = std::max(1, bitrate_ / 1000);
+	const int requestedVideoBitrateKbps = std::max(1, bitrate_.load(std::memory_order_acquire) / 1000);
 	size_t offeredVideoIndex = 0;
 
 	for (const auto &section : offeredSections) {
@@ -1820,13 +2014,31 @@ void VDONinjaPeerManager::onSignalingAnswer(const std::string &uuid, const std::
 		candidateBundles_[peer->generation].session = session;
 	}
 
+	const bool useAudioRed = audioRedEnabled_.load(std::memory_order_acquire) && audioCodec_ == AudioCodec::Opus &&
+	                         answerSelectsAudioRed(sdp, kAudioRedPayloadType, kOpusPayloadType);
+
 	// Set remote description (the answer)
 	peer->remoteDescriptionSet.store(false);
 	try {
+		{
+			std::lock_guard<std::mutex> mediaLock(peer->mediaMutex);
+			peer->useAudioRed = useAudioRed;
+			peer->hasPreviousOpusPayload = false;
+			peer->previousOpusPayload.clear();
+			peer->previousOpusTimestamp = 0;
+			if (peer->audioRtpConfig) {
+				peer->audioRtpConfig->payloadType = useAudioRed ? kAudioRedPayloadType : kOpusPayloadType;
+			}
+		}
 		peer->pc->setRemoteDescription(rtc::Description(sdp, rtc::Description::Type::Answer));
 		peer->remoteDescriptionSet.store(true);
 		drainPendingRemoteIceCandidates(peer);
-		logInfo("Set remote answer for %s", uuid.c_str());
+		if (audioRedEnabled_.load(std::memory_order_acquire)) {
+			logInfo("Set remote answer for %s; audio transport negotiated %s", uuid.c_str(),
+			        useAudioRed ? "RFC 2198 RED with one previous Opus frame" : "plain Opus fallback");
+		} else {
+			logInfo("Set remote answer for %s", uuid.c_str());
+		}
 	} catch (const std::exception &e) {
 		logError("Failed to apply remote answer for %s: %s", uuid.c_str(), e.what());
 	} catch (...) {
@@ -2125,6 +2337,9 @@ bool VDONinjaPeerManager::sendAudioFrameToPeer(const std::string &uuid, const st
 
 	std::shared_ptr<rtc::Track> track;
 	rtc::binary packet;
+	bool sentAudioRed = false;
+	bool includedAudioRedundancy = false;
+	size_t redundantAudioBytes = 0;
 	{
 		std::lock_guard<std::mutex> mediaLock(peer->mediaMutex);
 		if (peer->cleanupRetired.load() || peer->type != ConnectionType::Publisher ||
@@ -2154,15 +2369,49 @@ bool VDONinjaPeerManager::sendAudioFrameToPeer(const std::string &uuid, const st
 			}
 			peer->audioTimestamp = ts + 960; // 48kHz, 20ms frames
 
+			std::vector<uint8_t> payload;
+			uint8_t payloadType = kOpusPayloadType;
+			if (peer->useAudioRed) {
+				const AudioRedPayload redPayload = buildAudioRedPayload(
+				    data, size, ts, peer->hasPreviousOpusPayload ? peer->previousOpusPayload.data() : nullptr,
+				    peer->hasPreviousOpusPayload ? peer->previousOpusPayload.size() : 0, peer->previousOpusTimestamp,
+				    kOpusPayloadType);
+				if (redPayload.bytes.empty()) {
+					logWarning("Unable to build audio RED payload for %s; dropping invalid encoded audio frame",
+					           uuid.c_str());
+					return false;
+				}
+				payload = redPayload.bytes;
+				payloadType = kAudioRedPayloadType;
+				sentAudioRed = true;
+				includedAudioRedundancy = redPayload.includesRedundantBlock;
+				redundantAudioBytes = redPayload.redundantBytes;
+				peer->previousOpusPayload.assign(data, data + size);
+				peer->previousOpusTimestamp = ts;
+				peer->hasPreviousOpusPayload = true;
+			} else {
+				payload.assign(data, data + size);
+			}
+
 			const std::vector<uint8_t> rtpPacket =
-			    buildOpusRtpPacket(data, size, kOpusPayloadType, peer->audioSeq++, ts, audioSsrc_);
+			    buildOpusRtpPacket(payload.data(), payload.size(), payloadType, peer->audioSeq++, ts, audioSsrc_);
 			packet = rtc::binary(rtpPacket.size());
 			std::memcpy(packet.data(), rtpPacket.data(), rtpPacket.size());
 		}
 	}
 
 	try {
-		return audioSendTracker_.send([&]() { return track->send(std::move(packet)); });
+		const bool sent = audioSendTracker_.send([&]() { return track->send(std::move(packet)); });
+		if (sent && sentAudioRed) {
+			audioRedPackets_.fetch_add(1, std::memory_order_relaxed);
+			if (includedAudioRedundancy) {
+				audioRedPacketsWithRedundancy_.fetch_add(1, std::memory_order_relaxed);
+				audioRedRedundantBytes_.fetch_add(redundantAudioBytes, std::memory_order_relaxed);
+			} else {
+				audioRedPrimaryOnlyPackets_.fetch_add(1, std::memory_order_relaxed);
+			}
+		}
+		return sent;
 	} catch (const std::exception &e) {
 		logError("Failed to send audio to %s: %s", uuid.c_str(), e.what());
 		return false;
@@ -2190,6 +2439,46 @@ void VDONinjaPeerManager::sendVideoFrame(const uint8_t *data, size_t size, uint3
 
 	for (auto &target : targets) {
 		sendVideoFrameToPeerHandle(target.first, target.second, data, size, timestamp, keyframe);
+	}
+}
+
+void VDONinjaPeerManager::requireLiveKeyframeForAll()
+{
+	std::vector<std::shared_ptr<PeerInfo>> targets;
+	{
+		std::lock_guard<std::mutex> lock(peersMutex_);
+		targets.reserve(peers_.size());
+		for (const auto &entry : peers_) {
+			if (entry.second && entry.second->type == ConnectionType::Publisher) {
+				targets.push_back(entry.second);
+			}
+		}
+	}
+
+	for (const auto &peer : targets) {
+		std::lock_guard<std::mutex> sendLock(peer->videoSendMutex);
+		std::shared_ptr<RtpPacketPacer> pacer;
+		{
+			std::lock_guard<std::mutex> mediaLock(peer->mediaMutex);
+			if (!peer->cleanupRetired.load() && !isTerminalPeerState(peer->state.load())) {
+				// The upstream queue dropped a frame newer than anything already
+				// in this peer's pacer. Invalidate every pending frame so a
+				// queued keyframe from the prior recovery generation cannot be
+				// followed by unusable deltas.
+				peer->videoKeyframeGate.requireLiveKeyframe();
+				pacer = peer->videoPacer;
+			}
+		}
+		if (pacer) {
+			size_t discardedPackets = 0;
+			pacer->discardQueuedMediaFramesAfterCurrent(&discardedPackets);
+			if (discardedPackets != 0) {
+				std::lock_guard<std::mutex> mediaLock(peer->mediaMutex);
+				if (peer->videoPacer == pacer) {
+					reclaimDiscardedVideoSequenceNumbers(*peer, discardedPackets);
+				}
+			}
+		}
 	}
 }
 
@@ -2229,12 +2518,28 @@ bool VDONinjaPeerManager::notePeerKeyframeRequest(const std::string &uuid)
 		peer = it->second;
 	}
 
-	std::lock_guard<std::mutex> mediaLock(peer->mediaMutex);
-	if (peer->cleanupRetired.load() || peer->type != ConnectionType::Publisher ||
-	    isTerminalPeerState(peer->state.load())) {
-		return false;
+	std::lock_guard<std::mutex> sendLock(peer->videoSendMutex);
+	std::shared_ptr<RtpPacketPacer> pacer;
+	VideoKeyframeGate::DecoderRequestDisposition disposition;
+	{
+		std::lock_guard<std::mutex> mediaLock(peer->mediaMutex);
+		if (peer->cleanupRetired.load() || peer->type != ConnectionType::Publisher ||
+		    isTerminalPeerState(peer->state.load())) {
+			return false;
+		}
+		disposition = peer->videoKeyframeGate.onDecoderKeyframeRequest();
+		pacer = peer->videoPacer;
 	}
-	peer->videoKeyframeGate.onDecoderKeyframeRequest();
+	if (pacer && disposition == VideoKeyframeGate::DecoderRequestDisposition::RequireNewLiveKeyframe) {
+		size_t discardedPackets = 0;
+		pacer->discardQueuedMediaFramesAfterCurrent(&discardedPackets);
+		if (discardedPackets != 0) {
+			std::lock_guard<std::mutex> mediaLock(peer->mediaMutex);
+			if (peer->videoPacer == pacer) {
+				reclaimDiscardedVideoSequenceNumbers(*peer, discardedPackets);
+			}
+		}
+	}
 	return true;
 }
 
@@ -2270,27 +2575,79 @@ bool VDONinjaPeerManager::sendVideoFrameToPeerHandle(const std::string &uuid, co
 		const uint32_t ts = timestamp ? timestamp : peer->videoTimestamp;
 		uint16_t nextSequence = peer->videoSeq;
 		if (!buildH264FrameRtpPackets(packets, nextSequence, ts, videoSsrc_, data, size)) {
+			peer->videoKeyframeGate.requireLiveKeyframe();
+			size_t discardedPackets = 0;
+			pacer->discardQueuedMediaFramesAfterCurrent(&discardedPackets);
+			reclaimDiscardedVideoSequenceNumbers(*peer, discardedPackets);
+			logWarning("Could not packetize a complete H.264 frame for viewer %s; waiting for a live keyframe",
+			           uuid.c_str());
 			return false;
 		}
 
-		if (!pacer->enqueueFrame(std::move(packets))) {
+		const bool wasAwaitingKeyframe = peer->videoKeyframeGate.isAwaitingKeyframe();
+		VideoKeyframeGate::KeyframeTicket keyframeTicket = 0;
+		if (keyframe) {
+			keyframeTicket = peer->videoKeyframeGate.onKeyframeQueued(cachedReplay);
+		}
+
+		const std::weak_ptr<PeerInfo> weakPeer = peer;
+		const std::weak_ptr<RtpPacketPacer> weakPacer = pacer;
+		RtpPacerFrameInfo frameInfo;
+		frameInfo.keyframe = keyframe;
+		frameInfo.timestamp = ts;
+		if (!pacer->enqueueFrame(
+		        std::move(packets), frameInfo,
+		        [weakPeer, weakPacer, uuid, cachedReplay, wasAwaitingKeyframe,
+		         keyframeTicket](const RtpPacerFrameResult &result) {
+			        const auto peer = weakPeer.lock();
+			        if (!peer || peer->cleanupRetired.load()) {
+				        return;
+			        }
+
+			        bool recovered = false;
+			        size_t discardedFrames = 0;
+			        {
+				        std::lock_guard<std::mutex> sendLock(peer->videoSendMutex);
+				        {
+					        std::lock_guard<std::mutex> mediaLock(peer->mediaMutex);
+					        if (result.info.keyframe) {
+						        recovered = peer->videoKeyframeGate.onKeyframeSendCompleted(
+						            keyframeTicket, result.success, cachedReplay);
+					        } else if (!result.success) {
+						        peer->videoKeyframeGate.requireLiveKeyframe(true);
+					        }
+				        }
+				        if (!result.success) {
+					        if (const auto activePacer = weakPacer.lock()) {
+						        discardedFrames = activePacer->discardQueuedDeltaFramesUntilKeyframe();
+					        }
+				        }
+			        }
+
+			        if (!result.success) {
+				        logWarning(
+				            "Video RTP transport rejected a frame for viewer %s after %llu packets; discarded %zu "
+				            "stale queued frames and waiting for a live keyframe",
+				            uuid.c_str(), static_cast<unsigned long long>(result.sentPackets), discardedFrames);
+			        } else if (result.info.keyframe && recovered && wasAwaitingKeyframe) {
+				        logInfo("Viewer %s synchronized on fully sent %s keyframe in %llu ms", uuid.c_str(),
+				                cachedReplay ? "cached" : "live",
+				                static_cast<unsigned long long>(result.sendDurationMs));
+			        }
+		        })) {
 			// A partially-sent encoded frame would invalidate the remainder of
 			// the GOP, so enqueue is all-or-nothing. Suppress deltas until the
 			// next live encoder keyframe if the bounded queue ever fills.
 			peer->videoKeyframeGate.requireLiveKeyframe();
+			size_t discardedPackets = 0;
+			pacer->discardQueuedMediaFramesAfterCurrent(&discardedPackets);
+			reclaimDiscardedVideoSequenceNumbers(*peer, discardedPackets);
 			logWarning("Dropped complete video frame for viewer %s because its RTP pacer queue is full", uuid.c_str());
 			return false;
 		}
 
 		peer->videoSeq = nextSequence;
 		peer->videoTimestamp = ts + 3000; // 90kHz clock, ~30fps fallback cadence
-		if (keyframe) {
-			const bool wasAwaiting = peer->videoKeyframeGate.isAwaitingKeyframe();
-			peer->videoKeyframeGate.onKeyframeQueued();
-			if (wasAwaiting) {
-				logInfo("Viewer %s synchronized on %s keyframe", uuid.c_str(), cachedReplay ? "cached" : "live");
-			}
-		}
 	}
 	return true;
 }
@@ -2392,6 +2749,7 @@ void VDONinjaPeerManager::releasePeerResources(const std::shared_ptr<PeerInfo> &
 	std::shared_ptr<rtc::RtcpSrReporter> videoSrReporter;
 	std::shared_ptr<rtc::RtpPacketizationConfig> audioRtpConfig;
 	std::shared_ptr<rtc::RtpPacketizationConfig> videoRtpConfig;
+	std::shared_ptr<RtcpFeedbackTracker> videoFeedbackTracker;
 	std::shared_ptr<RtpPacketPacer> videoPacer;
 	{
 		std::lock_guard<std::mutex> mediaLock(peer->mediaMutex);
@@ -2405,6 +2763,7 @@ void VDONinjaPeerManager::releasePeerResources(const std::shared_ptr<PeerInfo> &
 		videoSrReporter = peer->videoSrReporter;
 		audioRtpConfig = peer->audioRtpConfig;
 		videoRtpConfig = peer->videoRtpConfig;
+		videoFeedbackTracker = peer->videoFeedbackTracker;
 		videoPacer = peer->videoPacer;
 	}
 
@@ -2428,6 +2787,7 @@ void VDONinjaPeerManager::releasePeerResources(const std::shared_ptr<PeerInfo> &
 		peer->videoSrReporter.reset();
 		peer->audioRtpConfig.reset();
 		peer->videoRtpConfig.reset();
+		peer->videoFeedbackTracker.reset();
 		peer->videoPacer.reset();
 		peer->pc.reset();
 		peer->hasDataChannel = false;
@@ -2442,6 +2802,7 @@ void VDONinjaPeerManager::releasePeerResources(const std::shared_ptr<PeerInfo> &
 	videoSrReporter.reset();
 	audioRtpConfig.reset();
 	videoRtpConfig.reset();
+	videoFeedbackTracker.reset();
 }
 
 bool VDONinjaPeerManager::isCurrentPeer(const std::shared_ptr<PeerInfo> &peer) const
@@ -2725,13 +3086,143 @@ void VDONinjaPeerManager::setAudioCodec(AudioCodec codec)
 {
 	audioCodec_ = codec;
 }
+void VDONinjaPeerManager::setH264ProfileLevelId(const std::string &profileLevelId)
+{
+	if (!isValidH264ProfileLevelId(profileLevelId)) {
+		logWarning("Ignoring invalid H.264 profile-level-id '%s'", profileLevelId.c_str());
+		return;
+	}
+	std::string normalized = profileLevelId;
+	std::transform(normalized.begin(), normalized.end(), normalized.begin(),
+	               [](unsigned char value) { return static_cast<char>(std::tolower(value)); });
+	std::lock_guard<std::mutex> codecLock(codecMutex_);
+	h264ProfileLevelId_ = std::move(normalized);
+}
 void VDONinjaPeerManager::setBitrate(int bitrate)
 {
-	bitrate_ = std::max(bitrate, 1);
+	const int targetBitrate = std::max(bitrate, 1);
+	bitrate_.store(targetBitrate, std::memory_order_release);
+
+	std::vector<std::shared_ptr<RtpPacketPacer>> pacers;
+	{
+		std::lock_guard<std::mutex> lock(peersMutex_);
+		pacers.reserve(peers_.size());
+		for (const auto &entry : peers_) {
+			const auto &peer = entry.second;
+			if (!peer || peer->type != ConnectionType::Publisher) {
+				continue;
+			}
+			std::lock_guard<std::mutex> mediaLock(peer->mediaMutex);
+			if (peer->videoPacer) {
+				pacers.push_back(peer->videoPacer);
+			}
+		}
+	}
+
+	const uint64_t pacerBitrate = videoPacerBitrate(targetBitrate);
+	const uint64_t duplicateBitrate = videoProtectionBitrate(targetBitrate, videoProtectionMode_);
+	for (const auto &pacer : pacers) {
+		pacer->updateBitrate(pacerBitrate, duplicateBitrate);
+	}
+}
+void VDONinjaPeerManager::setVideoProtectionMode(VideoProtectionMode mode)
+{
+	videoProtectionMode_ = mode;
+}
+void VDONinjaPeerManager::setAudioRedEnabled(bool enable)
+{
+	audioRedEnabled_.store(enable, std::memory_order_release);
 }
 void VDONinjaPeerManager::setEnableDataChannel(bool enable)
 {
 	enableDataChannel_ = enable;
+}
+
+RtcpFeedbackStats VDONinjaPeerManager::takeVideoFeedbackStats()
+{
+	std::vector<std::shared_ptr<RtcpFeedbackTracker>> trackers;
+	{
+		std::lock_guard<std::mutex> lock(peersMutex_);
+		trackers.reserve(peers_.size());
+		for (const auto &entry : peers_) {
+			const auto &peer = entry.second;
+			if (!peer || peer->type != ConnectionType::Publisher) {
+				continue;
+			}
+			std::lock_guard<std::mutex> mediaLock(peer->mediaMutex);
+			if (peer->videoFeedbackTracker) {
+				trackers.push_back(peer->videoFeedbackTracker);
+			}
+		}
+	}
+
+	RtcpFeedbackStats combined;
+	for (const auto &tracker : trackers) {
+		const RtcpFeedbackStats snapshot = tracker->take();
+		combined.compoundPackets += snapshot.compoundPackets;
+		combined.malformedPackets += snapshot.malformedPackets;
+		combined.nackMessages += snapshot.nackMessages;
+		combined.nackRequestedPackets += snapshot.nackRequestedPackets;
+		combined.pliMessages += snapshot.pliMessages;
+		combined.firMessages += snapshot.firMessages;
+		combined.receiverReports += snapshot.receiverReports;
+		combined.reportBlocks += snapshot.reportBlocks;
+		combined.maxFractionLost = std::max(combined.maxFractionLost, snapshot.maxFractionLost);
+		combined.maxCumulativeLost = std::max(combined.maxCumulativeLost, snapshot.maxCumulativeLost);
+		combined.maxJitterTicks = std::max(combined.maxJitterTicks, snapshot.maxJitterTicks);
+		combined.maxRttMs = std::max(combined.maxRttMs, snapshot.maxRttMs);
+		combined.nackCacheHits += snapshot.nackCacheHits;
+		combined.nackCacheMisses += snapshot.nackCacheMisses;
+		combined.retransmissionsQueued += snapshot.retransmissionsQueued;
+		combined.retransmissionsSent += snapshot.retransmissionsSent;
+		combined.retransmissionsDropped += snapshot.retransmissionsDropped;
+		combined.retransmissionsExpired += snapshot.retransmissionsExpired;
+		combined.retransmissionSendFailures += snapshot.retransmissionSendFailures;
+		combined.rembMessages += snapshot.rembMessages;
+		if (snapshot.minRembBitrateBps > 0) {
+			if (combined.minRembBitrateBps == 0) {
+				combined.minRembBitrateBps = snapshot.minRembBitrateBps;
+			} else {
+				combined.minRembBitrateBps = std::min(combined.minRembBitrateBps, snapshot.minRembBitrateBps);
+			}
+			combined.maxRembBitrateBps = std::max(combined.maxRembBitrateBps, snapshot.maxRembBitrateBps);
+		}
+	}
+	return combined;
+}
+
+std::optional<uint64_t> VDONinjaPeerManager::minimumRecentRembBitrate(std::chrono::milliseconds maxAge) const
+{
+	std::vector<std::shared_ptr<RtcpFeedbackTracker>> trackers;
+	{
+		std::lock_guard<std::mutex> lock(peersMutex_);
+		trackers.reserve(peers_.size());
+		for (const auto &entry : peers_) {
+			const auto &peer = entry.second;
+			if (!peer || peer->type != ConnectionType::Publisher || peer->state != ConnectionState::Connected) {
+				continue;
+			}
+			std::lock_guard<std::mutex> mediaLock(peer->mediaMutex);
+			if (peer->videoFeedbackTracker) {
+				trackers.push_back(peer->videoFeedbackTracker);
+			}
+		}
+	}
+
+	if (trackers.empty()) {
+		return std::nullopt;
+	}
+	std::optional<uint64_t> minimum;
+	for (const auto &tracker : trackers) {
+		const auto estimate = tracker->latestRemb(maxAge);
+		if (!estimate || estimate->bitrateBitsPerSecond == 0) {
+			// The adaptation policy is minimum-across-all-viewers. Do not
+			// silently adapt from only the subset that happened to report.
+			return std::nullopt;
+		}
+		minimum = minimum ? std::min(*minimum, estimate->bitrateBitsPerSecond) : estimate->bitrateBitsPerSecond;
+	}
+	return minimum;
 }
 
 RtpPacerStats VDONinjaPeerManager::takeVideoPacerStats()
@@ -2756,12 +3247,31 @@ RtpPacerStats VDONinjaPeerManager::takeVideoPacerStats()
 	for (const auto &pacer : pacers) {
 		const RtpPacerStats snapshot = pacer->getStats(true);
 		combined.queuedBytes += snapshot.queuedBytes;
+		combined.queuedFrames += snapshot.queuedFrames;
 		combined.maxQueuedBytes = std::max(combined.maxQueuedBytes, snapshot.maxQueuedBytes);
+		combined.maxQueuedFrames = std::max(combined.maxQueuedFrames, snapshot.maxQueuedFrames);
 		combined.maxBatchBytes = std::max(combined.maxBatchBytes, snapshot.maxBatchBytes);
 		combined.maxPacketDelayMs = std::max(combined.maxPacketDelayMs, snapshot.maxPacketDelayMs);
+		combined.maxFrameSendDurationMs = std::max(combined.maxFrameSendDurationMs, snapshot.maxFrameSendDurationMs);
+		combined.maxKeyframeSendDurationMs =
+		    std::max(combined.maxKeyframeSendDurationMs, snapshot.maxKeyframeSendDurationMs);
 		combined.sentPackets += snapshot.sentPackets;
+		combined.sentFrames += snapshot.sentFrames;
+		combined.sentKeyframes += snapshot.sentKeyframes;
 		combined.droppedFrames += snapshot.droppedFrames;
+		combined.failedFrames += snapshot.failedFrames;
 		combined.sendFailures += snapshot.sendFailures;
+		combined.queuedRepairs += snapshot.queuedRepairs;
+		combined.sentRepairs += snapshot.sentRepairs;
+		combined.droppedRepairs += snapshot.droppedRepairs;
+		combined.expiredRepairs += snapshot.expiredRepairs;
+		combined.failedRepairs += snapshot.failedRepairs;
+		combined.queuedDuplicates += snapshot.queuedDuplicates;
+		combined.sentDuplicates += snapshot.sentDuplicates;
+		combined.droppedDuplicates += snapshot.droppedDuplicates;
+		combined.expiredDuplicates += snapshot.expiredDuplicates;
+		combined.failedDuplicates += snapshot.failedDuplicates;
+		combined.sentDuplicateBytes += snapshot.sentDuplicateBytes;
 	}
 	return combined;
 }
@@ -2769,6 +3279,16 @@ RtpPacerStats VDONinjaPeerManager::takeVideoPacerStats()
 RtpSendStats VDONinjaPeerManager::takeAudioSendStats()
 {
 	return audioSendTracker_.take();
+}
+
+AudioRedStats VDONinjaPeerManager::takeAudioRedStats()
+{
+	AudioRedStats stats;
+	stats.packets = audioRedPackets_.exchange(0, std::memory_order_relaxed);
+	stats.packetsWithRedundancy = audioRedPacketsWithRedundancy_.exchange(0, std::memory_order_relaxed);
+	stats.primaryOnlyPackets = audioRedPrimaryOnlyPackets_.exchange(0, std::memory_order_relaxed);
+	stats.redundantBytes = audioRedRedundantBytes_.exchange(0, std::memory_order_relaxed);
+	return stats;
 }
 
 } // namespace vdoninja

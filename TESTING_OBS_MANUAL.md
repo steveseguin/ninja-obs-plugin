@@ -149,3 +149,66 @@ Important:
 - OBS/plugin logs alone do not prove the phone's exact selected ICE candidate type.
 - If the release note says "`srflx` works on cellular", capture phone-side stats or add temporary candidate-pair
   logging before release.
+
+## Test 11: Default-Off 1080p60 Publishing
+
+1. Set the encoder to H.264, 1920x1080, 59.94/60 fps, and 8000 kbps.
+2. Leave packet duplication, audio RED, and adaptive bitrate off.
+3. Connect an OBS Browser Source viewer and at least one additional viewer.
+4. Run high-motion content for 10+ minutes.
+
+Pass criteria:
+- Every viewer advances continuously with no periodic GOP-boundary freeze
+- The `Publish:` summary reports a keyframe interval no greater than about two seconds
+- Maximum pacer batch is materially smaller than the largest keyframe
+- No media-queue drops, pacer frame drops, or transport send errors
+- Audio RTP has no large or non-forward steps
+
+## Test 12: Opt-In Protection and Fallback
+
+Run these independently so failures are attributable:
+
+1. Enable `Audio RED`; connect one compatible current VDO.Ninja browser viewer.
+2. Repeat with a viewer constrained to ordinary Opus.
+3. Return audio RED to off, then test `Low`, `Medium`, and `High` packet duplication separately.
+
+Pass criteria:
+- Compatible audio negotiates RED and the summary records redundant packets
+- The constrained viewer receives plain Opus and the RED counters remain zero for that peer/session
+- Each video mode sends paced copies without transport failures
+- Copies yield or expire instead of increasing live-media delay without bound
+- Returning every protection setting to off reproduces the default-off baseline
+
+Packet duplication adds upload and is not video RED/ULPFEC. Do not enable it as a default.
+
+## Test 13: Adaptive Bitrate Stability
+
+1. Start at H.264 1920x1080, 59.94/60 fps, and 8000 kbps.
+2. Enable adaptive bitrate with a 500 kbps floor.
+3. Connect multiple viewers, including one that reports a substantially lower REMB estimate.
+4. Hold the lower estimate long enough to reach the target, then raise available bandwidth.
+5. Stop streaming and inspect the encoder setting.
+
+Pass criteria:
+- One transient estimate does not change bitrate
+- Decreases occur in stages and do not freeze the Browser Source viewer
+- Pacer delay remains bounded with no frame drops or send errors during the transition
+- Increases are slower and do not oscillate
+- The lowest fresh estimate across all connected viewers controls the session
+- Stale/missing feedback stops adaptation instead of guessing
+- Stopping restores the original configured encoder bitrate
+
+## Test 14: Packaged Game Capture VP9 Alpha
+
+Use the packaged Game Capture application, not a browser-only substitute.
+
+1. Publish a real Spout2 source from Game Capture with VP9 alpha enabled.
+2. Receive it using `VDO.Ninja Source` with the native receiver enabled.
+3. Place the source over a contrasting OBS background and exercise transparent, semi-transparent, and opaque areas.
+4. Restart/hide/show both ends and repeat.
+
+Pass criteria:
+- Color and alpha tracks negotiate independently and remain timestamp-aligned
+- Transparent and semi-transparent pixels composite correctly
+- Ordinary VDO.Ninja browser viewers continue to receive the color stream
+- Hiding/showing, reconnect, and source restart do not leave stale alpha frames

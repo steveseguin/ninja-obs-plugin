@@ -18,7 +18,6 @@ $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $obsExePath = (Resolve-Path $ObsExe).Path
 $obsWorkingDirPath = (Resolve-Path $ObsWorkingDirectory).Path
 $installPrefixPath = (Resolve-Path $InstallPrefix).Path
-$pluginPath = (Resolve-Path (Join-Path $installPrefixPath "obs-plugins\64bit")).Path
 $dataPath = (Resolve-Path (Join-Path $installPrefixPath "data\obs-plugins")).Path
 $depsBin = "C:\Users\steve\Code\obs-build-dependencies\windows-deps-2023-06-01-x64\bin"
 $obsWebSocketConfigPath = Join-Path $repoRoot "_obs-portable\config\obs-studio\plugin_config\obs-websocket\config.json"
@@ -70,7 +69,10 @@ $previousObsPluginsDataPath = $env:OBS_PLUGINS_DATA_PATH
 $previousPath = $env:PATH
 
 $env:OBS_WEBSOCKET_URL = "ws://127.0.0.1:$ObsWebSocketPort"
-$env:OBS_PLUGINS_PATH = $pluginPath
+# Sync-PortableObsPluginPayload installs the DLL into portable OBS's normal
+# module directory. Adding the install prefix as a second search path loads the
+# same DLL twice and makes connection results nondeterministic.
+Remove-Item Env:OBS_PLUGINS_PATH -ErrorAction SilentlyContinue
 $env:OBS_PLUGINS_DATA_PATH = $dataPath
 $env:PATH = "$depsBin;$env:PATH"
 
@@ -122,6 +124,22 @@ try {
     }
 
     $obsLogPath = Get-LatestPortableObsLogPath -RepoRoot $repoRoot
+    $adaptiveBitrateChanges = @(
+        Select-String -Path $obsLogPath -Pattern "Adaptive bitrate changed OBS encoder" |
+            ForEach-Object {
+                if ($_.Line -match "to ([0-9]+) kbps \(minimum REMB ([0-9]+) kbps\)") {
+                    [pscustomobject]@{
+                        targetKbps = [uint64]$matches[1]
+                        minimumRembKbps = [uint64]$matches[2]
+                        line = $_.Line
+                    }
+                }
+            }
+    )
+    $adaptiveBitrateRestored = [bool](
+        Select-String -Path $obsLogPath -Pattern "Restored OBS encoder bitrate to [0-9]+ kbps after adaptive session" |
+            Select-Object -First 1
+    )
     $pacerTelemetry = @(
         Select-String -Path $obsLogPath -Pattern "Publish:.*pacer max batch" |
             ForEach-Object {
@@ -138,12 +156,34 @@ try {
                     $audioNonForwardSteps = 0
                     $audioDroppedFrames = 0
                     $audioSendErrors = 0
+                    $duplicateTelemetryPresent = $false
+                    $queuedDuplicates = 0
+                    $sentDuplicates = 0
+                    $expiredDuplicates = 0
+                    $failedDuplicates = 0
+                    $audioRedTelemetryPresent = $false
+                    $audioRedPackets = 0
+                    $audioRedRedundantPackets = 0
+                    $audioRedPrimaryOnlyPackets = 0
                     if ($line -match "audio packets [0-9]+, RTP max step [0-9.]+ ms \(large ([0-9]+), non-forward ([0-9]+)\).*dropped ([0-9]+), sent [0-9]+, send errors ([0-9]+)") {
                         $audioTelemetryPresent = $true
                         $audioLargeSteps = [uint64]$matches[1]
                         $audioNonForwardSteps = [uint64]$matches[2]
                         $audioDroppedFrames = [uint64]$matches[3]
                         $audioSendErrors = [uint64]$matches[4]
+                    }
+                    if ($line -match "duplicate ([0-9]+) queued/([0-9]+) sent \([0-9.]+ KB\)/[0-9]+ dropped \(([0-9]+) expired\)/([0-9]+) failed") {
+                        $duplicateTelemetryPresent = $true
+                        $queuedDuplicates = [uint64]$matches[1]
+                        $sentDuplicates = [uint64]$matches[2]
+                        $expiredDuplicates = [uint64]$matches[3]
+                        $failedDuplicates = [uint64]$matches[4]
+                    }
+                    if ($line -match "audio RED ([0-9]+) packets \(([0-9]+) redundant/([0-9]+) primary-only") {
+                        $audioRedTelemetryPresent = $true
+                        $audioRedPackets = [uint64]$matches[1]
+                        $audioRedRedundantPackets = [uint64]$matches[2]
+                        $audioRedPrimaryOnlyPackets = [uint64]$matches[3]
                     }
                     [pscustomobject]@{
                         maxKeyframeKb = $maxKeyframeKb
@@ -157,6 +197,15 @@ try {
                         audioNonForwardSteps = $audioNonForwardSteps
                         audioDroppedFrames = $audioDroppedFrames
                         audioSendErrors = $audioSendErrors
+                        duplicateTelemetryPresent = $duplicateTelemetryPresent
+                        queuedDuplicates = $queuedDuplicates
+                        sentDuplicates = $sentDuplicates
+                        expiredDuplicates = $expiredDuplicates
+                        failedDuplicates = $failedDuplicates
+                        audioRedTelemetryPresent = $audioRedTelemetryPresent
+                        audioRedPackets = $audioRedPackets
+                        audioRedRedundantPackets = $audioRedRedundantPackets
+                        audioRedPrimaryOnlyPackets = $audioRedPrimaryOnlyPackets
                     }
                 }
             }
@@ -194,6 +243,70 @@ try {
             throw "OBS publish check recorded audio RTP discontinuity, queue drops, or send errors"
         }
     }
+    $configuredProtectionMode = 0
+    if ($env:VDONINJA_VIDEO_PROTECTION_MODE) {
+        $configuredProtectionMode = [int]$env:VDONINJA_VIDEO_PROTECTION_MODE
+    }
+    if ($configuredProtectionMode -gt 0) {
+        $duplicateSample = $pacerTelemetry |
+            Where-Object {
+                $_.duplicateTelemetryPresent -and
+                $_.queuedDuplicates -gt 0 -and
+                $_.sentDuplicates -gt 0
+            } |
+            Select-Object -First 1
+        if (-not $duplicateSample) {
+            throw "OBS publish check did not send paced packet duplicates for the selected protection mode"
+        }
+        $duplicateFailure = $pacerTelemetry |
+            Where-Object { $_.duplicateTelemetryPresent -and $_.failedDuplicates -ne 0 } |
+            Select-Object -First 1
+        if ($duplicateFailure) {
+            throw "OBS publish check recorded duplicate-packet send failures"
+        }
+    }
+    if ($env:VDONINJA_AUDIO_RED -eq "1") {
+        $expectAudioRed = $env:VDONINJA_VIEWER_AUDIO_RED -ne "0"
+        $audioRedSample = $pacerTelemetry |
+            Where-Object { $_.audioRedTelemetryPresent } |
+            Select-Object -First 1
+        if (-not $audioRedSample) {
+            throw "OBS publish check did not record audio RED telemetry"
+        }
+        if ($expectAudioRed -and
+            ($audioRedSample.audioRedPackets -eq 0 -or $audioRedSample.audioRedRedundantPackets -eq 0)) {
+            throw "OBS publish check did not send negotiated redundant audio packets"
+        }
+        if (-not $expectAudioRed -and $audioRedSample.audioRedPackets -ne 0) {
+            throw "OBS publish check did not fall back to plain Opus for the forced-Opus viewer"
+        }
+    }
+    if ($env:VDONINJA_MAX_PACER_DELAY_MS) {
+        $maximumAllowedPacerDelayMs = [uint64]$env:VDONINJA_MAX_PACER_DELAY_MS
+        $delayFailure = $pacerTelemetry |
+            Where-Object { $_.maxDelayMs -gt $maximumAllowedPacerDelayMs } |
+            Select-Object -First 1
+        if ($delayFailure) {
+            throw "OBS publish check exceeded the allowed RTP pacer delay of $maximumAllowedPacerDelayMs ms"
+        }
+    }
+    if ($env:VDONINJA_REQUIRE_ADAPTATION -eq "1") {
+        if ($adaptiveBitrateChanges.Count -eq 0) {
+            throw "OBS publish check did not apply a REMB-driven encoder bitrate change"
+        }
+        if ($env:VDONINJA_ADAPTATION_TARGET_MAX_KBPS) {
+            $maximumAdaptedBitrateKbps = [uint64]$env:VDONINJA_ADAPTATION_TARGET_MAX_KBPS
+            $lowEnoughChange = $adaptiveBitrateChanges |
+                Where-Object { $_.targetKbps -le $maximumAdaptedBitrateKbps } |
+                Select-Object -First 1
+            if (-not $lowEnoughChange) {
+                throw "OBS publish check did not adapt at or below $maximumAdaptedBitrateKbps kbps"
+            }
+        }
+        if (-not $adaptiveBitrateRestored) {
+            throw "OBS publish check did not restore the original encoder bitrate after adaptation"
+        }
+    }
     $obsProcess = Get-CimInstance Win32_Process -Filter "ProcessId = $($obsProc.Id)" -ErrorAction SilentlyContinue
     $expectedPluginHash = (Get-FileHash (Join-Path $installPrefixPath "obs-plugins\64bit\obs-vdoninja.dll") -Algorithm SHA256).Hash
     $loadedPluginModules = @(
@@ -209,6 +322,10 @@ try {
     if ($loadedPluginModules.Count -eq 0) {
         throw "Portable OBS did not load obs-vdoninja.dll"
     }
+    if ($loadedPluginModules.Count -ne 1) {
+        $loadedPaths = ($loadedPluginModules | ForEach-Object { $_.path }) -join ", "
+        throw "Portable OBS loaded obs-vdoninja.dll more than once: $loadedPaths"
+    }
     $staleLoadedModule = $loadedPluginModules | Where-Object { $_.sha256 -ne $expectedPluginHash } | Select-Object -First 1
     if ($staleLoadedModule) {
         throw "Portable OBS loaded a stale plugin DLL from $($staleLoadedModule.path)"
@@ -220,8 +337,10 @@ try {
         roomId = $RoomId
         obsLog = $obsLogPath
         obsProcessPath = if ($obsProcess) { $obsProcess.ExecutablePath } else { $obsExePath }
-        pluginDll = Join-Path $repoRoot "_obs-portable\config\obs-studio\plugins\obs-vdoninja\bin\64bit\obs-vdoninja.dll"
+        pluginDll = $loadedPluginModules[0].path
         loadedPluginModules = $loadedPluginModules
+        adaptiveBitrateChanges = $adaptiveBitrateChanges
+        adaptiveBitrateRestored = $adaptiveBitrateRestored
         pacerTelemetry = $pacerTelemetry
         report = $checkOut
         stderr = $checkErr

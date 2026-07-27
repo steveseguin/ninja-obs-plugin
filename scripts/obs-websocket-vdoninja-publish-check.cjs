@@ -189,6 +189,7 @@ class ObsWebSocketClient {
 }
 
 const EVENT_SUBSCRIPTION_OUTPUTS = 1 << 6;
+const EVENT_SUBSCRIPTION_INPUT_VOLUME_METERS = 1 << 16;
 
 function ensureQuery(url, key, value) {
   const u = new URL(url);
@@ -379,6 +380,18 @@ function saveObsScreenshot(imageData, filePath) {
   fs.writeFileSync(filePath, bytes);
   return {
     path: filePath,
+    bytes: bytes.length,
+    sha256: crypto.createHash("sha256").update(bytes).digest("hex"),
+  };
+}
+
+function inspectObsScreenshot(imageData) {
+  const match = /^data:image\/[^;]+;base64,(.+)$/s.exec(imageData || "");
+  if (!match) {
+    throw new Error("OBS returned an invalid source screenshot");
+  }
+  const bytes = Buffer.from(match[1], "base64");
+  return {
     bytes: bytes.length,
     sha256: crypto.createHash("sha256").update(bytes).digest("hex"),
   };
@@ -635,11 +648,120 @@ async function main() {
     process.env.VDONINJA_CAPTURE_DECODED_AUDIO === "1";
   const recordLocalOutput = process.env.VDONINJA_RECORD_LOCAL_OUTPUT === "1";
   const useObsBrowserViewer = process.env.VDONINJA_OBS_BROWSER_VIEWER === "1";
+  const useNativeViewer = process.env.VDONINJA_NATIVE_VIEWER === "1";
+  const nativeViewerWidth = Math.max(
+    320,
+    Number(process.env.VDONINJA_NATIVE_VIEWER_WIDTH || 640),
+  );
+  const nativeViewerHeight = Math.max(
+    240,
+    Number(process.env.VDONINJA_NATIVE_VIEWER_HEIGHT || 360),
+  );
+  const requestedObsBrowserViewerCount = Number(
+    process.env.VDONINJA_OBS_BROWSER_VIEWER_COUNT || 1,
+  );
+  const obsBrowserViewerCount = useObsBrowserViewer
+    ? Math.max(
+        1,
+        Math.min(
+          10,
+          Number.isFinite(requestedObsBrowserViewerCount)
+            ? Math.floor(requestedObsBrowserViewerCount)
+            : 1,
+        ),
+      )
+    : 0;
+  const obsBrowserViewerBitratesKbps = String(
+    process.env.VDONINJA_OBS_BROWSER_VIEWER_BITRATES_KBPS || "",
+  )
+    .split(",")
+    .map((value) => {
+      const parsed = Number(value.trim());
+      return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+    });
+  const skipChromiumViewer =
+    process.env.VDONINJA_SKIP_CHROMIUM_VIEWER === "1";
   const requireZeroFreezes = process.env.VDONINJA_REQUIRE_ZERO_FREEZES === "1";
+  const obsBrowserSampleMs = Math.max(
+    100,
+    Number(process.env.VDONINJA_OBS_BROWSER_SAMPLE_MS || 1000),
+  );
+  const requestedObsBrowserScreenshotFormat = String(
+    process.env.VDONINJA_OBS_BROWSER_SCREENSHOT_FORMAT || "png",
+  ).toLowerCase();
+  const obsBrowserScreenshotFormat = ["jpg", "jpeg", "png"].includes(
+    requestedObsBrowserScreenshotFormat,
+  )
+    ? requestedObsBrowserScreenshotFormat
+    : "png";
+  const obsBrowserScreenshotQuality = Math.max(
+    1,
+    Math.min(
+      100,
+      Number(process.env.VDONINJA_OBS_BROWSER_SCREENSHOT_QUALITY || 80),
+    ),
+  );
+  const obsBrowserMinimumScreenshotBytes = Math.max(
+    1000,
+    Number(
+      process.env.VDONINJA_OBS_BROWSER_MIN_SCREENSHOT_BYTES ||
+        (obsBrowserScreenshotFormat === "png" ? 100000 : 20000),
+    ),
+  );
   const viewBufferMs = Math.max(
     0,
     Number(process.env.VDONINJA_VIEW_BUFFER_MS || 0),
   );
+  const videoProtectionMode = Math.max(
+    0,
+    Math.min(3, Number(process.env.VDONINJA_VIDEO_PROTECTION_MODE || 0)),
+  );
+  const audioRed = process.env.VDONINJA_AUDIO_RED === "1";
+  const requestAudioRed =
+    audioRed && process.env.VDONINJA_VIEWER_AUDIO_RED !== "0";
+  const adaptiveBitrate =
+    process.env.VDONINJA_ADAPTIVE_BITRATE === "1";
+  const adaptiveBitrateMinimumKbps = Math.max(
+    100,
+    Number(process.env.VDONINJA_ADAPTIVE_BITRATE_MIN_KBPS || 500),
+  );
+  const requestedVideoWidth = Number(
+    process.env.VDONINJA_VIDEO_WIDTH || 0,
+  );
+  const requestedVideoHeight = Number(
+    process.env.VDONINJA_VIDEO_HEIGHT || 0,
+  );
+  const requestedFpsNumerator = Number(
+    process.env.VDONINJA_VIDEO_FPS_NUMERATOR || 0,
+  );
+  const requestedFpsDenominator = Number(
+    process.env.VDONINJA_VIDEO_FPS_DENOMINATOR || 0,
+  );
+  const requestedVideoBitrateKbps = Number(
+    process.env.VDONINJA_VIDEO_BITRATE_KBPS || 0,
+  );
+  if (skipChromiumViewer && !useObsBrowserViewer) {
+    throw new Error(
+      "VDONINJA_SKIP_CHROMIUM_VIEWER requires VDONINJA_OBS_BROWSER_VIEWER=1",
+    );
+  }
+  if (
+    (requestedVideoWidth > 0) !== (requestedVideoHeight > 0) ||
+    (requestedFpsNumerator > 0) !== (requestedFpsDenominator > 0)
+  ) {
+    throw new Error(
+      "Video width/height and FPS numerator/denominator must be supplied in pairs",
+    );
+  }
+  if (
+    requestedVideoWidth < 0 ||
+    requestedVideoHeight < 0 ||
+    requestedFpsNumerator < 0 ||
+    requestedFpsDenominator < 0 ||
+    requestedVideoBitrateKbps < 0
+  ) {
+    throw new Error("Requested video settings must not be negative");
+  }
   const outputDir = path.resolve(process.cwd(), "artifacts");
   const stamp = Date.now();
   const sceneName = `Codex OBS Publish ${stamp}`;
@@ -651,6 +773,7 @@ async function main() {
   const inputName = `Codex ${sourceLabel} Program ${stamp}`;
   const audioInputName = `Codex Audio Continuity Tone ${stamp}`;
   const obsBrowserViewerName = `Codex OBS Browser Viewer ${stamp}`;
+  const nativeViewerName = `Codex Native Viewer ${stamp}`;
   const motionSourcePath = path.resolve(
     process.cwd(),
     "tests",
@@ -684,6 +807,11 @@ async function main() {
   if (viewBufferMs > 0) {
     viewParams.set("buffer", String(viewBufferMs));
   }
+  if (requestAudioRed) {
+    viewParams.set("audiocodec", "red");
+  } else if (audioRed) {
+    viewParams.set("audiocodec", "opus");
+  }
   viewParams.set("debug", "");
   const viewUrl = ensureQuery(
     `https://vdo.ninja/?${viewParams.toString()}`,
@@ -697,16 +825,67 @@ async function main() {
   let createdScene = false;
   let createdObsBrowserViewer = false;
   let obsBrowserViewerUuid = null;
-  let obsBrowserViewerSceneItemId = null;
+  const obsBrowserViewers = [];
+  let nativeViewer = null;
   let browser = null;
   let recordingStarted = false;
   let localRecording = null;
+  let originalVideoSettings = null;
+  let appliedVideoSettings = null;
+  let originalVideoBitrateParameter = null;
+  let appliedVideoBitrateParameter = null;
+  const obsBrowserAudioMeter = {
+    events: 0,
+    nonSilentEvents: 0,
+    maxMagnitude: 0,
+    maxPeak: 0,
+  };
 
   const client = new ObsWebSocketClient(websocketUrl, {
-    eventSubscriptions: EVENT_SUBSCRIPTION_OUTPUTS,
+    eventSubscriptions:
+      EVENT_SUBSCRIPTION_OUTPUTS |
+      (useObsBrowserViewer && useAudioContinuitySource
+        ? EVENT_SUBSCRIPTION_INPUT_VOLUME_METERS
+        : 0),
     onEvent(event) {
       if (event.eventType && /Stream|Output/i.test(event.eventType)) {
         streamEvents.push(event);
+      }
+      if (
+        event.eventType === "InputVolumeMeters" &&
+        Array.isArray(event.eventData?.inputs)
+      ) {
+        for (const input of event.eventData.inputs) {
+          if (
+            input.inputName !== obsBrowserViewerName &&
+            !String(input.inputName || "").startsWith(
+              `${obsBrowserViewerName} `,
+            )
+          ) {
+            continue;
+          }
+          obsBrowserAudioMeter.events += 1;
+          let eventMagnitude = 0;
+          let eventPeak = 0;
+          for (const channel of input.inputLevelsMul || []) {
+            eventMagnitude = Math.max(
+              eventMagnitude,
+              Number(channel?.[0]) || 0,
+            );
+            eventPeak = Math.max(eventPeak, Number(channel?.[1]) || 0);
+          }
+          obsBrowserAudioMeter.maxMagnitude = Math.max(
+            obsBrowserAudioMeter.maxMagnitude,
+            eventMagnitude,
+          );
+          obsBrowserAudioMeter.maxPeak = Math.max(
+            obsBrowserAudioMeter.maxPeak,
+            eventPeak,
+          );
+          if (eventMagnitude > 0.00001 || eventPeak > 0.00001) {
+            obsBrowserAudioMeter.nonSilentEvents += 1;
+          }
+        }
       }
     },
   });
@@ -750,6 +929,70 @@ async function main() {
         sourceTonePath,
         createToneWav(48000, 997, sourceToneDurationSeconds),
       );
+    }
+
+    if (
+      requestedVideoWidth > 0 ||
+      requestedFpsNumerator > 0
+    ) {
+      originalVideoSettings = await client.request("GetVideoSettings");
+      const requestedSettings = {};
+      if (requestedVideoWidth > 0) {
+        requestedSettings.baseWidth = requestedVideoWidth;
+        requestedSettings.baseHeight = requestedVideoHeight;
+        requestedSettings.outputWidth = requestedVideoWidth;
+        requestedSettings.outputHeight = requestedVideoHeight;
+      }
+      if (requestedFpsNumerator > 0) {
+        requestedSettings.fpsNumerator = requestedFpsNumerator;
+        requestedSettings.fpsDenominator = requestedFpsDenominator;
+      }
+      logStep(
+        `temporarily applying OBS video settings ${JSON.stringify(requestedSettings)}`,
+      );
+      await client.request("SetVideoSettings", requestedSettings);
+      appliedVideoSettings = await client.request("GetVideoSettings");
+      for (const [key, value] of Object.entries(requestedSettings)) {
+        if (Number(appliedVideoSettings[key]) !== Number(value)) {
+          throw new Error(
+            `OBS did not apply ${key}=${value}; observed ${appliedVideoSettings[key]}`,
+          );
+        }
+      }
+    }
+
+    if (requestedVideoBitrateKbps > 0) {
+      originalVideoBitrateParameter = await client.request(
+        "GetProfileParameter",
+        {
+          parameterCategory: "SimpleOutput",
+          parameterName: "VBitrate",
+        },
+      );
+      logStep(
+        `temporarily applying OBS video bitrate ${requestedVideoBitrateKbps} kbps`,
+      );
+      await client.request("SetProfileParameter", {
+        parameterCategory: "SimpleOutput",
+        parameterName: "VBitrate",
+        parameterValue: String(requestedVideoBitrateKbps),
+      });
+      appliedVideoBitrateParameter = await client.request(
+        "GetProfileParameter",
+        {
+          parameterCategory: "SimpleOutput",
+          parameterName: "VBitrate",
+        },
+      );
+      if (
+        Number(appliedVideoBitrateParameter.parameterValue) !==
+        requestedVideoBitrateKbps
+      ) {
+        throw new Error(
+          `OBS did not apply VBitrate=${requestedVideoBitrateKbps}; observed ` +
+            `${appliedVideoBitrateParameter.parameterValue}`,
+        );
+      }
     }
 
     const currentProgram = await client
@@ -825,53 +1068,312 @@ async function main() {
         video_codec: 0,
         enable_data_channel: true,
         auto_reconnect: true,
+        video_protection_mode: videoProtectionMode,
+        audio_red: audioRed,
+        adaptive_bitrate: adaptiveBitrate,
+        adaptive_bitrate_min: adaptiveBitrateMinimumKbps,
       },
     });
 
     logStep("starting OBS stream");
     await client.request("StartStream");
     const activeStatus = await waitForStreamActive(client, 30000);
-    if (useObsBrowserViewer) {
+    if (useNativeViewer) {
       logStep(
-        `creating actual OBS Browser Source viewer ${obsBrowserViewerName}`,
+        `creating native VDO.Ninja viewer ${nativeViewerName} at ` +
+          `${nativeViewerWidth}x${nativeViewerHeight}`,
       );
-      const createdViewer = await client.request("CreateInput", {
+      const createdNativeViewer = await client.request("CreateInput", {
         sceneName,
-        inputName: obsBrowserViewerName,
-        inputKind: "browser_source",
+        inputName: nativeViewerName,
+        inputKind: "vdoninja_source",
         inputSettings: {
-          is_local_file: false,
-          url: ensureQuery(viewUrl, "autostart", "1"),
-          width: 640,
-          height: 360,
-          fps: 60,
-          shutdown: false,
-          restart_when_active: false,
-          reroute_audio: true,
+          use_native_receiver: true,
+          stream_id: streamId,
+          room_id: roomId,
+          password,
+          wss_host: "",
+          salt: "",
+          width: nativeViewerWidth,
+          height: nativeViewerHeight,
+          enable_data_channel: true,
+          auto_reconnect: true,
+          force_turn: false,
         },
         sceneItemEnabled: true,
       });
-      createdObsBrowserViewer = true;
-      obsBrowserViewerUuid = createdViewer.inputUuid || null;
-      obsBrowserViewerSceneItemId = createdViewer.sceneItemId ?? null;
+      nativeViewer = {
+        name: nativeViewerName,
+        uuid: createdNativeViewer.inputUuid || null,
+        sceneItemId: createdNativeViewer.sceneItemId ?? null,
+        width: nativeViewerWidth,
+        height: nativeViewerHeight,
+      };
       await client.request("SetInputMute", {
-        ...(obsBrowserViewerUuid
-          ? { inputUuid: obsBrowserViewerUuid }
-          : { inputName: obsBrowserViewerName }),
+        ...(nativeViewer.uuid
+          ? { inputUuid: nativeViewer.uuid }
+          : { inputName: nativeViewer.name }),
         inputMuted: true,
       });
-      if (obsBrowserViewerSceneItemId !== null) {
-        // Keep the real OBS Browser Source active and renderable without
-        // publishing a recursive copy of either its video or audio.
+      if (nativeViewer.sceneItemId !== null) {
         await client.request("SetSceneItemTransform", {
           sceneName,
-          sceneItemId: obsBrowserViewerSceneItemId,
+          sceneItemId: nativeViewer.sceneItemId,
           sceneItemTransform: {
-            positionX: 4096,
+            positionX: 8192,
             positionY: 0,
           },
         });
       }
+    }
+    if (useObsBrowserViewer) {
+      for (let viewerIndex = 0; viewerIndex < obsBrowserViewerCount; viewerIndex += 1) {
+        const viewerName =
+          viewerIndex === 0
+            ? obsBrowserViewerName
+            : `${obsBrowserViewerName} ${viewerIndex + 1}`;
+        const viewerUrl = new URL(viewUrl);
+        viewerUrl.searchParams.set("autostart", "1");
+        const viewerBitrateKbps =
+          obsBrowserViewerBitratesKbps[viewerIndex] || null;
+        if (viewerBitrateKbps) {
+          viewerUrl.searchParams.set("bitrate", String(viewerBitrateKbps));
+        }
+        logStep(
+          `creating actual OBS Browser Source viewer ${viewerName}` +
+            (viewerBitrateKbps
+              ? ` with ${viewerBitrateKbps} kbps receive target`
+              : ""),
+        );
+        const createdViewer = await client.request("CreateInput", {
+          sceneName,
+          inputName: viewerName,
+          inputKind: "browser_source",
+          inputSettings: {
+            is_local_file: false,
+            url: viewerUrl.toString(),
+            width: 640,
+            height: 360,
+            fps: 60,
+            shutdown: false,
+            restart_when_active: false,
+            reroute_audio: true,
+          },
+          sceneItemEnabled: true,
+        });
+        const viewer = {
+          name: viewerName,
+          uuid: createdViewer.inputUuid || null,
+          sceneItemId: createdViewer.sceneItemId ?? null,
+          bitrateKbps: viewerBitrateKbps,
+        };
+        obsBrowserViewers.push(viewer);
+        await client.request("SetInputMute", {
+          ...(viewer.uuid
+            ? { inputUuid: viewer.uuid }
+            : { inputName: viewer.name }),
+          inputMuted: true,
+        });
+        if (viewer.sceneItemId !== null) {
+          // Keep each real OBS Browser Source active and renderable without
+          // publishing a recursive copy of either its video or audio.
+          await client.request("SetSceneItemTransform", {
+            sceneName,
+            sceneItemId: viewer.sceneItemId,
+            sceneItemTransform: {
+              positionX: 4096 + viewerIndex * 640,
+              positionY: 0,
+            },
+          });
+        }
+      }
+      createdObsBrowserViewer = obsBrowserViewers.length > 0;
+      obsBrowserViewerUuid = obsBrowserViewers[0]?.uuid || null;
+    }
+
+    if (skipChromiumViewer) {
+      fs.mkdirSync(outputDir, { recursive: true });
+      const screenshotRequest = {
+        ...(obsBrowserViewerUuid
+          ? { sourceUuid: obsBrowserViewerUuid }
+          : { sourceName: obsBrowserViewerName }),
+        imageFormat: obsBrowserScreenshotFormat,
+        imageWidth: 640,
+        imageHeight: 360,
+        ...(obsBrowserScreenshotFormat === "png"
+          ? {}
+          : { imageCompressionQuality: obsBrowserScreenshotQuality }),
+      };
+      const playableDeadline = Date.now() + waitMs;
+      let previousProbe = null;
+      let playableImageData = null;
+      while (Date.now() < playableDeadline) {
+        const response = await client.request(
+          "GetSourceScreenshot",
+          screenshotRequest,
+        );
+        const probe = inspectObsScreenshot(response.imageData);
+        if (
+          probe.bytes >= obsBrowserMinimumScreenshotBytes &&
+          previousProbe &&
+          previousProbe.sha256 !== probe.sha256
+        ) {
+          playableImageData = response.imageData;
+          break;
+        }
+        previousProbe = probe;
+        await sleep(1000);
+      }
+      if (!playableImageData) {
+        throw new Error(
+          `OBS Browser Source did not render advancing high-detail media; ` +
+            `latest=${JSON.stringify(previousProbe)}`,
+        );
+      }
+
+      const firstObsBrowserScreenshot = saveObsScreenshot(
+        playableImageData,
+        path.join(
+          outputDir,
+          `obs-browser-viewer-first-${stamp}.${obsBrowserScreenshotFormat}`,
+        ),
+      );
+      const browserSamples = [
+        {
+          timestamp: Date.now(),
+          ...inspectObsScreenshot(playableImageData),
+        },
+      ];
+      let latestImageData = playableImageData;
+      let repeatedSamples = 0;
+      const soakDeadline = Date.now() + soakMs;
+      while (Date.now() < soakDeadline) {
+        await sleep(
+          Math.min(
+            obsBrowserSampleMs,
+            Math.max(1, soakDeadline - Date.now()),
+          ),
+        );
+        const response = await client.request(
+          "GetSourceScreenshot",
+          screenshotRequest,
+        );
+        latestImageData = response.imageData;
+        const sample = {
+          timestamp: Date.now(),
+          ...inspectObsScreenshot(latestImageData),
+        };
+        const previousSample = browserSamples[browserSamples.length - 1];
+        const sampleIntervalMs = sample.timestamp - previousSample.timestamp;
+        sample.sampleIntervalMs = sampleIntervalMs;
+        if (
+          previousSample.sha256 === sample.sha256 &&
+          sampleIntervalMs >= obsBrowserSampleMs * 0.8
+        ) {
+          repeatedSamples += 1;
+          logStep(
+            `OBS Browser Source repeated image sample ${repeatedSamples} at ${sample.timestamp} ` +
+              `after ${sampleIntervalMs} ms`,
+          );
+        }
+        browserSamples.push(sample);
+      }
+      const secondObsBrowserScreenshot = saveObsScreenshot(
+        latestImageData,
+        path.join(
+          outputDir,
+          `obs-browser-viewer-final-${stamp}.${obsBrowserScreenshotFormat}`,
+        ),
+      );
+      let obsBrowserFailure = null;
+      if (
+        firstObsBrowserScreenshot.sha256 ===
+        secondObsBrowserScreenshot.sha256
+      ) {
+        obsBrowserFailure =
+          "The actual OBS Browser Source viewer did not render an advancing image";
+      } else if (requireZeroFreezes && repeatedSamples !== 0) {
+        obsBrowserFailure =
+          `OBS Browser Source repeated ${repeatedSamples} one-second image sample(s) during the soak`;
+      }
+      // Browser Source volume metering depends on the local OBS audio-routing
+      // configuration. Record it for diagnostics, but only make it a gate when
+      // the caller explicitly knows that rerouted browser audio is metered.
+      if (
+        !obsBrowserFailure &&
+        process.env.VDONINJA_REQUIRE_OBS_BROWSER_AUDIO_METER === "1" &&
+        (obsBrowserAudioMeter.events === 0 ||
+          obsBrowserAudioMeter.nonSilentEvents === 0)
+      ) {
+        obsBrowserFailure =
+          `OBS Browser Source did not expose decoded non-silent audio; ` +
+          `meter=${JSON.stringify(obsBrowserAudioMeter)}`;
+      }
+      if (recordingStarted) {
+        logStep("stopping the simultaneous local OBS recording");
+        localRecording = await client.request("StopRecord");
+        recordingStarted = false;
+        await sleep(1000);
+      }
+
+      const reportPath = path.join(
+        outputDir,
+        `obs-publish-report-${stamp}.json`,
+      );
+      const report = {
+        ok: !obsBrowserFailure,
+        failure: obsBrowserFailure,
+        viewerRuntime: "OBS Browser Source",
+        streamId,
+        password,
+        roomId,
+        viewUrl,
+        sourceMode,
+        soakMs,
+        obsBrowserSampleMs,
+        obsBrowserScreenshotFormat,
+        obsBrowserScreenshotQuality,
+        obsBrowserMinimumScreenshotBytes,
+        obsBrowserViewerCount: obsBrowserViewers.length,
+        obsBrowserViewerBitratesKbps,
+        nativeViewer,
+        videoProtectionMode,
+        audioRed,
+        requestAudioRed,
+        adaptiveBitrate,
+        adaptiveBitrateMinimumKbps,
+        activeStatus,
+        appliedVideoSettings,
+        appliedVideoBitrateParameter,
+        browserSamples,
+        repeatedSamples,
+        obsBrowserAudioMeter,
+        firstObsBrowserScreenshot,
+        secondObsBrowserScreenshot,
+        localRecording,
+        streamEvents,
+        reportPath,
+      };
+      fs.writeFileSync(
+        reportPath,
+        `${JSON.stringify(report, null, 2)}\n`,
+        "utf8",
+      );
+      if (obsBrowserFailure) {
+        throw new Error(`${obsBrowserFailure}; report=${reportPath}`);
+      }
+      console.log(
+        JSON.stringify({
+          ok: true,
+          viewerRuntime: report.viewerRuntime,
+          streamId,
+          repeatedSamples,
+          firstObsBrowserScreenshot,
+          secondObsBrowserScreenshot,
+          reportPath,
+        }),
+      );
+      return;
     }
 
     browser = await chromium.launch({
@@ -1141,6 +1643,16 @@ async function main() {
       viewUrl,
       sourceMode,
       soakMs,
+      obsBrowserViewerCount: obsBrowserViewers.length,
+      obsBrowserViewerBitratesKbps,
+      nativeViewer,
+      videoProtectionMode,
+      audioRed,
+      requestAudioRed,
+      adaptiveBitrate,
+      adaptiveBitrateMinimumKbps,
+      appliedVideoSettings,
+      appliedVideoBitrateParameter,
       sourceTonePath,
       sourceToneDurationSeconds,
       obsVersion: version.obsVersion,
@@ -1250,13 +1762,26 @@ async function main() {
           recordingStarted = false;
         }
         if (createdObsBrowserViewer) {
-          logStep(`removing input ${obsBrowserViewerName}`);
+          for (const viewer of [...obsBrowserViewers].reverse()) {
+            logStep(`removing input ${viewer.name}`);
+            await client
+              .request(
+                "RemoveInput",
+                viewer.uuid
+                  ? { inputUuid: viewer.uuid }
+                  : { inputName: viewer.name },
+              )
+              .catch(() => {});
+          }
+        }
+        if (nativeViewer) {
+          logStep(`removing input ${nativeViewer.name}`);
           await client
             .request(
               "RemoveInput",
-              obsBrowserViewerUuid
-                ? { inputUuid: obsBrowserViewerUuid }
-                : { inputName: obsBrowserViewerName },
+              nativeViewer.uuid
+                ? { inputUuid: nativeViewer.uuid }
+                : { inputName: nativeViewer.name },
             )
             .catch(() => {});
         }
@@ -1276,6 +1801,27 @@ async function main() {
         if (createdScene) {
           logStep(`removing scene ${sceneName}`);
           await client.request("RemoveScene", { sceneName }).catch(() => {});
+        }
+        if (originalVideoSettings) {
+          logStep("restoring OBS video settings");
+          await client
+            .request("SetVideoSettings", originalVideoSettings)
+            .catch(() => {});
+          originalVideoSettings = null;
+        }
+        if (originalVideoBitrateParameter) {
+          logStep("restoring OBS video bitrate");
+          await client
+            .request("SetProfileParameter", {
+              parameterCategory: "SimpleOutput",
+              parameterName: "VBitrate",
+              parameterValue:
+                originalVideoBitrateParameter.parameterValue === undefined
+                  ? null
+                  : originalVideoBitrateParameter.parameterValue,
+            })
+            .catch(() => {});
+          originalVideoBitrateParameter = null;
         }
       } finally {
         await client.close();

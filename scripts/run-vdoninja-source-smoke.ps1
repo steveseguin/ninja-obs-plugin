@@ -24,7 +24,6 @@ $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $obsExePath = (Resolve-Path $ObsExe).Path
 $obsWorkingDirPath = (Resolve-Path $ObsWorkingDirectory).Path
 $installPrefixPath = (Resolve-Path $InstallPrefix).Path
-$pluginPath = (Resolve-Path (Join-Path $installPrefixPath "obs-plugins\\64bit")).Path
 $dataPath = (Resolve-Path (Join-Path $installPrefixPath "data\\obs-plugins")).Path
 $depsBin = "C:\\Users\\steve\\Code\\obs-build-dependencies\\windows-deps-2023-06-01-x64\\bin"
 $obsWebSocketConfigPath = Join-Path $repoRoot "_obs-portable\\config\\obs-studio\\plugin_config\\obs-websocket\\config.json"
@@ -91,9 +90,13 @@ $obsWebSocketConfig.auth_required = $false
 $obsWebSocketConfig.server_port = $ObsWebSocketPort
 $obsWebSocketConfig | ConvertTo-Json | Set-Content -Path $obsWebSocketConfigPath -Encoding UTF8
 
-$env:OBS_WEBSOCKET_URL = "ws://127.0.0.1:$ObsWebSocketPort"
+$previousObsWebSocketUrl = $env:OBS_WEBSOCKET_URL
+$previousObsPluginsPath = $env:OBS_PLUGINS_PATH
+$previousObsPluginsDataPath = $env:OBS_PLUGINS_DATA_PATH
+$previousPath = $env:PATH
 
-$env:OBS_PLUGINS_PATH = $pluginPath
+$env:OBS_WEBSOCKET_URL = "ws://127.0.0.1:$ObsWebSocketPort"
+Remove-Item Env:OBS_PLUGINS_PATH -ErrorAction SilentlyContinue
 $env:OBS_PLUGINS_DATA_PATH = $dataPath
 $env:PATH = "$depsBin;$env:PATH"
 
@@ -104,6 +107,7 @@ $checkProc = $null
 try {
     $obsProc = Start-Process -FilePath $obsExePath -ArgumentList "--portable" `
         -WorkingDirectory $obsWorkingDirPath `
+        -WindowStyle Hidden `
         -RedirectStandardOutput $obsStdout `
         -RedirectStandardError $obsStderr `
         -PassThru
@@ -191,6 +195,26 @@ try {
     if ($checkExit -ne 0) {
         throw "Source check failed with exit code $checkExit"
     }
+
+    $expectedPluginHash =
+        (Get-FileHash (Join-Path $installPrefixPath "obs-plugins\64bit\obs-vdoninja.dll") -Algorithm SHA256).Hash
+    $loadedPluginModules = @(
+        (Get-Process -Id $obsProc.Id -ErrorAction Stop).Modules |
+            Where-Object { $_.ModuleName -ieq "obs-vdoninja.dll" } |
+            ForEach-Object {
+                [pscustomobject]@{
+                    path = $_.FileName
+                    sha256 = (Get-FileHash $_.FileName -Algorithm SHA256).Hash
+                }
+            }
+    )
+    if ($loadedPluginModules.Count -ne 1) {
+        $loadedPaths = ($loadedPluginModules | ForEach-Object { $_.path }) -join ", "
+        throw "Portable OBS must load exactly one obs-vdoninja.dll; found: $loadedPaths"
+    }
+    if ($loadedPluginModules[0].sha256 -ne $expectedPluginHash) {
+        throw "Portable OBS loaded a stale plugin DLL from $($loadedPluginModules[0].path)"
+    }
 } finally {
     if ($originalObsWebSocketConfig -ne $null) {
         Set-Content -Path $obsWebSocketConfigPath -Value $originalObsWebSocketConfig -Encoding UTF8
@@ -204,4 +228,20 @@ try {
     if ($obsProc -and -not $obsProc.HasExited) {
         Stop-Process -Id $obsProc.Id -Force -ErrorAction SilentlyContinue
     }
+    if ($null -ne $previousObsWebSocketUrl) {
+        $env:OBS_WEBSOCKET_URL = $previousObsWebSocketUrl
+    } else {
+        Remove-Item Env:OBS_WEBSOCKET_URL -ErrorAction SilentlyContinue
+    }
+    if ($null -ne $previousObsPluginsPath) {
+        $env:OBS_PLUGINS_PATH = $previousObsPluginsPath
+    } else {
+        Remove-Item Env:OBS_PLUGINS_PATH -ErrorAction SilentlyContinue
+    }
+    if ($null -ne $previousObsPluginsDataPath) {
+        $env:OBS_PLUGINS_DATA_PATH = $previousObsPluginsDataPath
+    } else {
+        Remove-Item Env:OBS_PLUGINS_DATA_PATH -ErrorAction SilentlyContinue
+    }
+    $env:PATH = $previousPath
 }

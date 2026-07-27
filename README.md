@@ -175,10 +175,27 @@ Notes:
   - Example: `stun:stun.l.google.com:19302; turn:turn.example.com:3478|user|pass`
 - `Force TURN`: Use relay-only path for difficult network environments. Requires at least one TURN server entry.
 - `Max Viewers`: Upper bound for simultaneous P2P viewers.
+- `Packet Duplication (Experimental)`: Optional paced, delayed copies of selected video RTP packets.
+  - `Off` is the compatibility default.
+  - `Low` protects keyframes with up to 20% best-effort extra traffic.
+  - `Medium` protects keyframes plus one quarter of delta packets with up to 50% best-effort extra traffic.
+  - `High` can copy every video packet with up to 100% best-effort extra traffic.
+  - Copies yield to live media and expire instead of building stream latency. This is packet duplication, not negotiated video RED/ULPFEC.
+- `Audio RED (Experimental)`: Adds the previous Opus frame to the current packet using negotiated RFC 2198 RED. It is off by default, and each viewer falls back to ordinary Opus unless its SDP answer selects the offered RED mapping.
+- `Adaptive Bitrate from REMB (Experimental)`: Dynamically changes supported OBS encoders and RTP pacing from receiver estimates. It is off by default, uses the lowest fresh estimate across every connected viewer, decreases in stages, increases conservatively, and restores the configured encoder bitrate when streaming stops.
+- `Minimum Adaptive Bitrate`: Floor used only while adaptive bitrate is enabled.
+
+The VDO.Ninja stream service keeps the effective keyframe interval at two seconds or less unless OBS's advanced `Ignore streaming service setting recommendations` option bypasses service settings. The plugin cannot request an extra IDR for PLI because libobs has no on-demand keyframe API, so an established stream keeps flowing until the next scheduled IDR. Dependent frames are gated only after the publisher knows it lost or partially failed a frame locally.
 
 Default ICE behavior:
 - If `Custom ICE Servers` is empty, plugin uses built-in STUN servers (`stun:stun.l.google.com:19302` and `stun:stun.cloudflare.com:3478`).
 - No TURN server is added automatically unless you provide one.
+
+### Packet-loss diagnostics
+
+The OBS log writes a rolling `Publish:` summary with keyframe size/cadence, per-peer pacer delay and drops, NACK/cache/repair counts, PLI/FIR, receiver loss/jitter/RTT, REMB, packet-duplication activity, audio RED activity, and audio continuity. Use that evidence before assuming encoder overload and compare it with the viewer's VDO.Ninja/WebRTC statistics.
+
+For a fixed-rate stream that exceeds a viewer's route, lower bitrate or resolution first. Packet duplication and RED can be useful opt-in tools, but they add traffic and do not create capacity on an already saturated route. Adaptive bitrate is the opt-in path intended to react to fresh receiver estimates.
 
 ## Testing
 
