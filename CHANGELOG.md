@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.60] - 2026-07-26
+
 ### Added
 - Added per-peer RTCP diagnostics for NACK, cache hits/misses, paced retransmissions, PLI/FIR, receiver loss, jitter, RTT, malformed feedback, and REMB, and correlated them with keyframe and pacer measurements in the rolling `Publish:` summary.
 - Added negotiated, opt-in RFC 2198 audio RED carrying one previous Opus frame. Plain Opus remains the default, and viewers that do not select the offered RED mapping fall back per peer without losing audio.
