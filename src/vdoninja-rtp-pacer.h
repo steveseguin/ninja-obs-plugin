@@ -27,6 +27,11 @@ namespace vdoninja
 // uint16_t conversion intentionally preserves RTP wrap-around semantics.
 uint16_t rewindRtpSequenceNumber(uint16_t nextSequenceNumber, size_t unsentPackets) noexcept;
 
+// The pacer is a burst smoother, not an encoder bitrate limiter. Some
+// VideoToolbox modes substantially overshoot very low configured bitrates, so
+// retain enough egress headroom to prevent that overshoot becoming latency.
+uint64_t videoPacerBitrateForEncoderRate(int encoderBitrate) noexcept;
+
 // A small aggregate token bucket shared by every viewer pacer. Per-peer pacers
 // still preserve frame ordering and fairness, while this budget prevents all
 // viewers from releasing their short burst allowance at the same instant.

@@ -46,6 +46,20 @@ TEST(RtpPacketPacerTest, ReclaimsUnsentTailSequenceNumbersAcrossWrapAround)
 	EXPECT_EQ(rewindRtpSequenceNumber(7, 65536), 7);
 }
 
+TEST(RtpPacketPacerTest, RetainsHeadroomForLowBitrateEncoderOvershoot)
+{
+	EXPECT_EQ(videoPacerBitrateForEncoderRate(500000), 2000000u);
+	EXPECT_EQ(videoPacerBitrateForEncoderRate(1000000), 2000000u);
+	EXPECT_EQ(videoPacerBitrateForEncoderRate(1500000), 3000000u);
+}
+
+TEST(RtpPacketPacerTest, ClampsInvalidAndExtremeEncoderRates)
+{
+	EXPECT_EQ(videoPacerBitrateForEncoderRate(0), 2000000u);
+	EXPECT_EQ(videoPacerBitrateForEncoderRate(-1), 2000000u);
+	EXPECT_EQ(videoPacerBitrateForEncoderRate(60000000), 100000000u);
+}
+
 TEST(RtpPacketPacerTest, RejectsAnOversizedFrameWithoutSendingAnyPart)
 {
 	std::atomic<int> sent{0};

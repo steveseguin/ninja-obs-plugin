@@ -23,6 +23,9 @@ constexpr size_t kMaxConsecutiveRepairPackets = 4;
 constexpr auto kRepairBudgetWindow = std::chrono::milliseconds(100);
 constexpr auto kRepairMaximumAge = std::chrono::milliseconds(500);
 constexpr size_t kMinimumDuplicateQueueBytes = 64U * 1024U;
+constexpr uint64_t kVideoPacerRateMultiplier = 2;
+constexpr uint64_t kMinimumVideoPacerBitrate = 2000000;
+constexpr uint64_t kMaximumVideoPacerBitrate = 100000000;
 
 size_t calculateBurstBudget(uint64_t bitrateBitsPerSecond, std::chrono::milliseconds burstWindow)
 {
@@ -93,6 +96,15 @@ std::chrono::steady_clock::duration tokenWaitDuration(long double missingBytes, 
 }
 
 } // namespace
+
+uint64_t videoPacerBitrateForEncoderRate(int encoderBitrate) noexcept
+{
+	const uint64_t positiveBitrate = static_cast<uint64_t>(std::max(encoderBitrate, 1));
+	const uint64_t multiplied = positiveBitrate > kMaximumVideoPacerBitrate / kVideoPacerRateMultiplier
+	                                ? kMaximumVideoPacerBitrate
+	                                : positiveBitrate * kVideoPacerRateMultiplier;
+	return std::clamp(multiplied, kMinimumVideoPacerBitrate, kMaximumVideoPacerBitrate);
+}
 
 uint16_t rewindRtpSequenceNumber(uint16_t nextSequenceNumber, size_t unsentPackets) noexcept
 {

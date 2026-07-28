@@ -38,19 +38,7 @@ constexpr int64_t kRetiredPeerCleanupDelayMs = 1000;
 constexpr uint32_t kVideoClockRate = 90000;
 constexpr uint32_t kAudioClockRate = 48000;
 constexpr auto kVideoPacerInterval = std::chrono::milliseconds(2);
-constexpr uint64_t kVideoPacerRateMultiplier = 2;
-constexpr uint64_t kMinimumVideoPacerBitrate = 1000000;
-constexpr uint64_t kMaximumVideoPacerBitrate = 100000000;
 constexpr size_t kAggregateVideoPacerBurstBytes = 4U * 1024U;
-
-uint64_t videoPacerBitrate(int encoderBitrate)
-{
-	const uint64_t positiveBitrate = static_cast<uint64_t>(std::max(encoderBitrate, 1));
-	const uint64_t multiplied = positiveBitrate > kMaximumVideoPacerBitrate / kVideoPacerRateMultiplier
-	                                ? kMaximumVideoPacerBitrate
-	                                : positiveBitrate * kVideoPacerRateMultiplier;
-	return std::clamp(multiplied, kMinimumVideoPacerBitrate, kMaximumVideoPacerBitrate);
-}
 
 uint64_t videoProtectionBitrate(int encoderBitrate, VideoProtectionMode mode)
 {
@@ -1632,7 +1620,7 @@ void VDONinjaPeerManager::setupPublisherTracks(std::shared_ptr<PeerInfo> peer)
 		});
 	});
 	const int currentEncoderBitrate = bitrate_.load(std::memory_order_acquire);
-	const uint64_t pacerBitrate = videoPacerBitrate(currentEncoderBitrate);
+	const uint64_t pacerBitrate = videoPacerBitrateForEncoderRate(currentEncoderBitrate);
 	RtpPacketDuplicationConfig duplicationConfig;
 	duplicationConfig.mode = videoProtectionMode_;
 	duplicationConfig.averageBitrateBitsPerSecond = videoProtectionBitrate(currentEncoderBitrate, videoProtectionMode_);
@@ -3122,7 +3110,7 @@ void VDONinjaPeerManager::setBitrate(int bitrate)
 		}
 	}
 
-	const uint64_t pacerBitrate = videoPacerBitrate(targetBitrate);
+	const uint64_t pacerBitrate = videoPacerBitrateForEncoderRate(targetBitrate);
 	const uint64_t duplicateBitrate = videoProtectionBitrate(targetBitrate, videoProtectionMode_);
 	for (const auto &pacer : pacers) {
 		pacer->updateBitrate(pacerBitrate, duplicateBitrate);

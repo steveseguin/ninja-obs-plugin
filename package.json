@@ -15,6 +15,7 @@
     "test:e2e:vp9": "playwright test tests/e2e/vdoninja-vp9-view.spec.js --reporter=line",
     "test:audio-continuity": "node --test tests/test-audio-continuity.cjs",
     "test:video-continuity": "node --test tests/test-video-continuity.cjs",
+    "test:presentation-continuity": "node --test tests/test-presentation-continuity.cjs",
     "test:audio-capture-control": "node scripts/playwright-audio-capture-control.cjs"
   },
   "keywords": [],

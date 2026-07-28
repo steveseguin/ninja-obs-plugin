@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Added decoded-pixel publishing validation with deterministic per-frame markers, browser presentation-cadence telemetry, multi-viewer encoder checks, forced-TURN candidate proof, and a deterministic UDP loss proxy for repeatable macOS stress testing.
+
+### Fixed
+- Prevented VideoToolbox bitrate overshoot at very low configured rates from accumulating seconds of RTP-pacer latency. The pacer now retains a 2 Mbps minimum drain rate while continuing to smooth bursts; a 1080p60/500 kbps high-motion regression improved from 43.98 decoded FPS and 2.1 seconds of queue delay to 59.88 FPS and 39 ms without changing the encoded bitrate.
+
 ## [1.1.61] - 2026-07-27
 
 ### Added

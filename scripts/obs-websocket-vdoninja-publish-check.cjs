@@ -10,6 +10,10 @@ const {
 const {
   analyzeVideoContinuity,
 } = require("../tests/tools/video-continuity-analysis.cjs");
+const {
+  analyzePresentationContinuity,
+  analyzeVisualSequence,
+} = require("../tests/tools/presentation-continuity-analysis.cjs");
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -35,6 +39,8 @@ class ObsWebSocketClient {
     this.requestId = 0;
     this.pending = new Map();
     this.identified = false;
+    this.password =
+      options.password || process.env.OBS_WEBSOCKET_PASSWORD || "";
     this.requestTimeoutMs = Number(
       process.env.OBS_WEBSOCKET_REQUEST_TIMEOUT_MS || 20000,
     );
@@ -80,13 +86,32 @@ class ObsWebSocketClient {
         try {
           const message = JSON.parse(event.data.toString());
           if (message.op === 0) {
+            const identify = {
+              rpcVersion: 1,
+              eventSubscriptions: this.eventSubscriptions,
+            };
+            if (message.d && message.d.authentication) {
+              if (!this.password) {
+                throw new Error(
+                  "OBS WebSocket authentication is required; set OBS_WEBSOCKET_PASSWORD",
+                );
+              }
+              const secret = crypto
+                .createHash("sha256")
+                .update(
+                  this.password + message.d.authentication.salt,
+                  "utf8",
+                )
+                .digest("base64");
+              identify.authentication = crypto
+                .createHash("sha256")
+                .update(secret + message.d.authentication.challenge, "utf8")
+                .digest("base64");
+            }
             socket.send(
               JSON.stringify({
                 op: 1,
-                d: {
-                  rpcVersion: 1,
-                  eventSubscriptions: this.eventSubscriptions,
-                },
+                d: identify,
               }),
             );
             return;
@@ -427,6 +452,9 @@ async function collectViewerSnapshot(page) {
           let jitterBufferDelay = 0;
           let jitterBufferEmittedCount = 0;
           let packetsDiscarded = 0;
+          const selectedCandidatePairs = [];
+          const byId = new Map();
+          stats.forEach((stat) => byId.set(stat.id, stat));
           stats.forEach((s) => {
             if (s.type === "inbound-rtp" && !s.isRemote) {
               packetsLost += s.packetsLost || 0;
@@ -462,6 +490,23 @@ async function collectViewerSnapshot(page) {
                 packetsDiscarded += s.packetsDiscarded || 0;
               }
             }
+            if (
+              s.type === "candidate-pair" &&
+              (s.selected || s.nominated) &&
+              s.state === "succeeded"
+            ) {
+              const local = byId.get(s.localCandidateId);
+              const remote = byId.get(s.remoteCandidateId);
+              selectedCandidatePairs.push({
+                localCandidateType: local ? local.candidateType || "" : "",
+                localProtocol: local ? local.protocol || "" : "",
+                localRelayProtocol: local ? local.relayProtocol || "" : "",
+                remoteCandidateType: remote ? remote.candidateType || "" : "",
+                remoteProtocol: remote ? remote.protocol || "" : "",
+                remoteRelayProtocol: remote ? remote.relayProtocol || "" : "",
+                currentRoundTripTime: s.currentRoundTripTime || 0,
+              });
+            }
           });
           pcStats.push({
             state: pc.connectionState,
@@ -490,6 +535,7 @@ async function collectViewerSnapshot(page) {
             jitterBufferDelay,
             jitterBufferEmittedCount,
             packetsDiscarded,
+            selectedCandidatePairs,
           });
         } catch (error) {
           pcStats.push({ error: String(error) });
@@ -508,6 +554,256 @@ async function collectViewerSnapshot(page) {
       pcStats,
       timestamp: Date.now(),
     };
+  });
+}
+
+async function startPresentationCapture(page, requireMarker, markerFormat) {
+  return page.evaluate(({ markerRequired, markerFormat }) => {
+    const video = Array.from(document.querySelectorAll("video")).find(
+      (candidate) =>
+        candidate.srcObject &&
+        candidate.videoWidth > 0 &&
+        candidate.videoHeight > 0,
+    );
+    if (!video) {
+      throw new Error("No playable video element exists for presentation capture");
+    }
+    if (typeof video.requestVideoFrameCallback !== "function") {
+      throw new Error("This browser does not support requestVideoFrameCallback");
+    }
+
+    if (window.__vdoninjaPresentationCapture) {
+      window.__vdoninjaPresentationCapture.active = false;
+    }
+    const capture = {
+      active: true,
+      records: [],
+      decodedRecords: [],
+      maximumRecords: 120000,
+      requireMarker: markerRequired,
+      markerFormat,
+      markerCanvas: document.createElement("canvas"),
+      markerContext: null,
+      markerError: "",
+    };
+    capture.markerCanvas.width = 32;
+    capture.markerCanvas.height = 1;
+    capture.markerContext = capture.markerCanvas.getContext("2d", {
+      alpha: false,
+      willReadFrequently: true,
+    });
+
+    function crc8(value) {
+      let crc = 0;
+      for (const byte of [(value >>> 8) & 255, value & 255]) {
+        crc ^= byte;
+        for (let bit = 0; bit < 8; bit += 1) {
+          crc = crc & 0x80 ? ((crc << 1) ^ 0x07) & 255 : (crc << 1) & 255;
+        }
+      }
+      return crc;
+    }
+
+    function grayToBinary(gray) {
+      let binary = gray;
+      for (let shift = 1; shift < 16; shift <<= 1) {
+        binary ^= binary >>> shift;
+      }
+      return binary & 0xffff;
+    }
+
+    function decodeMarker(source, sourceWidth, sourceHeight) {
+      if (!capture.requireMarker) {
+        return { markerFrame: null, markerError: "" };
+      }
+      try {
+        const context = capture.markerContext;
+        context.drawImage(
+          source,
+          sourceWidth * (192 / 1920),
+          sourceHeight * (920 / 1080),
+          sourceWidth * (1536 / 1920),
+          sourceHeight * (96 / 1080),
+          0,
+          0,
+          32,
+          1,
+        );
+        const pixels = context.getImageData(0, 0, 32, 1).data;
+        const luma = [];
+        for (let offset = 0; offset < pixels.length; offset += 4) {
+          luma.push(
+            pixels[offset] * 0.2126 +
+              pixels[offset + 1] * 0.7152 +
+              pixels[offset + 2] * 0.0722,
+          );
+        }
+        const minimum = Math.min(...luma);
+        const maximum = Math.max(...luma);
+        if (maximum - minimum < 64) {
+          return {
+            markerFrame: null,
+            markerError: "low-contrast",
+            markerObserved: { minimum, maximum },
+          };
+        }
+        const threshold = (minimum + maximum) / 2;
+        let sync = 0;
+        let gray = 0;
+        let checksum = 0;
+        for (let bit = 0; bit < 8; bit += 1) {
+          sync = (sync << 1) | (luma[bit] > threshold ? 1 : 0);
+        }
+        for (let bit = 8; bit < 24; bit += 1) {
+          gray = (gray << 1) | (luma[bit] > threshold ? 1 : 0);
+        }
+        for (let bit = 24; bit < 32; bit += 1) {
+          checksum = (checksum << 1) | (luma[bit] > threshold ? 1 : 0);
+        }
+        if (sync !== 0xd3) {
+          return {
+            markerFrame: null,
+            markerError: "sync",
+            markerObserved: { minimum, maximum, sync, gray, checksum },
+          };
+        }
+        const markerFrame =
+          capture.markerFormat === "counter-complement"
+            ? gray
+            : grayToBinary(gray);
+        const expectedChecksum =
+          capture.markerFormat === "counter-complement"
+            ? (~markerFrame) & 255
+            : crc8(markerFrame);
+        if (expectedChecksum !== checksum) {
+          return {
+            markerFrame: null,
+            markerError: "crc",
+            markerObserved: { minimum, maximum, sync, gray, checksum },
+          };
+        }
+        return {
+          markerFrame,
+          markerError: "",
+          markerContrast: maximum - minimum,
+        };
+      } catch (error) {
+        capture.markerError = String(error);
+        return { markerFrame: null, markerError: String(error) };
+      }
+    }
+
+    function onFrame(callbackTime, metadata) {
+      if (!capture.active) {
+        return;
+      }
+      if (capture.records.length < capture.maximumRecords) {
+        capture.records.push({
+          callbackTime,
+          expectedDisplayTime: metadata.expectedDisplayTime,
+          presentationTime: metadata.presentationTime,
+          mediaTime: metadata.mediaTime,
+          presentedFrames: metadata.presentedFrames,
+          processingDuration: metadata.processingDuration,
+          width: metadata.width,
+          height: metadata.height,
+        });
+      }
+      video.requestVideoFrameCallback(onFrame);
+    }
+
+    window.__vdoninjaPresentationCapture = capture;
+    if (markerRequired) {
+      if (typeof window.MediaStreamTrackProcessor !== "function") {
+        throw new Error(
+          "This browser does not support decoded video frame inspection",
+        );
+      }
+      const sourceTrack = video.srcObject.getVideoTracks()[0].clone();
+      capture.processorTrack = sourceTrack;
+      const processor = new MediaStreamTrackProcessor({ track: sourceTrack });
+      capture.processorReader = processor.readable.getReader();
+      capture.processorDone = (async () => {
+        try {
+          while (capture.active) {
+            const { value, done } = await capture.processorReader.read();
+            if (done || !value) {
+              break;
+            }
+            try {
+              if (capture.decodedRecords.length < capture.maximumRecords) {
+                capture.decodedRecords.push({
+                  timestampUs: value.timestamp,
+                  durationUs: value.duration,
+                  width: value.displayWidth,
+                  height: value.displayHeight,
+                  ...decodeMarker(
+                    value,
+                    value.displayWidth,
+                    value.displayHeight,
+                  ),
+                });
+              }
+            } finally {
+              value.close();
+            }
+          }
+        } catch (error) {
+          if (capture.active) {
+            capture.processorError = String(error);
+          }
+        }
+      })();
+    }
+    video.requestVideoFrameCallback(onFrame);
+    return {
+      supported: true,
+      requireMarker: markerRequired,
+      videoWidth: video.videoWidth,
+      videoHeight: video.videoHeight,
+    };
+  }, { markerRequired: requireMarker, markerFormat });
+}
+
+async function stopPresentationCapture(page) {
+  return page.evaluate(async () => {
+    const capture = window.__vdoninjaPresentationCapture;
+    if (!capture) {
+      return { records: [], error: "capture-not-started" };
+    }
+    capture.active = false;
+    if (capture.processorReader) {
+      await capture.processorReader.cancel().catch(() => {});
+    }
+    if (capture.processorDone) {
+      await capture.processorDone.catch(() => {});
+    }
+    if (capture.processorTrack) {
+      capture.processorTrack.stop();
+    }
+    const markerDiagnostics = {};
+    for (const record of capture.decodedRecords) {
+      const key = record.markerError || "valid";
+      markerDiagnostics[key] = (markerDiagnostics[key] || 0) + 1;
+    }
+    const result = {
+      records: capture.records,
+      decodedRecords: capture.decodedRecords,
+      markerError: capture.markerError,
+      processorError: capture.processorError || "",
+      markerDiagnostics,
+      markerSamples: capture.decodedRecords.slice(0, 10).map((record) => ({
+        markerFrame: record.markerFrame,
+        markerError: record.markerError,
+        markerContrast: record.markerContrast,
+        markerObserved: record.markerObserved,
+        width: record.width,
+        height: record.height,
+      })),
+      truncated: capture.records.length >= capture.maximumRecords,
+    };
+    delete window.__vdoninjaPresentationCapture;
+    return result;
   });
 }
 
@@ -537,6 +833,20 @@ function totalPcMetric(snapshot, key) {
   return snapshot.pcStats.reduce(
     (total, stat) => total + (Number(stat[key]) || 0),
     0,
+  );
+}
+
+function selectedCandidatePairs(snapshot) {
+  return (snapshot.pcStats || []).flatMap(
+    (stat) => stat.selectedCandidatePairs || [],
+  );
+}
+
+function usesRelayCandidate(snapshot) {
+  return selectedCandidatePairs(snapshot).some(
+    (pair) =>
+      pair.localCandidateType === "relay" ||
+      pair.remoteCandidateType === "relay",
   );
 }
 
@@ -808,7 +1118,10 @@ async function main() {
   ).toLowerCase();
   const useMotionSource = sourceMode === "motion";
   const useAudioContinuitySource = sourceMode === "audio-continuity";
+  const useMediaSequenceSource = sourceMode === "media-sequence";
   const useGeneratedBrowserSource = useMotionSource || useAudioContinuitySource;
+  const useGeneratedVisualSource =
+    useGeneratedBrowserSource || useMediaSequenceSource;
   const requireAudioContinuity =
     useAudioContinuitySource ||
     process.env.VDONINJA_REQUIRE_AUDIO_CONTINUITY === "1";
@@ -851,6 +1164,10 @@ async function main() {
   const skipChromiumViewer = process.env.VDONINJA_SKIP_CHROMIUM_VIEWER === "1";
   const requireZeroFreezes = process.env.VDONINJA_REQUIRE_ZERO_FREEZES === "1";
   const requireStableVideo = process.env.VDONINJA_REQUIRE_STABLE_VIDEO === "1";
+  const requirePresentationContinuity =
+    process.env.VDONINJA_REQUIRE_PRESENTATION_CONTINUITY === "1";
+  const requireVisualSequence =
+    process.env.VDONINJA_REQUIRE_VISUAL_SEQUENCE === "1";
   const viewerSampleMs = Math.max(
     100,
     Number(process.env.VDONINJA_VIEWER_SAMPLE_MS || 1000),
@@ -876,6 +1193,12 @@ async function main() {
   );
   const maximumLostVideoPackets = Number(
     process.env.VDONINJA_MAX_LOST_VIDEO_PACKETS || 0,
+  );
+  const maximumPresentationCadenceDeviationMs = Number(
+    process.env.VDONINJA_MAX_PRESENTATION_CADENCE_DEVIATION_MS || 0,
+  );
+  const maximumPresentationStallMs = Number(
+    process.env.VDONINJA_MAX_PRESENTATION_STALL_MS || 0,
   );
   const obsBrowserSampleMs = Math.max(
     100,
@@ -933,9 +1256,15 @@ async function main() {
   const expectedStreamEncoder = String(
     process.env.VDONINJA_EXPECT_STREAM_ENCODER || "",
   ).trim();
+  const expectedAdvancedStreamEncoder = String(
+    process.env.VDONINJA_EXPECT_ADVANCED_STREAM_ENCODER || "",
+  ).trim();
   const customIceServers = String(
     process.env.VDONINJA_ICE_SERVERS || "",
   ).trim();
+  const forceTurn = process.env.VDONINJA_FORCE_TURN === "1";
+  const requireRelayCandidate =
+    process.env.VDONINJA_REQUIRE_RELAY_CANDIDATE === "1" || forceTurn;
   if (skipChromiumViewer && !useObsBrowserViewer) {
     throw new Error(
       "VDONINJA_SKIP_CHROMIUM_VIEWER requires VDONINJA_OBS_BROWSER_VIEWER=1",
@@ -963,6 +1292,8 @@ async function main() {
   const sceneName = `Codex OBS Publish ${stamp}`;
   const sourceLabel = useAudioContinuitySource
     ? "Audio Continuity"
+    : useMediaSequenceSource
+      ? "Media Sequence"
     : useMotionSource
       ? "Motion"
       : "Color";
@@ -982,9 +1313,19 @@ async function main() {
     "tools",
     "publish-audio-continuity-source.html",
   );
-  const generatedSourcePath = useAudioContinuitySource
-    ? audioContinuitySourcePath
-    : motionSourcePath;
+  const mediaSequenceSourcePath = String(
+    process.env.VDONINJA_MEDIA_SEQUENCE_PATH || "",
+  ).trim();
+  if (useMediaSequenceSource && !mediaSequenceSourcePath) {
+    throw new Error(
+      "VDONINJA_SOURCE_MODE=media-sequence requires VDONINJA_MEDIA_SEQUENCE_PATH",
+    );
+  }
+  const generatedSourcePath = useMediaSequenceSource
+    ? path.resolve(mediaSequenceSourcePath)
+    : useAudioContinuitySource
+      ? audioContinuitySourcePath
+      : motionSourcePath;
   const sourceToneDurationSeconds = useAudioContinuitySource
     ? Math.ceil((soakMs + waitMs + 30000) / 1000)
     : 0;
@@ -1007,6 +1348,9 @@ async function main() {
     viewParams.set("audiocodec", "red");
   } else if (audioRed) {
     viewParams.set("audiocodec", "opus");
+  }
+  if (forceTurn) {
+    viewParams.set("relay", "");
   }
   viewParams.set("debug", "");
   const viewUrl = ensureQuery(
@@ -1031,6 +1375,11 @@ async function main() {
   let originalVideoBitrateParameter = null;
   let appliedVideoBitrateParameter = null;
   let appliedStreamEncoderParameter = null;
+  let appliedAdvancedStreamEncoderParameter = null;
+  let generatedSourceScreenshot = null;
+  let generatedSourceFinalScreenshot = null;
+  let generatedSourceInputSettings = null;
+  let programSceneItemId = null;
   let browserStackViewerCheck = null;
   let browserStackViewerReport = null;
   const obsBrowserAudioMeter = {
@@ -1114,12 +1463,15 @@ async function main() {
     ) {
       throw new Error("OBS does not expose the browser_source input kind");
     }
-    if (useGeneratedBrowserSource && !fs.existsSync(generatedSourcePath)) {
+    if (useGeneratedVisualSource && !fs.existsSync(generatedSourcePath)) {
       throw new Error(
-        `Generated browser source file is missing: ${generatedSourcePath}`,
+        `Generated source file is missing: ${generatedSourcePath}`,
       );
     }
-    if (useAudioContinuitySource && !inputKinds.includes("ffmpeg_source")) {
+    if (
+      (useAudioContinuitySource || useMediaSequenceSource) &&
+      !inputKinds.includes("ffmpeg_source")
+    ) {
       throw new Error("OBS does not expose the Media Source input kind");
     }
     if (useAudioContinuitySource) {
@@ -1212,6 +1564,27 @@ async function main() {
         `verified configured OBS stream encoder ${expectedStreamEncoder}`,
       );
     }
+    if (expectedAdvancedStreamEncoder) {
+      appliedAdvancedStreamEncoderParameter = await client.request(
+        "GetProfileParameter",
+        {
+          parameterCategory: "AdvOut",
+          parameterName: "Encoder",
+        },
+      );
+      if (
+        appliedAdvancedStreamEncoderParameter.parameterValue !==
+        expectedAdvancedStreamEncoder
+      ) {
+        throw new Error(
+          `Expected OBS AdvOut Encoder=${expectedAdvancedStreamEncoder}; observed ` +
+            `${appliedAdvancedStreamEncoderParameter.parameterValue}`,
+        );
+      }
+      logStep(
+        `verified configured OBS advanced stream encoder ${expectedAdvancedStreamEncoder}`,
+      );
+    }
 
     const currentProgram = await client
       .request("GetCurrentProgramScene")
@@ -1222,7 +1595,7 @@ async function main() {
     await client.request("CreateScene", { sceneName });
     createdScene = true;
     if (useGeneratedBrowserSource) {
-      await client.request("CreateInput", {
+      const createdProgramInput = await client.request("CreateInput", {
         sceneName,
         inputName,
         inputKind: "browser_source",
@@ -1237,8 +1610,33 @@ async function main() {
         },
         sceneItemEnabled: true,
       });
+      programSceneItemId = createdProgramInput.sceneItemId;
+      generatedSourceInputSettings = await client.request(
+        "GetInputSettings",
+        { inputName },
+      );
+    } else if (useMediaSequenceSource) {
+      const createdProgramInput = await client.request("CreateInput", {
+        sceneName,
+        inputName,
+        inputKind: "ffmpeg_source",
+        inputSettings: {
+          is_local_file: true,
+          local_file: generatedSourcePath,
+          looping: false,
+          restart_on_activate: true,
+          close_when_inactive: false,
+          clear_on_media_end: false,
+        },
+        sceneItemEnabled: true,
+      });
+      programSceneItemId = createdProgramInput.sceneItemId;
+      generatedSourceInputSettings = await client.request(
+        "GetInputSettings",
+        { inputName },
+      );
     } else {
-      await client.request("CreateInput", {
+      const createdProgramInput = await client.request("CreateInput", {
         sceneName,
         inputName,
         inputKind: colorKind,
@@ -1248,6 +1646,22 @@ async function main() {
           height: 720,
         },
         sceneItemEnabled: true,
+      });
+      programSceneItemId = createdProgramInput.sceneItemId;
+    }
+    if (programSceneItemId !== null) {
+      await client.request("SetSceneItemTransform", {
+        sceneName,
+        sceneItemId: programSceneItemId,
+        sceneItemTransform: {
+          positionX: 0,
+          positionY: 0,
+          alignment: 5,
+          boundsType: "OBS_BOUNDS_STRETCH",
+          boundsAlignment: 0,
+          boundsWidth: appliedVideoSettings.baseWidth,
+          boundsHeight: appliedVideoSettings.baseHeight,
+        },
       });
     }
     if (useAudioContinuitySource) {
@@ -1267,6 +1681,20 @@ async function main() {
       });
     }
     await client.request("SetCurrentProgramScene", { sceneName });
+    if (useGeneratedVisualSource) {
+      await sleep(1000);
+      fs.mkdirSync(outputDir, { recursive: true });
+      const sourceScreenshot = await client.request("GetSourceScreenshot", {
+        sourceName: inputName,
+        imageFormat: "png",
+        imageWidth: 640,
+        imageHeight: 360,
+      });
+      generatedSourceScreenshot = saveObsScreenshot(
+        sourceScreenshot.imageData,
+        path.join(outputDir, `obs-generated-source-${stamp}.png`),
+      );
+    }
     if (recordLocalOutput) {
       logStep("starting a simultaneous local OBS recording");
       await client.request("StartRecord");
@@ -1292,6 +1720,7 @@ async function main() {
         wss_host: "",
         salt: "",
         ...(customIceServers ? { custom_ice_servers: customIceServers } : {}),
+        force_turn: forceTurn,
         max_viewers: 10,
         video_codec: 0,
         enable_data_channel: true,
@@ -1709,6 +2138,24 @@ async function main() {
     if (viewerStabilizeMs > 0) {
       await sleep(viewerStabilizeMs);
     }
+    let presentationCaptureStart = null;
+    if (requirePresentationContinuity || requireVisualSequence) {
+      if (
+        requireVisualSequence &&
+        !useMotionSource &&
+        !useMediaSequenceSource
+      ) {
+        throw new Error(
+          "VDONINJA_REQUIRE_VISUAL_SEQUENCE requires motion or media-sequence source mode",
+        );
+      }
+      logStep("capturing every browser-presented video frame");
+      presentationCaptureStart = await startPresentationCapture(
+        page,
+        requireVisualSequence,
+        useMediaSequenceSource ? "counter-complement" : "gray-crc",
+      );
+    }
     const continuityBaseline = await collectViewerSnapshot(page);
     const samples = [continuityBaseline];
     const soakDeadline = Date.now() + soakMs;
@@ -1725,6 +2172,12 @@ async function main() {
       samples.push(await collectViewerSnapshot(page));
     }
     const secondPlayable = samples[samples.length - 1];
+    let presentationCapture = null;
+    let presentationContinuityAnalysis = null;
+    let visualSequenceAnalysis = null;
+    if (presentationCaptureStart) {
+      presentationCapture = await stopPresentationCapture(page);
+    }
     let decodedAudioCapture = null;
     if (captureDecodedAudio) {
       const captured = await stopDecodedAudioCapture(page);
@@ -1803,14 +2256,57 @@ async function main() {
       maximumDroppedFrames,
       maximumLostPackets: maximumLostVideoPackets,
     });
+    if (presentationCapture) {
+      presentationContinuityAnalysis = analyzePresentationContinuity(
+        presentationCapture.records,
+        {
+          expectedFps,
+          minimumAverageFpsRatio,
+          ...(maximumPresentationCadenceDeviationMs > 0
+            ? {
+                maximumCallbackDeviationMs:
+                  maximumPresentationCadenceDeviationMs,
+              }
+            : {}),
+          ...(maximumPresentationStallMs > 0
+            ? { maximumPresentationStallMs }
+            : {}),
+          requireMarker: false,
+        },
+      );
+      if (requireVisualSequence) {
+        visualSequenceAnalysis = analyzeVisualSequence(
+          presentationCapture.decodedRecords,
+        );
+      }
+    }
     const newFreezes =
       totalPcMetric(secondPlayable, "freezeCount") -
       totalPcMetric(continuityBaseline, "freezeCount");
+    const relayCandidateVerified = usesRelayCandidate(secondPlayable);
     let videoContinuityFailure = null;
     if (requireStableVideo && !videoContinuityAnalysis.ok) {
       videoContinuityFailure = videoContinuityAnalysis.failures.join("; ");
+    } else if (
+      requirePresentationContinuity &&
+      presentationContinuityAnalysis &&
+      !presentationContinuityAnalysis.ok
+    ) {
+      videoContinuityFailure =
+        presentationContinuityAnalysis.failures.join("; ");
+    } else if (
+      requireVisualSequence &&
+      visualSequenceAnalysis &&
+      !visualSequenceAnalysis.ok
+    ) {
+      videoContinuityFailure = visualSequenceAnalysis.failures.join("; ");
     } else if (requireZeroFreezes && newFreezes !== 0) {
       videoContinuityFailure = `Chrome recorded ${newFreezes} new video freeze(s) during the ${soakMs} ms soak`;
+    } else if (requireRelayCandidate && !relayCandidateVerified) {
+      videoContinuityFailure =
+        `forced TURN did not select a relay candidate; pairs=${JSON.stringify(
+          selectedCandidatePairs(secondPlayable),
+        )}`;
     }
     const newConcealedSamples =
       totalPcMetric(secondPlayable, "concealedSamples") -
@@ -1895,6 +2391,18 @@ async function main() {
     const streamStatusAfterViewer = await client
       .request("GetStreamStatus")
       .catch((error) => ({ error: String(error) }));
+    if (useGeneratedVisualSource) {
+      const sourceScreenshot = await client.request("GetSourceScreenshot", {
+        sourceName: inputName,
+        imageFormat: "png",
+        imageWidth: 640,
+        imageHeight: 360,
+      });
+      generatedSourceFinalScreenshot = saveObsScreenshot(
+        sourceScreenshot.imageData,
+        path.join(outputDir, `obs-generated-source-final-${stamp}.png`),
+      );
+    }
     const screenshotPath = path.join(
       outputDir,
       `obs-publish-viewer-${stamp}.png`,
@@ -1921,8 +2429,12 @@ async function main() {
       appliedVideoSettings,
       appliedVideoBitrateParameter,
       appliedStreamEncoderParameter,
+      appliedAdvancedStreamEncoderParameter,
       sourceTonePath,
       sourceToneDurationSeconds,
+      generatedSourceScreenshot,
+      generatedSourceFinalScreenshot,
+      generatedSourceInputSettings,
       obsVersion: version.obsVersion,
       obsWebSocketVersion: version.obsWebSocketVersion,
       activeStatus,
@@ -1932,6 +2444,21 @@ async function main() {
       secondPlayable,
       samples,
       videoContinuityAnalysis,
+      presentationCapture: presentationCapture
+        ? {
+            ...presentationCapture,
+            records: undefined,
+            decodedRecords: undefined,
+            recordCount: presentationCapture.records.length,
+            decodedRecordCount: presentationCapture.decodedRecords.length,
+          }
+        : null,
+      presentationContinuityAnalysis,
+      visualSequenceAnalysis,
+      forceTurn,
+      requireRelayCandidate,
+      relayCandidateVerified,
+      selectedCandidatePairs: selectedCandidatePairs(secondPlayable),
       newFreezes,
       videoContinuityFailure,
       newConcealedSamples,
@@ -1991,6 +2518,10 @@ async function main() {
           ...videoContinuityAnalysis,
           intervals: undefined,
         },
+        presentationContinuityAnalysis,
+        visualSequenceAnalysis,
+        relayCandidateVerified,
+        selectedCandidatePairs: selectedCandidatePairs(secondPlayable),
         concealedSamples: totalPcMetric(secondPlayable, "concealedSamples"),
         silentConcealedSamples: totalPcMetric(
           secondPlayable,
@@ -2012,6 +2543,9 @@ async function main() {
         screenshotPath,
         reportPath,
         sourceTonePath,
+        generatedSourceScreenshot,
+        generatedSourceFinalScreenshot,
+        generatedSourceInputSettings,
       }),
     );
 

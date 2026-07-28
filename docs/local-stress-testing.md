@@ -1,5 +1,9 @@
 # Local Stress Testing
 
+For frame-accurate macOS publishing checks, including Apple hardware/software
+encoders, TURN, deterministic packet loss, and decoded-pixel sequence
+validation, see [macOS Publishing Validation](macos-publishing-validation.md).
+
 This repo has a local-only stress wrapper for crash hunting:
 
 ```powershell

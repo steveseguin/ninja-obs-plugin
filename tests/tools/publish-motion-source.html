@@ -27,6 +27,13 @@
       const texturePixels = textureContext.createImageData(texture.width, texture.height);
       let frame = 0;
       let randomState = 0x6d2b79f5;
+      const marker = {
+        x: 192,
+        y: 920,
+        width: 1536,
+        height: 96,
+        cells: 32,
+      };
 
       function randomByte() {
         randomState ^= randomState << 13;
@@ -43,6 +50,39 @@
       }
       textureContext.putImageData(texturePixels, 0, 0);
       ctx.imageSmoothingEnabled = false;
+
+      function crc8(value) {
+        let crc = 0;
+        for (const byte of [(value >>> 8) & 255, value & 255]) {
+          crc ^= byte;
+          for (let bit = 0; bit < 8; bit += 1) {
+            crc = crc & 0x80 ? ((crc << 1) ^ 0x07) & 255 : (crc << 1) & 255;
+          }
+        }
+        return crc;
+      }
+
+      function drawSequenceMarker(sequence) {
+        const binarySequence = sequence & 0xffff;
+        const graySequence = binarySequence ^ (binarySequence >>> 1);
+        const word =
+          (BigInt(0xd3) << 24n) |
+          (BigInt(graySequence) << 8n) |
+          BigInt(crc8(binarySequence));
+        const cellWidth = marker.width / marker.cells;
+        ctx.fillStyle = "#777";
+        ctx.fillRect(marker.x - 8, marker.y - 8, marker.width + 16, marker.height + 16);
+        for (let bit = 0; bit < marker.cells; bit += 1) {
+          const set = (word & (1n << BigInt(31 - bit))) !== 0n;
+          ctx.fillStyle = set ? "#fff" : "#000";
+          ctx.fillRect(
+            marker.x + bit * cellWidth + 3,
+            marker.y + 3,
+            cellWidth - 6,
+            marker.height - 6,
+          );
+        }
+      }
 
       // Keep the OBS mix carrying real Opus audio so concealment counters test
       // the same audio/video interaction as the reported hitch, not DTX silence.
@@ -76,6 +116,11 @@
         ctx.fillStyle = "#fff";
         ctx.font = "bold 52px sans-serif";
         ctx.fillText(`HIGH-MOTION FRAME ${frame}`, 78, 123);
+        // The 32-cell marker contains a sync byte, a 16-bit Gray-coded frame
+        // sequence, and CRC-8. A viewer can decode it from every presented
+        // frame to distinguish real content repeats/skips/corruption from
+        // misleadingly healthy aggregate WebRTC counters.
+        drawSequenceMarker(frame);
         requestAnimationFrame(draw);
       }
 
