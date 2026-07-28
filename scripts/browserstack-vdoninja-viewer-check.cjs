@@ -2,6 +2,10 @@ const fs = require("fs");
 const path = require("path");
 const { chromium, _android } = require("playwright");
 const playwrightPackage = require("@playwright/test/package.json");
+const {
+  analyzePresentationContinuity,
+  analyzeVisualSequence,
+} = require("../tests/tools/presentation-continuity-analysis.cjs");
 
 const PROFILES = {
   "win-chrome": {
@@ -69,6 +73,7 @@ const PROFILES = {
   },
   "ios-iphone15-safari": {
     label: "iPhone 15 Pro Max Safari",
+    ios: true,
     caps: {
       browser: "safari",
       osVersion: "17",
@@ -112,9 +117,10 @@ function asNonNegativeNumber(value, fallback = 0) {
 }
 
 function isEnabled(value) {
-  return (
-    value === true || value === 1 || String(value).toLowerCase() === "true"
-  );
+  if (value === true || value === 1) {
+    return true;
+  }
+  return ["1", "true", "yes", "on"].includes(String(value).toLowerCase());
 }
 
 function parseCustomNetwork(value) {
@@ -247,6 +253,187 @@ function browserStackWebSocket(caps) {
   );
 }
 
+async function webDriverRequest(method, pathname, body) {
+  const response = await fetch(
+    `https://hub-cloud.browserstack.com${pathname}`,
+    {
+      method,
+      headers: {
+        Authorization:
+          "Basic " +
+          Buffer.from(
+            `${process.env.BROWSERSTACK_USERNAME}:${process.env.BROWSERSTACK_ACCESS_KEY}`,
+          ).toString("base64"),
+        "Content-Type": "application/json; charset=utf-8",
+      },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    },
+  );
+  const text = await response.text();
+  let parsed = {};
+  try {
+    parsed = text ? JSON.parse(text) : {};
+  } catch (_) {
+    throw new Error(
+      `BrowserStack WebDriver returned invalid JSON (HTTP ${response.status})`,
+    );
+  }
+  if (!response.ok || (parsed.value && parsed.value.error)) {
+    const message =
+      parsed.value && parsed.value.message ? parsed.value.message : text;
+    throw new Error(
+      `BrowserStack WebDriver HTTP ${response.status}: ${String(message).slice(
+        0,
+        1000,
+      )}`,
+    );
+  }
+  return parsed.value === undefined ? parsed : parsed.value;
+}
+
+class SafariWebDriverPage {
+  constructor(sessionId, sessionDetails) {
+    this.sessionId = sessionId;
+    this.browserStackSessionDetails = sessionDetails;
+    this.mouse = {
+      click: async (x, y) => {
+        await webDriverRequest(
+          "POST",
+          `/wd/hub/session/${this.sessionId}/actions`,
+          {
+            actions: [
+              {
+                type: "pointer",
+                id: "finger",
+                parameters: { pointerType: "touch" },
+                actions: [
+                  {
+                    type: "pointerMove",
+                    duration: 0,
+                    x,
+                    y,
+                    origin: "viewport",
+                  },
+                  { type: "pointerDown", button: 0 },
+                  { type: "pointerUp", button: 0 },
+                ],
+              },
+            ],
+          },
+        );
+      },
+    };
+  }
+
+  async goto(url) {
+    return webDriverRequest("POST", `/wd/hub/session/${this.sessionId}/url`, {
+      url,
+    });
+  }
+
+  async evaluate(callback, ...args) {
+    const result = await webDriverRequest(
+      "POST",
+      `/wd/hub/session/${this.sessionId}/execute/async`,
+      {
+        script:
+          "var done = arguments[arguments.length - 1];" +
+          "var values = Array.prototype.slice.call(arguments, 0, -1);" +
+          `Promise.resolve((${callback.toString()}).apply(null, values)).then(` +
+          "function (value) { done({ok:true,value:value}); }," +
+          "function (error) { done({ok:false,error:error && error.message ? error.message : String(error)}); });",
+        args,
+      },
+    );
+    if (!result || !result.ok) {
+      throw new Error(
+        result && result.error
+          ? result.error
+          : "BrowserStack asynchronous script failed",
+      );
+    }
+    return result.value;
+  }
+
+  waitForTimeout(timeoutMs) {
+    return new Promise((resolve) => setTimeout(resolve, timeoutMs));
+  }
+
+  viewportSize() {
+    return { width: 430, height: 932 };
+  }
+
+  on() {}
+
+  async screenshot(options) {
+    const encoded = await webDriverRequest(
+      "GET",
+      `/wd/hub/session/${this.sessionId}/screenshot`,
+    );
+    fs.writeFileSync(options.path, Buffer.from(encoded, "base64"));
+  }
+}
+
+async function connectSafariWebDriver(profile, caps) {
+  const browserStackOptions = {
+    userName: process.env.BROWSERSTACK_USERNAME,
+    accessKey: process.env.BROWSERSTACK_ACCESS_KEY,
+    osVersion: process.env.VDONINJA_SAFARI_OS_VERSION || "26",
+    deviceName:
+      process.env.VDONINJA_SAFARI_DEVICE_NAME || profile.caps.deviceName,
+    realMobile: true,
+    local: false,
+    projectName: caps.project,
+    buildName: caps.build,
+    sessionName: caps.name,
+    networkLogs: true,
+    acceptInsecureCerts: true,
+  };
+  // BrowserStack's native iOS WebDriver endpoint rejects some otherwise valid
+  // customNetwork tuples during session creation. Apply every requested phase
+  // through the session update API after Safari has connected instead.
+  const created = await webDriverRequest("POST", "/wd/hub/session", {
+    capabilities: {
+      alwaysMatch: {
+        browserName: "safari",
+        pageLoadStrategy: "eager",
+        acceptInsecureCerts: true,
+        "appium:nativeWebTap": true,
+        "bstack:options": browserStackOptions,
+      },
+    },
+  });
+  const sessionId = created.sessionId || created.session_id;
+  if (!sessionId) {
+    throw new Error("BrowserStack WebDriver did not return a session id");
+  }
+  await webDriverRequest("POST", `/wd/hub/session/${sessionId}/timeouts`, {
+    script: 30000,
+  });
+  const page = new SafariWebDriverPage(sessionId, {
+    sessionId,
+    browser: "safari",
+    device: browserStackOptions.deviceName,
+    os: "ios",
+    os_version: browserStackOptions.osVersion,
+    build_name: browserStackOptions.buildName,
+    project_name: browserStackOptions.projectName,
+  });
+  const context = {
+    addInitScript: async () => {},
+    newPage: async () => page,
+    close: async () => {},
+  };
+  return {
+    context,
+    close: async () => {
+      await webDriverRequest("DELETE", `/wd/hub/session/${sessionId}`).catch(
+        () => {},
+      );
+    },
+  };
+}
+
 function buildCapabilities(profile, profileName, firstPhase, buildName) {
   const caps = {
     ...profile.caps,
@@ -273,6 +460,9 @@ function buildCapabilities(profile, profileName, firstPhase, buildName) {
 }
 
 async function connectBrowserStack(profile, caps) {
+  if (profile.ios) {
+    return connectSafariWebDriver(profile, caps);
+  }
   const webSocket = browserStackWebSocket(caps);
   if (profile.android) {
     const device = await _android.connect(webSocket);
@@ -311,6 +501,9 @@ async function connectBrowserStack(profile, caps) {
 }
 
 async function getSessionDetails(page) {
+  if (page.browserStackSessionDetails) {
+    return page.browserStackSessionDetails;
+  }
   const payload = JSON.stringify({ action: "getSessionDetails" });
   const raw = await page.evaluate(
     function browserStackExecutor() {},
@@ -387,6 +580,205 @@ async function installPeerCapture(context) {
   });
 }
 
+async function startPresentationCapture(page, requireMarker, markerFormat) {
+  return page.evaluate(
+    ({ markerRequired, format }) => {
+      const video = Array.from(document.querySelectorAll("video")).find(
+        (candidate) =>
+          candidate.srcObject &&
+          candidate.videoWidth > 0 &&
+          candidate.videoHeight > 0,
+      );
+      if (!video) {
+        throw new Error(
+          "No playable video element exists for presentation capture",
+        );
+      }
+      if (typeof video.requestVideoFrameCallback !== "function") {
+        throw new Error(
+          "This browser does not support requestVideoFrameCallback",
+        );
+      }
+
+      const capture = {
+        active: true,
+        records: [],
+        maximumRecords: 120000,
+        markerRequired,
+        markerFormat: format,
+        markerCanvas: document.createElement("canvas"),
+        markerError: "",
+      };
+      capture.markerCanvas.width = 32;
+      capture.markerCanvas.height = 1;
+      capture.markerContext = capture.markerCanvas.getContext("2d", {
+        alpha: false,
+        willReadFrequently: true,
+      });
+
+      function crc8(value) {
+        let crc = 0;
+        for (const byte of [(value >>> 8) & 255, value & 255]) {
+          crc ^= byte;
+          for (let bit = 0; bit < 8; bit += 1) {
+            crc = crc & 0x80 ? ((crc << 1) ^ 0x07) & 255 : (crc << 1) & 255;
+          }
+        }
+        return crc;
+      }
+
+      function grayToBinary(gray) {
+        let binary = gray;
+        for (let shift = 1; shift < 16; shift <<= 1) {
+          binary ^= binary >>> shift;
+        }
+        return binary & 0xffff;
+      }
+
+      function decodeMarker() {
+        if (!capture.markerRequired) {
+          return { markerFrame: null, markerError: "" };
+        }
+        try {
+          capture.markerContext.drawImage(
+            video,
+            video.videoWidth * (192 / 1920),
+            video.videoHeight * (920 / 1080),
+            video.videoWidth * (1536 / 1920),
+            video.videoHeight * (96 / 1080),
+            0,
+            0,
+            32,
+            1,
+          );
+          const pixels = capture.markerContext.getImageData(0, 0, 32, 1).data;
+          const luma = [];
+          for (let offset = 0; offset < pixels.length; offset += 4) {
+            luma.push(
+              pixels[offset] * 0.2126 +
+                pixels[offset + 1] * 0.7152 +
+                pixels[offset + 2] * 0.0722,
+            );
+          }
+          const minimum = Math.min(...luma);
+          const maximum = Math.max(...luma);
+          if (maximum - minimum < 64) {
+            return {
+              markerFrame: null,
+              markerError: "low-contrast",
+              markerObserved: { minimum, maximum },
+            };
+          }
+          const threshold = (minimum + maximum) / 2;
+          let sync = 0;
+          let gray = 0;
+          let checksum = 0;
+          for (let bit = 0; bit < 8; bit += 1) {
+            sync = (sync << 1) | (luma[bit] > threshold ? 1 : 0);
+          }
+          for (let bit = 8; bit < 24; bit += 1) {
+            gray = (gray << 1) | (luma[bit] > threshold ? 1 : 0);
+          }
+          for (let bit = 24; bit < 32; bit += 1) {
+            checksum = (checksum << 1) | (luma[bit] > threshold ? 1 : 0);
+          }
+          if (sync !== 0xd3) {
+            return {
+              markerFrame: null,
+              markerError: "sync",
+              markerObserved: { minimum, maximum, sync, gray, checksum },
+            };
+          }
+          const markerFrame =
+            capture.markerFormat === "counter-complement"
+              ? gray
+              : grayToBinary(gray);
+          const expectedChecksum =
+            capture.markerFormat === "counter-complement"
+              ? ~markerFrame & 255
+              : crc8(markerFrame);
+          if (expectedChecksum !== checksum) {
+            return {
+              markerFrame: null,
+              markerError: "crc",
+              markerObserved: { minimum, maximum, sync, gray, checksum },
+            };
+          }
+          return {
+            markerFrame,
+            markerError: "",
+            markerContrast: maximum - minimum,
+          };
+        } catch (error) {
+          capture.markerError = String(error);
+          return { markerFrame: null, markerError: String(error) };
+        }
+      }
+
+      function onFrame(callbackTime, metadata) {
+        if (!capture.active) {
+          return;
+        }
+        if (capture.records.length < capture.maximumRecords) {
+          capture.records.push({
+            callbackTime,
+            expectedDisplayTime: metadata.expectedDisplayTime,
+            presentationTime: metadata.presentationTime,
+            mediaTime: metadata.mediaTime,
+            presentedFrames: metadata.presentedFrames,
+            processingDuration: metadata.processingDuration,
+            width: metadata.width,
+            height: metadata.height,
+            ...decodeMarker(),
+          });
+        }
+        video.requestVideoFrameCallback(onFrame);
+      }
+
+      window.__obsPluginPresentationCapture = capture;
+      video.requestVideoFrameCallback(onFrame);
+      return {
+        supported: true,
+        requireMarker: markerRequired,
+        videoWidth: video.videoWidth,
+        videoHeight: video.videoHeight,
+      };
+    },
+    { markerRequired: requireMarker ? 1 : 0, format: markerFormat },
+  );
+}
+
+async function stopPresentationCapture(page) {
+  return page.evaluate(() => {
+    const capture = window.__obsPluginPresentationCapture;
+    if (!capture) {
+      return { records: [], error: "capture-not-started" };
+    }
+    capture.active = false;
+    const markerDiagnostics = {};
+    for (const record of capture.records) {
+      const key = record.markerError || "valid";
+      markerDiagnostics[key] = (markerDiagnostics[key] || 0) + 1;
+    }
+    const result = {
+      records: capture.records,
+      markerError: capture.markerError,
+      markerDiagnostics,
+      markerSamples: capture.records.slice(0, 10).map((record) => ({
+        markerFrame: record.markerFrame,
+        markerError: record.markerError,
+        markerContrast: record.markerContrast,
+        markerObserved: record.markerObserved,
+        width: record.width,
+        height: record.height,
+      })),
+      truncated: capture.records.length >= capture.maximumRecords,
+    };
+    delete window.__obsPluginPresentationCapture;
+    return result;
+  });
+}
+
 async function collectSnapshot(page) {
   return page.evaluate(async () => {
     const safeUrl = new URL(location.href);
@@ -416,8 +808,24 @@ async function collectSnapshot(page) {
         };
       },
     );
+    const peerConnections = new Set(window.__obsPluginPeerConnections || []);
+    if (window.session) {
+      for (const collection of [window.session.pcs, window.session.rpcs]) {
+        for (const candidate of Object.values(collection || {})) {
+          if (candidate && typeof candidate.getStats === "function") {
+            peerConnections.add(candidate);
+          } else if (
+            candidate &&
+            candidate.pc &&
+            typeof candidate.pc.getStats === "function"
+          ) {
+            peerConnections.add(candidate.pc);
+          }
+        }
+      }
+    }
     const peers = [];
-    for (const peerConnection of window.__obsPluginPeerConnections || []) {
+    for (const peerConnection of peerConnections) {
       const peer = {
         connectionState: peerConnection.connectionState,
         iceConnectionState: peerConnection.iceConnectionState,
@@ -603,6 +1011,7 @@ function phaseDelta(first, last, phase, defaultExpectedMediaKbps) {
     totalMetric(last, "video", "framesDecoded") -
     totalMetric(first, "video", "framesDecoded");
   const currentTimeAdvanced = videoTime(last) - videoTime(first);
+  const decodedAndPlayable = framesDecoded > 0 && hasPlayableVideo(last);
   const metrics = {
     name: phase.name,
     network: phase.customNetwork || phase.networkProfile,
@@ -614,6 +1023,12 @@ function phaseDelta(first, last, phase, defaultExpectedMediaKbps) {
     packetsLost:
       totalMetric(last, "", "packetsLost") -
       totalMetric(first, "", "packetsLost"),
+    audioPacketsLost:
+      totalMetric(last, "audio", "packetsLost") -
+      totalMetric(first, "audio", "packetsLost"),
+    videoPacketsLost:
+      totalMetric(last, "video", "packetsLost") -
+      totalMetric(first, "video", "packetsLost"),
     nackCount:
       totalMetric(last, "video", "nackCount") -
       totalMetric(first, "video", "nackCount"),
@@ -644,9 +1059,9 @@ function phaseDelta(first, last, phase, defaultExpectedMediaKbps) {
     playableAtEnd: hasPlayableVideo(last),
     advancedAsExpected:
       !phase.expectAdvance ||
-      (framesDecoded > 0 &&
-        currentTimeAdvanced > 0.4 &&
-        hasPlayableVideo(last)),
+      (decodedAndPlayable &&
+        (!phase.requirePlaybackClock || currentTimeAdvanced > 0.4)),
+    requirePlaybackClock: phase.requirePlaybackClock,
   };
   const expectedMediaKbps = phase.expectedMediaKbps || defaultExpectedMediaKbps;
   return {
@@ -675,7 +1090,57 @@ async function waitForPlayableVideo(page, timeoutMs) {
   );
 }
 
+async function unlockPlayback(page) {
+  await page.evaluate(() => {
+    const resumePlayback = () => {
+      for (const video of document.querySelectorAll("video")) {
+        video.play().catch(() => {});
+      }
+      const contexts = [
+        window.audioContext,
+        window.audioCtx,
+        window.session && window.session.audioContext,
+        window.session && window.session.audioCtx,
+      ];
+      for (const context of contexts) {
+        if (context && typeof context.resume === "function") {
+          context.resume().catch(() => {});
+        }
+      }
+    };
+    document.addEventListener("pointerdown", resumePlayback, {
+      capture: true,
+      once: true,
+    });
+    document.addEventListener("touchstart", resumePlayback, {
+      capture: true,
+      once: true,
+    });
+    document.addEventListener("click", resumePlayback, {
+      capture: true,
+      once: true,
+    });
+  });
+  const viewport = page.viewportSize() || { width: 1280, height: 720 };
+  await page.mouse
+    .click(Math.floor(viewport.width / 2), Math.floor(viewport.height / 2))
+    .catch(() => {});
+  await page.waitForTimeout(500);
+  return page.evaluate(() =>
+    Array.from(document.querySelectorAll("video")).map((video, index) => ({
+      index,
+      paused: video.paused,
+      muted: video.muted,
+      currentTime: video.currentTime,
+      readyState: video.readyState,
+    })),
+  );
+}
+
 async function markSession(page, status, reason) {
+  if (page.browserStackSessionDetails) {
+    return;
+  }
   const payload = JSON.stringify({
     action: "setSessionStatus",
     arguments: {
@@ -704,10 +1169,37 @@ async function main() {
   loadSecrets(args["secret-file"] || process.env.BROWSERSTACK_SECRET_FILE);
   const requireNetworkEffect = isEnabled(args["require-network-effect"]);
   const expectedMediaKbps = asNonNegativeNumber(args["expected-media-kbps"]);
+  const requirePresentation = isEnabled(args["require-presentation"]);
+  const requireVisualSequence = isEnabled(args["require-visual-sequence"]);
+  const requirePlaybackClock = isEnabled(args["require-playback-clock"]);
+  const requireZeroAudioConcealment = isEnabled(
+    args["require-zero-audio-concealment"],
+  );
+  const capturePresentation =
+    requirePresentation ||
+    requireVisualSequence ||
+    isEnabled(args["capture-presentation"]);
+  const expectedFps = Math.max(
+    1,
+    asNonNegativeNumber(args["expected-fps"], 30),
+  );
+  const minimumAverageFpsRatio = asNonNegativeNumber(
+    args["minimum-average-fps-ratio"],
+    0.95,
+  );
+  const maximumCallbackDeviationMs = asNonNegativeNumber(
+    args["maximum-callback-deviation-ms"],
+    Math.max(8, (1000 / expectedFps) * 0.75),
+  );
+  const maximumPresentationStallMs = asNonNegativeNumber(
+    args["maximum-presentation-stall-ms"],
+    Math.max(100, (1000 / expectedFps) * 3.5),
+  );
   const phases = parsePhases(args.phases || process.env.VDONINJA_BS_PHASES).map(
     (phase) => ({
       ...phase,
       requireNetworkEffect: requireNetworkEffect || phase.requireNetworkEffect,
+      requirePlaybackClock,
     }),
   );
   const buildName =
@@ -744,10 +1236,22 @@ async function main() {
     console: [],
     pageErrors: [],
     phaseResults: [],
+    validation: {
+      capturePresentation,
+      requirePresentation,
+      requireVisualSequence,
+      requirePlaybackClock,
+      requireZeroAudioConcealment,
+      expectedFps,
+      minimumAverageFpsRatio,
+      maximumCallbackDeviationMs,
+      maximumPresentationStallMs,
+    },
     outputPath,
   };
   let connection;
   let page;
+  let presentationCaptureActive = false;
   try {
     connection = await connectBrowserStack(profile, caps);
     await installPeerCapture(connection.context);
@@ -777,6 +1281,7 @@ async function main() {
       page,
       asPositiveInteger(args["connect-timeout-ms"], 120000),
     );
+    report.playbackUnlock = await unlockPlayback(page);
     const sessionDetails = await getSessionDetails(page);
     const sessionId = findSessionId(sessionDetails);
     if (!sessionId) {
@@ -784,6 +1289,14 @@ async function main() {
     }
     report.sessionId = sessionId;
     report.sessionDetails = sanitizeSessionDetails(sessionDetails);
+    if (capturePresentation) {
+      report.presentationCaptureStart = await startPresentationCapture(
+        page,
+        requireVisualSequence,
+        String(args["marker-format"] || "counter-complement"),
+      );
+      presentationCaptureActive = true;
+    }
 
     for (const phase of phases) {
       const networkUpdate = await updateNetwork(sessionId, phase);
@@ -808,6 +1321,31 @@ async function main() {
         last,
         samples,
       });
+    }
+
+    if (presentationCaptureActive) {
+      const capture = await stopPresentationCapture(page);
+      presentationCaptureActive = false;
+      report.presentationCapture = {
+        markerError: capture.markerError,
+        markerDiagnostics: capture.markerDiagnostics,
+        markerSamples: capture.markerSamples,
+        truncated: capture.truncated,
+        recordCount: capture.records.length,
+      };
+      report.presentationContinuityAnalysis = analyzePresentationContinuity(
+        capture.records,
+        {
+          expectedFps,
+          minimumAverageFpsRatio,
+          maximumCallbackDeviationMs,
+          maximumPresentationStallMs,
+          requireMarker: requireVisualSequence,
+        },
+      );
+      if (requireVisualSequence) {
+        report.visualSequenceAnalysis = analyzeVisualSequence(capture.records);
+      }
     }
 
     report.finalSnapshot = await collectSnapshot(page);
@@ -838,11 +1376,29 @@ async function main() {
           phase.networkEffect.status === "observed",
       ) &&
       (!report.candidateTypeRequirement ||
-        report.candidateTypeRequirement.matched);
-    await page.screenshot({
-      path: outputPath.replace(/\.json$/i, ".png"),
-      fullPage: true,
-    });
+        report.candidateTypeRequirement.matched) &&
+      (!requireZeroAudioConcealment ||
+        report.phaseResults.every(
+          (phase) =>
+            phase.audioPacketsLost === 0 &&
+            phase.concealedSamples === 0 &&
+            phase.concealmentEvents === 0,
+        )) &&
+      (!requirePresentation ||
+        (report.presentationContinuityAnalysis &&
+          report.presentationContinuityAnalysis.ok)) &&
+      (!requireVisualSequence ||
+        (report.visualSequenceAnalysis && report.visualSequenceAnalysis.ok));
+    await page
+      .screenshot({
+        path: outputPath.replace(/\.json$/i, ".png"),
+        fullPage: true,
+      })
+      .catch((error) => {
+        report.screenshotError = String(
+          error && error.stack ? error.stack : error,
+        );
+      });
     await markSession(
       page,
       report.ok ? "passed" : "failed",
@@ -851,11 +1407,16 @@ async function main() {
         : "One or more recovery phases did not advance",
     );
   } catch (error) {
+    report.ok = false;
     report.error = String(error && error.stack ? error.stack : error);
     if (page) {
       await markSession(page, "failed", report.error);
     }
   } finally {
+    if (presentationCaptureActive && page) {
+      await stopPresentationCapture(page).catch(() => {});
+      presentationCaptureActive = false;
+    }
     report.finishedAt = new Date().toISOString();
     fs.writeFileSync(
       outputPath,
@@ -873,12 +1434,17 @@ async function main() {
         ok: report.ok,
         profile: report.profile,
         sessionId: report.sessionId || null,
+        presentationContinuityAnalysis:
+          report.presentationContinuityAnalysis || null,
+        visualSequenceAnalysis: report.visualSequenceAnalysis || null,
         phaseResults: report.phaseResults.map((phase) => ({
           name: phase.name,
           network: phase.network,
           receivedKbps: phase.receivedKbps,
           framesDecoded: phase.framesDecoded,
           packetsLost: phase.packetsLost,
+          audioPacketsLost: phase.audioPacketsLost,
+          videoPacketsLost: phase.videoPacketsLost,
           nackCount: phase.nackCount,
           pliCount: phase.pliCount,
           fecPacketsReceived: phase.fecPacketsReceived,

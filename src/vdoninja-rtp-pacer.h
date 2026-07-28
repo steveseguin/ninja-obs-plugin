@@ -31,6 +31,7 @@ uint16_t rewindRtpSequenceNumber(uint16_t nextSequenceNumber, size_t unsentPacke
 // VideoToolbox modes substantially overshoot very low configured bitrates, so
 // retain enough egress headroom to prevent that overshoot becoming latency.
 uint64_t videoPacerBitrateForEncoderRate(int encoderBitrate) noexcept;
+uint64_t videoPacerBitrateForEncoderAndProtectionRate(int encoderBitrate, uint64_t protectionBitrate) noexcept;
 
 // A small aggregate token bucket shared by every viewer pacer. Per-peer pacers
 // still preserve frame ordering and fairness, while this budget prevents all

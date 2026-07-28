@@ -53,6 +53,13 @@ TEST(RtpPacketPacerTest, RetainsHeadroomForLowBitrateEncoderOvershoot)
 	EXPECT_EQ(videoPacerBitrateForEncoderRate(1500000), 3000000u);
 }
 
+TEST(RtpPacketPacerTest, IncludesProtectionTrafficInAggregatePacerRate)
+{
+	EXPECT_EQ(videoPacerBitrateForEncoderAndProtectionRate(500000, 100000), 2000000u);
+	EXPECT_EQ(videoPacerBitrateForEncoderAndProtectionRate(8000000, 8400000), 16400000u);
+	EXPECT_EQ(videoPacerBitrateForEncoderAndProtectionRate(60000000, 60000000), 100000000u);
+}
+
 TEST(RtpPacketPacerTest, ClampsInvalidAndExtremeEncoderRates)
 {
 	EXPECT_EQ(videoPacerBitrateForEncoderRate(0), 2000000u);

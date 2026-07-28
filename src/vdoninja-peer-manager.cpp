@@ -9,7 +9,6 @@
 #include <cctype>
 #include <cstdint>
 #include <cstring>
-#include <limits>
 #include <random>
 #include <sstream>
 #include <stdexcept>
@@ -39,20 +38,6 @@ constexpr uint32_t kVideoClockRate = 90000;
 constexpr uint32_t kAudioClockRate = 48000;
 constexpr auto kVideoPacerInterval = std::chrono::milliseconds(2);
 constexpr size_t kAggregateVideoPacerBurstBytes = 4U * 1024U;
-
-uint64_t videoProtectionBitrate(int encoderBitrate, VideoProtectionMode mode)
-{
-	const VideoProtectionPolicy policy = videoProtectionPolicy(mode);
-	const uint64_t positiveBitrate = static_cast<uint64_t>(std::max(encoderBitrate, 1));
-	if (policy.duplicateBudgetPercent == 0) {
-		return 0;
-	}
-	const uint64_t percent = policy.duplicateBudgetPercent;
-	if (positiveBitrate > std::numeric_limits<uint64_t>::max() / percent) {
-		return std::numeric_limits<uint64_t>::max();
-	}
-	return positiveBitrate * percent / 100U;
-}
 
 uint32_t rtpPacketTimestamp(const RtpPacketPacer::Packet &packet)
 {
@@ -1620,10 +1605,12 @@ void VDONinjaPeerManager::setupPublisherTracks(std::shared_ptr<PeerInfo> peer)
 		});
 	});
 	const int currentEncoderBitrate = bitrate_.load(std::memory_order_acquire);
-	const uint64_t pacerBitrate = videoPacerBitrateForEncoderRate(currentEncoderBitrate);
 	RtpPacketDuplicationConfig duplicationConfig;
 	duplicationConfig.mode = videoProtectionMode_;
-	duplicationConfig.averageBitrateBitsPerSecond = videoProtectionBitrate(currentEncoderBitrate, videoProtectionMode_);
+	duplicationConfig.averageBitrateBitsPerSecond =
+	    videoProtectionBitrateForEncoderRate(currentEncoderBitrate, videoProtectionMode_);
+	const uint64_t pacerBitrate = videoPacerBitrateForEncoderAndProtectionRate(
+	    currentEncoderBitrate, duplicationConfig.averageBitrateBitsPerSecond);
 	const auto pacerTrack = peer->videoTrack;
 	const auto pacerRtpConfig = peer->videoRtpConfig;
 	const auto pacerSrReporter = peer->videoSrReporter;
@@ -3110,8 +3097,8 @@ void VDONinjaPeerManager::setBitrate(int bitrate)
 		}
 	}
 
-	const uint64_t pacerBitrate = videoPacerBitrateForEncoderRate(targetBitrate);
-	const uint64_t duplicateBitrate = videoProtectionBitrate(targetBitrate, videoProtectionMode_);
+	const uint64_t duplicateBitrate = videoProtectionBitrateForEncoderRate(targetBitrate, videoProtectionMode_);
+	const uint64_t pacerBitrate = videoPacerBitrateForEncoderAndProtectionRate(targetBitrate, duplicateBitrate);
 	for (const auto &pacer : pacers) {
 		pacer->updateBitrate(pacerBitrate, duplicateBitrate);
 	}

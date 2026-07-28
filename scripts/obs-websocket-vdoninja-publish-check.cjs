@@ -98,10 +98,7 @@ class ObsWebSocketClient {
               }
               const secret = crypto
                 .createHash("sha256")
-                .update(
-                  this.password + message.d.authentication.salt,
-                  "utf8",
-                )
+                .update(this.password + message.d.authentication.salt, "utf8")
                 .digest("base64");
               identify.authentication = crypto
                 .createHash("sha256")
@@ -239,6 +236,14 @@ function appendBoundedOutput(current, chunk, maximumLength = 1000000) {
     : combined;
 }
 
+function browserStackBooleanOverride(name, fallback) {
+  const value = process.env[name];
+  if (value === undefined || value === "") {
+    return fallback;
+  }
+  return ["1", "true", "yes", "on"].includes(String(value).toLowerCase());
+}
+
 function startBrowserStackViewerCheck(viewUrl, outputDir, stamp) {
   const profile = String(
     process.env.VDONINJA_BROWSERSTACK_PROFILE || "",
@@ -307,6 +312,73 @@ function startBrowserStackViewerCheck(viewUrl, outputDir, stamp) {
   ).trim();
   if (expectedMediaKbps) {
     args.push("--expected-media-kbps", expectedMediaKbps);
+  }
+  const expectedFpsNumerator = Number(
+    process.env.VDONINJA_VIDEO_FPS_NUMERATOR || 0,
+  );
+  const expectedFpsDenominator = Number(
+    process.env.VDONINJA_VIDEO_FPS_DENOMINATOR || 0,
+  );
+  if (expectedFpsNumerator > 0 && expectedFpsDenominator > 0) {
+    args.push(
+      "--expected-fps",
+      String(expectedFpsNumerator / expectedFpsDenominator),
+    );
+  }
+  const requirePresentation = browserStackBooleanOverride(
+    "VDONINJA_BROWSERSTACK_REQUIRE_PRESENTATION",
+    process.env.VDONINJA_REQUIRE_PRESENTATION_CONTINUITY === "1",
+  );
+  const requireVisualSequence = browserStackBooleanOverride(
+    "VDONINJA_BROWSERSTACK_REQUIRE_VISUAL_SEQUENCE",
+    process.env.VDONINJA_REQUIRE_VISUAL_SEQUENCE === "1",
+  );
+  const capturePresentation = browserStackBooleanOverride(
+    "VDONINJA_BROWSERSTACK_CAPTURE_PRESENTATION",
+    false,
+  );
+  if (requirePresentation) {
+    args.push("--require-presentation=1");
+  }
+  if (requireVisualSequence) {
+    args.push("--require-visual-sequence=1");
+  }
+  if (capturePresentation) {
+    args.push("--capture-presentation=1");
+  }
+  if (
+    browserStackBooleanOverride(
+      "VDONINJA_BROWSERSTACK_REQUIRE_PLAYBACK_CLOCK",
+      false,
+    )
+  ) {
+    args.push("--require-playback-clock=1");
+  }
+  if (
+    browserStackBooleanOverride(
+      "VDONINJA_BROWSERSTACK_REQUIRE_ZERO_AUDIO_CONCEALMENT",
+      false,
+    )
+  ) {
+    args.push("--require-zero-audio-concealment=1");
+  }
+  const minimumAverageFpsRatio = String(
+    process.env.VDONINJA_MIN_AVERAGE_FPS_RATIO || "",
+  ).trim();
+  if (minimumAverageFpsRatio) {
+    args.push("--minimum-average-fps-ratio", minimumAverageFpsRatio);
+  }
+  const maximumCallbackDeviationMs = String(
+    process.env.VDONINJA_MAX_PRESENTATION_CADENCE_DEVIATION_MS || "",
+  ).trim();
+  if (maximumCallbackDeviationMs) {
+    args.push("--maximum-callback-deviation-ms", maximumCallbackDeviationMs);
+  }
+  const maximumPresentationStallMs = String(
+    process.env.VDONINJA_MAX_PRESENTATION_STALL_MS || "",
+  ).trim();
+  if (maximumPresentationStallMs) {
+    args.push("--maximum-presentation-stall-ms", maximumPresentationStallMs);
   }
   if (process.env.VDONINJA_BROWSERSTACK_REQUIRE_NETWORK_EFFECT === "1") {
     args.push("--require-network-effect=1");
@@ -558,211 +630,218 @@ async function collectViewerSnapshot(page) {
 }
 
 async function startPresentationCapture(page, requireMarker, markerFormat) {
-  return page.evaluate(({ markerRequired, markerFormat }) => {
-    const video = Array.from(document.querySelectorAll("video")).find(
-      (candidate) =>
-        candidate.srcObject &&
-        candidate.videoWidth > 0 &&
-        candidate.videoHeight > 0,
-    );
-    if (!video) {
-      throw new Error("No playable video element exists for presentation capture");
-    }
-    if (typeof video.requestVideoFrameCallback !== "function") {
-      throw new Error("This browser does not support requestVideoFrameCallback");
-    }
+  return page.evaluate(
+    ({ markerRequired, markerFormat }) => {
+      const video = Array.from(document.querySelectorAll("video")).find(
+        (candidate) =>
+          candidate.srcObject &&
+          candidate.videoWidth > 0 &&
+          candidate.videoHeight > 0,
+      );
+      if (!video) {
+        throw new Error(
+          "No playable video element exists for presentation capture",
+        );
+      }
+      if (typeof video.requestVideoFrameCallback !== "function") {
+        throw new Error(
+          "This browser does not support requestVideoFrameCallback",
+        );
+      }
 
-    if (window.__vdoninjaPresentationCapture) {
-      window.__vdoninjaPresentationCapture.active = false;
-    }
-    const capture = {
-      active: true,
-      records: [],
-      decodedRecords: [],
-      maximumRecords: 120000,
-      requireMarker: markerRequired,
-      markerFormat,
-      markerCanvas: document.createElement("canvas"),
-      markerContext: null,
-      markerError: "",
-    };
-    capture.markerCanvas.width = 32;
-    capture.markerCanvas.height = 1;
-    capture.markerContext = capture.markerCanvas.getContext("2d", {
-      alpha: false,
-      willReadFrequently: true,
-    });
+      if (window.__vdoninjaPresentationCapture) {
+        window.__vdoninjaPresentationCapture.active = false;
+      }
+      const capture = {
+        active: true,
+        records: [],
+        decodedRecords: [],
+        maximumRecords: 120000,
+        requireMarker: markerRequired,
+        markerFormat,
+        markerCanvas: document.createElement("canvas"),
+        markerContext: null,
+        markerError: "",
+      };
+      capture.markerCanvas.width = 32;
+      capture.markerCanvas.height = 1;
+      capture.markerContext = capture.markerCanvas.getContext("2d", {
+        alpha: false,
+        willReadFrequently: true,
+      });
 
-    function crc8(value) {
-      let crc = 0;
-      for (const byte of [(value >>> 8) & 255, value & 255]) {
-        crc ^= byte;
-        for (let bit = 0; bit < 8; bit += 1) {
-          crc = crc & 0x80 ? ((crc << 1) ^ 0x07) & 255 : (crc << 1) & 255;
+      function crc8(value) {
+        let crc = 0;
+        for (const byte of [(value >>> 8) & 255, value & 255]) {
+          crc ^= byte;
+          for (let bit = 0; bit < 8; bit += 1) {
+            crc = crc & 0x80 ? ((crc << 1) ^ 0x07) & 255 : (crc << 1) & 255;
+          }
+        }
+        return crc;
+      }
+
+      function grayToBinary(gray) {
+        let binary = gray;
+        for (let shift = 1; shift < 16; shift <<= 1) {
+          binary ^= binary >>> shift;
+        }
+        return binary & 0xffff;
+      }
+
+      function decodeMarker(source, sourceWidth, sourceHeight) {
+        if (!capture.requireMarker) {
+          return { markerFrame: null, markerError: "" };
+        }
+        try {
+          const context = capture.markerContext;
+          context.drawImage(
+            source,
+            sourceWidth * (192 / 1920),
+            sourceHeight * (920 / 1080),
+            sourceWidth * (1536 / 1920),
+            sourceHeight * (96 / 1080),
+            0,
+            0,
+            32,
+            1,
+          );
+          const pixels = context.getImageData(0, 0, 32, 1).data;
+          const luma = [];
+          for (let offset = 0; offset < pixels.length; offset += 4) {
+            luma.push(
+              pixels[offset] * 0.2126 +
+                pixels[offset + 1] * 0.7152 +
+                pixels[offset + 2] * 0.0722,
+            );
+          }
+          const minimum = Math.min(...luma);
+          const maximum = Math.max(...luma);
+          if (maximum - minimum < 64) {
+            return {
+              markerFrame: null,
+              markerError: "low-contrast",
+              markerObserved: { minimum, maximum },
+            };
+          }
+          const threshold = (minimum + maximum) / 2;
+          let sync = 0;
+          let gray = 0;
+          let checksum = 0;
+          for (let bit = 0; bit < 8; bit += 1) {
+            sync = (sync << 1) | (luma[bit] > threshold ? 1 : 0);
+          }
+          for (let bit = 8; bit < 24; bit += 1) {
+            gray = (gray << 1) | (luma[bit] > threshold ? 1 : 0);
+          }
+          for (let bit = 24; bit < 32; bit += 1) {
+            checksum = (checksum << 1) | (luma[bit] > threshold ? 1 : 0);
+          }
+          if (sync !== 0xd3) {
+            return {
+              markerFrame: null,
+              markerError: "sync",
+              markerObserved: { minimum, maximum, sync, gray, checksum },
+            };
+          }
+          const markerFrame =
+            capture.markerFormat === "counter-complement"
+              ? gray
+              : grayToBinary(gray);
+          const expectedChecksum =
+            capture.markerFormat === "counter-complement"
+              ? ~markerFrame & 255
+              : crc8(markerFrame);
+          if (expectedChecksum !== checksum) {
+            return {
+              markerFrame: null,
+              markerError: "crc",
+              markerObserved: { minimum, maximum, sync, gray, checksum },
+            };
+          }
+          return {
+            markerFrame,
+            markerError: "",
+            markerContrast: maximum - minimum,
+          };
+        } catch (error) {
+          capture.markerError = String(error);
+          return { markerFrame: null, markerError: String(error) };
         }
       }
-      return crc;
-    }
 
-    function grayToBinary(gray) {
-      let binary = gray;
-      for (let shift = 1; shift < 16; shift <<= 1) {
-        binary ^= binary >>> shift;
+      function onFrame(callbackTime, metadata) {
+        if (!capture.active) {
+          return;
+        }
+        if (capture.records.length < capture.maximumRecords) {
+          capture.records.push({
+            callbackTime,
+            expectedDisplayTime: metadata.expectedDisplayTime,
+            presentationTime: metadata.presentationTime,
+            mediaTime: metadata.mediaTime,
+            presentedFrames: metadata.presentedFrames,
+            processingDuration: metadata.processingDuration,
+            width: metadata.width,
+            height: metadata.height,
+          });
+        }
+        video.requestVideoFrameCallback(onFrame);
       }
-      return binary & 0xffff;
-    }
 
-    function decodeMarker(source, sourceWidth, sourceHeight) {
-      if (!capture.requireMarker) {
-        return { markerFrame: null, markerError: "" };
-      }
-      try {
-        const context = capture.markerContext;
-        context.drawImage(
-          source,
-          sourceWidth * (192 / 1920),
-          sourceHeight * (920 / 1080),
-          sourceWidth * (1536 / 1920),
-          sourceHeight * (96 / 1080),
-          0,
-          0,
-          32,
-          1,
-        );
-        const pixels = context.getImageData(0, 0, 32, 1).data;
-        const luma = [];
-        for (let offset = 0; offset < pixels.length; offset += 4) {
-          luma.push(
-            pixels[offset] * 0.2126 +
-              pixels[offset + 1] * 0.7152 +
-              pixels[offset + 2] * 0.0722,
+      window.__vdoninjaPresentationCapture = capture;
+      if (markerRequired) {
+        if (typeof window.MediaStreamTrackProcessor !== "function") {
+          throw new Error(
+            "This browser does not support decoded video frame inspection",
           );
         }
-        const minimum = Math.min(...luma);
-        const maximum = Math.max(...luma);
-        if (maximum - minimum < 64) {
-          return {
-            markerFrame: null,
-            markerError: "low-contrast",
-            markerObserved: { minimum, maximum },
-          };
-        }
-        const threshold = (minimum + maximum) / 2;
-        let sync = 0;
-        let gray = 0;
-        let checksum = 0;
-        for (let bit = 0; bit < 8; bit += 1) {
-          sync = (sync << 1) | (luma[bit] > threshold ? 1 : 0);
-        }
-        for (let bit = 8; bit < 24; bit += 1) {
-          gray = (gray << 1) | (luma[bit] > threshold ? 1 : 0);
-        }
-        for (let bit = 24; bit < 32; bit += 1) {
-          checksum = (checksum << 1) | (luma[bit] > threshold ? 1 : 0);
-        }
-        if (sync !== 0xd3) {
-          return {
-            markerFrame: null,
-            markerError: "sync",
-            markerObserved: { minimum, maximum, sync, gray, checksum },
-          };
-        }
-        const markerFrame =
-          capture.markerFormat === "counter-complement"
-            ? gray
-            : grayToBinary(gray);
-        const expectedChecksum =
-          capture.markerFormat === "counter-complement"
-            ? (~markerFrame) & 255
-            : crc8(markerFrame);
-        if (expectedChecksum !== checksum) {
-          return {
-            markerFrame: null,
-            markerError: "crc",
-            markerObserved: { minimum, maximum, sync, gray, checksum },
-          };
-        }
-        return {
-          markerFrame,
-          markerError: "",
-          markerContrast: maximum - minimum,
-        };
-      } catch (error) {
-        capture.markerError = String(error);
-        return { markerFrame: null, markerError: String(error) };
-      }
-    }
-
-    function onFrame(callbackTime, metadata) {
-      if (!capture.active) {
-        return;
-      }
-      if (capture.records.length < capture.maximumRecords) {
-        capture.records.push({
-          callbackTime,
-          expectedDisplayTime: metadata.expectedDisplayTime,
-          presentationTime: metadata.presentationTime,
-          mediaTime: metadata.mediaTime,
-          presentedFrames: metadata.presentedFrames,
-          processingDuration: metadata.processingDuration,
-          width: metadata.width,
-          height: metadata.height,
-        });
+        const sourceTrack = video.srcObject.getVideoTracks()[0].clone();
+        capture.processorTrack = sourceTrack;
+        const processor = new MediaStreamTrackProcessor({ track: sourceTrack });
+        capture.processorReader = processor.readable.getReader();
+        capture.processorDone = (async () => {
+          try {
+            while (capture.active) {
+              const { value, done } = await capture.processorReader.read();
+              if (done || !value) {
+                break;
+              }
+              try {
+                if (capture.decodedRecords.length < capture.maximumRecords) {
+                  capture.decodedRecords.push({
+                    timestampUs: value.timestamp,
+                    durationUs: value.duration,
+                    width: value.displayWidth,
+                    height: value.displayHeight,
+                    ...decodeMarker(
+                      value,
+                      value.displayWidth,
+                      value.displayHeight,
+                    ),
+                  });
+                }
+              } finally {
+                value.close();
+              }
+            }
+          } catch (error) {
+            if (capture.active) {
+              capture.processorError = String(error);
+            }
+          }
+        })();
       }
       video.requestVideoFrameCallback(onFrame);
-    }
-
-    window.__vdoninjaPresentationCapture = capture;
-    if (markerRequired) {
-      if (typeof window.MediaStreamTrackProcessor !== "function") {
-        throw new Error(
-          "This browser does not support decoded video frame inspection",
-        );
-      }
-      const sourceTrack = video.srcObject.getVideoTracks()[0].clone();
-      capture.processorTrack = sourceTrack;
-      const processor = new MediaStreamTrackProcessor({ track: sourceTrack });
-      capture.processorReader = processor.readable.getReader();
-      capture.processorDone = (async () => {
-        try {
-          while (capture.active) {
-            const { value, done } = await capture.processorReader.read();
-            if (done || !value) {
-              break;
-            }
-            try {
-              if (capture.decodedRecords.length < capture.maximumRecords) {
-                capture.decodedRecords.push({
-                  timestampUs: value.timestamp,
-                  durationUs: value.duration,
-                  width: value.displayWidth,
-                  height: value.displayHeight,
-                  ...decodeMarker(
-                    value,
-                    value.displayWidth,
-                    value.displayHeight,
-                  ),
-                });
-              }
-            } finally {
-              value.close();
-            }
-          }
-        } catch (error) {
-          if (capture.active) {
-            capture.processorError = String(error);
-          }
-        }
-      })();
-    }
-    video.requestVideoFrameCallback(onFrame);
-    return {
-      supported: true,
-      requireMarker: markerRequired,
-      videoWidth: video.videoWidth,
-      videoHeight: video.videoHeight,
-    };
-  }, { markerRequired: requireMarker, markerFormat });
+      return {
+        supported: true,
+        requireMarker: markerRequired,
+        videoWidth: video.videoWidth,
+        videoHeight: video.videoHeight,
+      };
+    },
+    { markerRequired: requireMarker, markerFormat },
+  );
 }
 
 async function stopPresentationCapture(page) {
@@ -1119,6 +1198,7 @@ async function main() {
   const useMotionSource = sourceMode === "motion";
   const useAudioContinuitySource = sourceMode === "audio-continuity";
   const useMediaSequenceSource = sourceMode === "media-sequence";
+  const loopMediaSequence = process.env.VDONINJA_MEDIA_SEQUENCE_LOOP === "1";
   const useGeneratedBrowserSource = useMotionSource || useAudioContinuitySource;
   const useGeneratedVisualSource =
     useGeneratedBrowserSource || useMediaSequenceSource;
@@ -1128,6 +1208,8 @@ async function main() {
   const captureDecodedAudio =
     requireAudioContinuity ||
     process.env.VDONINJA_CAPTURE_DECODED_AUDIO === "1";
+  const requireZeroAudioConcealment =
+    process.env.VDONINJA_REQUIRE_ZERO_AUDIO_CONCEALMENT === "1";
   const recordLocalOutput = process.env.VDONINJA_RECORD_LOCAL_OUTPUT === "1";
   const useObsBrowserViewer = process.env.VDONINJA_OBS_BROWSER_VIEWER === "1";
   const useNativeViewer = process.env.VDONINJA_NATIVE_VIEWER === "1";
@@ -1262,6 +1344,14 @@ async function main() {
   const customIceServers = String(
     process.env.VDONINJA_ICE_SERVERS || "",
   ).trim();
+  const signalingHost = String(process.env.VDONINJA_WSS_HOST || "").trim();
+  const viewerSignalingHost = String(
+    process.env.VDONINJA_VIEW_WSS2 ||
+      signalingHost
+        .replace(/^wss?:\/\//i, "")
+        .replace(/\/.*$/, "")
+        .replace(/:443$/, ""),
+  ).trim();
   const forceTurn = process.env.VDONINJA_FORCE_TURN === "1";
   const requireRelayCandidate =
     process.env.VDONINJA_REQUIRE_RELAY_CANDIDATE === "1" || forceTurn;
@@ -1294,9 +1384,9 @@ async function main() {
     ? "Audio Continuity"
     : useMediaSequenceSource
       ? "Media Sequence"
-    : useMotionSource
-      ? "Motion"
-      : "Color";
+      : useMotionSource
+        ? "Motion"
+        : "Color";
   const inputName = `Codex ${sourceLabel} Program ${stamp}`;
   const audioInputName = `Codex Audio Continuity Tone ${stamp}`;
   const obsBrowserViewerName = `Codex OBS Browser Viewer ${stamp}`;
@@ -1351,6 +1441,9 @@ async function main() {
   }
   if (forceTurn) {
     viewParams.set("relay", "");
+  }
+  if (viewerSignalingHost) {
+    viewParams.set("wss2", viewerSignalingHost);
   }
   viewParams.set("debug", "");
   const viewUrl = ensureQuery(
@@ -1611,10 +1704,9 @@ async function main() {
         sceneItemEnabled: true,
       });
       programSceneItemId = createdProgramInput.sceneItemId;
-      generatedSourceInputSettings = await client.request(
-        "GetInputSettings",
-        { inputName },
-      );
+      generatedSourceInputSettings = await client.request("GetInputSettings", {
+        inputName,
+      });
     } else if (useMediaSequenceSource) {
       const createdProgramInput = await client.request("CreateInput", {
         sceneName,
@@ -1623,7 +1715,7 @@ async function main() {
         inputSettings: {
           is_local_file: true,
           local_file: generatedSourcePath,
-          looping: false,
+          looping: loopMediaSequence,
           restart_on_activate: true,
           close_when_inactive: false,
           clear_on_media_end: false,
@@ -1631,10 +1723,9 @@ async function main() {
         sceneItemEnabled: true,
       });
       programSceneItemId = createdProgramInput.sceneItemId;
-      generatedSourceInputSettings = await client.request(
-        "GetInputSettings",
-        { inputName },
-      );
+      generatedSourceInputSettings = await client.request("GetInputSettings", {
+        inputName,
+      });
     } else {
       const createdProgramInput = await client.request("CreateInput", {
         sceneName,
@@ -1717,7 +1808,7 @@ async function main() {
         stream_id: streamId,
         room_id: roomId,
         password,
-        wss_host: "",
+        wss_host: signalingHost,
         salt: "",
         ...(customIceServers ? { custom_ice_servers: customIceServers } : {}),
         force_turn: forceTurn,
@@ -1754,7 +1845,7 @@ async function main() {
           stream_id: streamId,
           room_id: roomId,
           password,
-          wss_host: "",
+          wss_host: signalingHost,
           salt: "",
           width: nativeViewerWidth,
           height: nativeViewerHeight,
@@ -2165,12 +2256,6 @@ async function main() {
       );
       samples.push(await collectViewerSnapshot(page));
     }
-    browserStackViewerReport = await finishBrowserStackViewerCheck(
-      browserStackViewerCheck,
-    );
-    if (browserStackViewerReport) {
-      samples.push(await collectViewerSnapshot(page));
-    }
     const secondPlayable = samples[samples.length - 1];
     let presentationCapture = null;
     let presentationContinuityAnalysis = null;
@@ -2233,6 +2318,13 @@ async function main() {
         }),
       };
     }
+    // Stop the local continuity probes at the requested soak boundary. Remote
+    // BrowserStack devices can take minutes to allocate, and extending the
+    // local sample window while waiting makes a finite deterministic source
+    // look frozen even though the requested local soak already completed.
+    browserStackViewerReport = await finishBrowserStackViewerCheck(
+      browserStackViewerCheck,
+    );
     if (recordingStarted) {
       logStep("stopping the simultaneous local OBS recording");
       localRecording = await client.request("StopRecord");
@@ -2303,10 +2395,9 @@ async function main() {
     } else if (requireZeroFreezes && newFreezes !== 0) {
       videoContinuityFailure = `Chrome recorded ${newFreezes} new video freeze(s) during the ${soakMs} ms soak`;
     } else if (requireRelayCandidate && !relayCandidateVerified) {
-      videoContinuityFailure =
-        `forced TURN did not select a relay candidate; pairs=${JSON.stringify(
-          selectedCandidatePairs(secondPlayable),
-        )}`;
+      videoContinuityFailure = `forced TURN did not select a relay candidate; pairs=${JSON.stringify(
+        selectedCandidatePairs(secondPlayable),
+      )}`;
     }
     const newConcealedSamples =
       totalPcMetric(secondPlayable, "concealedSamples") -
@@ -2329,17 +2420,13 @@ async function main() {
     const newPacketsLost =
       totalPcMetric(secondPlayable, "packetsLost") -
       totalPcMetric(continuityBaseline, "packetsLost");
+    const newVideoPacketsLost =
+      totalPcMetric(secondPlayable, "videoPacketsLost") -
+      totalPcMetric(continuityBaseline, "videoPacketsLost");
+    const newAudioPacketsLost = newPacketsLost - newVideoPacketsLost;
     let audioContinuityFailure = null;
     if (requireAudioContinuity) {
-      if (newPacketsLost > 0 || newPacketsDiscarded > 0) {
-        audioContinuityFailure =
-          `Chrome recorded ${newPacketsLost} newly lost packet(s) and ` +
-          `${newPacketsDiscarded} newly discarded packet(s)`;
-      } else if (newConcealedSamples > 0 || newConcealmentEvents > 0) {
-        audioContinuityFailure =
-          `Chrome recorded ${newConcealedSamples} newly concealed audio samples in ` +
-          `${newConcealmentEvents} event(s)`;
-      } else if (!decodedAudioCapture) {
+      if (!decodedAudioCapture) {
         audioContinuityFailure = "decoded PCM capture did not produce a result";
       } else if (
         decodedAudioCapture.rawTrack &&
@@ -2362,6 +2449,19 @@ async function main() {
             `decoded track recorded ${decodedAudioCapture.rawTrack.nonForwardTimestamps} ` +
             `non-forward timestamp(s)`;
         }
+      }
+      if (
+        !audioContinuityFailure &&
+        requireZeroAudioConcealment &&
+        (newAudioPacketsLost > 0 ||
+          newPacketsDiscarded > 0 ||
+          newConcealedSamples > 0 ||
+          newConcealmentEvents > 0)
+      ) {
+        audioContinuityFailure =
+          `Chrome recorded ${newAudioPacketsLost} newly lost audio packet(s), ` +
+          `${newPacketsDiscarded} discarded packet(s), ${newConcealedSamples} ` +
+          `concealed sample(s), and ${newConcealmentEvents} concealment event(s)`;
       }
     }
 
@@ -2424,8 +2524,12 @@ async function main() {
       videoProtectionMode,
       audioRed,
       requestAudioRed,
+      requireAudioContinuity,
+      requireZeroAudioConcealment,
       adaptiveBitrate,
       adaptiveBitrateMinimumKbps,
+      signalingHost: signalingHost || null,
+      viewerSignalingHost: viewerSignalingHost || null,
       appliedVideoSettings,
       appliedVideoBitrateParameter,
       appliedStreamEncoderParameter,
@@ -2468,6 +2572,8 @@ async function main() {
       newRemovedSamplesForAcceleration,
       newPacketsDiscarded,
       newPacketsLost,
+      newVideoPacketsLost,
+      newAudioPacketsLost,
       decodedAudioCapture,
       localRecording,
       browserStackViewerReport,

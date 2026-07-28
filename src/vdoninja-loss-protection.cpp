@@ -6,8 +6,23 @@
 
 #include "vdoninja-loss-protection.h"
 
+#include <algorithm>
+#include <limits>
+
 namespace vdoninja
 {
+
+namespace
+{
+
+// A high-protection stream copies every packet. The encoder bitrate describes
+// compressed H.264 payload, while the duplicate pacer charges complete RTP
+// packets and must also absorb short keyframe bursts. Without a small bounded
+// margin, an encoder running exactly at its target leaves copies queued until
+// their latency deadline expires.
+constexpr uint64_t kHighProtectionPacketizationHeadroomPercent = 5;
+
+} // namespace
 
 VideoProtectionMode videoProtectionModeFromInt(int value)
 {
@@ -42,6 +57,24 @@ VideoProtectionPolicy videoProtectionPolicy(VideoProtectionMode mode)
 	default:
 		return {};
 	}
+}
+
+uint64_t videoProtectionBitrateForEncoderRate(int encoderBitrate, VideoProtectionMode mode) noexcept
+{
+	const VideoProtectionPolicy policy = videoProtectionPolicy(mode);
+	uint64_t percent = policy.duplicateBudgetPercent;
+	if (percent == 0) {
+		return 0;
+	}
+	if (mode == VideoProtectionMode::High) {
+		percent += kHighProtectionPacketizationHeadroomPercent;
+	}
+
+	const uint64_t positiveBitrate = static_cast<uint64_t>(std::max(encoderBitrate, 1));
+	if (positiveBitrate > std::numeric_limits<uint64_t>::max() / percent) {
+		return std::numeric_limits<uint64_t>::max();
+	}
+	return positiveBitrate * percent / 100U;
 }
 
 bool shouldDuplicateVideoPacket(VideoProtectionMode mode, bool keyframe, uint16_t sequenceNumber)

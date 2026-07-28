@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Extended the BrowserStack publishing probe with decoded/presented-frame telemetry, optional pixel-marker analysis, explicit lightweight-observer overrides, playback-clock and zero-audio-concealment gates, and native iPhone Safari WebDriver support that distinguishes visible playback from transport-only decoding.
+- Added browser-side publishing controls for custom signaling hosts, repeatable media-sequence looping, raw audio continuity, and remote viewer validation without extending the local measurement window while a cloud device allocates.
+
+### Fixed
+- Added bounded RTP packetization/keyframe-burst headroom to High video protection and included that repair allowance in the aggregate pacer rate. Under deterministic 0.5% TURN-path loss, every scheduled copy now meets its 250 ms deadline instead of roughly 2% expiring.
+- Made decoded PCM the authoritative audio continuity gate when Opus RED is active, while retaining an opt-in zero-concealment/statistics gate; receivers discarding redundant RED blocks no longer create a false audio failure when the decoded waveform is intact.
+- Made BrowserStack probe failures fail closed even when diagnostic screenshot collection also fails.
+
 ## [1.1.62] - 2026-07-28
 
 ### Added

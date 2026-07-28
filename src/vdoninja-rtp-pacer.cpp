@@ -106,6 +106,16 @@ uint64_t videoPacerBitrateForEncoderRate(int encoderBitrate) noexcept
 	return std::clamp(multiplied, kMinimumVideoPacerBitrate, kMaximumVideoPacerBitrate);
 }
 
+uint64_t videoPacerBitrateForEncoderAndProtectionRate(int encoderBitrate, uint64_t protectionBitrate) noexcept
+{
+	const uint64_t positiveBitrate =
+	    std::min(static_cast<uint64_t>(std::max(encoderBitrate, 1)), kMaximumVideoPacerBitrate);
+	const uint64_t combined = protectionBitrate > kMaximumVideoPacerBitrate - positiveBitrate
+	                              ? kMaximumVideoPacerBitrate
+	                              : positiveBitrate + protectionBitrate;
+	return std::max(videoPacerBitrateForEncoderRate(encoderBitrate), combined);
+}
+
 uint16_t rewindRtpSequenceNumber(uint16_t nextSequenceNumber, size_t unsentPackets) noexcept
 {
 	return static_cast<uint16_t>(nextSequenceNumber - static_cast<uint16_t>(unsentPackets));

@@ -42,3 +42,11 @@ TEST(VideoProtectionPolicyTest, HighProtectsEveryPacket)
 	EXPECT_TRUE(shouldDuplicateVideoPacket(VideoProtectionMode::High, false, 101));
 	EXPECT_EQ(videoProtectionPolicy(VideoProtectionMode::High).duplicateBudgetPercent, 100);
 }
+
+TEST(VideoProtectionPolicyTest, DuplicateBudgetIncludesBoundedHighModePacketizationHeadroom)
+{
+	EXPECT_EQ(videoProtectionBitrateForEncoderRate(8000000, VideoProtectionMode::Off), 0u);
+	EXPECT_EQ(videoProtectionBitrateForEncoderRate(8000000, VideoProtectionMode::Low), 1600000u);
+	EXPECT_EQ(videoProtectionBitrateForEncoderRate(8000000, VideoProtectionMode::Medium), 4000000u);
+	EXPECT_EQ(videoProtectionBitrateForEncoderRate(8000000, VideoProtectionMode::High), 8400000u);
+}

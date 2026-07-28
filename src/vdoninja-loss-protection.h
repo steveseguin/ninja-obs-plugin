@@ -30,6 +30,7 @@ struct VideoProtectionPolicy {
 
 VideoProtectionMode videoProtectionModeFromInt(int value);
 VideoProtectionPolicy videoProtectionPolicy(VideoProtectionMode mode);
+uint64_t videoProtectionBitrateForEncoderRate(int encoderBitrate, VideoProtectionMode mode) noexcept;
 bool shouldDuplicateVideoPacket(VideoProtectionMode mode, bool keyframe, uint16_t sequenceNumber);
 const char *videoProtectionModeName(VideoProtectionMode mode);
 
