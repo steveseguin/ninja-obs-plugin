@@ -3,7 +3,9 @@
  * SPDX-License-Identifier: AGPL-3.0-only
  */
 
+#include <algorithm>
 #include <limits>
+#include <random>
 
 #include <gtest/gtest.h>
 
@@ -106,4 +108,64 @@ TEST(AudioRedTest, SelectsRedOnlyWhenAnswerPrefersAValidMapping)
 	EXPECT_FALSE(answerSelectsAudioRed(invalidMapping));
 	EXPECT_FALSE(answerSelectsAudioRed("v=0\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\n"
 	                                   "a=rtpmap:111 opus/48000/2\r\n"));
+}
+
+TEST(AudioRedFuzzTest, RandomPayloadsPreservePrimaryAndBoundRedundancy)
+{
+	std::mt19937 rng(0x2198F00D);
+	std::uniform_int_distribution<size_t> payloadSizeDist(0, 1400);
+	std::uniform_int_distribution<size_t> maximumSizeDist(0, 1800);
+	std::uniform_int_distribution<int> byteDist(0, 255);
+	std::uniform_int_distribution<int> payloadTypeDist(0, 255);
+	std::uniform_int_distribution<uint32_t> offsetDist(0, 20000);
+
+	for (int iteration = 0; iteration < 30000; ++iteration) {
+		std::vector<uint8_t> current(payloadSizeDist(rng));
+		std::vector<uint8_t> previous(payloadSizeDist(rng));
+		for (uint8_t &byte : current) {
+			byte = static_cast<uint8_t>(byteDist(rng));
+		}
+		for (uint8_t &byte : previous) {
+			byte = static_cast<uint8_t>(byteDist(rng));
+		}
+
+		const uint8_t payloadType = static_cast<uint8_t>(payloadTypeDist(rng));
+		const size_t maximumSize = maximumSizeDist(rng);
+		const uint32_t currentTimestamp = rng();
+		const uint32_t previousTimestamp =
+		    iteration % 2 == 0 ? currentTimestamp - offsetDist(rng) : static_cast<uint32_t>(rng());
+		const AudioRedPayload payload = buildAudioRedPayload(
+		    current.empty() ? nullptr : current.data(), current.size(), currentTimestamp,
+		    previous.empty() ? nullptr : previous.data(), previous.size(), previousTimestamp, payloadType, maximumSize);
+
+		if (payloadType > 127 || maximumSize == 0) {
+			EXPECT_TRUE(payload.bytes.empty()) << "iteration=" << iteration;
+			EXPECT_FALSE(payload.includesRedundantBlock);
+			EXPECT_EQ(payload.redundantBytes, 0u);
+			continue;
+		}
+
+		ASSERT_FALSE(payload.bytes.empty()) << "iteration=" << iteration;
+		if (!payload.includesRedundantBlock) {
+			EXPECT_EQ(payload.redundantBytes, 0u);
+			ASSERT_EQ(payload.bytes.size(), current.size() + 1U);
+			EXPECT_EQ(payload.bytes.front(), payloadType);
+			EXPECT_TRUE(std::equal(current.begin(), current.end(), payload.bytes.begin() + 1));
+			continue;
+		}
+
+		ASSERT_EQ(payload.redundantBytes, previous.size());
+		ASSERT_EQ(payload.bytes.size(), current.size() + previous.size() + 5U);
+		EXPECT_EQ(payload.bytes[0], static_cast<uint8_t>(0x80U | payloadType));
+		EXPECT_EQ(payload.bytes[4], payloadType);
+		const uint32_t encodedOffset =
+		    (static_cast<uint32_t>(payload.bytes[1]) << 6U) | (static_cast<uint32_t>(payload.bytes[2]) >> 2U);
+		const size_t encodedLength =
+		    (static_cast<size_t>(payload.bytes[2] & 0x03U) << 8U) | static_cast<size_t>(payload.bytes[3]);
+		EXPECT_EQ(encodedOffset, currentTimestamp - previousTimestamp);
+		EXPECT_EQ(encodedLength, previous.size());
+		EXPECT_LE(payload.bytes.size(), maximumSize);
+		EXPECT_TRUE(std::equal(previous.begin(), previous.end(), payload.bytes.begin() + 5));
+		EXPECT_TRUE(std::equal(current.begin(), current.end(), payload.bytes.begin() + 5 + previous.size()));
+	}
 }

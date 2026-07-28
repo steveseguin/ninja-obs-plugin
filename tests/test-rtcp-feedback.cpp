@@ -4,6 +4,7 @@
  */
 
 #include <cstdint>
+#include <random>
 #include <vector>
 
 #include <gtest/gtest.h>
@@ -271,4 +272,56 @@ TEST(RtcpFeedbackTrackerTest, RejectsTruncatedRemb)
 
 	EXPECT_EQ(tracker.snapshot().malformedPackets, 1u);
 	EXPECT_EQ(tracker.snapshot().rembMessages, 0u);
+}
+
+TEST(RtcpFeedbackTrackerFuzzTest, RandomAndMutatedCompoundPacketsRemainBounded)
+{
+	std::mt19937 rng(0x206F00D);
+	std::uniform_int_distribution<size_t> rawSizeDist(0, 512);
+	std::uniform_int_distribution<int> byteDist(0, 255);
+	std::uniform_int_distribution<int> mutationCountDist(0, 8);
+
+	for (int iteration = 0; iteration < 30000; ++iteration) {
+		std::vector<uint8_t> packet;
+		switch (iteration % 5) {
+		case 0:
+			packet = makeNack(rng(), static_cast<uint16_t>(rng()), static_cast<uint16_t>(rng()));
+			break;
+		case 1:
+			packet = makePli(rng());
+			break;
+		case 2:
+			packet = makeReceiverReport(rng(), static_cast<uint8_t>(rng()), rng(), rng(), rng(), rng());
+			break;
+		case 3:
+			packet = makeRemb(rng(), rng() & 0x3FFFFU, static_cast<uint8_t>(rng() & 0x3FU));
+			break;
+		default:
+			packet.resize(rawSizeDist(rng));
+			for (uint8_t &byte : packet) {
+				byte = static_cast<uint8_t>(byteDist(rng));
+			}
+			break;
+		}
+
+		for (int mutation = 0; mutation < mutationCountDist(rng) && !packet.empty(); ++mutation) {
+			packet[static_cast<size_t>(rng()) % packet.size()] = static_cast<uint8_t>(byteDist(rng));
+		}
+		if (!packet.empty() && iteration % 7 == 0) {
+			packet.resize(static_cast<size_t>(rng()) % packet.size());
+		}
+
+		const uint8_t *data = packet.empty() ? nullptr : packet.data();
+		RtcpFeedbackTracker tracker(iteration % 4 == 0 ? 0U : rng());
+		tracker.observe(data, packet.size(), rng());
+		const RtcpFeedbackStats stats = tracker.snapshot();
+
+		EXPECT_EQ(stats.compoundPackets, 1U);
+		EXPECT_LE(stats.malformedPackets, 1U);
+		EXPECT_LE(stats.nackRequestedPackets, 4096U * 17U);
+		EXPECT_LE(stats.reportBlocks, 31U);
+		if (stats.minRembBitrateBps > 0) {
+			EXPECT_LE(stats.minRembBitrateBps, stats.maxRembBitrateBps);
+		}
+	}
 }

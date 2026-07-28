@@ -31,9 +31,9 @@ jobs:
         run: ctest --test-dir build --output-on-failure
 
   # Run the same suite under AddressSanitizer and UndefinedBehaviorSanitizer.
-  # The suite includes byte-level fuzzers for the VP9 RTP payload descriptor, the
-  # data-channel message parser and signaling normalization, all of which chew on
-  # untrusted network input. Without a sanitizer those fuzzers only catch hard
+  # The suite includes byte-level fuzzers for VP9/H.264 payload parsing, RTCP
+  # feedback/NACK parsing, audio RED construction, data-channel messages, and
+  # signaling normalization. Without a sanitizer those fuzzers only catch hard
   # crashes -- an out-of-bounds read or signed overflow passes silently.
   sanitizers:
     name: Unit Tests (ASan + UBSan)

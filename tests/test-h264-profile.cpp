@@ -4,6 +4,7 @@
  */
 
 #include <cstdint>
+#include <random>
 #include <vector>
 
 #include <gtest/gtest.h>
@@ -55,4 +56,29 @@ TEST(H264ProfileTest, BuildsValidatedFmtp)
 	          "profile-level-id=64002a;packetization-mode=1;level-asymmetry-allowed=1");
 	EXPECT_EQ(h264FmtpForProfileLevelId("invalid"),
 	          "profile-level-id=42e01f;packetization-mode=1;level-asymmetry-allowed=1");
+}
+
+TEST(H264ProfileFuzzTest, RandomPayloadsAreBoundedAndDeterministic)
+{
+	std::mt19937 rng(0x264F00D);
+	std::uniform_int_distribution<size_t> sizeDist(0, 512);
+	std::uniform_int_distribution<int> byteDist(0, 255);
+
+	for (int iteration = 0; iteration < 50000; ++iteration) {
+		std::vector<uint8_t> bytes(sizeDist(rng));
+		for (uint8_t &byte : bytes) {
+			byte = static_cast<uint8_t>(byteDist(rng));
+		}
+
+		const uint8_t *data = bytes.empty() ? nullptr : bytes.data();
+		const auto first = deriveH264ProfileLevelId(data, bytes.size());
+		const auto second = deriveH264ProfileLevelId(data, bytes.size());
+
+		ASSERT_EQ(first.has_value(), second.has_value()) << "iteration=" << iteration << " size=" << bytes.size();
+		if (first) {
+			EXPECT_EQ(*first, *second);
+			EXPECT_TRUE(isValidH264ProfileLevelId(*first))
+			    << "iteration=" << iteration << " size=" << bytes.size() << " result=" << *first;
+		}
+	}
 }

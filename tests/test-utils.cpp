@@ -4,6 +4,7 @@
  */
 
 #include <algorithm>
+#include <random>
 #include <regex>
 #include <set>
 #include <thread>
@@ -1387,4 +1388,100 @@ TEST_F(SDPTest, ParseOfferedMediaSectionsIgnoresUnsupportedMediaBlocks)
 	ASSERT_EQ(sections[0].codecs.size(), 1u);
 	EXPECT_EQ(sections[0].codecs[0].payloadType, 102);
 	EXPECT_EQ(sections[0].codecs[0].codec, "H264");
+}
+
+TEST(SdpParserFuzzTest, RandomAndStructuredLinesRemainBoundedAndDeterministic)
+{
+	std::mt19937 rng(0x5D9F00D);
+	static constexpr char kTokenChars[] = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_:-;/= .\t";
+	std::uniform_int_distribution<size_t> charDist(0, sizeof(kTokenChars) - 2);
+	std::uniform_int_distribution<int> lineCountDist(1, 60);
+	std::uniform_int_distribution<int> tokenLengthDist(0, 80);
+
+	auto randomToken = [&]() {
+		std::string token;
+		const int length = tokenLengthDist(rng);
+		token.reserve(static_cast<size_t>(length));
+		for (int index = 0; index < length; ++index) {
+			token.push_back(kTokenChars[charDist(rng)]);
+		}
+		return token;
+	};
+	auto equivalent = [](const std::vector<SdpOfferedMediaSection> &left,
+	                     const std::vector<SdpOfferedMediaSection> &right) {
+		if (left.size() != right.size()) {
+			return false;
+		}
+		for (size_t sectionIndex = 0; sectionIndex < left.size(); ++sectionIndex) {
+			const auto &a = left[sectionIndex];
+			const auto &b = right[sectionIndex];
+			if (a.type != b.type || a.mid != b.mid || a.payloadTypes != b.payloadTypes ||
+			    a.codecs.size() != b.codecs.size()) {
+				return false;
+			}
+			for (size_t codecIndex = 0; codecIndex < a.codecs.size(); ++codecIndex) {
+				const auto &x = a.codecs[codecIndex];
+				const auto &y = b.codecs[codecIndex];
+				if (x.payloadType != y.payloadType || x.codec != y.codec || x.clockRate != y.clockRate ||
+				    x.channels != y.channels || x.formatParameters != y.formatParameters ||
+				    x.associatedPayloadType != y.associatedPayloadType) {
+					return false;
+				}
+			}
+		}
+		return true;
+	};
+
+	for (int iteration = 0; iteration < 20000; ++iteration) {
+		std::string sdp;
+		const int lineCount = lineCountDist(rng);
+		for (int line = 0; line < lineCount; ++line) {
+			switch (rng() % 8U) {
+			case 0:
+				sdp += "m=audio 9 UDP/TLS/RTP/SAVPF " + std::to_string(rng()) + " " + std::to_string(rng() % 128U);
+				break;
+			case 1:
+				sdp += "m=video 9 UDP/TLS/RTP/SAVPF " + std::to_string(rng() % 256U) + " " + randomToken();
+				break;
+			case 2:
+				sdp += "m=" + randomToken();
+				break;
+			case 3:
+				sdp += "a=rtpmap:" + std::to_string(rng()) + " " + randomToken() + "/" + std::to_string(rng()) + "/" +
+				       std::to_string(rng());
+				break;
+			case 4:
+				sdp += "a=fmtp:" + std::to_string(rng()) + " apt=" + std::to_string(rng()) + ";" + randomToken();
+				break;
+			case 5:
+				sdp += "a=mid:" + randomToken();
+				break;
+			default:
+				sdp += randomToken();
+				break;
+			}
+			sdp += rng() % 3U == 0 ? "\n" : "\r\n";
+		}
+
+		const auto first = parseOfferedMediaSections(sdp);
+		const auto second = parseOfferedMediaSections(sdp);
+		ASSERT_TRUE(equivalent(first, second)) << "iteration=" << iteration << " bytes=" << sdp.size();
+		EXPECT_LE(first.size(), static_cast<size_t>(lineCount));
+		for (const auto &section : first) {
+			EXPECT_TRUE(section.type == "audio" || section.type == "video");
+			EXPECT_LE(section.codecs.size(), section.payloadTypes.size());
+			for (const int payloadType : section.payloadTypes) {
+				EXPECT_GE(payloadType, 0);
+			}
+			for (const auto &codec : section.codecs) {
+				EXPECT_NE(std::find(section.payloadTypes.begin(), section.payloadTypes.end(), codec.payloadType),
+				          section.payloadTypes.end());
+			}
+		}
+
+		(void)extractMid(sdp, iteration % 2 == 0 ? "audio" : "video");
+		(void)stripUnsupportedTransportCcFeedback(sdp);
+		const std::string withBitrate = modifySdpBitrate(sdp, static_cast<int>(rng()));
+		EXPECT_LE(withBitrate.size(), sdp.size() + 32U);
+	}
 }

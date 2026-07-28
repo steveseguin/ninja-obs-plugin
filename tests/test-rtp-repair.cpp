@@ -6,6 +6,8 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <random>
+#include <unordered_set>
 #include <vector>
 
 #include <gtest/gtest.h>
@@ -177,4 +179,47 @@ TEST(RtcpNackParserTest, FiltersMediaSsrcAndRejectsTruncation)
 	bool malformed = false;
 	EXPECT_TRUE(parseRtcpNackRequests(packet.data(), packet.size(), 0, &malformed).empty());
 	EXPECT_TRUE(malformed);
+}
+
+TEST(RtcpNackParserFuzzTest, RandomAndMutatedCompoundPacketsAreBoundedAndDeterministic)
+{
+	std::mt19937 rng(0x205F00D);
+	std::uniform_int_distribution<size_t> rawSizeDist(0, 512);
+	std::uniform_int_distribution<int> byteDist(0, 255);
+	std::uniform_int_distribution<int> mutationCountDist(0, 8);
+
+	for (int iteration = 0; iteration < 30000; ++iteration) {
+		std::vector<uint8_t> packet;
+		if (iteration % 2 == 0) {
+			packet.resize(rawSizeDist(rng));
+			for (uint8_t &byte : packet) {
+				byte = static_cast<uint8_t>(byteDist(rng));
+			}
+		} else {
+			packet = nackPacket(rng(), static_cast<uint16_t>(rng()), static_cast<uint16_t>(rng()));
+			if (iteration % 3 == 0) {
+				const auto second = nackPacket(rng(), static_cast<uint16_t>(rng()), static_cast<uint16_t>(rng()));
+				packet.insert(packet.end(), second.begin(), second.end());
+			}
+			for (int mutation = 0; mutation < mutationCountDist(rng) && !packet.empty(); ++mutation) {
+				packet[static_cast<size_t>(rng()) % packet.size()] = static_cast<uint8_t>(byteDist(rng));
+			}
+			if (!packet.empty() && iteration % 5 == 0) {
+				packet.resize(static_cast<size_t>(rng()) % packet.size());
+			}
+		}
+
+		const uint32_t mediaSsrc = iteration % 4 == 0 ? 0U : rng();
+		const uint8_t *data = packet.empty() ? nullptr : packet.data();
+		bool firstMalformed = false;
+		bool secondMalformed = false;
+		const auto first = parseRtcpNackRequests(data, packet.size(), mediaSsrc, &firstMalformed);
+		const auto second = parseRtcpNackRequests(data, packet.size(), mediaSsrc, &secondMalformed);
+
+		EXPECT_EQ(firstMalformed, secondMalformed) << "iteration=" << iteration << " size=" << packet.size();
+		EXPECT_EQ(first, second) << "iteration=" << iteration << " size=" << packet.size();
+		EXPECT_LE(first.size(), 4096U);
+		const std::unordered_set<uint16_t> unique(first.begin(), first.end());
+		EXPECT_EQ(unique.size(), first.size());
+	}
 }
