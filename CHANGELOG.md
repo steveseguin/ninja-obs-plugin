@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.62] - 2026-07-28
+
 ### Added
 - Added decoded-pixel publishing validation with deterministic per-frame markers, browser presentation-cadence telemetry, multi-viewer encoder checks, forced-TURN candidate proof, and a deterministic UDP loss proxy for repeatable macOS stress testing.
 
