@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.63] - 2026-07-28
+
 ### Added
 - Extended the BrowserStack publishing probe with decoded/presented-frame telemetry, optional pixel-marker analysis, explicit lightweight-observer overrides, playback-clock and zero-audio-concealment gates, and native iPhone Safari WebDriver support that distinguishes visible playback from transport-only decoding.
 - Added browser-side publishing controls for custom signaling hosts, repeatable media-sequence looping, raw audio continuity, and remote viewer validation without extending the local measurement window while a cloud device allocates.
