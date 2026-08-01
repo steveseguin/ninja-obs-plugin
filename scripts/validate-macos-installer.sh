@@ -6,7 +6,7 @@ OBS_APP=""
 CHECK_INSTALLED=0
 LAUNCH_TEST=0
 LAUNCH_SECONDS=12
-EXPECTED_OBS_MAJOR=32
+EXPECTED_OBS_PREFIX=32.2
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 EXPECTED_PLUGIN_VERSION=""
@@ -34,7 +34,7 @@ Options:
   --obs-app PATH         OBS.app to inspect or launch
   --launch-test          Launch OBS briefly and require obs-vdoninja to load
   --launch-seconds N     Seconds to keep OBS running for launch test (default: $LAUNCH_SECONDS)
-  --obs-major N          Expected OBS major version (default: $EXPECTED_OBS_MAJOR)
+  --obs-version-prefix V Expected OBS version prefix (default: $EXPECTED_OBS_PREFIX)
   --require-signed       Fail unless the package and plugin bundle use Developer ID signatures
   --require-notarized    Fail unless the package has a valid notarization staple
   -h, --help             Show this help
@@ -63,8 +63,8 @@ while [[ $# -gt 0 ]]; do
       LAUNCH_SECONDS="$2"
       shift 2
       ;;
-    --obs-major)
-      EXPECTED_OBS_MAJOR="$2"
+    --obs-version-prefix|--obs-major)
+      EXPECTED_OBS_PREFIX="$2"
       shift 2
       ;;
     --require-signed)
@@ -314,12 +314,12 @@ inspect_obs_app() {
   log "OBS architecture slice(s): ${arches:-unknown}"
 
   case "$version" in
-    "$EXPECTED_OBS_MAJOR".*) ;;
+    "$EXPECTED_OBS_PREFIX".*) ;;
     "")
-      warn "Could not determine OBS version; this package targets OBS $EXPECTED_OBS_MAJOR.x"
+      warn "Could not determine OBS version; this package targets OBS $EXPECTED_OBS_PREFIX.x"
       ;;
     *)
-      fail "OBS $version is outside the expected OBS $EXPECTED_OBS_MAJOR.x line"
+      fail "OBS $version is outside the expected OBS $EXPECTED_OBS_PREFIX.x line"
       ;;
   esac
 }
@@ -380,7 +380,7 @@ launch_obs_and_require_plugin() {
   log "OBS log: $log_file"
   if grep -q "Loading module: obs-vdoninja" "$log_file" &&
     grep -q "VDO.Ninja plugin loaded successfully" "$log_file"; then
-    grep -En "OBS $EXPECTED_OBS_MAJOR\\.|Loading module: obs-vdoninja|Loading VDO\\.Ninja plugin|VDO\\.Ninja plugin loaded successfully|VDO\\.Ninja plugin unloaded" "$log_file" || true
+    grep -En "OBS $EXPECTED_OBS_PREFIX\\.|Loading module: obs-vdoninja|Loading VDO\\.Ninja plugin|VDO\\.Ninja plugin loaded successfully|VDO\\.Ninja plugin unloaded" "$log_file" || true
   else
     fail "OBS did not load obs-vdoninja successfully"
     grep -En "obs-vdoninja|VDO\\.Ninja|Failed to load|incompatible" "$log_file" || true

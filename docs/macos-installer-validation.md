@@ -1,6 +1,6 @@
 # macOS Installer Validation
 
-This project targets OBS `32.x` and currently builds release artifacts against OBS `32.0.4`.
+Current release artifacts target OBS `32.2+` and build against the OBS `32.2.0` baseline. Users remaining on OBS 32.0-32.1 should use plugin release v1.1.63 or earlier because OBS 32.2 changed its bundled FFmpeg runtime.
 
 ## OBS Load Paths
 
@@ -176,7 +176,7 @@ Before publishing a macOS release, cover this matrix:
 
 | Scenario | Expected result |
 | --- | --- |
-| Apple Silicon Mac, native OBS 32.0.4 from `/Applications/OBS.app` | Loads `obs-vdoninja` successfully. |
+| Apple Silicon Mac, native OBS 32.2.x from `/Applications/OBS.app` | Loads `obs-vdoninja` successfully. |
 | Apple Silicon Mac, native OBS 32.x from a nonstandard path | Loads from the user plugin directory. |
 | Apple Silicon Mac, OBS not installed yet | Installer succeeds and logs that OBS was not found. |
 | Apple Silicon Mac, OBS 31.x or 33.x | Installer succeeds but logs an OBS version warning. |

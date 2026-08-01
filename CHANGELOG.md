@@ -10,6 +10,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Expanded sanitizer-backed fuzz coverage for H.264 payload parsing, audio RED construction, compound RTCP feedback, NACK parsing, and SDP normalization with 160,000 deterministic randomized cases.
 
+### Fixed
+- Restored plugin loading on OBS 32.2 after OBS moved its bundled runtime from FFmpeg 7 to FFmpeg 8. Current release packages now build against OBS 32.2.0, while Windows also ships clearly labeled OBS 32.0-32.1 legacy artifacts.
+- Added release-time Windows import validation for the expected FFmpeg DLL family so an OBS runtime mismatch fails packaging instead of reaching users.
+
 ## [1.1.63] - 2026-07-28
 
 ### Added

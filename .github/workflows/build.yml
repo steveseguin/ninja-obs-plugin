@@ -9,13 +9,12 @@ on:
 env:
   PLUGIN_NAME: obs-vdoninja
   LIBDATACHANNEL_VERSION: v0.20.2
-  # Build against the oldest supported OBS 32.x baseline so one release artifact
-  # works across the widest range of current OBS 32 installs.
-  # Do not bump this to a newer OBS SDK unless we intentionally drop support
-  # for older OBS 32.x installs or ship clearly labeled version-specific builds.
-  OBS_VERSION: 32.0.4
-  OBS_SOURCE_REF: 32.0.4
-  OBS_SOURCE_TAG: 32.0.4
+  # OBS 32.2 moved from FFmpeg 7 to FFmpeg 8, changing the runtime DLL names
+  # imported by the plugin. Current Linux/macOS packages target the oldest
+  # 32.2 release; Windows additionally ships a labeled 32.0-32.1 legacy build.
+  OBS_VERSION: 32.2.0
+  OBS_SOURCE_REF: 32.2.0
+  OBS_SOURCE_TAG: 32.2.0
 
 jobs:
   validate-release-metadata:
@@ -629,9 +628,25 @@ jobs:
   #   ...
 
   build-windows:
-    name: Windows
+    name: Windows (${{ matrix.label }})
     runs-on: windows-2022
     needs: validate-release-metadata
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: OBS 32.2+
+            obs_version: 32.2.0
+            obs_source_ref: 32.2.0
+            obs_source_tag: 32.2.0
+            asset_suffix: ''
+            ffmpeg_imports: avcodec-62.dll,avutil-60.dll,swscale-9.dll,swresample-6.dll
+          - label: OBS 32.0-32.1 legacy
+            obs_version: 32.0.4
+            obs_source_ref: 32.0.4
+            obs_source_tag: 32.0.4
+            asset_suffix: -obs32.0-32.1
+            ffmpeg_imports: avcodec-61.dll,avutil-59.dll,swscale-8.dll,swresample-5.dll
     env:
       WIN_SIGN_CERT_B64: ${{ secrets.WIN_SIGN_CERT_B64 }}
       WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
@@ -655,14 +670,21 @@ jobs:
 
       - name: Build OBS SDK
         run: |
-          git clone --depth 1 --branch ${{ env.OBS_SOURCE_REF }} --recurse-submodules https://github.com/obsproject/obs-studio.git obs-studio
+          git clone --depth 1 --branch ${{ matrix.obs_source_ref }} --recurse-submodules https://github.com/obsproject/obs-studio.git obs-studio
           cd obs-studio
-          git checkout "refs/tags/${{ env.OBS_SOURCE_TAG }}"; if ($LASTEXITCODE -ne 0) { git checkout ${{ env.OBS_SOURCE_TAG }} }
-          cmake --preset windows-ci-x64 -B build_x64 `
+          git checkout "refs/tags/${{ matrix.obs_source_tag }}"; if ($LASTEXITCODE -ne 0) { git checkout ${{ matrix.obs_source_tag }} }
+          # OBS 32.2's preset defaults to Visual Studio 2026. GitHub's
+          # windows-2022 runner provides VS 2022, which is sufficient for the
+          # SDK and avoids tying plugin releases to an unavailable generator.
+          cmake --preset windows-ci-x64 -G "Visual Studio 17 2022" -A x64 -B build_x64 `
             "-DENABLE_BROWSER=OFF" `
             "-DENABLE_SCRIPTING=OFF" `
-            "-DOBS_VERSION_OVERRIDE=${{ env.OBS_VERSION }}"
-          cmake --build --preset windows-x64 --config RelWithDebInfo --parallel
+            "-DOBS_VERSION_OVERRIDE=${{ matrix.obs_version }}"
+          # Only the SDK libraries are needed by this plugin. Building every
+          # OBS module pulls in prebuilt components compiled with VS 2026
+          # (notably AJA) and fails to link on the VS 2022 GitHub runner even
+          # though libobs and obs-frontend-api themselves are compatible.
+          cmake --build build_x64 --config RelWithDebInfo --target libobs obs-frontend-api --parallel
           $obsSdkPrefix = "${{ github.workspace }}\obs-sdk"
           $installOutput = cmake --install build_x64 --prefix $obsSdkPrefix --config RelWithDebInfo 2>&1
           $installExit = $LASTEXITCODE
@@ -923,6 +945,7 @@ jobs:
           python -m pip install --quiet pefile
           $script = @'
           import pefile
+          import os
           from pathlib import Path
 
           dll_path = Path("build") / "obs-vdoninja.dll"
@@ -939,8 +962,26 @@ jobs:
                   + ", ".join(bad)
                   + ". Windows release must be self-contained for libdatachannel/OpenSSL."
               )
+          expected_ffmpeg = {
+              item.strip().lower()
+              for item in os.environ["EXPECTED_FFMPEG_IMPORTS"].split(",")
+              if item.strip()
+          }
+          known_ffmpeg = {
+              "avcodec-61.dll", "avutil-59.dll", "swscale-8.dll", "swresample-5.dll",
+              "avcodec-62.dll", "avutil-60.dll", "swscale-9.dll", "swresample-6.dll",
+          }
+          actual_ffmpeg = imports.intersection(known_ffmpeg)
+          if actual_ffmpeg != expected_ffmpeg:
+              raise SystemExit(
+                  "Unexpected FFmpeg runtime imports. Expected: "
+                  + ", ".join(sorted(expected_ffmpeg))
+                  + "; actual: "
+                  + ", ".join(sorted(actual_ffmpeg))
+              )
           print("Import check passed:", ", ".join(sorted(imports)))
           '@
+          $env:EXPECTED_FFMPEG_IMPORTS = "${{ matrix.ffmpeg_imports }}"
           $script | python -
 
       - name: Prepare Windows signing certificate
@@ -985,16 +1026,17 @@ jobs:
             }
           }
 
-          7z a ${{ env.PLUGIN_NAME }}-windows-x64.zip .\install\*
+          $packageBase = "${{ env.PLUGIN_NAME }}-windows-x64${{ matrix.asset_suffix }}"
+          7z a "$packageBase.zip" .\install\*
           powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File scripts\build-installer-windows.ps1 `
             -SourceDir "install" `
             -OutputDir "." `
-            -OutputBaseFilename "${{ env.PLUGIN_NAME }}-windows-x64-setup"
+            -OutputBaseFilename "$packageBase-setup"
 
       - name: Sign Windows installer
         if: ${{ env.WIN_SIGN_CERT_B64 != '' && env.WIN_CSC_KEY_PASSWORD != '' }}
         run: |
-          $installerPath = "${{ env.PLUGIN_NAME }}-windows-x64-setup.exe"
+          $installerPath = "${{ env.PLUGIN_NAME }}-windows-x64${{ matrix.asset_suffix }}-setup.exe"
           if (-not (Test-Path $installerPath)) {
             throw "Installer not found: $installerPath"
           }
@@ -1028,10 +1070,10 @@ jobs:
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ env.PLUGIN_NAME }}-windows-x64
+          name: ${{ env.PLUGIN_NAME }}-windows-x64${{ matrix.asset_suffix }}
           path: |
-            ${{ env.PLUGIN_NAME }}-windows-x64.zip
-            ${{ env.PLUGIN_NAME }}-windows-x64-setup.exe
+            ${{ env.PLUGIN_NAME }}-windows-x64${{ matrix.asset_suffix }}.zip
+            ${{ env.PLUGIN_NAME }}-windows-x64${{ matrix.asset_suffix }}-setup.exe
 
   release:
     name: Create Release
@@ -1067,6 +1109,8 @@ jobs:
           required=(
             "obs-vdoninja-windows-x64-setup.exe"
             "obs-vdoninja-windows-x64.zip"
+            "obs-vdoninja-windows-x64-obs32.0-32.1-setup.exe"
+            "obs-vdoninja-windows-x64-obs32.0-32.1.zip"
             "obs-vdoninja-linux-x86_64.tar.gz"
             "obs-vdoninja-macos-arm64.pkg"
             "obs-vdoninja-macos-arm64.zip"

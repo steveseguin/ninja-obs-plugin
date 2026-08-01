@@ -9,7 +9,7 @@ OUTPUT_DIR="$REPO_ROOT/artifacts"
 IDENTIFIER="com.vdoninja.obs-plugin"
 ARCH="$(uname -m)"
 VERSION="$(sed -nE 's/^project\(obs-vdoninja VERSION ([0-9.]+).*/\1/p' "$REPO_ROOT/CMakeLists.txt" | head -1)"
-OBS_COMPAT_MAJOR="32"
+OBS_COMPAT_PREFIX="32.2"
 APP_SIGN_IDENTITY="${OBS_VDONINJA_APP_SIGN_IDENTITY:-}"
 SIGN_IDENTITY="${OBS_VDONINJA_INSTALLER_SIGN_IDENTITY:-}"
 NOTARIZE=0
@@ -35,7 +35,7 @@ Options:
   --output-dir PATH         Directory for the generated .pkg
   --identifier ID           Package identifier (default: $IDENTIFIER)
   --version VERSION         Package version (default: project version)
-  --obs-major VERSION       Expected OBS major version (default: $OBS_COMPAT_MAJOR)
+  --obs-version-prefix VER  Expected OBS version prefix (default: $OBS_COMPAT_PREFIX)
   --arch ARCH               Output architecture label (default: uname -m)
   --dylib-search-dir PATH   Extra directory for non-system dylibs such as libdatachannel
   --app-sign IDENTITY       Developer ID Application identity for the plugin bundle
@@ -72,8 +72,8 @@ while [[ $# -gt 0 ]]; do
       ARCH="$2"
       shift 2
       ;;
-    --obs-major)
-      OBS_COMPAT_MAJOR="$2"
+    --obs-version-prefix|--obs-major)
+      OBS_COMPAT_PREFIX="$2"
       shift 2
       ;;
     --dylib-search-dir)
@@ -377,7 +377,7 @@ fi
 cat > "$BUNDLE_DIR/Contents/Resources/install-metadata.env" <<METADATA
 PLUGIN_VERSION='$VERSION'
 PLUGIN_ARCHES='$PLUGIN_ARCHES'
-OBS_COMPAT_MAJOR='$OBS_COMPAT_MAJOR'
+OBS_COMPAT_PREFIX='$OBS_COMPAT_PREFIX'
 METADATA
 
 xattr -dr com.apple.quarantine "$BUNDLE_DIR" 2>/dev/null || true
@@ -481,7 +481,7 @@ fi
 
 PLUGIN_VERSION="${PLUGIN_VERSION:-unknown}"
 PLUGIN_ARCHES="${PLUGIN_ARCHES:-$(lipo -archs "$SYSTEM_PLUGIN_DIR/Contents/MacOS/obs-vdoninja" 2>/dev/null || true)}"
-OBS_COMPAT_MAJOR="${OBS_COMPAT_MAJOR:-32}"
+OBS_COMPAT_PREFIX="${OBS_COMPAT_PREFIX:-32.2}"
 
 if [ -z "$PLUGIN_ARCHES" ]; then
   log "WARNING: could not determine installed plugin architecture slices."
@@ -533,12 +533,12 @@ if [ -n "$CONSOLE_USER" ] && [ "$CONSOLE_USER" != "root" ] && id "$CONSOLE_USER"
       log "Detected OBS app: $obs_app; version: ${obs_version:-unknown}; architecture slice(s): ${obs_arches:-unknown}."
 
       case "$obs_version" in
-        "$OBS_COMPAT_MAJOR".*) ;;
+        "$OBS_COMPAT_PREFIX".*) ;;
         "")
-          log "WARNING: could not determine OBS version for $obs_app. This plugin package targets OBS $OBS_COMPAT_MAJOR.x."
+          log "WARNING: could not determine OBS version for $obs_app. This plugin package targets OBS $OBS_COMPAT_PREFIX.x."
           ;;
         *)
-          log "WARNING: $obs_app is OBS $obs_version. This plugin package targets OBS $OBS_COMPAT_MAJOR.x."
+          log "WARNING: $obs_app is OBS $obs_version. This plugin package targets OBS $OBS_COMPAT_PREFIX.x."
           ;;
       esac
 

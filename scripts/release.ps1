@@ -537,20 +537,23 @@ function New-ReleaseNotes {
 
     return @"
 ## Downloads
-- Windows installer: `obs-vdoninja-windows-x64-setup.exe`
-- Windows portable/manual package: `obs-vdoninja-windows-x64.zip`
+- Windows installer for current OBS 32.2+: `obs-vdoninja-windows-x64-setup.exe`
+- Windows portable/manual package for current OBS 32.2+: `obs-vdoninja-windows-x64.zip`
+- Windows legacy installer for OBS 32.0-32.1: `obs-vdoninja-windows-x64-obs32.0-32.1-setup.exe`
+- Windows legacy portable/manual package for OBS 32.0-32.1: `obs-vdoninja-windows-x64-obs32.0-32.1.zip`
 - Linux package: `obs-vdoninja-linux-x86_64.tar.gz`
 - macOS installer: `obs-vdoninja-macos-arm64.pkg` (Developer ID signed and notarized)
 - macOS ZIP fallback: `obs-vdoninja-macos-arm64.zip`
 
-Windows release artifacts are built against OBS `32.0.4` to maximize compatibility across current OBS `32.x` installs.
+Current release artifacts target OBS `32.2+`, whose FFmpeg 8 runtime is not binary-compatible with earlier OBS 32.x releases. Windows users on OBS `32.0-32.1` should use the clearly labeled legacy package.
 
 ## Install
 - Full install guide: `https://github.com/steveseguin/ninja-obs-plugin/blob/main/INSTALL.md`
 - Linux install: `https://github.com/steveseguin/ninja-obs-plugin/blob/main/INSTALL.md#install-linux`
 - macOS install: `https://github.com/steveseguin/ninja-obs-plugin/blob/main/INSTALL.md#install-macos`
-- Windows installer: run `obs-vdoninja-windows-x64-setup.exe`
-- Windows zip: extract, then run `install.cmd`
+- Current Windows installer: run `obs-vdoninja-windows-x64-setup.exe`
+- OBS 32.0-32.1 Windows installer: run `obs-vdoninja-windows-x64-obs32.0-32.1-setup.exe`
+- Windows ZIP: choose the package matching OBS, extract it, then run `install.cmd`
 - macOS installer: run `obs-vdoninja-macos-arm64.pkg`
 - Linux/macOS ZIP packages: extract, then run `install.sh`
 - Post-install usage: `QUICKSTART.md`

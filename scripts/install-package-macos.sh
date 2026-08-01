@@ -110,8 +110,8 @@ while read -r obs_app; do
   OBS_VERSION="$(read_plist_value "$obs_app" CFBundleShortVersionString)"
   OBS_ARCHES="$(bundle_arches "$obs_app")"
   echo "Detected OBS: $obs_app (${OBS_VERSION:-unknown}; ${OBS_ARCHES:-unknown})"
-  if [[ -n "$OBS_VERSION" && "$OBS_VERSION" != 32.* ]]; then
-    echo "Warning: this plugin package targets OBS 32.x, but detected OBS $OBS_VERSION."
+  if [[ -n "$OBS_VERSION" && "$OBS_VERSION" != 32.2.* ]]; then
+    echo "Warning: this plugin package targets OBS 32.2.x, but detected OBS $OBS_VERSION."
   fi
   if [[ -n "$OBS_ARCHES" && -n "$PLUGIN_ARCHES" ]] && ! arch_overlap "$OBS_ARCHES" "$PLUGIN_ARCHES"; then
     echo "Warning: OBS architecture(s) [$OBS_ARCHES] do not overlap plugin architecture(s) [$PLUGIN_ARCHES]."

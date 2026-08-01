@@ -23,7 +23,7 @@ Recommended (new users):
 3. Keep the detected OBS folder (or browse to your portable OBS root).
 4. On finish, optionally launch OBS and open Quick Start.
 
-Current release artifacts are built against OBS `32.0.4` to maximize compatibility across OBS `32.x`.
+The primary Windows downloads target OBS `32.2+`. OBS 32.2 changed from FFmpeg 7 to FFmpeg 8, so OBS `32.0-32.1` users must instead download `obs-vdoninja-windows-x64-obs32.0-32.1-setup.exe` or the matching legacy ZIP.
 
 ZIP fallback (`obs-vdoninja-windows-x64.zip`):
 

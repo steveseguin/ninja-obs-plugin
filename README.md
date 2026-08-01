@@ -23,8 +23,9 @@ VDO.Ninja is a low-latency WebRTC platform used for live production, remote gues
 - Web quick start (post-install): [GitHub Pages Quick Start](https://steveseguin.github.io/ninja-obs-plugin/#quick-start)
 - First-run usage guide: [QUICKSTART.md](QUICKSTART.md)
 - Full docs: [README Quick Start](#quick-start)
-- New Windows users: run `obs-vdoninja-windows-x64-setup.exe` (ZIP scripts remain available for portable/manual installs).
-- Current release artifacts are built against OBS `32.0.4` for broad OBS `32.x` compatibility.
+- Windows users on current OBS 32.2+: run `obs-vdoninja-windows-x64-setup.exe` (ZIP scripts remain available for portable/manual installs).
+- Windows users staying on OBS 32.0-32.1 must use the release asset labeled `obs32.0-32.1`; OBS 32.2 changed its bundled FFmpeg runtime and requires a separate binary.
+- Current Linux and macOS release artifacts target OBS `32.2+`.
 
 ## Why This Plugin Exists
 
@@ -84,6 +85,8 @@ Download the latest package from [Releases](https://github.com/steveseguin/ninja
 - Linux: `obs-vdoninja-linux-x86_64.tar.gz`
 - Windows installer: `obs-vdoninja-windows-x64-setup.exe`
 - Windows portable/manual package: `obs-vdoninja-windows-x64.zip`
+- Windows OBS 32.0-32.1 legacy installer: `obs-vdoninja-windows-x64-obs32.0-32.1-setup.exe`
+- Windows OBS 32.0-32.1 legacy package: `obs-vdoninja-windows-x64-obs32.0-32.1.zip`
 - macOS installer: `obs-vdoninja-macos-arm64.pkg`
 - macOS ZIP fallback: `obs-vdoninja-macos-arm64.zip`
 
@@ -100,7 +103,7 @@ Windows recommendation:
 
 1. Use the setup `.exe` for normal installs/uninstalls.
 2. Use ZIP scripts only for portable/custom-path workflows.
-3. Current release artifacts target OBS `32.0.4` to maximize compatibility across OBS `32.x`.
+3. The primary Windows downloads target OBS `32.2+`; use the `obs32.0-32.1` download only with those older OBS releases.
 4. Use the web quick-start guide after install: `https://steveseguin.github.io/ninja-obs-plugin/#quick-start`.
 
 Portable OBS note: if launching from terminal, start `obs64.exe` from `bin\64bit` (or set `Start-Process -WorkingDirectory` to `bin\64bit`) to avoid `Failed to load theme`.

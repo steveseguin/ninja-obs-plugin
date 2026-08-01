@@ -33,9 +33,10 @@ Use `scripts/install-linux.sh`, `scripts/install-macos.sh`, or `scripts/install-
 ## OBS Compatibility And Release Baseline
 - OBS plugin binaries are version-gated by the OBS/libobs SDK they are built against; the plugin's own `PLUGIN_VERSION` is not the compatibility key.
 - Build release artifacts against the oldest OBS version in the compatibility band you intend to support.
-- For the current OBS 32.x line, the release baseline is OBS `32.0.4`.
+- For current packages, the OBS 32.2+ release baseline is OBS `32.2.0`.
+- OBS 32.2 replaced FFmpeg 7 with FFmpeg 8, so binaries linked against OBS 32.0-32.1 import different FFmpeg library names. Windows releases therefore also ship a legacy build against OBS `32.0.4`.
 - Do not bump the release workflow to a newer OBS SDK just because it exists; doing so can prevent the plugin from loading on older OBS 32.x installs.
-- Only introduce separate OBS-version-specific release artifacts if the code starts requiring newer-only OBS APIs.
+- Only introduce separate OBS-version-specific release artifacts when newer-only OBS APIs or runtime dependency changes make a real binary split necessary.
 - Prefer one obvious Windows installer/ZIP pair for users unless a real compatibility split is technically necessary.
 - When changing OBS targets, update `.github/workflows/build.yml`, release notes, and install/docs text together.
 
