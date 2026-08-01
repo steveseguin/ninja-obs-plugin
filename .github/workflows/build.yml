@@ -264,7 +264,8 @@ jobs:
 
   build-macos:
     name: macOS
-    runs-on: macos-14
+    # OBS 32.2 requires the macOS 26.5 SDK / Xcode 26.5.
+    runs-on: macos-26
     needs: validate-release-metadata
     strategy:
       matrix:
