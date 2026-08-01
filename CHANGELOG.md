@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.64] - 2026-08-01
+
 ### Added
 - Expanded sanitizer-backed fuzz coverage for H.264 payload parsing, audio RED construction, compound RTCP feedback, NACK parsing, and SDP normalization with 160,000 deterministic randomized cases.
 
