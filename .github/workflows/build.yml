@@ -338,6 +338,11 @@ jobs:
               print("OBSShader.swift hotfix not required for this OBS ref")
           PY
           export DEVELOPER_DIR=$(ls -d /Applications/Xcode_*.app 2>/dev/null | sort -V | tail -1)/Contents/Developer
+          # Xcode 26 compilation caching requires a persistent CAS directory.
+          # Without it, parallel OBS builds can receive cache root IDs that no
+          # longer exist and fail with "CAS filesystem cannot be initialized".
+          export XCODE_CAS_PATH="$HOME/Library/Developer/Xcode/DerivedData/CompilationCache.noindex"
+          mkdir -p "$XCODE_CAS_PATH"
           # OBS's macos-ci preset downloads its own Qt from obs-deps.
           # Do NOT pass Homebrew Qt here — it would override the deps Qt
           # and cause version mismatches with the plugin build.
