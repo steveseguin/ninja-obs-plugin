@@ -23,9 +23,16 @@ VDO.Ninja is a low-latency WebRTC platform used for live production, remote gues
 - Web quick start (post-install): [GitHub Pages Quick Start](https://steveseguin.github.io/ninja-obs-plugin/#quick-start)
 - First-run usage guide: [QUICKSTART.md](QUICKSTART.md)
 - Full docs: [README Quick Start](#quick-start)
-- Windows users on current OBS 32.2+: run `obs-vdoninja-windows-x64-setup.exe` (ZIP scripts remain available for portable/manual installs).
-- Windows users staying on OBS 32.0-32.1 must use the release asset labeled `obs32.0-32.1`; OBS 32.2 changed its bundled FFmpeg runtime and requires a separate binary.
-- Current Linux and macOS release artifacts target OBS `32.2+`.
+Choose the package that matches the installed OBS version:
+
+| Platform | OBS version | Release package |
+| --- | --- | --- |
+| Windows | `32.2.x` | `obs-vdoninja-windows-x64-setup.exe` (recommended) or `obs-vdoninja-windows-x64.zip` |
+| Windows | `32.0.x` or `32.1.x` | The package whose filename contains `obs32.0-32.1` |
+| Linux | `32.2.x` | `obs-vdoninja-linux-x86_64.tar.gz` |
+| macOS (Apple silicon) | `32.2.x` | `obs-vdoninja-macos-arm64.pkg` (recommended) or the matching ZIP |
+
+OBS 32.2 changed its bundled FFmpeg runtime, so the Windows binaries for OBS 32.0-32.1 and OBS 32.2 are not interchangeable. This release does not provide prebuilt packages for OBS 31.x or older and does not claim compatibility with future OBS versions beyond 32.2.x.
 
 ## Why This Plugin Exists
 
@@ -82,13 +89,13 @@ In practice, many teams use both: VDO.Ninja workflows for interactive contributi
 
 Download the latest package from [Releases](https://github.com/steveseguin/ninja-obs-plugin/releases).
 
-- Linux: `obs-vdoninja-linux-x86_64.tar.gz`
-- Windows installer: `obs-vdoninja-windows-x64-setup.exe`
-- Windows portable/manual package: `obs-vdoninja-windows-x64.zip`
-- Windows OBS 32.0-32.1 legacy installer: `obs-vdoninja-windows-x64-obs32.0-32.1-setup.exe`
-- Windows OBS 32.0-32.1 legacy package: `obs-vdoninja-windows-x64-obs32.0-32.1.zip`
-- macOS installer: `obs-vdoninja-macos-arm64.pkg`
-- macOS ZIP fallback: `obs-vdoninja-macos-arm64.zip`
+- Linux, OBS 32.2.x: `obs-vdoninja-linux-x86_64.tar.gz`
+- Windows, OBS 32.2.x installer: `obs-vdoninja-windows-x64-setup.exe`
+- Windows, OBS 32.2.x portable/manual package: `obs-vdoninja-windows-x64.zip`
+- Windows, OBS 32.0.x-32.1.x legacy installer: `obs-vdoninja-windows-x64-obs32.0-32.1-setup.exe`
+- Windows, OBS 32.0.x-32.1.x legacy package: `obs-vdoninja-windows-x64-obs32.0-32.1.zip`
+- macOS Apple silicon, OBS 32.2.x installer: `obs-vdoninja-macos-arm64.pkg`
+- macOS Apple silicon, OBS 32.2.x ZIP fallback: `obs-vdoninja-macos-arm64.zip`
 
 The macOS `.pkg` release artifact should be Developer ID signed, notarized, and stapled. The ZIP fallback is available for manual installs and troubleshooting.
 
@@ -103,7 +110,7 @@ Windows recommendation:
 
 1. Use the setup `.exe` for normal installs/uninstalls.
 2. Use ZIP scripts only for portable/custom-path workflows.
-3. The primary Windows downloads target OBS `32.2+`; use the `obs32.0-32.1` download only with those older OBS releases.
+3. For OBS `32.2.x`, use the primary Windows download. For OBS `32.0.x` or `32.1.x`, use the filename containing `obs32.0-32.1`.
 4. Use the web quick-start guide after install: `https://steveseguin.github.io/ninja-obs-plugin/#quick-start`.
 
 Portable OBS note: if launching from terminal, start `obs64.exe` from `bin\64bit` (or set `Start-Process -WorkingDirectory` to `bin\64bit`) to avoid `Failed to load theme`.

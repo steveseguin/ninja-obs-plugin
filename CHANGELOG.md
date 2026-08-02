@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Replaced broad OBS 32.2+ compatibility wording with an exact platform/package matrix for OBS 32.2.x and the Windows-only OBS 32.0.x-32.1.x legacy builds.
+
 ## [1.1.64] - 2026-08-01
 
 ### Added

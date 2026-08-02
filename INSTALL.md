@@ -12,6 +12,17 @@ Platform quick links:
 - Linux: [#install-linux](#install-linux)
 - macOS: [#install-macos](#install-macos)
 
+## Package compatibility
+
+| Platform | OBS version | Package to download |
+| --- | --- | --- |
+| Windows | `32.2.x` | `obs-vdoninja-windows-x64-setup.exe` or the matching ZIP |
+| Windows | `32.0.x` or `32.1.x` | `obs-vdoninja-windows-x64-obs32.0-32.1-setup.exe` or the matching legacy ZIP |
+| Linux | `32.2.x` | `obs-vdoninja-linux-x86_64.tar.gz` |
+| macOS (Apple silicon) | `32.2.x` | `obs-vdoninja-macos-arm64.pkg` or the matching ZIP |
+
+Do not mix the two Windows builds: OBS 32.2 uses FFmpeg 8, while OBS 32.0-32.1 use FFmpeg 7. This release has no prebuilt package for OBS 31.x or older and makes no compatibility promise for future OBS versions beyond 32.2.x.
+
 ## Windows
 
 ### Install or update
@@ -23,7 +34,7 @@ Recommended (new users):
 3. Keep the detected OBS folder (or browse to your portable OBS root).
 4. On finish, optionally launch OBS and open Quick Start.
 
-The primary Windows downloads target OBS `32.2+`. OBS 32.2 changed from FFmpeg 7 to FFmpeg 8, so OBS `32.0-32.1` users must instead download `obs-vdoninja-windows-x64-obs32.0-32.1-setup.exe` or the matching legacy ZIP.
+The primary Windows downloads target OBS `32.2.x`. OBS `32.0.x-32.1.x` users must instead download `obs-vdoninja-windows-x64-obs32.0-32.1-setup.exe` or the matching legacy ZIP.
 
 ZIP fallback (`obs-vdoninja-windows-x64.zip`):
 

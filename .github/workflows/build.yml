@@ -641,7 +641,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - label: OBS 32.2+
+          - label: OBS 32.2.x
             obs_version: 32.2.0
             obs_source_ref: 32.2.0
             obs_source_tag: 32.2.0
