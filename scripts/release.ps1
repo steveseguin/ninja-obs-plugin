@@ -537,6 +537,7 @@ function New-ReleaseNotes {
 
 return @"
 ## Compatibility - choose this first
+
 | Platform | OBS version | Download |
 | --- | --- | --- |
 | Windows | `32.2.x` | `obs-vdoninja-windows-x64-setup.exe` (recommended) or `obs-vdoninja-windows-x64.zip` |
