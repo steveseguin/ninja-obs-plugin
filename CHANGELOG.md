@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.65] - 2026-08-09
+
 ### Added
 - Added release-linked Windows gates for the real statically linked native-media and module-lifecycle boundaries, including owner-lifetime, unload/reload, PE architecture, dependency, and OBS/FFmpeg ABI checks.
 - Added a packet-loss protection reference covering automatic NACK repair, paced packet duplication, Audio RED, adaptive bitrate, native-receiver limitations, diagnostics, and per-viewer bandwidth costs.
