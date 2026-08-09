@@ -633,6 +633,11 @@ if(BUILD_TESTS)
         target_compile_options(vdoninja-module-lifecycle-tests PRIVATE /FS)
     endif()
 
+    # The documented and CI test build targets vdoninja-tests explicitly.
+    # Keep the separately registered lifecycle executable in that build graph
+    # so a clean CTest run never references a *_NOT_BUILT placeholder.
+    add_dependencies(vdoninja-tests vdoninja-module-lifecycle-tests)
+
     include(GoogleTest)
     gtest_discover_tests(vdoninja-tests)
     gtest_discover_tests(vdoninja-module-lifecycle-tests TEST_PREFIX "ModuleBoundary.")

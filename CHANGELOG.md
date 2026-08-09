@@ -7,8 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Added release-linked Windows gates for the real statically linked native-media and module-lifecycle boundaries, including owner-lifetime, unload/reload, PE architecture, dependency, and OBS/FFmpeg ABI checks.
+- Added a packet-loss protection reference covering automatic NACK repair, paced packet duplication, Audio RED, adaptive bitrate, native-receiver limitations, diagnostics, and per-viewer bandwidth costs.
+
 ### Changed
+- Strengthened native peer, track, data-channel, signaling, and VP9 alpha ownership across replacement, reconnect, teardown, and delayed-callback races.
 - Replaced broad OBS 32.2+ compatibility wording with an exact platform/package matrix for OBS 32.2.x and the Windows-only OBS 32.0.x-32.1.x legacy builds.
+
+### Fixed
+- Made the VDO.Ninja Studio dock vertically scrollable so docking it no longer forces OBS beyond the monitor work area and every control remains reachable in a shorter window.
+- Coordinated process-global libdatachannel logger and cleanup state with live OBS source, output, and control-center instances so unload and reload cannot race active native objects.
+- Made the documented `vdoninja-tests` build target include the separately registered module-lifecycle executable, preventing clean Linux and sanitizer CTest runs from referencing an unbuilt test.
+- Made VP9 alpha pairing generation- and timestamp-safe across track changes, late frames, duplicate frames, RTP timestamp wraparound, and mismatched dimensions.
 
 ## [1.1.64] - 2026-08-01
 
