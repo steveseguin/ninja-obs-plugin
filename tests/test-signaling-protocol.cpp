@@ -370,7 +370,9 @@ TEST(SignalingProtocolTest, ParsesVideoRemovedFromRoomRequestVariant)
 
 	EXPECT_TRUE(parseSignalingMessage(raw, parsed, &error));
 	EXPECT_EQ(parsed.kind, ParsedSignalKind::VideoRemovedFromRoom);
+	EXPECT_EQ(parsed.uuid, "peer-a");
 	EXPECT_EQ(parsed.streamId, "cam_3");
+	EXPECT_TRUE(parsed.session.empty());
 }
 
 TEST(SignalingProtocolTest, ParsesVideoRemovedFromRoomBooleanVariant)
@@ -382,6 +384,33 @@ TEST(SignalingProtocolTest, ParsesVideoRemovedFromRoomBooleanVariant)
 	EXPECT_TRUE(parseSignalingMessage(raw, parsed, &error));
 	EXPECT_EQ(parsed.kind, ParsedSignalKind::VideoRemovedFromRoom);
 	EXPECT_EQ(parsed.streamId, "cam_4");
+}
+
+TEST(SignalingProtocolTest, ParsesUuidOnlyVideoRemovedFromRoomAsSessionless)
+{
+	const std::string raw = R"({"videoRemovedFromRoom":true,"UUID":"peer-only"})";
+	ParsedSignalMessage parsed;
+	std::string error;
+
+	EXPECT_TRUE(parseSignalingMessage(raw, parsed, &error));
+	EXPECT_EQ(parsed.kind, ParsedSignalKind::VideoRemovedFromRoom);
+	EXPECT_EQ(parsed.uuid, "peer-only");
+	EXPECT_TRUE(parsed.streamId.empty());
+	EXPECT_TRUE(parsed.session.empty());
+}
+
+TEST(SignalingProtocolTest, PreservesSessionOnVideoRemovedFromRoom)
+{
+	const std::string raw =
+	    R"({"videoRemovedFromRoom":true,"UUID":"peer-a","streamID":"cam-4","session":"stream-session"})";
+	ParsedSignalMessage parsed;
+	std::string error;
+
+	EXPECT_TRUE(parseSignalingMessage(raw, parsed, &error));
+	EXPECT_EQ(parsed.kind, ParsedSignalKind::VideoRemovedFromRoom);
+	EXPECT_EQ(parsed.uuid, "peer-a");
+	EXPECT_EQ(parsed.streamId, "cam-4");
+	EXPECT_EQ(parsed.session, "stream-session");
 }
 
 TEST(SignalingProtocolTest, ParsesAlertRequestMessageField)
@@ -404,6 +433,19 @@ TEST(SignalingProtocolTest, ParsesCleanupRequestMessage)
 	EXPECT_TRUE(parseSignalingMessage(raw, parsed, &error));
 	EXPECT_EQ(parsed.kind, ParsedSignalKind::PeerCleanup);
 	EXPECT_EQ(parsed.uuid, "peer-clean");
+	EXPECT_TRUE(parsed.session.empty());
+}
+
+TEST(SignalingProtocolTest, PreservesSessionOnCleanupRequest)
+{
+	const std::string raw = R"({"request":"cleanup","UUID":"peer-clean","session":"cleanup-session"})";
+	ParsedSignalMessage parsed;
+	std::string error;
+
+	EXPECT_TRUE(parseSignalingMessage(raw, parsed, &error));
+	EXPECT_EQ(parsed.kind, ParsedSignalKind::PeerCleanup);
+	EXPECT_EQ(parsed.uuid, "peer-clean");
+	EXPECT_EQ(parsed.session, "cleanup-session");
 }
 
 TEST(SignalingProtocolTest, ParsesByeMessageAsPeerCleanup)
@@ -415,6 +457,19 @@ TEST(SignalingProtocolTest, ParsesByeMessageAsPeerCleanup)
 	EXPECT_TRUE(parseSignalingMessage(raw, parsed, &error));
 	EXPECT_EQ(parsed.kind, ParsedSignalKind::PeerCleanup);
 	EXPECT_EQ(parsed.uuid, "peer-bye");
+	EXPECT_TRUE(parsed.session.empty());
+}
+
+TEST(SignalingProtocolTest, PreservesSessionOnPeerCleanup)
+{
+	const std::string raw = R"({"bye":true,"UUID":"peer-bye","session":"generation-session"})";
+	ParsedSignalMessage parsed;
+	std::string error;
+
+	EXPECT_TRUE(parseSignalingMessage(raw, parsed, &error));
+	EXPECT_EQ(parsed.kind, ParsedSignalKind::PeerCleanup);
+	EXPECT_EQ(parsed.uuid, "peer-bye");
+	EXPECT_EQ(parsed.session, "generation-session");
 }
 
 TEST(SignalingProtocolTest, IgnoresUnofficialByeRequestAsPeerCleanup)

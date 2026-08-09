@@ -79,30 +79,45 @@ struct PeerInfo {
 	std::string streamId;
 	std::string session;
 	uint64_t generation = 0;
+	std::atomic<uint64_t> nextEventSequence{0};
 	ConnectionType type;
 	std::atomic<ConnectionState> state{ConnectionState::New};
 	std::atomic<int64_t> terminalStateTimeMs{0};
 	std::atomic<bool> disconnectNotified{false};
 	std::atomic<bool> cleanupRetired{false};
 	std::atomic<bool> signalingActive{false};
+	bool signalingLifecycleTerminalClaimed = false; // Guarded by the peer-manager registry mutex.
 	std::atomic<bool> localOfferRequested{false};
 	std::atomic<bool> localOfferDispatched{false};
 	std::atomic<bool> remoteDescriptionSet{false};
 	mutable std::mutex negotiationMutex;
 	std::string lastLocalOfferSdp;
 	mutable std::mutex mediaMutex;
+	mutable std::recursive_mutex dataChannelLifecycleMutex;
+	mutable std::recursive_mutex dataChannelCallbackMutationMutex;
 	mutable std::mutex audioSendMutex;
 	mutable std::mutex videoSendMutex;
 	bool hasDataChannel = false;
+	uint64_t dataChannelRevision = 0;
+	bool dataChannelOpenDispatched = false;
+	bool dataChannelOpenDispatchPending = false;
+	std::vector<std::weak_ptr<rtc::DataChannel>> dataChannelsWithObservedOpen;
+	std::vector<std::shared_ptr<rtc::DataChannel>> retiredDataChannelsPendingCallbackCleanup;
 	VideoKeyframeGate videoKeyframeGate;
 	bool audioSendEnabled = true;
 	bool videoSendEnabled = true;
 	std::shared_ptr<rtc::PeerConnection> pc;
 	std::shared_ptr<rtc::DataChannel> dataChannel;
 	std::shared_ptr<rtc::DataChannel> signalingDataChannel;
+	std::string signalingDataChannelTransportUuid;
+	uint64_t signalingDataChannelTransportGeneration = 0;
+	uint64_t signalingDataChannelRevision = 0;
 	std::shared_ptr<rtc::Track> audioTrack;
 	std::shared_ptr<rtc::Track> videoTrack;
 	std::shared_ptr<rtc::Track> alphaVideoTrack;
+	uint64_t audioTrackRevision = 0;
+	uint64_t videoTrackRevision = 0;
+	uint64_t alphaVideoTrackRevision = 0;
 	std::shared_ptr<rtc::RtcpSrReporter> audioSrReporter;
 	std::shared_ptr<rtc::RtcpSrReporter> videoSrReporter;
 	std::shared_ptr<rtc::RtpPacketizationConfig> audioRtpConfig;
@@ -155,7 +170,7 @@ using OnIceCandidateCallback = std::function<void(const std::string &uuid, const
 using OnRoomJoinedCallback = std::function<void(const std::vector<std::string> &members)>;
 using OnStreamAddedCallback = std::function<void(const std::string &streamId, const std::string &uuid)>;
 using OnStreamRemovedCallback = std::function<void(const std::string &streamId, const std::string &uuid)>;
-using OnPeerCleanupCallback = std::function<void(const std::string &uuid)>;
+using OnPeerCleanupCallback = std::function<void(const std::string &uuid, const std::string &session)>;
 using OnDataCallback = std::function<void(const std::string &uuid, const std::string &data)>;
 
 // Video codec preferences

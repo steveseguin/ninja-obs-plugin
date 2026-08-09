@@ -537,7 +537,16 @@ VDONinjaSignaling::VDONinjaSignaling()
 
 VDONinjaSignaling::~VDONinjaSignaling()
 {
+	if (isUserCallbackOnCurrentThread()) {
+		logError("Signaling client cannot be destroyed from one of its own user callbacks");
+		std::terminate();
+	}
 	disconnect();
+	waitForAllUserCallbacks();
+	if (!joinWebSocketThread()) {
+		logError("Signaling client cannot be destroyed from its own WebSocket worker callback");
+		std::terminate();
+	}
 }
 
 bool VDONinjaSignaling::connect(const std::string &wssHost)
@@ -547,7 +556,14 @@ bool VDONinjaSignaling::connect(const std::string &wssHost)
 		return true;
 	}
 	if (wsThread_.joinable() && !shouldRun_) {
-		wsThread_.join();
+		if (hasSocketUserCallbacks()) {
+			logError("Cannot reconnect signaling while a socket callback is active");
+			return false;
+		}
+		if (!joinWebSocketThread()) {
+			logError("Cannot reconnect signaling from its active WebSocket worker callback");
+			return false;
+		}
 	}
 	if (shouldRun_) {
 		logWarning("Signaling connection thread is already running");
@@ -568,9 +584,10 @@ bool VDONinjaSignaling::connect(const std::string &wssHost)
 	needsReconnect_ = false;
 	initialConnectionFinished_ = false;
 	disconnectNotified_ = true;
+	const uint64_t initialSocketEpoch = beginSocketEpoch();
 
 	// Start WebSocket thread
-	wsThread_ = std::thread(&VDONinjaSignaling::wsThreadFunc, this);
+	wsThread_ = std::thread(&VDONinjaSignaling::wsThreadFunc, this, initialSocketEpoch);
 
 	// Wait for initial connect/failover cycle to complete. Also bail out when
 	// disconnect() flips shouldRun_, so a teardown that joins the calling thread
@@ -586,33 +603,34 @@ bool VDONinjaSignaling::connect(const std::string &wssHost)
 void VDONinjaSignaling::disconnect()
 {
 	shouldRun_ = false;
+	// Invalidate the active socket before close(). libdatachannel may invoke its
+	// callbacks synchronously from close; those callbacks belong to the retired
+	// socket and must not schedule a reconnect or deliver lifecycle events.
+	beginSocketEpoch();
 	const bool wasConnected = connected_.exchange(false);
 
 	// Signal send thread to exit
 	clearSendQueue();
 	sendCv_.notify_all();
 
-	// Close WebSocket -- extract handle under the lock, then close outside it.
-	// ws->close() can fire onError/onClosed synchronously, which also
-	// acquire handleMutex_, so we must not hold it during close().
-	{
-		std::shared_ptr<rtc::WebSocket> *extracted = nullptr;
-		{
-			std::lock_guard<std::mutex> lock(handleMutex_);
-			if (wsHandle_) {
-				extracted = static_cast<std::shared_ptr<rtc::WebSocket> *>(wsHandle_);
-				wsHandle_ = nullptr;
-			}
-		}
+	// A user callback may be executing on the WebSocket worker (the test stub
+	// does this synchronously) or on a libdatachannel callback thread whose
+	// reset waits for that callback. In either case, close/join here would form
+	// a cycle if the callback is waiting for disconnect() to return. The worker
+	// observes shouldRun_ and owns deferred socket destruction; reconnect and
+	// the destructor join that worker before reusing/destroying this object.
+	const bool teardownDeferred = hasSocketUserCallbacks();
+	if (!teardownDeferred) {
+		// Close WebSocket -- extract under the lock, then close outside it.
+		auto extracted = takeWebSocketHandle();
 		if (extracted) {
-			(*extracted)->close();
-			delete extracted;
+			extracted->close();
 		}
-	}
-
-	// Wait for thread to finish
-	if (wsThread_.joinable()) {
-		wsThread_.join();
+		if (!joinWebSocketThread()) {
+			logDebug("Deferring WebSocket worker join requested from its own thread");
+		}
+	} else {
+		logDebug("Deferring WebSocket close/join until active user callback returns");
 	}
 
 	// Reset state
@@ -635,9 +653,369 @@ bool VDONinjaSignaling::isConnected() const
 	return connected_;
 }
 
-void VDONinjaSignaling::wsThreadFunc()
+uint64_t VDONinjaSignaling::beginSocketEpoch()
+{
+	std::lock_guard<std::mutex> lock(socketEpochMutex_);
+	return socketEpoch_.fetch_add(1, std::memory_order_acq_rel) + 1;
+}
+
+uint64_t VDONinjaSignaling::beginSocketEpochIfCurrent(uint64_t expectedSocketEpoch)
+{
+	std::lock_guard<std::mutex> lock(socketEpochMutex_);
+	if (expectedSocketEpoch == 0 || !isCurrentSocketEpoch(expectedSocketEpoch)) {
+		return 0;
+	}
+	return socketEpoch_.fetch_add(1, std::memory_order_acq_rel) + 1;
+}
+
+std::unique_lock<std::mutex> VDONinjaSignaling::acquireSocketCallback(uint64_t socketEpoch, uint64_t &wsSequence)
+{
+	std::unique_lock<std::mutex> lock(socketEpochMutex_);
+	if (socketEpoch == 0 || socketEpoch != socketEpoch_.load(std::memory_order_acquire)) {
+		lock.unlock();
+		return lock;
+	}
+	wsSequence = ++wsSequence_;
+	return lock;
+}
+
+bool VDONinjaSignaling::isCurrentSocketEpoch(uint64_t socketEpoch) const
+{
+	return socketEpoch != 0 && socketEpoch == socketEpoch_.load(std::memory_order_acquire);
+}
+
+VDONinjaSignaling::UserCallbackGuard::UserCallbackGuard(VDONinjaSignaling &owner, uint64_t socketEpoch) : owner_(&owner)
+{
+	active_ = owner_->beginUserCallback(socketEpoch, socketOrigin_);
+}
+
+VDONinjaSignaling::UserCallbackGuard::~UserCallbackGuard()
+{
+	if (active_) {
+		owner_->endUserCallback(socketOrigin_);
+	}
+}
+
+bool VDONinjaSignaling::beginUserCallback(uint64_t socketEpoch, bool &socketOrigin)
+{
+	socketOrigin = socketEpoch != 0;
+	std::unique_lock<std::mutex> epochLock;
+	if (socketOrigin) {
+		epochLock = std::unique_lock<std::mutex>(socketEpochMutex_);
+		if (!isCurrentSocketEpoch(socketEpoch)) {
+			return false;
+		}
+	}
+
+	std::lock_guard<std::mutex> callbackLock(userCallbackMutex_);
+	++userCallbacksInFlight_;
+	++userCallbackThreads_[std::this_thread::get_id()];
+	if (socketOrigin) {
+		++socketUserCallbacksInFlight_;
+	}
+	return true;
+}
+
+void VDONinjaSignaling::endUserCallback(bool socketOrigin)
+{
+	{
+		std::lock_guard<std::mutex> lock(userCallbackMutex_);
+		if (userCallbacksInFlight_ > 0) {
+			--userCallbacksInFlight_;
+		}
+		if (socketOrigin && socketUserCallbacksInFlight_ > 0) {
+			--socketUserCallbacksInFlight_;
+		}
+		auto callbackThread = userCallbackThreads_.find(std::this_thread::get_id());
+		if (callbackThread != userCallbackThreads_.end()) {
+			if (callbackThread->second > 1) {
+				--callbackThread->second;
+			} else {
+				userCallbackThreads_.erase(callbackThread);
+			}
+		}
+	}
+	userCallbackCv_.notify_all();
+}
+
+bool VDONinjaSignaling::hasSocketUserCallbacks() const
+{
+	std::lock_guard<std::mutex> lock(userCallbackMutex_);
+	return socketUserCallbacksInFlight_ != 0;
+}
+
+void VDONinjaSignaling::waitForSocketUserCallbacks()
+{
+	std::unique_lock<std::mutex> lock(userCallbackMutex_);
+	userCallbackCv_.wait(lock, [this]() { return socketUserCallbacksInFlight_ == 0; });
+}
+
+void VDONinjaSignaling::waitForAllUserCallbacks()
+{
+	std::unique_lock<std::mutex> lock(userCallbackMutex_);
+	userCallbackCv_.wait(lock, [this]() { return userCallbacksInFlight_ == 0; });
+}
+
+bool VDONinjaSignaling::isUserCallbackOnCurrentThread() const
+{
+	std::lock_guard<std::mutex> lock(userCallbackMutex_);
+	return userCallbackThreads_.find(std::this_thread::get_id()) != userCallbackThreads_.end();
+}
+
+bool VDONinjaSignaling::joinWebSocketThread()
+{
+	std::lock_guard<std::mutex> lock(wsThreadJoinMutex_);
+	if (!wsThread_.joinable()) {
+		return true;
+	}
+	if (wsThread_.get_id() == std::this_thread::get_id()) {
+		return false;
+	}
+	wsThread_.join();
+	return true;
+}
+
+std::shared_ptr<rtc::WebSocket> VDONinjaSignaling::takeWebSocketHandle(uint64_t expectedSocketEpoch)
+{
+	std::shared_ptr<rtc::WebSocket> *stored = nullptr;
+	{
+		std::lock_guard<std::mutex> lock(handleMutex_);
+		if (wsHandle_ && (expectedSocketEpoch == 0 || wsHandleEpoch_ == expectedSocketEpoch)) {
+			stored = static_cast<std::shared_ptr<rtc::WebSocket> *>(wsHandle_);
+			wsHandle_ = nullptr;
+			wsHandleEpoch_ = 0;
+		}
+	}
+	if (!stored) {
+		return {};
+	}
+	auto socket = *stored;
+	delete stored;
+	return socket;
+}
+
+void VDONinjaSignaling::handleSocketOpen(uint64_t socketEpoch,
+                                         const std::shared_ptr<std::atomic<int>> &reconnectAttempts,
+                                         const std::string &host, const std::shared_ptr<std::atomic<bool>> &opened)
+{
+	uint64_t wsSequence = 0;
+	auto epochLease = acquireSocketCallback(socketEpoch, wsSequence);
+	if (!epochLease.owns_lock()) {
+		return;
+	}
+	(void)wsSequence;
+
+	logInfo("WebSocket connected to signaling server: %s", host.c_str());
+	opened->store(true);
+	connected_ = true;
+	disconnectNotified_ = false;
+	initialConnectionFinished_ = true;
+	reconnectAttempts->store(0, std::memory_order_relaxed);
+	{
+		std::lock_guard<std::mutex> lock(stateMutex_);
+		deferredConnectionError_.clear();
+		reconnectSuppressedByServer_ = false;
+		reconnectDeferredUntilMs_ = 0;
+	}
+
+	OnConnectedCallback cb;
+	{
+		std::lock_guard<std::mutex> lock(callbackMutex_);
+		cb = onConnected_;
+	}
+	epochLease.unlock();
+	if (cb) {
+		invokeUserCallback(socketEpoch, [&]() { cb(); });
+	}
+}
+
+void VDONinjaSignaling::handleSocketClosed(uint64_t socketEpoch, const std::string &host,
+                                           const std::shared_ptr<std::atomic<bool>> &opened)
+{
+	uint64_t wsSequence = 0;
+	auto epochLease = acquireSocketCallback(socketEpoch, wsSequence);
+	if (!epochLease.owns_lock()) {
+		return;
+	}
+	(void)wsSequence;
+
+	if (opened->load()) {
+		logInfo("WebSocket closed: %s", host.c_str());
+	} else {
+		logWarning("WebSocket closed before opening: %s", host.c_str());
+	}
+	const bool wasConnected = connected_.exchange(false);
+	needsReconnect_ = true;
+	OnDisconnectedCallback disconnectedCb;
+	if (opened->load() && wasConnected && !disconnectNotified_.exchange(true)) {
+		std::lock_guard<std::mutex> lock(callbackMutex_);
+		disconnectedCb = onDisconnected_;
+	}
+	epochLease.unlock();
+
+	if (disconnectedCb) {
+		invokeUserCallback(socketEpoch, [&]() { disconnectedCb(); });
+	}
+	// Wake send loop so it can exit.
+	std::lock_guard<std::mutex> lock(sendMutex_);
+	sendCv_.notify_all();
+}
+
+void VDONinjaSignaling::handleSocketError(uint64_t socketEpoch, const std::string &host,
+                                          const std::shared_ptr<std::atomic<bool>> &opened, const std::string &error)
+{
+	uint64_t wsSequence = 0;
+	auto epochLease = acquireSocketCallback(socketEpoch, wsSequence);
+	if (!epochLease.owns_lock()) {
+		return;
+	}
+	(void)wsSequence;
+
+	bool tryFallback = false;
+	std::string report = error;
+	const bool failedBeforeOpen = !opened->load();
+	bool hasNextHost = false;
+	{
+		std::lock_guard<std::mutex> lock(stateMutex_);
+		hasNextHost = activeWssHostIndex_ + 1 < wssHosts_.size();
+		if (failedBeforeOpen && hasNextHost) {
+			deferredConnectionError_ = error;
+			tryFallback = true;
+		} else if (!deferredConnectionError_.empty()) {
+			report = "Built-in signaling server fallback failed; primary error: " + deferredConnectionError_ +
+			         "; fallback error: " + error;
+			deferredConnectionError_.clear();
+		}
+	}
+	std::shared_ptr<rtc::WebSocket> wsToClose;
+	if (failedBeforeOpen) {
+		needsReconnect_ = true;
+		{
+			std::lock_guard<std::mutex> lock(handleMutex_);
+			if (wsHandle_ && wsHandleEpoch_ == socketEpoch) {
+				wsToClose = *static_cast<std::shared_ptr<rtc::WebSocket> *>(wsHandle_);
+			}
+		}
+	}
+	OnErrorCallback cb;
+	if (!tryFallback) {
+		std::lock_guard<std::mutex> lock(callbackMutex_);
+		cb = onError_;
+	}
+	epochLease.unlock();
+
+	logError("WebSocket error from %s: %s", host.c_str(), error.c_str());
+	if (failedBeforeOpen) {
+		logSignalingConnectDiagnostic(host, error, hasNextHost);
+		sendCv_.notify_all();
+		// Close only the socket copied from this epoch. close() can invoke
+		// callbacks synchronously, so no signaling lock may be held here.
+		if (wsToClose) {
+			try {
+				wsToClose->close();
+			} catch (const std::exception &closeError) {
+				logWarning("WebSocket close after pre-open error failed for %s: %s", host.c_str(), closeError.what());
+			}
+		}
+	}
+	if (tryFallback) {
+		logWarning("Signaling connect to %s failed before open; trying fallback server", host.c_str());
+		return;
+	}
+	if (cb) {
+		invokeUserCallback(socketEpoch, [&]() { cb(report); });
+	}
+}
+
+void VDONinjaSignaling::handleSocketMessage(uint64_t socketEpoch, const std::string &message)
+{
+	uint64_t wsSequence = 0;
+	auto epochLease = acquireSocketCallback(socketEpoch, wsSequence);
+	if (!epochLease.owns_lock()) {
+		return;
+	}
+	epochLease.unlock();
+	processMessage(message, socketEpoch, wsSequence);
+}
+
+bool VDONinjaSignaling::reconnectTimerMayProceed(uint64_t socketEpoch)
+{
+	uint64_t wsSequence = 0;
+	return acquireSocketCallback(socketEpoch, wsSequence).owns_lock();
+}
+
+#ifdef TESTING_BUILD
+VDONinjaSignaling::SocketCallbacksForTesting VDONinjaSignaling::beginSocketAttemptForTesting()
+{
+	needsReconnect_ = false;
+	auto reconnectAttempts = std::make_shared<std::atomic<int>>(0);
+	auto opened = std::make_shared<std::atomic<bool>>(false);
+	const std::string host = "wss://socket-epoch.test";
+	const uint64_t socketEpoch = beginSocketEpoch();
+
+	SocketCallbacksForTesting callbacks;
+	callbacks.socketEpoch = socketEpoch;
+	callbacks.onOpen = [this, socketEpoch, reconnectAttempts, host, opened]() {
+		handleSocketOpen(socketEpoch, reconnectAttempts, host, opened);
+	};
+	callbacks.onMessage = [this, socketEpoch](const std::string &message) {
+		handleSocketMessage(socketEpoch, message);
+	};
+	callbacks.onClosed = [this, socketEpoch, host, opened]() { handleSocketClosed(socketEpoch, host, opened); };
+	callbacks.onError = [this, socketEpoch, host, opened](const std::string &error) {
+		handleSocketError(socketEpoch, host, opened, error);
+	};
+	callbacks.reconnectTimerMayProceed = [this, socketEpoch]() { return reconnectTimerMayProceed(socketEpoch); };
+	return callbacks;
+}
+
+bool VDONinjaSignaling::reconnectRequestedForTesting() const
+{
+	return needsReconnect_;
+}
+
+uint64_t VDONinjaSignaling::currentSocketEpochForTesting() const
+{
+	return socketEpoch_.load(std::memory_order_acquire);
+}
+
+void VDONinjaSignaling::setBeforeSocketStateCommitForTesting(std::function<void()> callback)
+{
+	std::lock_guard<std::mutex> lock(socketStateCommitHookMutex_);
+	beforeSocketStateCommitForTesting_ = std::move(callback);
+}
+
+bool VDONinjaSignaling::reconnectSuppressedForTesting() const
+{
+	std::lock_guard<std::mutex> lock(stateMutex_);
+	return reconnectSuppressedByServer_;
+}
+
+void VDONinjaSignaling::invokeSocketUserCallbackForTesting(std::function<void()> callback)
+{
+	const uint64_t socketEpoch = socketEpoch_.load(std::memory_order_acquire);
+	invokeUserCallback(socketEpoch, std::move(callback));
+}
+#endif
+
+void VDONinjaSignaling::runBeforeSocketStateCommitForTesting()
+{
+#ifdef TESTING_BUILD
+	std::function<void()> callback;
+	{
+		std::lock_guard<std::mutex> lock(socketStateCommitHookMutex_);
+		callback = beforeSocketStateCommitForTesting_;
+	}
+	if (callback) {
+		callback();
+	}
+#endif
+}
+
+void VDONinjaSignaling::wsThreadFunc(uint64_t initialSocketEpoch)
 {
 	auto reconnectAttempts = std::make_shared<std::atomic<int>>(0);
+	uint64_t latestSocketEpoch = 0;
 
 	while (shouldRun_) {
 		std::string host;
@@ -660,8 +1038,24 @@ void VDONinjaSignaling::wsThreadFunc()
 		}
 
 		logInfo("Connecting to signaling server: %s", host.c_str());
-		needsReconnect_ = false;
 		auto opened = std::make_shared<std::atomic<bool>>(false);
+		const uint64_t socketEpoch =
+		    latestSocketEpoch == 0 ? initialSocketEpoch : beginSocketEpochIfCurrent(latestSocketEpoch);
+		if (socketEpoch == 0) {
+			return;
+		}
+		bool mayStartAttempt = false;
+		if (!withCurrentSocketEpoch(socketEpoch,
+		                            [&]() {
+			                            mayStartAttempt = shouldRun_;
+			                            if (mayStartAttempt) {
+				                            needsReconnect_ = false;
+			                            }
+		                            }) ||
+		    !mayStartAttempt) {
+			return;
+		}
+		latestSocketEpoch = socketEpoch;
 
 		try {
 			rtc::WebSocket::Configuration wsConfig{};
@@ -692,112 +1086,27 @@ void VDONinjaSignaling::wsThreadFunc()
 			{
 				std::lock_guard<std::mutex> lock(handleMutex_);
 				wsHandle_ = new std::shared_ptr<rtc::WebSocket>(ws);
+				wsHandleEpoch_ = socketEpoch;
 			}
 
-			ws->onOpen([this, reconnectAttempts, host, opened]() {
-				runRtcCallbackNoexcept("WebSocket::onOpen", [&]() {
-					logInfo("WebSocket connected to signaling server: %s", host.c_str());
-					opened->store(true);
-					connected_ = true;
-					disconnectNotified_ = false;
-					initialConnectionFinished_ = true;
-					reconnectAttempts->store(0, std::memory_order_relaxed);
-					{
-						std::lock_guard<std::mutex> lock(stateMutex_);
-						deferredConnectionError_.clear();
-						reconnectSuppressedByServer_ = false;
-						reconnectDeferredUntilMs_ = 0;
-					}
-
-					OnConnectedCallback cb;
-					{
-						std::lock_guard<std::mutex> lock(callbackMutex_);
-						cb = onConnected_;
-					}
-					if (cb) {
-						cb();
-					}
-				});
+			ws->onOpen([this, socketEpoch, reconnectAttempts, host, opened]() {
+				runRtcCallbackNoexcept("WebSocket::onOpen",
+				                       [&]() { handleSocketOpen(socketEpoch, reconnectAttempts, host, opened); });
 			});
 
-			ws->onClosed([this, host, opened]() {
-				runRtcCallbackNoexcept("WebSocket::onClosed", [&]() {
-					if (opened->load()) {
-						logInfo("WebSocket closed: %s", host.c_str());
-					} else {
-						logWarning("WebSocket closed before opening: %s", host.c_str());
-					}
-					const bool wasConnected = connected_.exchange(false);
-					needsReconnect_ = true;
-					if (opened->load() && wasConnected) {
-						notifyDisconnected();
-					}
-					// Wake send loop so it can exit
-					std::lock_guard<std::mutex> lock(sendMutex_);
-					sendCv_.notify_all();
-				});
+			ws->onClosed([this, socketEpoch, host, opened]() {
+				runRtcCallbackNoexcept("WebSocket::onClosed", [&]() { handleSocketClosed(socketEpoch, host, opened); });
 			});
 
-			ws->onError([this, host, opened](const std::string &error) {
-				runRtcCallbackNoexcept("WebSocket::onError", [&]() {
-					logError("WebSocket error from %s: %s", host.c_str(), error.c_str());
-					bool tryFallback = false;
-					std::string report = error;
-					const bool failedBeforeOpen = !opened->load();
-					bool hasNextHost = false;
-					{
-						std::lock_guard<std::mutex> lock(stateMutex_);
-						hasNextHost = activeWssHostIndex_ + 1 < wssHosts_.size();
-						if (failedBeforeOpen && hasNextHost) {
-							deferredConnectionError_ = error;
-							tryFallback = true;
-						} else if (!deferredConnectionError_.empty()) {
-							report = "Built-in signaling server fallback failed; primary error: " +
-							         deferredConnectionError_ + "; fallback error: " + error;
-							deferredConnectionError_.clear();
-						}
-					}
-					if (failedBeforeOpen) {
-						logSignalingConnectDiagnostic(host, error, hasNextHost);
-						needsReconnect_ = true;
-						sendCv_.notify_all();
-						// Copy the socket out before closing: close() can fire
-						// callbacks that also acquire handleMutex_.
-						std::shared_ptr<rtc::WebSocket> wsToClose;
-						{
-							std::lock_guard<std::mutex> lock(handleMutex_);
-							if (wsHandle_) {
-								wsToClose = *static_cast<std::shared_ptr<rtc::WebSocket> *>(wsHandle_);
-							}
-						}
-						if (wsToClose) {
-							try {
-								wsToClose->close();
-							} catch (const std::exception &closeError) {
-								logWarning("WebSocket close after pre-open error failed for %s: %s", host.c_str(),
-								           closeError.what());
-							}
-						}
-					}
-					if (tryFallback) {
-						logWarning("Signaling connect to %s failed before open; trying fallback server", host.c_str());
-						return;
-					}
-					OnErrorCallback cb;
-					{
-						std::lock_guard<std::mutex> lock(callbackMutex_);
-						cb = onError_;
-					}
-					if (cb) {
-						cb(report);
-					}
-				});
+			ws->onError([this, socketEpoch, host, opened](const std::string &error) {
+				runRtcCallbackNoexcept("WebSocket::onError",
+				                       [&]() { handleSocketError(socketEpoch, host, opened, error); });
 			});
 
-			ws->onMessage([this](auto data) {
+			ws->onMessage([this, socketEpoch](auto data) {
 				runRtcCallbackNoexcept("WebSocket::onMessage", [&]() {
 					if (std::holds_alternative<std::string>(data)) {
-						processMessage(std::get<std::string>(data));
+						handleSocketMessage(socketEpoch, std::get<std::string>(data));
 					}
 				});
 			});
@@ -805,12 +1114,12 @@ void VDONinjaSignaling::wsThreadFunc()
 			ws->open(host);
 
 			// Main loop - process send queue
-			while (shouldRun_ && !needsReconnect_) {
+			while (shouldRun_ && !needsReconnect_ && isCurrentSocketEpoch(socketEpoch)) {
 				std::unique_lock<std::mutex> lock(sendMutex_);
 				sendCv_.wait_for(lock, std::chrono::milliseconds(100),
 				                 [this] { return !sendQueue_.empty() || !shouldRun_ || needsReconnect_.load(); });
 
-				while (!sendQueue_.empty() && connected_) {
+				while (!sendQueue_.empty() && connected_ && isCurrentSocketEpoch(socketEpoch)) {
 					std::string msg = sendQueue_.front();
 					sendQueue_.pop();
 					lock.unlock();
@@ -836,34 +1145,33 @@ void VDONinjaSignaling::wsThreadFunc()
 				}
 			}
 
+			waitForSocketUserCallbacks();
 			// Clean up this connection
-			{
-				std::lock_guard<std::mutex> lock(handleMutex_);
-				if (wsHandle_) {
-					auto stored = static_cast<std::shared_ptr<rtc::WebSocket> *>(wsHandle_);
-					delete stored;
-					wsHandle_ = nullptr;
-				}
-			}
+			(void)takeWebSocketHandle(socketEpoch);
 			clearSendQueue();
 		} catch (const std::exception &e) {
-			logError("WebSocket thread error from %s: %s", host.c_str(), e.what());
-			connected_ = false;
+			waitForSocketUserCallbacks();
 			bool tryFallback = false;
 			std::string report = e.what();
 			bool hasNextHost = false;
-			{
-				std::lock_guard<std::mutex> lock(stateMutex_);
-				hasNextHost = activeWssHostIndex_ + 1 < wssHosts_.size();
-				if (!opened->load() && hasNextHost) {
-					deferredConnectionError_ = e.what();
-					tryFallback = true;
-				} else if (!deferredConnectionError_.empty()) {
-					report = "Built-in signaling server fallback failed; primary error: " + deferredConnectionError_ +
-					         "; fallback error: " + std::string(e.what());
-					deferredConnectionError_.clear();
-				}
+			if (!withCurrentSocketEpoch(socketEpoch, [&]() {
+				    connected_ = false;
+				    std::lock_guard<std::mutex> lock(stateMutex_);
+				    hasNextHost = activeWssHostIndex_ + 1 < wssHosts_.size();
+				    if (!opened->load() && hasNextHost) {
+					    deferredConnectionError_ = e.what();
+					    tryFallback = true;
+				    } else if (!deferredConnectionError_.empty()) {
+					    report =
+					        "Built-in signaling server fallback failed; primary error: " + deferredConnectionError_ +
+					        "; fallback error: " + std::string(e.what());
+					    deferredConnectionError_.clear();
+				    }
+			    })) {
+				(void)takeWebSocketHandle(socketEpoch);
+				return;
 			}
+			logError("WebSocket thread error from %s: %s", host.c_str(), e.what());
 			if (!opened->load()) {
 				logSignalingConnectDiagnostic(host, e.what(), hasNextHost);
 			}
@@ -875,52 +1183,54 @@ void VDONinjaSignaling::wsThreadFunc()
 					cb = onError_;
 				}
 				if (cb) {
-					cb(report);
+					invokeUserCallback(socketEpoch, [&]() { cb(report); });
 				}
 			}
 
-			std::lock_guard<std::mutex> lock(handleMutex_);
-			if (wsHandle_) {
-				auto stored = static_cast<std::shared_ptr<rtc::WebSocket> *>(wsHandle_);
-				delete stored;
-				wsHandle_ = nullptr;
-			}
+			(void)takeWebSocketHandle(socketEpoch);
 			clearSendQueue();
 		}
 
 		const bool attemptOpened = opened->load();
 		bool tryFallbackHost = false;
+		bool initialAttemptFailed = false;
+		bool shouldReconnect = false;
 		std::string nextHost;
-		{
-			std::lock_guard<std::mutex> lock(stateMutex_);
-			if (!attemptOpened && !connected_ && activeWssHostIndex_ + 1 < wssHosts_.size()) {
-				++activeWssHostIndex_;
-				wssHost_ = wssHosts_[activeWssHostIndex_];
-				nextHost = wssHost_;
-				tryFallbackHost = true;
-			}
+		if (!withCurrentSocketEpoch(socketEpoch, [&]() {
+			    std::lock_guard<std::mutex> lock(stateMutex_);
+			    if (!attemptOpened && !connected_ && activeWssHostIndex_ + 1 < wssHosts_.size()) {
+				    ++activeWssHostIndex_;
+				    wssHost_ = wssHosts_[activeWssHostIndex_];
+				    nextHost = wssHost_;
+				    tryFallbackHost = true;
+				    needsReconnect_ = false;
+			    } else if (!connected_ && !initialConnectionFinished_) {
+				    initialConnectionFinished_ = true;
+				    initialAttemptFailed = true;
+			    } else {
+				    shouldReconnect = shouldRun_ && autoReconnect && needsReconnect_;
+				    if (shouldReconnect) {
+					    reconnectSuppressedByServer = reconnectSuppressedByServer_;
+					    reconnectDeferredUntilMs = reconnectDeferredUntilMs_;
+				    }
+			    }
+		    })) {
+			return;
 		}
 		if (tryFallbackHost) {
 			logWarning("Trying fallback signaling server: %s", nextHost.c_str());
-			needsReconnect_ = false;
 			continue;
 		}
 
-		if (!connected_ && !initialConnectionFinished_) {
-			initialConnectionFinished_ = true;
+		if (initialAttemptFailed) {
 			break;
 		}
 
 		// Reconnect logic (iterative, not recursive)
-		if (!shouldRun_ || !autoReconnect || !needsReconnect_) {
+		if (!shouldReconnect) {
 			break;
 		}
 
-		{
-			std::lock_guard<std::mutex> lock(stateMutex_);
-			reconnectSuppressedByServer = reconnectSuppressedByServer_;
-			reconnectDeferredUntilMs = reconnectDeferredUntilMs_;
-		}
 		if (reconnectSuppressedByServer) {
 			logWarning("Auto reconnect suppressed due to signaling server alert");
 			break;
@@ -935,7 +1245,7 @@ void VDONinjaSignaling::wsThreadFunc()
 				cb = onError_;
 			}
 			if (cb) {
-				cb("Max reconnection attempts reached");
+				invokeUserCallback(socketEpoch, [&]() { cb("Max reconnection attempts reached"); });
 			}
 			break;
 		}
@@ -948,31 +1258,44 @@ void VDONinjaSignaling::wsThreadFunc()
 		logInfo("Reconnecting in %d ms (attempt %d/%d)", delay, attempt, maxAttempts);
 
 		// Sleep in small increments so we can respond to shouldRun_ going false
-		for (int waited = 0; waited < delay && shouldRun_; waited += 100) {
+		for (int waited = 0; waited < delay && shouldRun_ && isCurrentSocketEpoch(socketEpoch); waited += 100) {
 			std::this_thread::sleep_for(std::chrono::milliseconds(100));
+		}
+		if (!reconnectTimerMayProceed(socketEpoch)) {
+			return;
 		}
 	}
 
-	shouldRun_ = false;
-	needsReconnect_ = false;
-	// Release any thread still waiting in connect() for the initial attempt.
-	initialConnectionFinished_ = true;
+	withCurrentSocketEpoch(latestSocketEpoch, [&]() {
+		shouldRun_ = false;
+		needsReconnect_ = false;
+		// Release any thread still waiting in connect() for the initial attempt.
+		initialConnectionFinished_ = true;
+	});
 }
 
-void VDONinjaSignaling::processMessage(const std::string &message)
+void VDONinjaSignaling::processMessage(const std::string &message, uint64_t socketEpoch, uint64_t wsSequence)
 {
 	logDebug("Received: %s", message.c_str());
 
-	auto dispatchParsed = [this](const ParsedSignalMessage &parsed) {
+	auto dispatchParsed = [this, socketEpoch, wsSequence](const ParsedSignalMessage &parsed) {
+		auto socketEventIsCurrent = [this, socketEpoch]() {
+			return socketEpoch == 0 || isCurrentSocketEpoch(socketEpoch);
+		};
+		if (!socketEventIsCurrent()) {
+			return;
+		}
 		switch (parsed.kind) {
 		case ParsedSignalKind::Listing: {
 			logInfo("Received room listing");
 			std::vector<std::string> members;
-			{
-				std::lock_guard<std::mutex> lock(stateMutex_);
-				currentRoom_.isJoined = true;
-				currentRoom_.members = parsed.listingMembers;
-				members = currentRoom_.members;
+			if (!commitSocketState(socketEpoch, [&]() {
+				    std::lock_guard<std::mutex> lock(stateMutex_);
+				    currentRoom_.isJoined = true;
+				    currentRoom_.members = parsed.listingMembers;
+				    members = currentRoom_.members;
+			    })) {
+				break;
 			}
 			OnRoomJoinedCallback cb;
 			{
@@ -980,7 +1303,7 @@ void VDONinjaSignaling::processMessage(const std::string &message)
 				cb = onRoomJoined_;
 			}
 			if (cb) {
-				cb(members);
+				invokeUserCallback(socketEpoch, [&]() { cb(members); });
 			}
 			break;
 		}
@@ -992,7 +1315,7 @@ void VDONinjaSignaling::processMessage(const std::string &message)
 				cb = onOffer_;
 			}
 			if (cb) {
-				cb(parsed.uuid, parsed.sdp, parsed.session);
+				invokeUserCallback(socketEpoch, [&]() { cb(parsed.uuid, parsed.sdp, parsed.session); });
 			}
 			break;
 		}
@@ -1004,7 +1327,7 @@ void VDONinjaSignaling::processMessage(const std::string &message)
 				cb = onAnswer_;
 			}
 			if (cb) {
-				cb(parsed.uuid, parsed.sdp, parsed.session);
+				invokeUserCallback(socketEpoch, [&]() { cb(parsed.uuid, parsed.sdp, parsed.session); });
 			}
 			break;
 		}
@@ -1016,7 +1339,8 @@ void VDONinjaSignaling::processMessage(const std::string &message)
 				cb = onIceCandidate_;
 			}
 			if (cb) {
-				cb(parsed.uuid, parsed.candidate, parsed.mid, parsed.session);
+				invokeUserCallback(socketEpoch,
+				                   [&]() { cb(parsed.uuid, parsed.candidate, parsed.mid, parsed.session); });
 			}
 			break;
 		}
@@ -1029,46 +1353,71 @@ void VDONinjaSignaling::processMessage(const std::string &message)
 			}
 			if (cb) {
 				for (const auto &candidate : parsed.candidates) {
-					cb(parsed.uuid, candidate.candidate, candidate.mid, parsed.session);
+					if (!socketEventIsCurrent()) {
+						break;
+					}
+					invokeUserCallback(socketEpoch,
+					                   [&]() { cb(parsed.uuid, candidate.candidate, candidate.mid, parsed.session); });
 				}
 			}
 			break;
 		}
 		case ParsedSignalKind::Request:
-			handleRequest(parsed);
+			handleRequest(parsed, socketEpoch);
 			break;
 		case ParsedSignalKind::Alert: {
 			logWarning("Server alert: %s", parsed.alert.c_str());
-			applyServerAlertPolicy(parsed.alert);
+			if (!commitSocketState(socketEpoch, [&]() { applyServerAlertPolicy(parsed.alert); })) {
+				break;
+			}
 			OnErrorCallback cb;
 			{
 				std::lock_guard<std::mutex> lock(callbackMutex_);
 				cb = onError_;
 			}
 			if (cb) {
-				cb(parsed.alert);
+				invokeUserCallback(socketEpoch, [&]() { cb(parsed.alert); });
 			}
 			break;
 		}
 		case ParsedSignalKind::PeerCleanup: {
 			logInfo("Received peer cleanup for %s", parsed.uuid.c_str());
 			OnPeerCleanupCallback cb;
+			OnSignalingLifecycleEventCallback lifecycleCb;
 			{
 				std::lock_guard<std::mutex> lock(callbackMutex_);
 				cb = onPeerCleanup_;
+				lifecycleCb = onLifecycleEvent_;
 			}
-			if (cb && !parsed.uuid.empty()) {
-				cb(parsed.uuid);
+			if (!parsed.uuid.empty()) {
+				if (lifecycleCb) {
+					SignalingLifecycleEvent event;
+					event.kind = SignalingLifecycleEventKind::PeerCleanup;
+					event.socketEpoch = socketEpoch;
+					event.wsSequence = wsSequence;
+					event.uuid = parsed.uuid;
+					if (!parsed.session.empty()) {
+						event.session = parsed.session;
+					}
+					invokeUserCallback(socketEpoch, [&]() { lifecycleCb(event); });
+				}
+				if (cb && socketEventIsCurrent()) {
+					invokeUserCallback(socketEpoch, [&]() { cb(parsed.uuid, parsed.session); });
+				}
 			}
 			break;
 		}
 		case ParsedSignalKind::VideoAddedToRoom: {
 			logInfo("Stream added to room: %s by %s", parsed.streamId.c_str(), parsed.uuid.c_str());
 			if (!parsed.streamId.empty()) {
-				std::lock_guard<std::mutex> lock(stateMutex_);
-				auto &members = currentRoom_.members;
-				if (std::find(members.begin(), members.end(), parsed.streamId) == members.end()) {
-					members.push_back(parsed.streamId);
+				if (!commitSocketState(socketEpoch, [&]() {
+					    std::lock_guard<std::mutex> lock(stateMutex_);
+					    auto &members = currentRoom_.members;
+					    if (std::find(members.begin(), members.end(), parsed.streamId) == members.end()) {
+						    members.push_back(parsed.streamId);
+					    }
+				    })) {
+					break;
 				}
 			}
 			OnStreamAddedCallback cb;
@@ -1076,25 +1425,43 @@ void VDONinjaSignaling::processMessage(const std::string &message)
 				std::lock_guard<std::mutex> lock(callbackMutex_);
 				cb = onStreamAdded_;
 			}
-			if (cb) {
-				cb(parsed.streamId, parsed.uuid);
+			if (cb && socketEventIsCurrent()) {
+				invokeUserCallback(socketEpoch, [&]() { cb(parsed.streamId, parsed.uuid); });
 			}
 			break;
 		}
 		case ParsedSignalKind::VideoRemovedFromRoom: {
 			logInfo("Stream removed from room: %s by %s", parsed.streamId.c_str(), parsed.uuid.c_str());
 			if (!parsed.streamId.empty()) {
-				std::lock_guard<std::mutex> lock(stateMutex_);
-				auto &members = currentRoom_.members;
-				members.erase(std::remove(members.begin(), members.end(), parsed.streamId), members.end());
+				if (!commitSocketState(socketEpoch, [&]() {
+					    std::lock_guard<std::mutex> lock(stateMutex_);
+					    auto &members = currentRoom_.members;
+					    members.erase(std::remove(members.begin(), members.end(), parsed.streamId), members.end());
+				    })) {
+					break;
+				}
 			}
 			OnStreamRemovedCallback cb;
+			OnSignalingLifecycleEventCallback lifecycleCb;
 			{
 				std::lock_guard<std::mutex> lock(callbackMutex_);
 				cb = onStreamRemoved_;
+				lifecycleCb = onLifecycleEvent_;
 			}
-			if (cb) {
-				cb(parsed.streamId, parsed.uuid);
+			if (lifecycleCb) {
+				SignalingLifecycleEvent event;
+				event.kind = SignalingLifecycleEventKind::StreamRemoved;
+				event.socketEpoch = socketEpoch;
+				event.wsSequence = wsSequence;
+				event.uuid = parsed.uuid;
+				event.streamId = parsed.streamId;
+				if (!parsed.session.empty()) {
+					event.session = parsed.session;
+				}
+				invokeUserCallback(socketEpoch, [&]() { lifecycleCb(event); });
+			}
+			if (cb && socketEventIsCurrent()) {
+				invokeUserCallback(socketEpoch, [&]() { cb(parsed.streamId, parsed.uuid); });
 			}
 			break;
 		}
@@ -1259,7 +1626,7 @@ void VDONinjaSignaling::applyServerAlertPolicy(const std::string &alert)
 	}
 }
 
-void VDONinjaSignaling::handleRequest(const ParsedSignalMessage &message)
+void VDONinjaSignaling::handleRequest(const ParsedSignalMessage &message, uint64_t socketEpoch)
 {
 	logInfo("Received request: %s from %s", message.request.c_str(), message.uuid.c_str());
 	const std::string requestLower = asciiLower(message.request);
@@ -1275,7 +1642,7 @@ void VDONinjaSignaling::handleRequest(const ParsedSignalMessage &message)
 			cb = onIceRestartRequest_;
 		}
 		if (cb) {
-			cb(message.uuid, message.session);
+			invokeUserCallback(socketEpoch, [&]() { cb(message.uuid, message.session); });
 		}
 		return;
 	}
@@ -1287,7 +1654,7 @@ void VDONinjaSignaling::handleRequest(const ParsedSignalMessage &message)
 			cb = onOfferRequest_;
 		}
 		if (cb) {
-			cb(message.uuid, message.session);
+			invokeUserCallback(socketEpoch, [&]() { cb(message.uuid, message.session); });
 		}
 	}
 }
@@ -1324,7 +1691,7 @@ void VDONinjaSignaling::notifyDisconnected()
 		cb = onDisconnected_;
 	}
 	if (cb) {
-		cb();
+		invokeUserCallback(0, [&]() { cb(); });
 	}
 }
 
@@ -1336,7 +1703,7 @@ void VDONinjaSignaling::notifyError(const std::string &error)
 		cb = onError_;
 	}
 	if (cb) {
-		cb(error);
+		invokeUserCallback(0, [&]() { cb(error); });
 	}
 }
 
@@ -1855,6 +2222,11 @@ void VDONinjaSignaling::setOnPeerCleanup(OnPeerCleanupCallback callback)
 {
 	std::lock_guard<std::mutex> lock(callbackMutex_);
 	onPeerCleanup_ = callback;
+}
+void VDONinjaSignaling::setOnLifecycleEvent(OnSignalingLifecycleEventCallback callback)
+{
+	std::lock_guard<std::mutex> lock(callbackMutex_);
+	onLifecycleEvent_ = callback;
 }
 void VDONinjaSignaling::setOnData(OnDataCallback callback)
 {

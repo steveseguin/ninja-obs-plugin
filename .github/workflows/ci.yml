@@ -16,6 +16,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Release-linked wiring policy
+        shell: pwsh
+        run: pwsh -NoLogo -NoProfile -ExecutionPolicy Bypass -File tests/test-release-linked-wiring.ps1
+
+      - name: Release-linked wiring policy mutations
+        shell: pwsh
+        run: pwsh -NoLogo -NoProfile -ExecutionPolicy Bypass -File tests/test-release-linked-wiring-policy-mutations.ps1
+
       - name: Install dependencies
         run: |
           sudo apt-get update

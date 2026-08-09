@@ -12,6 +12,14 @@ set(PLUGIN_LICENSE "AGPL-3.0-only")
 option(BUILD_TESTS "Build unit tests" OFF)
 option(BUILD_PLUGIN "Build the OBS plugin (requires OBS SDK)" ON)
 option(BUILD_PUBLISHER_TOOL "Build the VP9 alpha publisher test tool (requires BUILD_PLUGIN deps)" OFF)
+option(BUILD_NATIVE_MEDIA_LINKED_GATE
+    "Build the OBS/FFmpeg-linked native receiver packet-path validation gate"
+    OFF)
+option(BUILD_MODULE_LIFECYCLE_LINKED_GATE
+    "Build the statically-linked libdatachannel module lifecycle validation gate"
+    OFF)
+set(LIBDATACHANNEL_PLOG_INCLUDE_DIR "" CACHE PATH
+    "Explicit plog include directory for the linked module lifecycle gate")
 
 # Build configuration
 # Use C++20 on Windows for designated initializers support (MSVC requires /std:c++20)
@@ -316,6 +324,7 @@ if(BUILD_PLUGIN)
         src/vdoninja-signaling-protocol.cpp
         src/vdoninja-auto-scene-manager.cpp
         src/vdoninja-layout.cpp
+        src/vdoninja-module-lifecycle.cpp
         src/vdoninja-peer-manager.cpp
         src/vdoninja-data-channel.cpp
         src/vdoninja-system-cpu.cpp
@@ -343,6 +352,7 @@ if(BUILD_PLUGIN)
         src/vdoninja-signaling-protocol.h
         src/vdoninja-auto-scene-manager.h
         src/vdoninja-layout.h
+        src/vdoninja-module-lifecycle.h
         src/vdoninja-peer-manager.h
         src/vdoninja-data-channel.h
         src/vdoninja-system-cpu.h
@@ -538,6 +548,7 @@ if(BUILD_TESTS)
         src/vdoninja-signaling.cpp
         src/vdoninja-signaling-protocol.cpp
         src/vdoninja-layout.cpp
+        src/vdoninja-module-lifecycle.cpp
         src/vdoninja-system-cpu.cpp
     )
 
@@ -573,6 +584,7 @@ if(BUILD_TESTS)
         tests/test-h264-profile.cpp
         tests/test-ice-candidate-queue.cpp
         tests/test-loss-protection.cpp
+        tests/test-module-lifecycle.cpp
         tests/test-peer-manager.cpp
         tests/test-utils.cpp
         tests/test-reliability.cpp
@@ -580,6 +592,7 @@ if(BUILD_TESTS)
         tests/test-rtp-audio.cpp
         tests/test-rtp-pacer.cpp
         tests/test-rtp-repair.cpp
+        tests/test-rtc-stub-compat.cpp
         tests/test-json.cpp
         tests/test-data-channel.cpp
         tests/test-signaling-protocol.cpp
@@ -604,8 +617,261 @@ if(BUILD_TESTS)
         target_compile_options(vdoninja-tests PRIVATE /FS)
     endif()
 
+    # Isolated module-boundary lifecycle gate. Keep this buildable while
+    # peer/source integration work is staged in the shared test target.
+    add_executable(vdoninja-module-lifecycle-tests
+        tests/test-module-lifecycle.cpp
+        src/vdoninja-module-lifecycle.cpp
+    )
+    target_include_directories(vdoninja-module-lifecycle-tests PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
+    )
+    target_link_libraries(vdoninja-module-lifecycle-tests PRIVATE
+        GTest::gtest_main
+    )
+    if(MSVC)
+        target_compile_options(vdoninja-module-lifecycle-tests PRIVATE /FS)
+    endif()
+
     include(GoogleTest)
     gtest_discover_tests(vdoninja-tests)
+    gtest_discover_tests(vdoninja-module-lifecycle-tests TEST_PREFIX "ModuleBoundary.")
+endif()
+
+# ---------------------------------------------------------------------------
+# Module-boundary lifecycle integration gate
+# Exercises the real statically-linked libdatachannel logger and global RTC
+# cleanup token. This is deliberately separate from the mock-based unit gate.
+# ---------------------------------------------------------------------------
+if(BUILD_MODULE_LIFECYCLE_LINKED_GATE)
+    if(NOT BUILD_PLUGIN)
+        message(FATAL_ERROR "BUILD_MODULE_LIFECYCLE_LINKED_GATE requires BUILD_PLUGIN=ON")
+    endif()
+    if(NOT EXISTS "${LIBDATACHANNEL_PLOG_INCLUDE_DIR}/plog/Log.h")
+        message(FATAL_ERROR
+            "LIBDATACHANNEL_PLOG_INCLUDE_DIR must contain plog/Log.h: ${LIBDATACHANNEL_PLOG_INCLUDE_DIR}")
+    endif()
+
+    add_executable(vdoninja-module-lifecycle-linked-gate
+        tests/module-lifecycle-linked/main.cpp
+        src/vdoninja-module-lifecycle.cpp
+    )
+    set_target_properties(vdoninja-module-lifecycle-linked-gate PROPERTIES NO_SYSTEM_FROM_IMPORTED ON)
+    target_include_directories(vdoninja-module-lifecycle-linked-gate PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
+        ${LIBDATACHANNEL_PLOG_INCLUDE_DIR}
+    )
+
+    if(LibDataChannel_FOUND)
+        get_target_property(_module_lifecycle_ldc_includes
+            LibDataChannel::LibDataChannel INTERFACE_INCLUDE_DIRECTORIES)
+        if(_module_lifecycle_ldc_includes)
+            target_include_directories(vdoninja-module-lifecycle-linked-gate BEFORE PRIVATE
+                ${_module_lifecycle_ldc_includes})
+        endif()
+        if(WIN32 AND TARGET LibDataChannel::LibDataChannelStatic)
+            get_target_property(_module_lifecycle_ldc_static_includes
+                LibDataChannel::LibDataChannelStatic INTERFACE_INCLUDE_DIRECTORIES)
+            if(_module_lifecycle_ldc_static_includes)
+                target_include_directories(vdoninja-module-lifecycle-linked-gate BEFORE PRIVATE
+                    ${_module_lifecycle_ldc_static_includes})
+            endif()
+            target_link_libraries(vdoninja-module-lifecycle-linked-gate PRIVATE
+                LibDataChannel::LibDataChannelStatic)
+        else()
+            target_link_libraries(vdoninja-module-lifecycle-linked-gate PRIVATE
+                LibDataChannel::LibDataChannel)
+        endif()
+    else()
+        target_include_directories(vdoninja-module-lifecycle-linked-gate PRIVATE
+            ${LIBDATACHANNEL_INCLUDE_DIRS})
+        target_link_libraries(vdoninja-module-lifecycle-linked-gate PRIVATE
+            ${LIBDATACHANNEL_LIBRARIES})
+    endif()
+
+    target_link_libraries(vdoninja-module-lifecycle-linked-gate PRIVATE Threads::Threads)
+    if(OpenSSL_FOUND)
+        target_link_libraries(vdoninja-module-lifecycle-linked-gate PRIVATE
+            OpenSSL::SSL OpenSSL::Crypto)
+    endif()
+    if(WIN32)
+        target_compile_definitions(vdoninja-module-lifecycle-linked-gate PRIVATE
+            _WIN32_WINNT=0x0601 WIN32_LEAN_AND_MEAN)
+        target_link_libraries(vdoninja-module-lifecycle-linked-gate PRIVATE
+            ws2_32 crypt32 bcrypt iphlpapi secur32 advapi32 user32 shell32)
+    endif()
+    if(MSVC)
+        target_compile_options(vdoninja-module-lifecycle-linked-gate PRIVATE /W4 /FS)
+    endif()
+
+    enable_testing()
+    add_test(NAME vdoninja-module-lifecycle-linked
+        COMMAND $<TARGET_FILE:vdoninja-module-lifecycle-linked-gate>)
+    set_tests_properties(vdoninja-module-lifecycle-linked PROPERTIES
+        LABELS "module-lifecycle-linked;release-linked"
+        TIMEOUT 60)
+
+    message(STATUS "Static libdatachannel module lifecycle gate enabled")
+endif()
+
+# ---------------------------------------------------------------------------
+# Native receiver media integration gate
+# Compiles the production VDONinjaSource packet/decode/pair/output path against
+# the same OBS, FFmpeg, and libdatachannel dependencies as the shipped plugin.
+# It is intentionally a standalone executable: running it never launches OBS.
+# ---------------------------------------------------------------------------
+if(BUILD_NATIVE_MEDIA_LINKED_GATE)
+    if(NOT BUILD_PLUGIN)
+        message(FATAL_ERROR "BUILD_NATIVE_MEDIA_LINKED_GATE requires BUILD_PLUGIN=ON")
+    endif()
+
+    add_executable(vdoninja-native-media-linked-gate
+        tests/native-media-linked/main.cpp
+        src/vdoninja-alpha-sync.cpp
+        src/vdoninja-audio-red.cpp
+        src/vdoninja-bitrate-controller.cpp
+        src/vdoninja-h264-profile.cpp
+        src/vdoninja-ice-candidate-queue.cpp
+        src/vdoninja-loss-protection.cpp
+        src/vdoninja-reliability.cpp
+        src/vdoninja-rtcp-feedback.cpp
+        src/vdoninja-rtp-pacer.cpp
+        src/vdoninja-rtp-repair.cpp
+        src/vdoninja-rtp-utils.cpp
+        src/vdoninja-source.cpp
+        src/vdoninja-signaling.cpp
+        src/vdoninja-signaling-protocol.cpp
+        src/vdoninja-layout.cpp
+        src/vdoninja-peer-manager.cpp
+        src/vdoninja-data-channel.cpp
+        src/vdoninja-system-cpu.cpp
+        src/vdoninja-utils.cpp
+    )
+    set_target_properties(vdoninja-native-media-linked-gate PROPERTIES NO_SYSTEM_FROM_IMPORTED ON)
+    target_compile_definitions(vdoninja-native-media-linked-gate PRIVATE
+        VDONINJA_NATIVE_MEDIA_INTEGRATION_TEST
+    )
+    target_include_directories(vdoninja-native-media-linked-gate PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
+    )
+
+    if(DEFINED OBS_SDK_PATH)
+        if(EXISTS "${OBS_SDK_PATH}/include/obs")
+            target_include_directories(vdoninja-native-media-linked-gate PRIVATE "${OBS_SDK_PATH}/include/obs")
+        endif()
+        if(EXISTS "${OBS_SDK_PATH}/include/obs-frontend-api")
+            target_include_directories(vdoninja-native-media-linked-gate PRIVATE
+                "${OBS_SDK_PATH}/include/obs-frontend-api")
+        endif()
+    endif()
+
+    if(LibDataChannel_FOUND)
+        get_target_property(_native_media_ldc_includes
+            LibDataChannel::LibDataChannel INTERFACE_INCLUDE_DIRECTORIES)
+        if(_native_media_ldc_includes)
+            target_include_directories(vdoninja-native-media-linked-gate BEFORE PRIVATE
+                ${_native_media_ldc_includes})
+        endif()
+        if(WIN32 AND TARGET LibDataChannel::LibDataChannelStatic)
+            get_target_property(_native_media_ldc_static_includes
+                LibDataChannel::LibDataChannelStatic INTERFACE_INCLUDE_DIRECTORIES)
+            if(_native_media_ldc_static_includes)
+                target_include_directories(vdoninja-native-media-linked-gate BEFORE PRIVATE
+                    ${_native_media_ldc_static_includes})
+            endif()
+            target_link_libraries(vdoninja-native-media-linked-gate PRIVATE
+                LibDataChannel::LibDataChannelStatic)
+        else()
+            target_link_libraries(vdoninja-native-media-linked-gate PRIVATE LibDataChannel::LibDataChannel)
+        endif()
+    else()
+        target_include_directories(vdoninja-native-media-linked-gate PRIVATE ${LIBDATACHANNEL_INCLUDE_DIRS})
+        target_link_libraries(vdoninja-native-media-linked-gate PRIVATE ${LIBDATACHANNEL_LIBRARIES})
+    endif()
+
+    target_include_directories(vdoninja-native-media-linked-gate SYSTEM PRIVATE ${FFMPEG_INCLUDE_DIR})
+    if(TARGET OBS::libobs)
+        target_link_libraries(vdoninja-native-media-linked-gate PRIVATE OBS::libobs)
+    elseif(LIBOBS_LIBRARIES)
+        target_link_libraries(vdoninja-native-media-linked-gate PRIVATE ${LIBOBS_LIBRARIES})
+        if(LIBOBS_INCLUDE_DIRS)
+            target_include_directories(vdoninja-native-media-linked-gate PRIVATE ${LIBOBS_INCLUDE_DIRS})
+        endif()
+    endif()
+    target_link_libraries(vdoninja-native-media-linked-gate PRIVATE
+        Threads::Threads
+        ${FFMPEG_AVCODEC_LIBRARY}
+        ${FFMPEG_AVUTIL_LIBRARY}
+        ${FFMPEG_SWSCALE_LIBRARY}
+        ${FFMPEG_SWRESAMPLE_LIBRARY}
+    )
+    if(OpenSSL_FOUND)
+        target_link_libraries(vdoninja-native-media-linked-gate PRIVATE OpenSSL::SSL OpenSSL::Crypto)
+    endif()
+    if(WIN32)
+        target_compile_definitions(vdoninja-native-media-linked-gate PRIVATE
+            _WIN32_WINNT=0x0601 WIN32_LEAN_AND_MEAN)
+        target_link_libraries(vdoninja-native-media-linked-gate PRIVATE ws2_32 crypt32 bcrypt)
+    endif()
+    if(MSVC)
+        target_compile_options(vdoninja-native-media-linked-gate PRIVATE /W4 /wd4201 /FS)
+    endif()
+
+    # Keep the opt-in linked gate bounded even when a concurrency regression
+    # strands an internal join. These registrations remain disabled unless the
+    # linked gate itself is explicitly enabled at configure time.
+    enable_testing()
+    add_test(NAME vdoninja-native-media-linked-owner-lifetime-track
+        COMMAND $<TARGET_FILE:vdoninja-native-media-linked-gate>
+            "Track in-flight callback is safe during manager destruction")
+    add_test(NAME vdoninja-native-media-linked-owner-lifetime-data-channel
+        COMMAND $<TARGET_FILE:vdoninja-native-media-linked-gate>
+            "DataChannel in-flight callback is safe during manager destruction")
+    add_test(NAME vdoninja-native-media-linked-owner-order-peer-connection
+        COMMAND $<TARGET_FILE:vdoninja-native-media-linked-gate>
+            "PeerConnection description and feedback functions share one owner session")
+    add_test(NAME vdoninja-native-media-linked-owner-order-same-handle-data-channel
+        COMMAND $<TARGET_FILE:vdoninja-native-media-linked-gate>
+            "same-handle DataChannel replacement drains before detaching functions")
+    add_test(NAME vdoninja-native-media-linked-owner-hook-pre-permit
+        COMMAND $<TARGET_FILE:vdoninja-native-media-linked-gate>
+            "completion delayed until after owner shutdown is rejected")
+    add_test(NAME vdoninja-native-media-linked-owner-hook-registration-failure
+        COMMAND $<TARGET_FILE:vdoninja-native-media-linked-gate>
+            "installed function registration failure detaches setter")
+    add_test(NAME vdoninja-native-media-linked-owner-hook-track-kinds
+        COMMAND $<TARGET_FILE:vdoninja-native-media-linked-gate>
+            "video alpha audio Track completions share one owner session")
+    add_test(NAME vdoninja-native-media-linked-owner-hook-feedback
+        COMMAND $<TARGET_FILE:vdoninja-native-media-linked-gate>
+            "admitted feedback completion drains before owner state")
+    add_test(NAME vdoninja-native-media-linked-full
+        COMMAND $<TARGET_FILE:vdoninja-native-media-linked-gate>)
+    set_tests_properties(
+        vdoninja-native-media-linked-owner-lifetime-track
+        vdoninja-native-media-linked-owner-lifetime-data-channel
+        PROPERTIES
+            LABELS "native-media-linked;owner-lifetime;release-linked"
+            TIMEOUT 30)
+    set_tests_properties(
+        vdoninja-native-media-linked-owner-order-peer-connection
+        vdoninja-native-media-linked-owner-order-same-handle-data-channel
+        PROPERTIES
+            LABELS "native-media-linked;owner-lifetime;release-linked"
+            TIMEOUT 60)
+    set_tests_properties(
+        vdoninja-native-media-linked-owner-hook-pre-permit
+        vdoninja-native-media-linked-owner-hook-registration-failure
+        vdoninja-native-media-linked-owner-hook-track-kinds
+        vdoninja-native-media-linked-owner-hook-feedback
+        PROPERTIES
+            LABELS "native-media-linked;owner-lifetime;release-linked"
+            TIMEOUT 60)
+    set_tests_properties(vdoninja-native-media-linked-full PROPERTIES
+        LABELS "native-media-linked;release-linked"
+        TIMEOUT 600)
+
+    message(STATUS "OBS/FFmpeg-linked native receiver media gate enabled")
 endif()
 
 # ---------------------------------------------------------------------------

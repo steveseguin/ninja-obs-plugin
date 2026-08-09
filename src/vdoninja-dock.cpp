@@ -4,8 +4,11 @@
 #include <QCheckBox>
 #include <QClipboard>
 #include <QFormLayout>
+#include <QFrame>
 #include <QHBoxLayout>
 #include <QMessageBox>
+#include <QScrollArea>
+#include <QSizePolicy>
 #include <QSpinBox>
 #include <QVBoxLayout>
 #include <cstring>
@@ -76,7 +79,15 @@ void VDONinjaDock::shutdown()
 
 void VDONinjaDock::setupUi()
 {
-	QWidget *container = new QWidget(this);
+	QScrollArea *scrollArea = new QScrollArea(this);
+	scrollArea->setWidgetResizable(true);
+	scrollArea->setFrameShape(QFrame::NoFrame);
+	scrollArea->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+	scrollArea->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+	scrollArea->setMinimumSize(0, 0);
+	scrollArea->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+
+	QWidget *container = new QWidget(scrollArea);
 	QVBoxLayout *layout = new QVBoxLayout(container);
 	layout->setContentsMargins(10, 10, 10, 10);
 	layout->setSpacing(8);
@@ -198,7 +209,8 @@ void VDONinjaDock::setupUi()
 	layout->addWidget(grpStatus);
 
 	layout->addStretch();
-	setWidget(container);
+	scrollArea->setWidget(container);
+	setWidget(scrollArea);
 }
 
 void VDONinjaDock::loadSettings()

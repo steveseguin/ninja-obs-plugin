@@ -17,6 +17,12 @@
 namespace rtc
 {
 
+// Keep these public aliases identical to rtc/common.hpp. Production headers
+// name message_variant directly, and the alternative order is part of the
+// libdatachannel API used by std::get_if/std::holds_alternative call sites.
+using binary = std::vector<std::byte>;
+using message_variant = std::variant<binary, std::string>;
+
 class DataChannel
 {
 public:
@@ -33,8 +39,8 @@ private:
 class WebSocket
 {
 public:
-	using Binary = std::vector<std::byte>;
-	using Message = std::variant<std::string, Binary>;
+	using Binary = binary;
+	using Message = message_variant;
 
 	struct Configuration {
 		bool disableTlsVerification = false;

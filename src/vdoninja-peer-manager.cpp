@@ -7,8 +7,10 @@
 
 #include <algorithm>
 #include <cctype>
+#include <condition_variable>
 #include <cstdint>
 #include <cstring>
+#include <new>
 #include <random>
 #include <sstream>
 #include <stdexcept>
@@ -25,8 +27,234 @@
 namespace vdoninja
 {
 
+class PeerManagerOwnerSession
+{
+public:
+	struct InstalledFunction {
+		PeerManagerCompletionKind kind = PeerManagerCompletionKind::PeerConnectionState;
+		const void *handle = nullptr;
+		std::function<void()> detach;
+	};
+
+	class WorkPermit
+	{
+	public:
+		WorkPermit() = default;
+		WorkPermit(const WorkPermit &) = delete;
+		WorkPermit &operator=(const WorkPermit &) = delete;
+		WorkPermit(WorkPermit &&other) noexcept : session_(std::move(other.session_)), owner_(other.owner_)
+		{
+			other.owner_ = nullptr;
+		}
+		WorkPermit &operator=(WorkPermit &&other) noexcept
+		{
+			if (this != &other) {
+				release();
+				session_ = std::move(other.session_);
+				owner_ = other.owner_;
+				other.owner_ = nullptr;
+			}
+			return *this;
+		}
+		~WorkPermit() { release(); }
+
+		explicit operator bool() const noexcept { return owner_ != nullptr; }
+		VDONinjaPeerManager *owner() const noexcept { return owner_; }
+
+	private:
+		friend class PeerManagerOwnerSession;
+		WorkPermit(std::shared_ptr<PeerManagerOwnerSession> session, VDONinjaPeerManager *owner)
+		    : session_(std::move(session)), owner_(owner)
+		{
+		}
+
+		void release() noexcept
+		{
+			if (session_) {
+				session_->releaseWork();
+				session_.reset();
+			}
+			owner_ = nullptr;
+		}
+
+		std::shared_ptr<PeerManagerOwnerSession> session_;
+		VDONinjaPeerManager *owner_ = nullptr;
+	};
+
+	explicit PeerManagerOwnerSession(VDONinjaPeerManager *owner) : owner_(owner) {}
+
+	static WorkPermit acquire(const std::weak_ptr<PeerManagerOwnerSession> &weakSession, PeerManagerCompletionKind kind,
+	                          const void *handle)
+	{
+		auto session = weakSession.lock();
+		if (!session) {
+			return {};
+		}
+		session->invokeTestHook(NativeMediaTestOwnerSessionStage::BeforePermit, kind, handle);
+
+		VDONinjaPeerManager *owner = nullptr;
+		{
+			std::lock_guard<std::mutex> lock(session->workMutex_);
+			if (session->admittingWork_ && session->owner_) {
+				++session->activeWork_;
+				owner = session->owner_;
+			}
+		}
+		if (!owner) {
+			session->invokeTestHook(NativeMediaTestOwnerSessionStage::PermitRejected, kind, handle);
+			return {};
+		}
+		WorkPermit permit(session, owner);
+		session->invokeTestHook(NativeMediaTestOwnerSessionStage::PermitAcquired, kind, handle);
+		return permit;
+	}
+
+	void closeWorkAdmission()
+	{
+		std::lock_guard<std::mutex> lock(workMutex_);
+		admittingWork_ = false;
+	}
+
+	bool registerInstalledFunction(PeerManagerCompletionKind kind, const void *handle, std::function<void()> detach)
+	{
+		std::lock_guard<std::mutex> lock(functionMutex_);
+		if (!admittingFunctions_) {
+			return false;
+		}
+#if defined(VDONINJA_NATIVE_MEDIA_INTEGRATION_TEST)
+		if (failedRegistrationKind_ && *failedRegistrationKind_ == kind) {
+			failedRegistrationKind_.reset();
+			throw std::bad_alloc();
+		}
+#endif
+		installedFunctions_.push_back({kind, handle, std::move(detach)});
+		return true;
+	}
+
+	std::vector<InstalledFunction> closeFunctionAdmissionAndTakeDetachers()
+	{
+		std::lock_guard<std::mutex> lock(functionMutex_);
+		admittingFunctions_ = false;
+		std::vector<InstalledFunction> result;
+		result.swap(installedFunctions_);
+		return result;
+	}
+
+#if defined(VDONINJA_NATIVE_MEDIA_INTEGRATION_TEST)
+	void failNextFunctionRegistration(PeerManagerCompletionKind kind)
+	{
+		std::lock_guard<std::mutex> lock(functionMutex_);
+		failedRegistrationKind_ = kind;
+	}
+
+	void setTestHook(VDONinjaPeerManager::NativeMediaTestOwnerSessionHook hook)
+	{
+		std::lock_guard<std::mutex> lock(testHookMutex_);
+		testHook_ = std::move(hook);
+	}
+#endif
+
+	void invokeTestHook(NativeMediaTestOwnerSessionStage stage, PeerManagerCompletionKind kind, const void *handle)
+	{
+#if defined(VDONINJA_NATIVE_MEDIA_INTEGRATION_TEST)
+		VDONinjaPeerManager::NativeMediaTestOwnerSessionHook hook;
+		{
+			std::lock_guard<std::mutex> lock(testHookMutex_);
+			hook = testHook_;
+		}
+		if (hook) {
+			hook(stage, kind, handle);
+		}
+#else
+		(void)stage;
+		(void)kind;
+		(void)handle;
+#endif
+	}
+
+	void waitForCurrentWork()
+	{
+		std::unique_lock<std::mutex> lock(workMutex_);
+		if (activeWork_ != 0) {
+			lock.unlock();
+			invokeTestHook(NativeMediaTestOwnerSessionStage::WaitingForPermits, PeerManagerCompletionKind::OwnerSession,
+			               nullptr);
+			lock.lock();
+		}
+		workDrained_.wait(lock, [this]() { return activeWork_ == 0; });
+		owner_ = nullptr;
+		lock.unlock();
+		invokeTestHook(NativeMediaTestOwnerSessionStage::WorkDrained, PeerManagerCompletionKind::OwnerSession, nullptr);
+	}
+
+private:
+	void releaseWork() noexcept
+	{
+		std::lock_guard<std::mutex> lock(workMutex_);
+		if (activeWork_ != 0 && --activeWork_ == 0) {
+			workDrained_.notify_all();
+		}
+	}
+
+	std::mutex workMutex_;
+	std::condition_variable workDrained_;
+	VDONinjaPeerManager *owner_ = nullptr;
+	size_t activeWork_ = 0;
+	bool admittingWork_ = true;
+
+	std::mutex functionMutex_;
+	std::vector<InstalledFunction> installedFunctions_;
+	bool admittingFunctions_ = true;
+#if defined(VDONINJA_NATIVE_MEDIA_INTEGRATION_TEST)
+	std::optional<PeerManagerCompletionKind> failedRegistrationKind_;
+	std::mutex testHookMutex_;
+	VDONinjaPeerManager::NativeMediaTestOwnerSessionHook testHook_;
+#endif
+};
+
 namespace
 {
+
+template <typename Detach>
+void detachInstalledFunction(const std::shared_ptr<PeerManagerOwnerSession> &session, PeerManagerCompletionKind kind,
+                             const void *handle, Detach &detach) noexcept
+{
+	if (session) {
+		try {
+			session->invokeTestHook(NativeMediaTestOwnerSessionStage::BeforeDetach, kind, handle);
+		} catch (...) {
+		}
+	}
+	try {
+		detach();
+	} catch (...) {
+	}
+	if (session) {
+		try {
+			session->invokeTestHook(NativeMediaTestOwnerSessionStage::AfterDetach, kind, handle);
+		} catch (...) {
+		}
+	}
+}
+
+template <typename Detach>
+void registerInstalledFunction(const std::shared_ptr<PeerManagerOwnerSession> &session, PeerManagerCompletionKind kind,
+                               const void *handle, Detach &&detach)
+{
+	try {
+		// Copy from the original detacher so it remains callable if std::function
+		// materialization or registry growth throws after the external setter has
+		// already installed its completion function.
+		std::function<void()> detachFunction(detach);
+		if (session && session->registerInstalledFunction(kind, handle, std::move(detachFunction))) {
+			return;
+		}
+	} catch (...) {
+		detachInstalledFunction(session, kind, handle, detach);
+		throw;
+	}
+	detachInstalledFunction(session, kind, handle, detach);
+}
 
 constexpr uint8_t kH264PayloadType = 96;
 constexpr uint8_t kOpusPayloadType = kDefaultOpusPayloadType;
@@ -38,6 +266,110 @@ constexpr uint32_t kVideoClockRate = 90000;
 constexpr uint32_t kAudioClockRate = 48000;
 constexpr auto kVideoPacerInterval = std::chrono::milliseconds(2);
 constexpr size_t kAggregateVideoPacerBurstBytes = 4U * 1024U;
+constexpr size_t kObservedDataChannelHistoryLimit = 16;
+
+thread_local const rtc::DataChannel *activeManagerDataChannelCallback = nullptr;
+
+class ScopedActiveDataChannelCallback
+{
+public:
+	explicit ScopedActiveDataChannelCallback(const rtc::DataChannel *channel)
+	    : previous_(activeManagerDataChannelCallback)
+	{
+		activeManagerDataChannelCallback = channel;
+	}
+
+	~ScopedActiveDataChannelCallback() { activeManagerDataChannelCallback = previous_; }
+
+private:
+	const rtc::DataChannel *previous_ = nullptr;
+};
+
+class DataChannelCallbackInstallState
+{
+public:
+	enum class Action { Dispatch, DeferredInstalling, DeferredDraining, Drop };
+	using DeferredCallback = std::function<void()>;
+
+	Action submit(DeferredCallback &callback)
+	{
+		std::lock_guard<std::mutex> lock(mutex_);
+		switch (phase_) {
+		case Phase::Installing:
+			deferred_.push_back(std::move(callback));
+			return Action::DeferredInstalling;
+		case Phase::Draining:
+			deferred_.push_back(std::move(callback));
+			return Action::DeferredDraining;
+		case Phase::Active:
+			return Action::Dispatch;
+		case Phase::Cancelled:
+		default:
+			return Action::Drop;
+		}
+	}
+
+	void prepend(DeferredCallback callback)
+	{
+		std::lock_guard<std::mutex> lock(mutex_);
+		if (phase_ == Phase::Installing) {
+			deferred_.insert(deferred_.begin(), std::move(callback));
+		}
+	}
+
+	bool beginDrain(bool active)
+	{
+		std::lock_guard<std::mutex> lock(mutex_);
+		if (!active) {
+			phase_ = Phase::Cancelled;
+			deferred_.clear();
+			return false;
+		}
+		phase_ = Phase::Draining;
+		return true;
+	}
+
+	void drain()
+	{
+		while (true) {
+			std::vector<DeferredCallback> batch;
+			{
+				std::lock_guard<std::mutex> lock(mutex_);
+				if (phase_ != Phase::Draining) {
+					return;
+				}
+				if (deferred_.empty()) {
+					phase_ = Phase::Active;
+					return;
+				}
+				batch.swap(deferred_);
+			}
+			for (auto &callback : batch) {
+				callback();
+			}
+		}
+	}
+
+private:
+	enum class Phase { Installing, Draining, Active, Cancelled };
+	std::mutex mutex_;
+	Phase phase_ = Phase::Installing;
+	std::vector<DeferredCallback> deferred_;
+};
+
+PeerEventIdentity peerEventIdentity(const std::shared_ptr<PeerInfo> &peer)
+{
+	return peer ? PeerEventIdentity{peer->uuid, peer->session, peer->generation,
+	                                peer->nextEventSequence.load(std::memory_order_acquire)}
+	            : PeerEventIdentity{};
+}
+
+PeerEventIdentity nextPeerEventIdentity(const std::shared_ptr<PeerInfo> &peer)
+{
+	return peer ? PeerEventIdentity{peer->uuid, peer->session, peer->generation,
+	                                peer->nextEventSequence.fetch_add(1, std::memory_order_acq_rel) + 1}
+	            : PeerEventIdentity{};
+}
 
 uint32_t rtpPacketTimestamp(const RtpPacketPacer::Packet &packet)
 {
@@ -233,6 +565,7 @@ std::string codecNameLower(const std::string &codec)
 	return lower;
 }
 
+// The caller must hold peer->mediaMutex whenever peer is non-null.
 TrackType classifyIncomingTrack(const std::shared_ptr<PeerInfo> &peer, const std::shared_ptr<rtc::Track> &track)
 {
 	if (!track) {
@@ -567,6 +900,22 @@ void clearTrackCallbacks(const std::shared_ptr<rtc::Track> &track)
 	}
 }
 
+void clearTrackLifecycleCallbacks(const std::shared_ptr<rtc::Track> &track)
+{
+	if (!track) {
+		return;
+	}
+
+	try {
+		track->onClosed(nullptr);
+	} catch (const std::exception &) {
+	}
+	try {
+		track->onError(nullptr);
+	} catch (const std::exception &) {
+	}
+}
+
 void clearPeerConnectionCallbacks(const std::shared_ptr<rtc::PeerConnection> &pc)
 {
 	if (!pc) {
@@ -590,8 +939,22 @@ void clearDataChannelCallbacks(const std::shared_ptr<rtc::DataChannel> &dataChan
 		return;
 	}
 
+	// Clear only the callbacks owned by the peer manager. DataChannel::resetCallbacks()
+	// also resets libdatachannel's internal open-trigger state, so an already-open
+	// channel could never resume message delivery if the exact handle is adopted again.
+	try {
+		dataChannel->onClosed(nullptr);
+	} catch (const std::exception &) {
+	}
+	try {
+		dataChannel->onError(nullptr);
+	} catch (const std::exception &) {
+	}
 	try {
 		dataChannel->onOpen(nullptr);
+	} catch (const std::exception &) {
+	}
+	try {
 		dataChannel->onMessage(nullptr);
 	} catch (const std::exception &) {
 	}
@@ -600,7 +963,8 @@ void clearDataChannelCallbacks(const std::shared_ptr<rtc::DataChannel> &dataChan
 } // namespace
 
 VDONinjaPeerManager::VDONinjaPeerManager()
-    : videoPacerBudget_(std::make_shared<RtpSharedPacerBudget>(kAggregateVideoPacerBurstBytes))
+    : videoPacerBudget_(std::make_shared<RtpSharedPacerBudget>(kAggregateVideoPacerBurstBytes)),
+      ownerSession_(std::make_shared<PeerManagerOwnerSession>(this))
 {
 	// Generate random SSRCs for audio/video
 	std::random_device rd;
@@ -618,20 +982,36 @@ VDONinjaPeerManager::VDONinjaPeerManager()
 
 VDONinjaPeerManager::~VDONinjaPeerManager()
 {
-	shuttingDown_ = true;
-	stopPublishing();
+	const auto ownerSession = ownerSession_;
+	if (ownerSession) {
+		// Linearize shutdown before touching any subscriber or peer state. A
+		// completion that has not yet acquired a permit can no longer enter.
+		ownerSession->closeWorkAdmission();
+	}
+	shuttingDown_.store(true, std::memory_order_release);
+	publishing_.store(false, std::memory_order_release);
 
-	// Clear signaling callbacks that capture `this`
-	if (signaling_) {
-		signaling_->setOnOffer(nullptr);
-		signaling_->setOnAnswer(nullptr);
-		signaling_->setOnOfferRequest(nullptr);
-		signaling_->setOnIceRestartRequest(nullptr);
-		signaling_->setOnIceCandidate(nullptr);
-		signaling_->setOnPeerCleanup(nullptr);
+	// Close function admission and snapshot every detacher before waiting. An
+	// installer already holding a work permit that loses this race observes
+	// closed function admission and detaches its own setter.
+	if (ownerSession) {
+		auto installedFunctions = ownerSession->closeFunctionAdmissionAndTakeDetachers();
+		// Drain admitted work with no manager, peer, or function-registry lock
+		// held. Manager destruction is a control-thread operation: a permitted
+		// callback cannot synchronously destroy the owner whose permit it still
+		// holds.
+		ownerSession->waitForCurrentWork();
+
+		// Callback setters can synchronously replay libdatachannel state. Invoke
+		// them only after admitted work drains, and without a registry lock, so an
+		// installed completion function is never detached while it is executing.
+		for (auto &installed : installedFunctions) {
+			detachInstalledFunction(ownerSession, installed.kind, installed.handle, installed.detach);
+		}
 	}
 
-	// Clear own callbacks
+	// Subscribers are owner state and may have been snapshotted by admitted
+	// callbacks, so release them only after all permits have drained.
 	{
 		std::lock_guard<std::mutex> callbackLock(callbackMutex_);
 		onPeerConnected_ = nullptr;
@@ -640,6 +1020,10 @@ VDONinjaPeerManager::~VDONinjaPeerManager()
 		onDataChannel_ = nullptr;
 		onDataChannelMessage_ = nullptr;
 		onKeyframeRequest_ = nullptr;
+		onAcceptedSignalingLifecycleEvent_ = nullptr;
+#if defined(VDONINJA_NATIVE_MEDIA_INTEGRATION_TEST)
+		nativeMediaTestVideoFeedbackCompletions_.clear();
+#endif
 	}
 
 	// Close all peer connections outside the map lock so RTC teardown cannot
@@ -662,32 +1046,89 @@ VDONinjaPeerManager::~VDONinjaPeerManager()
 	}
 	pruneRetiredPeers(0);
 	pendingRemoteIceCandidates_.clear();
+	ownerSession_.reset();
 }
 
 void VDONinjaPeerManager::initialize(VDONinjaSignaling *signaling)
 {
 	signaling_ = signaling;
+	const auto ownerSession = ownerSession_;
+	const std::weak_ptr<PeerManagerOwnerSession> weakOwnerSession = ownerSession;
 
 	// Set up signaling callbacks
-	signaling_->setOnOffer([this](const std::string &uuid, const std::string &sdp, const std::string &session) {
-		onSignalingOffer(uuid, sdp, session);
+	signaling_->setOnOffer([weakOwnerSession, signaling](const std::string &uuid, const std::string &sdp,
+	                                                     const std::string &session) {
+		auto permit =
+		    PeerManagerOwnerSession::acquire(weakOwnerSession, PeerManagerCompletionKind::SignalingOffer, signaling);
+		if (permit) {
+			permit.owner()->onSignalingOffer(uuid, sdp, session);
+		}
 	});
+	registerInstalledFunction(ownerSession, PeerManagerCompletionKind::SignalingOffer, signaling,
+	                          [signaling]() { signaling->setOnOffer(nullptr); });
 
-	signaling_->setOnAnswer([this](const std::string &uuid, const std::string &sdp, const std::string &session) {
-		onSignalingAnswer(uuid, sdp, session);
+	signaling_->setOnAnswer([weakOwnerSession, signaling](const std::string &uuid, const std::string &sdp,
+	                                                      const std::string &session) {
+		auto permit =
+		    PeerManagerOwnerSession::acquire(weakOwnerSession, PeerManagerCompletionKind::SignalingAnswer, signaling);
+		if (permit) {
+			permit.owner()->onSignalingAnswer(uuid, sdp, session);
+		}
 	});
+	registerInstalledFunction(ownerSession, PeerManagerCompletionKind::SignalingAnswer, signaling,
+	                          [signaling]() { signaling->setOnAnswer(nullptr); });
 
-	signaling_->setOnOfferRequest(
-	    [this](const std::string &uuid, const std::string &session) { onSignalingOfferRequest(uuid, session); });
+	signaling_->setOnOfferRequest([weakOwnerSession, signaling](const std::string &uuid, const std::string &session) {
+		auto permit = PeerManagerOwnerSession::acquire(weakOwnerSession,
+		                                               PeerManagerCompletionKind::SignalingOfferRequest, signaling);
+		if (permit) {
+			permit.owner()->onSignalingOfferRequest(uuid, session);
+		}
+	});
+	registerInstalledFunction(ownerSession, PeerManagerCompletionKind::SignalingOfferRequest, signaling,
+	                          [signaling]() { signaling->setOnOfferRequest(nullptr); });
 
 	signaling_->setOnIceRestartRequest(
-	    [this](const std::string &uuid, const std::string &session) { requestIceRestart(uuid, session); });
+	    [weakOwnerSession, signaling](const std::string &uuid, const std::string &session) {
+		    auto permit = PeerManagerOwnerSession::acquire(
+		        weakOwnerSession, PeerManagerCompletionKind::SignalingIceRestartRequest, signaling);
+		    if (permit) {
+			    permit.owner()->requestIceRestart(uuid, session);
+		    }
+	    });
+	registerInstalledFunction(ownerSession, PeerManagerCompletionKind::SignalingIceRestartRequest, signaling,
+	                          [signaling]() { signaling->setOnIceRestartRequest(nullptr); });
 
-	signaling_->setOnIceCandidate(
-	    [this](const std::string &uuid, const std::string &candidate, const std::string &mid,
-	           const std::string &session) { onSignalingIceCandidate(uuid, candidate, mid, session); });
+	signaling_->setOnIceCandidate([weakOwnerSession, signaling](const std::string &uuid, const std::string &candidate,
+	                                                            const std::string &mid, const std::string &session) {
+		auto permit = PeerManagerOwnerSession::acquire(weakOwnerSession,
+		                                               PeerManagerCompletionKind::SignalingIceCandidate, signaling);
+		if (permit) {
+			permit.owner()->onSignalingIceCandidate(uuid, candidate, mid, session);
+		}
+	});
+	registerInstalledFunction(ownerSession, PeerManagerCompletionKind::SignalingIceCandidate, signaling,
+	                          [signaling]() { signaling->setOnIceCandidate(nullptr); });
 
-	signaling_->setOnPeerCleanup([this](const std::string &uuid) { disconnectPeer(uuid); });
+	signaling_->setOnPeerCleanup([weakOwnerSession, signaling](const std::string &uuid, const std::string &session) {
+		auto permit = PeerManagerOwnerSession::acquire(weakOwnerSession,
+		                                               PeerManagerCompletionKind::SignalingPeerCleanup, signaling);
+		if (!permit) {
+			return;
+		}
+		auto *manager = permit.owner();
+		bool ambiguousReuse = false;
+		const auto identity = manager->claimSignalingPeerCleanupIdentity(uuid, session, &ambiguousReuse);
+		if (ambiguousReuse) {
+			logWarning("Ignoring ambiguous sessionless cleanup for manager-observed reused peer %s", uuid.c_str());
+			return;
+		}
+		if (identity) {
+			manager->disconnectPeer(*identity);
+		}
+	});
+	registerInstalledFunction(ownerSession, PeerManagerCompletionKind::SignalingPeerCleanup, signaling,
+	                          [signaling]() { signaling->setOnPeerCleanup(nullptr); });
 
 	logInfo("Peer manager initialized with signaling client");
 }
@@ -961,6 +1402,7 @@ bool VDONinjaPeerManager::requestIceRestart(const std::string &uuid, const std::
 			peer->signalingActive.store(false);
 			replacement->signalingActive.store(true);
 			it->second = replacement;
+			++peerGenerationRegistrationCounts_[uuid];
 			swapped = true;
 		}
 	}
@@ -1175,6 +1617,7 @@ std::shared_ptr<PeerInfo> VDONinjaPeerManager::createPublisherConnection(const s
 				std::lock_guard<std::mutex> candidateLock(candidateMutex_);
 				peer->signalingActive.store(true);
 				peers_[uuid] = peer;
+				++peerGenerationRegistrationCounts_[uuid];
 			}
 		}
 		if (concurrentPeer) {
@@ -1223,6 +1666,7 @@ std::shared_ptr<PeerInfo> VDONinjaPeerManager::createViewerConnection(const std:
 			std::lock_guard<std::mutex> candidateLock(candidateMutex_);
 			peer->signalingActive.store(true);
 			peers_[uuid] = peer;
+			++peerGenerationRegistrationCounts_[uuid];
 		}
 	}
 	if (concurrentPeer) {
@@ -1243,16 +1687,26 @@ void VDONinjaPeerManager::installLocalDescriptionCallback(const std::shared_ptr<
 
 	peer->localDescriptionCallbackInstalled = true;
 	auto weakPeer = std::weak_ptr<PeerInfo>(peer);
+	auto weakPc = std::weak_ptr<rtc::PeerConnection>(peer->pc);
+	const void *pcHandle = peer->pc.get();
+	const auto ownerSession = ownerSession_;
+	const std::weak_ptr<PeerManagerOwnerSession> weakOwnerSession = ownerSession;
 	const std::string uuid = peer->uuid;
 
-	peer->pc->onLocalDescription([this, weakPeer, uuid](rtc::Description description) {
+	peer->pc->onLocalDescription([weakOwnerSession, weakPeer, uuid, pcHandle](rtc::Description description) {
+		auto permit = PeerManagerOwnerSession::acquire(
+		    weakOwnerSession, PeerManagerCompletionKind::PeerConnectionLocalDescription, pcHandle);
+		if (!permit) {
+			return;
+		}
+		auto *manager = permit.owner();
 		runRtcCallbackNoexcept("PeerConnection::onLocalDescription", [&]() {
-			if (shuttingDown_) {
+			if (manager->shuttingDown_) {
 				return;
 			}
 
 			auto peer = weakPeer.lock();
-			if (!peer || !signaling_) {
+			if (!peer || !manager->signaling_) {
 				return;
 			}
 
@@ -1276,11 +1730,11 @@ void VDONinjaPeerManager::installLocalDescriptionCallback(const std::shared_ptr<
 					break;
 				}
 				{
-					std::lock_guard<std::mutex> candidateLock(candidateMutex_);
+					std::lock_guard<std::mutex> candidateLock(manager->candidateMutex_);
 					if (peer->cleanupRetired.load() || !peer->signalingActive.load()) {
 						break;
 					}
-					signaling_->sendOffer(uuid, sdp, peer->session);
+					manager->signaling_->sendOffer(uuid, sdp, peer->session);
 					peer->localOfferDispatched.store(true);
 				}
 				logInfo("Sent offer to %s (session %s)", uuid.c_str(), peer->session.c_str());
@@ -1291,14 +1745,19 @@ void VDONinjaPeerManager::installLocalDescriptionCallback(const std::shared_ptr<
 					break;
 				}
 				{
-					std::lock_guard<std::mutex> candidateLock(candidateMutex_);
+					std::shared_ptr<rtc::DataChannel> signalingDataChannel;
+					{
+						std::lock_guard<std::mutex> mediaLock(peer->mediaMutex);
+						signalingDataChannel = peer->signalingDataChannel;
+					}
+					std::lock_guard<std::mutex> candidateLock(manager->candidateMutex_);
 					if (peer->cleanupRetired.load() || !peer->signalingActive.load()) {
 						break;
 					}
-					if (peer->signalingDataChannel) {
-						signaling_->sendAnswerViaDataChannel(peer->signalingDataChannel, uuid, sdp, peer->session);
+					if (signalingDataChannel) {
+						manager->signaling_->sendAnswerViaDataChannel(signalingDataChannel, uuid, sdp, peer->session);
 					} else {
-						signaling_->sendAnswer(uuid, sdp, peer->session);
+						manager->signaling_->sendAnswer(uuid, sdp, peer->session);
 					}
 				}
 				logInfo("Sent answer to %s", uuid.c_str());
@@ -1309,22 +1768,38 @@ void VDONinjaPeerManager::installLocalDescriptionCallback(const std::shared_ptr<
 			}
 		});
 	});
+	registerInstalledFunction(ownerSession, PeerManagerCompletionKind::PeerConnectionLocalDescription, pcHandle,
+	                          [weakPc]() {
+		                          if (const auto pc = weakPc.lock()) {
+			                          pc->onLocalDescription(nullptr);
+		                          }
+	                          });
 }
 
 void VDONinjaPeerManager::setupPeerConnectionCallbacks(std::shared_ptr<PeerInfo> peer)
 {
 	auto weakPeer = std::weak_ptr<PeerInfo>(peer);
+	auto weakPc = std::weak_ptr<rtc::PeerConnection>(peer->pc);
+	const void *pcHandle = peer->pc.get();
+	const auto ownerSession = ownerSession_;
+	const std::weak_ptr<PeerManagerOwnerSession> weakOwnerSession = ownerSession;
 	std::string uuid = peer->uuid;
 
-	peer->pc->onStateChange([this, weakPeer, uuid](rtc::PeerConnection::State state) {
+	peer->pc->onStateChange([weakOwnerSession, weakPeer, uuid, pcHandle](rtc::PeerConnection::State state) {
+		auto permit = PeerManagerOwnerSession::acquire(weakOwnerSession, PeerManagerCompletionKind::PeerConnectionState,
+		                                               pcHandle);
+		if (!permit) {
+			return;
+		}
+		auto *manager = permit.owner();
 		runRtcCallbackNoexcept("PeerConnection::onStateChange", [&]() {
-			if (shuttingDown_) {
+			if (manager->shuttingDown_) {
 				return;
 			}
 			auto peer = weakPeer.lock();
 			if (!peer)
 				return;
-			if (peer->cleanupRetired.load() || !isCurrentPeer(peer)) {
+			if (peer->cleanupRetired.load() || !manager->isCurrentPeer(peer)) {
 				return;
 			}
 
@@ -1344,11 +1819,11 @@ void VDONinjaPeerManager::setupPeerConnectionCallbacks(std::shared_ptr<PeerInfo>
 				logInfo("Peer %s connected", uuid.c_str());
 				OnPeerConnectedCallback cb;
 				{
-					std::lock_guard<std::mutex> callbackLock(callbackMutex_);
-					cb = onPeerConnected_;
+					std::lock_guard<std::mutex> callbackLock(manager->callbackMutex_);
+					cb = manager->onPeerConnected_;
 				}
 				if (cb) {
-					cb(uuid);
+					cb(nextPeerEventIdentity(peer));
 				}
 				break;
 			}
@@ -1357,16 +1832,9 @@ void VDONinjaPeerManager::setupPeerConnectionCallbacks(std::shared_ptr<PeerInfo>
 				peer->terminalStateTimeMs.store(currentTimeMs());
 				logInfo("Peer %s disconnected", uuid.c_str());
 				if (!peer->disconnectNotified.exchange(true)) {
-					OnPeerDisconnectedCallback cb;
-					{
-						std::lock_guard<std::mutex> callbackLock(callbackMutex_);
-						cb = onPeerDisconnected_;
-					}
-					if (cb) {
-						cb(uuid);
-					}
+					manager->dispatchPeerDisconnected(peer);
 				}
-				retirePeerForDeferredCleanup(uuid, peer);
+				manager->retirePeerForDeferredCleanup(uuid, peer);
 				break;
 			}
 			case rtc::PeerConnection::State::Failed: {
@@ -1374,16 +1842,9 @@ void VDONinjaPeerManager::setupPeerConnectionCallbacks(std::shared_ptr<PeerInfo>
 				peer->terminalStateTimeMs.store(currentTimeMs());
 				logError("Peer %s connection failed", uuid.c_str());
 				if (!peer->disconnectNotified.exchange(true)) {
-					OnPeerDisconnectedCallback cb;
-					{
-						std::lock_guard<std::mutex> callbackLock(callbackMutex_);
-						cb = onPeerDisconnected_;
-					}
-					if (cb) {
-						cb(uuid);
-					}
+					manager->dispatchPeerDisconnected(peer);
 				}
-				retirePeerForDeferredCleanup(uuid, peer);
+				manager->retirePeerForDeferredCleanup(uuid, peer);
 				break;
 			}
 			case rtc::PeerConnection::State::Closed:
@@ -1391,24 +1852,28 @@ void VDONinjaPeerManager::setupPeerConnectionCallbacks(std::shared_ptr<PeerInfo>
 				peer->terminalStateTimeMs.store(currentTimeMs());
 				logInfo("Peer %s closed", uuid.c_str());
 				if (!peer->disconnectNotified.exchange(true)) {
-					OnPeerDisconnectedCallback cb;
-					{
-						std::lock_guard<std::mutex> callbackLock(callbackMutex_);
-						cb = onPeerDisconnected_;
-					}
-					if (cb) {
-						cb(uuid);
-					}
+					manager->dispatchPeerDisconnected(peer);
 				}
-				retirePeerForDeferredCleanup(uuid, peer);
+				manager->retirePeerForDeferredCleanup(uuid, peer);
 				break;
 			}
 		});
 	});
+	registerInstalledFunction(ownerSession, PeerManagerCompletionKind::PeerConnectionState, pcHandle, [weakPc]() {
+		if (const auto pc = weakPc.lock()) {
+			pc->onStateChange(nullptr);
+		}
+	});
 
-	peer->pc->onLocalCandidate([this, weakPeer, uuid](rtc::Candidate candidate) {
+	peer->pc->onLocalCandidate([weakOwnerSession, weakPeer, uuid, pcHandle](rtc::Candidate candidate) {
+		auto permit = PeerManagerOwnerSession::acquire(
+		    weakOwnerSession, PeerManagerCompletionKind::PeerConnectionLocalCandidate, pcHandle);
+		if (!permit) {
+			return;
+		}
+		auto *manager = permit.owner();
 		runRtcCallbackNoexcept("PeerConnection::onLocalCandidate", [&]() {
-			if (shuttingDown_) {
+			if (manager->shuttingDown_) {
 				return;
 			}
 			auto peer = weakPeer.lock();
@@ -1418,120 +1883,1331 @@ void VDONinjaPeerManager::setupPeerConnectionCallbacks(std::shared_ptr<PeerInfo>
 			// individual candidate envelope and early trickle avoids waiting for
 			// gathering completion on routes where only one candidate is produced.
 			{
-				std::lock_guard<std::mutex> lock(candidateMutex_);
+				std::lock_guard<std::mutex> lock(manager->candidateMutex_);
 				if (peer->cleanupRetired.load() || isTerminalPeerState(peer->state.load())) {
 					return;
 				}
-				auto &bundle = candidateBundles_[peer->generation];
+				auto &bundle = manager->candidateBundles_[peer->generation];
 				bundle.session = peer->session;
 				bundle.candidates.push_back({std::string(candidate), candidate.mid()});
 				bundle.lastUpdate = currentTimeMs();
 			}
-			bundleAndSendCandidates(peer);
+			manager->bundleAndSendCandidates(peer);
 		});
 	});
+	registerInstalledFunction(ownerSession, PeerManagerCompletionKind::PeerConnectionLocalCandidate, pcHandle,
+	                          [weakPc]() {
+		                          if (const auto pc = weakPc.lock()) {
+			                          pc->onLocalCandidate(nullptr);
+		                          }
+	                          });
 
-	peer->pc->onGatheringStateChange([this, weakPeer, uuid](rtc::PeerConnection::GatheringState state) {
-		runRtcCallbackNoexcept("PeerConnection::onGatheringStateChange", [&]() {
-			if (shuttingDown_) {
-				return;
-			}
-			if (state == rtc::PeerConnection::GatheringState::Complete) {
-				logInfo("ICE gathering complete for %s", uuid.c_str());
-				auto peer = weakPeer.lock();
-				if (peer) {
-					bundleAndSendCandidates(peer);
-				}
-			}
-		});
-	});
+	peer->pc->onGatheringStateChange(
+	    [weakOwnerSession, weakPeer, uuid, pcHandle](rtc::PeerConnection::GatheringState state) {
+		    auto permit = PeerManagerOwnerSession::acquire(
+		        weakOwnerSession, PeerManagerCompletionKind::PeerConnectionGatheringState, pcHandle);
+		    if (!permit) {
+			    return;
+		    }
+		    auto *manager = permit.owner();
+		    runRtcCallbackNoexcept("PeerConnection::onGatheringStateChange", [&]() {
+			    if (manager->shuttingDown_) {
+				    return;
+			    }
+			    if (state == rtc::PeerConnection::GatheringState::Complete) {
+				    logInfo("ICE gathering complete for %s", uuid.c_str());
+				    auto peer = weakPeer.lock();
+				    if (peer) {
+					    manager->bundleAndSendCandidates(peer);
+				    }
+			    }
+		    });
+	    });
+	registerInstalledFunction(ownerSession, PeerManagerCompletionKind::PeerConnectionGatheringState, pcHandle,
+	                          [weakPc]() {
+		                          if (const auto pc = weakPc.lock()) {
+			                          pc->onGatheringStateChange(nullptr);
+		                          }
+	                          });
 
-	peer->pc->onTrack([this, weakPeer, uuid](std::shared_ptr<rtc::Track> track) {
+	peer->pc->onTrack([weakOwnerSession, weakPeer, pcHandle](std::shared_ptr<rtc::Track> track) {
+		auto permit = PeerManagerOwnerSession::acquire(weakOwnerSession, PeerManagerCompletionKind::PeerConnectionTrack,
+		                                               pcHandle);
+		if (!permit) {
+			return;
+		}
+		auto *manager = permit.owner();
 		runRtcCallbackNoexcept("PeerConnection::onTrack", [&]() {
-			if (shuttingDown_) {
+			if (manager->shuttingDown_) {
 				return;
 			}
 			auto peer = weakPeer.lock();
 			if (!peer)
 				return;
-			if (peer->cleanupRetired.load() || isTerminalPeerState(peer->state.load()) || !isCurrentPeer(peer)) {
+			if (peer->cleanupRetired.load() || isTerminalPeerState(peer->state.load()) ||
+			    !manager->isCurrentPeer(peer)) {
 				return;
 			}
 
-			const TrackType type = classifyIncomingTrack(peer, track);
-			if (type == TrackType::Audio) {
-				peer->audioTrack = track;
-			} else if (type == TrackType::AlphaVideo) {
-				peer->alphaVideoTrack = track;
-			} else {
-				peer->videoTrack = track;
-			}
-
-			const char *typeLabel =
-			    type == TrackType::Audio ? "audio" : (type == TrackType::AlphaVideo ? "alpha video" : "video");
-			logInfo("Received %s track from %s (mid=%s)", typeLabel, uuid.c_str(), track ? track->mid().c_str() : "");
-
-			OnTrackCallback cb;
-			{
-				std::lock_guard<std::mutex> callbackLock(callbackMutex_);
-				cb = onTrack_;
-			}
-			if (cb) {
-				cb(uuid, type, track);
-			}
+			manager->handleIncomingTrack(peer, track);
 		});
 	});
+	registerInstalledFunction(ownerSession, PeerManagerCompletionKind::PeerConnectionTrack, pcHandle, [weakPc]() {
+		if (const auto pc = weakPc.lock()) {
+			pc->onTrack(nullptr);
+		}
+	});
 
-	peer->pc->onDataChannel([this, weakPeer, uuid](std::shared_ptr<rtc::DataChannel> dc) {
+	peer->pc->onDataChannel([weakOwnerSession, weakPeer, pcHandle](std::shared_ptr<rtc::DataChannel> dc) {
+		auto permit = PeerManagerOwnerSession::acquire(weakOwnerSession,
+		                                               PeerManagerCompletionKind::PeerConnectionDataChannel, pcHandle);
+		if (!permit) {
+			return;
+		}
+		auto *manager = permit.owner();
 		runRtcCallbackNoexcept("PeerConnection::onDataChannel", [&]() {
-			if (shuttingDown_) {
+			if (manager->shuttingDown_) {
 				return;
 			}
 			auto peer = weakPeer.lock();
 			if (!peer)
 				return;
-			if (peer->cleanupRetired.load() || isTerminalPeerState(peer->state.load()) || !isCurrentPeer(peer)) {
+			if (peer->cleanupRetired.load() || isTerminalPeerState(peer->state.load()) ||
+			    !manager->isCurrentPeer(peer)) {
 				return;
 			}
 
+			manager->handleIncomingDataChannel(peer, dc);
+		});
+	});
+	registerInstalledFunction(ownerSession, PeerManagerCompletionKind::PeerConnectionDataChannel, pcHandle, [weakPc]() {
+		if (const auto pc = weakPc.lock()) {
+			pc->onDataChannel(nullptr);
+		}
+	});
+}
+
+void VDONinjaPeerManager::handleIncomingDataChannel(const std::shared_ptr<PeerInfo> &peer,
+                                                    const std::shared_ptr<rtc::DataChannel> &dc,
+                                                    bool allowUnregisteredPeer)
+{
+	if (!peer || !dc) {
+		return;
+	}
+
+	const std::string label = dc->label();
+	if (!label.empty() && label != "sendChannel") {
+		logDebug("Ignoring non-control DataChannel '%s' from %s", label.c_str(), peer->uuid.c_str());
+		clearDataChannelCallbacks(dc);
+		return;
+	}
+
+	std::shared_ptr<rtc::DataChannel> retired;
+	uint64_t retiredRevision = 0;
+	uint64_t revision = 0;
+	bool transportOpenObserved = false;
+	bool rejected = false;
+	{
+		std::lock_guard<std::recursive_mutex> callbackMutationLock(peer->dataChannelCallbackMutationMutex);
+		std::lock_guard<std::recursive_mutex> lifecycleLock(peer->dataChannelLifecycleMutex);
+		std::lock_guard<std::mutex> lock(peersMutex_);
+		const auto current = peers_.find(peer->uuid);
+		const bool registeredCurrent = current != peers_.end() && current->second == peer;
+		if ((!registeredCurrent && !allowUnregisteredPeer) || (current != peers_.end() && current->second != peer) ||
+		    peer->cleanupRetired.load() || isTerminalPeerState(peer->state.load())) {
+			rejected = true;
+		} else {
+			std::lock_guard<std::mutex> mediaLock(peer->mediaMutex);
+			if (peer->dataChannel == dc) {
+				return;
+			}
+			retired = peer->dataChannel;
+			retiredRevision = peer->dataChannelRevision;
+			revision = ++peer->dataChannelRevision;
 			peer->dataChannel = dc;
 			peer->hasDataChannel = true;
+			peer->dataChannelOpenDispatched = false;
+			peer->dataChannelOpenDispatchPending = false;
+			for (auto it = peer->dataChannelsWithObservedOpen.begin();
+			     it != peer->dataChannelsWithObservedOpen.end();) {
+				const auto opened = it->lock();
+				if (!opened) {
+					it = peer->dataChannelsWithObservedOpen.erase(it);
+					continue;
+				}
+				if (opened == dc) {
+					transportOpenObserved = true;
+				}
+				++it;
+			}
+		}
+	}
+	if (rejected) {
+		clearDataChannelCallbacks(dc);
+		return;
+	}
 
-			dc->onMessage([this, weakPeer, uuid](auto data) {
-				runRtcCallbackNoexcept("DataChannel::onMessage", [&]() {
-					if (shuttingDown_) {
-						return;
+#if defined(VDONINJA_NATIVE_MEDIA_INTEGRATION_TEST)
+	invokeNativeMediaTestDataChannelLifecycleHook(NativeMediaTestDataChannelStage::IncomingEntered, peer, dc, revision);
+	invokeNativeMediaTestDataChannelLifecycleHook(NativeMediaTestDataChannelStage::BeforeCallbacksInstalled, peer, dc,
+	                                              revision);
+#endif
+
+	if (retired) {
+		purgeDataChannelAliasesForLease(peer->uuid, peer->generation, retired, retiredRevision);
+		clearRetiredDataChannelCallbacksIfUnused(peer, retired);
+	}
+	if (!isDataChannelLeaseCurrent(peer, dc, peer->generation, revision, false, allowUnregisteredPeer)) {
+		clearRetiredDataChannelCallbacksIfUnused(peer, dc);
+		return;
+	}
+	installDataChannelCallbacks(peer, dc, peer->generation, revision, transportOpenObserved, allowUnregisteredPeer);
+#if defined(VDONINJA_NATIVE_MEDIA_INTEGRATION_TEST)
+	invokeNativeMediaTestDataChannelLifecycleHook(NativeMediaTestDataChannelStage::IncomingReturning, peer, dc,
+	                                              revision);
+#endif
+}
+
+bool VDONinjaPeerManager::isDataChannelLeaseCurrent(const std::shared_ptr<PeerInfo> &peer,
+                                                    const std::shared_ptr<rtc::DataChannel> &dc, uint64_t generation,
+                                                    uint64_t revision, bool requireOpen,
+                                                    bool allowUnregisteredPeer) const
+{
+	if (!peer || !dc || generation == 0 || revision == 0) {
+		return false;
+	}
+	std::lock_guard<std::mutex> lock(peersMutex_);
+	const auto current = peers_.find(peer->uuid);
+	const bool registeredCurrent = current != peers_.end() && current->second == peer;
+	if ((!registeredCurrent && !allowUnregisteredPeer) || (current != peers_.end() && current->second != peer) ||
+	    peer->generation != generation || peer->cleanupRetired.load() || isTerminalPeerState(peer->state.load())) {
+		return false;
+	}
+	std::lock_guard<std::mutex> mediaLock(peer->mediaMutex);
+	return peer->dataChannel == dc && peer->dataChannelRevision == revision &&
+	       (!requireOpen || peer->dataChannelOpenDispatched);
+}
+
+bool VDONinjaPeerManager::installDataChannelCallbacks(const std::shared_ptr<PeerInfo> &peer,
+                                                      const std::shared_ptr<rtc::DataChannel> &dc, uint64_t generation,
+                                                      uint64_t revision, bool transportOpenObserved,
+                                                      bool allowUnregisteredPeer)
+{
+	const std::weak_ptr<PeerInfo> weakPeer = peer;
+	const std::weak_ptr<rtc::DataChannel> weakDataChannel = dc;
+	const void *dataChannelHandle = dc.get();
+	const auto ownerSession = ownerSession_;
+	const std::weak_ptr<PeerManagerOwnerSession> weakOwnerSession = ownerSession;
+	const auto callbackState = std::make_shared<DataChannelCallbackInstallState>();
+	bool installed = false;
+	bool closedDuringInstall = false;
+	std::string installError;
+	{
+		// Callback mutation is distinct from lease state. libdatachannel callback setters
+		// can synchronously replay open/message/terminal events, so setters must never run
+		// while the lease lifecycle lock is held.
+		std::lock_guard<std::recursive_mutex> callbackMutationLock(peer->dataChannelCallbackMutationMutex);
+		const auto stillCurrent = [&]() {
+			std::lock_guard<std::recursive_mutex> lifecycleLock(peer->dataChannelLifecycleMutex);
+			return isDataChannelLeaseCurrent(peer, dc, generation, revision, false, allowUnregisteredPeer);
+		};
+		try {
+			if (!stillCurrent()) {
+				throw std::runtime_error("DataChannel lease was replaced before callback installation");
+			}
+			dc->onClosed([weakOwnerSession, weakPeer, weakDataChannel, callbackState, generation, revision,
+			              dataChannelHandle]() {
+				auto permit = PeerManagerOwnerSession::acquire(
+				    weakOwnerSession, PeerManagerCompletionKind::DataChannelClosed, dataChannelHandle);
+				if (!permit) {
+					return;
+				}
+				auto *manager = permit.owner();
+				{
+					ScopedActiveDataChannelCallback activeCallback(weakDataChannel.lock().get());
+					DataChannelCallbackInstallState::DeferredCallback dispatch =
+					    [weakOwnerSession, weakPeer, weakDataChannel, generation, revision, dataChannelHandle]() {
+						    auto dispatchPermit = PeerManagerOwnerSession::acquire(
+						        weakOwnerSession, PeerManagerCompletionKind::DataChannelClosed, dataChannelHandle);
+						    if (!dispatchPermit) {
+							    return;
+						    }
+						    auto *dispatchManager = dispatchPermit.owner();
+						    runRtcCallbackNoexcept("DataChannel::onClosed", [&]() {
+							    dispatchManager->handleDataChannelTerminal(weakPeer, weakDataChannel, generation,
+							                                               revision, "datachannel-closed");
+						    });
+					    };
+					const auto action = callbackState->submit(dispatch);
+					if (action == DataChannelCallbackInstallState::Action::Dispatch) {
+						dispatch();
 					}
-					auto peer = weakPeer.lock();
-					if (!peer || peer->cleanupRetired.load() || isTerminalPeerState(peer->state.load()) ||
-					    !isCurrentPeer(peer)) {
-						return;
-					}
-					if (std::holds_alternative<std::string>(data)) {
-						OnDataChannelMessageCallback cb;
-						{
-							std::lock_guard<std::mutex> callbackLock(callbackMutex_);
-							cb = onDataChannelMessage_;
-						}
-						if (cb) {
-							cb(uuid, std::get<std::string>(data));
-						}
-					}
-				});
+				}
+				manager->drainRetiredDataChannelCallbackCleanupForHandle(weakPeer, weakDataChannel);
 			});
+			registerInstalledFunction(ownerSession, PeerManagerCompletionKind::DataChannelClosed, dataChannelHandle,
+			                          [weakDataChannel]() {
+				                          if (const auto channel = weakDataChannel.lock()) {
+					                          channel->onClosed(nullptr);
+				                          }
+			                          });
+			if (!stillCurrent()) {
+				throw std::runtime_error("DataChannel lease was replaced after onClosed installation");
+			}
+			dc->onError([weakOwnerSession, weakPeer, weakDataChannel, callbackState, generation, revision,
+			             dataChannelHandle](std::string error) {
+				auto permit = PeerManagerOwnerSession::acquire(
+				    weakOwnerSession, PeerManagerCompletionKind::DataChannelError, dataChannelHandle);
+				if (!permit) {
+					return;
+				}
+				auto *manager = permit.owner();
+				{
+					ScopedActiveDataChannelCallback activeCallback(weakDataChannel.lock().get());
+					DataChannelCallbackInstallState::DeferredCallback dispatch =
+					    [weakOwnerSession, weakPeer, weakDataChannel, generation, revision, error = std::move(error),
+					     dataChannelHandle]() {
+						    auto dispatchPermit = PeerManagerOwnerSession::acquire(
+						        weakOwnerSession, PeerManagerCompletionKind::DataChannelError, dataChannelHandle);
+						    if (!dispatchPermit) {
+							    return;
+						    }
+						    auto *dispatchManager = dispatchPermit.owner();
+						    runRtcCallbackNoexcept("DataChannel::onError", [&]() {
+							    dispatchManager->handleDataChannelTerminal(weakPeer, weakDataChannel, generation,
+							                                               revision, "datachannel-error", error);
+						    });
+					    };
+					const auto action = callbackState->submit(dispatch);
+					if (action == DataChannelCallbackInstallState::Action::Dispatch) {
+						dispatch();
+					}
+				}
+				manager->drainRetiredDataChannelCallbackCleanupForHandle(weakPeer, weakDataChannel);
+			});
+			registerInstalledFunction(ownerSession, PeerManagerCompletionKind::DataChannelError, dataChannelHandle,
+			                          [weakDataChannel]() {
+				                          if (const auto channel = weakDataChannel.lock()) {
+					                          channel->onError(nullptr);
+				                          }
+			                          });
+			if (!stillCurrent()) {
+				throw std::runtime_error("DataChannel lease was replaced after onError installation");
+			}
+#if defined(VDONINJA_NATIVE_MEDIA_INTEGRATION_TEST)
+			invokeNativeMediaTestDataChannelLifecycleHook(NativeMediaTestDataChannelStage::AfterErrorCallbackInstalled,
+			                                              peer, dc, revision);
+#endif
+			if (!stillCurrent()) {
+				throw std::runtime_error("DataChannel lease was replaced during callback installation");
+			}
+			dc->onOpen([weakOwnerSession, weakPeer, weakDataChannel, callbackState, generation, revision,
+			            dataChannelHandle]() {
+				auto permit = PeerManagerOwnerSession::acquire(
+				    weakOwnerSession, PeerManagerCompletionKind::DataChannelOpen, dataChannelHandle);
+				if (!permit) {
+					return;
+				}
+				auto *manager = permit.owner();
+				{
+					ScopedActiveDataChannelCallback activeCallback(weakDataChannel.lock().get());
+					DataChannelCallbackInstallState::DeferredCallback dispatch =
+					    [weakOwnerSession, weakPeer, weakDataChannel, generation, revision, dataChannelHandle]() {
+						    auto dispatchPermit = PeerManagerOwnerSession::acquire(
+						        weakOwnerSession, PeerManagerCompletionKind::DataChannelOpen, dataChannelHandle);
+						    if (!dispatchPermit) {
+							    return;
+						    }
+						    auto *dispatchManager = dispatchPermit.owner();
+						    runRtcCallbackNoexcept("DataChannel::onOpen", [&]() {
+							    dispatchManager->handleDataChannelOpen(weakPeer, weakDataChannel, generation, revision);
+						    });
+					    };
+					const auto action = callbackState->submit(dispatch);
+					if (action == DataChannelCallbackInstallState::Action::Dispatch) {
+						dispatch();
+					}
+				}
+				manager->drainRetiredDataChannelCallbackCleanupForHandle(weakPeer, weakDataChannel);
+			});
+			registerInstalledFunction(ownerSession, PeerManagerCompletionKind::DataChannelOpen, dataChannelHandle,
+			                          [weakDataChannel]() {
+				                          if (const auto channel = weakDataChannel.lock()) {
+					                          channel->onOpen(nullptr);
+				                          }
+			                          });
+			if (!stillCurrent()) {
+				throw std::runtime_error("DataChannel lease was replaced after onOpen installation");
+			}
+			dc->onMessage([weakOwnerSession, weakPeer, weakDataChannel, callbackState, generation, revision,
+			               dataChannelHandle](auto data) {
+				auto permit = PeerManagerOwnerSession::acquire(
+				    weakOwnerSession, PeerManagerCompletionKind::DataChannelMessage, dataChannelHandle);
+				if (!permit) {
+					return;
+				}
+				auto *manager = permit.owner();
+				{
+					ScopedActiveDataChannelCallback activeCallback(weakDataChannel.lock().get());
+					DataChannelCallbackInstallState::DeferredCallback dispatch =
+					    [weakOwnerSession, weakPeer, weakDataChannel, generation, revision, data = std::move(data),
+					     dataChannelHandle]() mutable {
+						    auto dispatchPermit = PeerManagerOwnerSession::acquire(
+						        weakOwnerSession, PeerManagerCompletionKind::DataChannelMessage, dataChannelHandle);
+						    if (!dispatchPermit) {
+							    return;
+						    }
+						    auto *dispatchManager = dispatchPermit.owner();
+						    runRtcCallbackNoexcept("DataChannel::onMessage", [&]() {
+							    dispatchManager->handleDataChannelMessage(weakPeer, weakDataChannel, generation,
+							                                              revision, std::move(data));
+						    });
+					    };
+					const auto action = callbackState->submit(dispatch);
+					if (action == DataChannelCallbackInstallState::Action::Dispatch) {
+						dispatch();
+					}
+#if defined(VDONINJA_NATIVE_MEDIA_INTEGRATION_TEST)
+					if (action == DataChannelCallbackInstallState::Action::DeferredDraining) {
+						manager->invokeNativeMediaTestDataChannelLifecycleHook(
+						    NativeMediaTestDataChannelStage::DeferredCallbackQueuedDuringDrain, weakPeer.lock(),
+						    weakDataChannel.lock(), revision);
+					}
+#endif
+				}
+				manager->drainRetiredDataChannelCallbackCleanupForHandle(weakPeer, weakDataChannel);
+			});
+			registerInstalledFunction(ownerSession, PeerManagerCompletionKind::DataChannelMessage, dataChannelHandle,
+			                          [weakDataChannel]() {
+				                          if (const auto channel = weakDataChannel.lock()) {
+					                          channel->onMessage(nullptr);
+				                          }
+			                          });
+			if (!stillCurrent()) {
+				throw std::runtime_error("DataChannel lease was replaced after onMessage installation");
+			}
+			closedDuringInstall = dc->isClosed();
+			installed = !closedDuringInstall;
+		} catch (const std::exception &e) {
+			installError = e.what();
+		}
+	}
 
-			logInfo("Data channel opened with %s", uuid.c_str());
+	// A previously observed transport-open must precede any messages queued while its
+	// callbacks were absent. It is not itself an application-open commit; the exact
+	// dispatch below still has to linearize against the current lease.
+	if (installed && transportOpenObserved) {
+		callbackState->prepend([weakOwnerSession, weakPeer, weakDataChannel, generation, revision,
+		                        dataChannelHandle]() {
+			auto permit = PeerManagerOwnerSession::acquire(weakOwnerSession, PeerManagerCompletionKind::DataChannelOpen,
+			                                               dataChannelHandle);
+			if (!permit) {
+				return;
+			}
+			auto *manager = permit.owner();
+			runRtcCallbackNoexcept("DataChannel::observed-open-replay", [&]() {
+				manager->handleDataChannelOpen(weakPeer, weakDataChannel, generation, revision);
+			});
+		});
+	}
 
-			OnDataChannelCallback cb;
+	// The phase transition and all replay dispatch happen after callback mutation and
+	// lifecycle locks are released. New callbacks remain queued during draining, so they
+	// cannot overtake an earlier deferred open or message.
+	if (!callbackState->beginDrain(installed)) {
+		if (closedDuringInstall) {
+			handleDataChannelTerminal(weakPeer, weakDataChannel, generation, revision,
+			                          "datachannel-closed-during-callback-install");
+		} else if (!installError.empty() &&
+		           isDataChannelLeaseCurrent(peer, dc, generation, revision, false, allowUnregisteredPeer)) {
+			logWarning("Failed to install DataChannel callbacks for %s: %s", peer->uuid.c_str(), installError.c_str());
+			handleDataChannelTerminal(weakPeer, weakDataChannel, generation, revision,
+			                          "datachannel-callback-install-error", installError);
+		}
+		clearRetiredDataChannelCallbacksIfUnused(peer, dc);
+		return false;
+	}
+#if defined(VDONINJA_NATIVE_MEDIA_INTEGRATION_TEST)
+	invokeNativeMediaTestDataChannelLifecycleHook(NativeMediaTestDataChannelStage::BeforeDeferredCallbacksDrained, peer,
+	                                              dc, revision);
+#endif
+	callbackState->drain();
+	return true;
+}
+
+void VDONinjaPeerManager::handleDataChannelOpen(const std::weak_ptr<PeerInfo> &weakPeer,
+                                                const std::weak_ptr<rtc::DataChannel> &weakDataChannel,
+                                                uint64_t generation, uint64_t revision)
+{
+	if (shuttingDown_) {
+		return;
+	}
+	const auto peer = weakPeer.lock();
+	const auto dc = weakDataChannel.lock();
+	if (!peer || !dc) {
+		return;
+	}
+	bool dispatchCurrentOpen = false;
+	{
+		std::lock_guard<std::recursive_mutex> lifecycleLock(peer->dataChannelLifecycleMutex);
+		std::lock_guard<std::mutex> lock(peersMutex_);
+		const auto current = peers_.find(peer->uuid);
+		if (current == peers_.end() || current->second != peer || peer->generation != generation ||
+		    peer->cleanupRetired.load() || isTerminalPeerState(peer->state.load())) {
+			return;
+		}
+		std::lock_guard<std::mutex> mediaLock(peer->mediaMutex);
+		auto &observed = peer->dataChannelsWithObservedOpen;
+		observed.erase(std::remove_if(observed.begin(), observed.end(),
+		                              [](const std::weak_ptr<rtc::DataChannel> &opened) { return opened.expired(); }),
+		               observed.end());
+		const bool alreadyRecorded =
+		    std::any_of(observed.begin(), observed.end(),
+		                [&dc](const std::weak_ptr<rtc::DataChannel> &opened) { return opened.lock() == dc; });
+		if (!alreadyRecorded) {
+			if (observed.size() >= kObservedDataChannelHistoryLimit) {
+				observed.erase(observed.begin());
+			}
+			observed.emplace_back(dc);
+		}
+		if (peer->dataChannel == dc && peer->dataChannelRevision == revision && !peer->dataChannelOpenDispatched &&
+		    !peer->dataChannelOpenDispatchPending) {
+			peer->dataChannelOpenDispatchPending = true;
+			dispatchCurrentOpen = true;
+		}
+	}
+	if (dispatchCurrentOpen) {
+		dispatchDataChannelOpen(peer, dc, generation, revision);
+	}
+}
+
+void VDONinjaPeerManager::handleDataChannelMessage(const std::weak_ptr<PeerInfo> &weakPeer,
+                                                   const std::weak_ptr<rtc::DataChannel> &weakDataChannel,
+                                                   uint64_t generation, uint64_t revision, rtc::message_variant data)
+{
+	if (shuttingDown_ || !std::holds_alternative<std::string>(data)) {
+		return;
+	}
+	const auto peer = weakPeer.lock();
+	const auto dc = weakDataChannel.lock();
+	if (!peer || !dc) {
+		return;
+	}
+	{
+		std::lock_guard<std::recursive_mutex> lifecycleLock(peer->dataChannelLifecycleMutex);
+		if (!isDataChannelLeaseCurrent(peer, dc, generation, revision, true)) {
+			return;
+		}
+	}
+	dispatchDataChannelMessage(peer, std::get<std::string>(data), dc, generation, revision);
+}
+
+void VDONinjaPeerManager::handleDataChannelTerminal(const std::weak_ptr<PeerInfo> &weakPeer,
+                                                    const std::weak_ptr<rtc::DataChannel> &weakDataChannel,
+                                                    uint64_t generation, uint64_t revision, const char *reason,
+                                                    const std::string &error)
+{
+	const auto peer = weakPeer.lock();
+	const auto dc = weakDataChannel.lock();
+	if (!peer || !dc) {
+		return;
+	}
+	bool retired = false;
+	{
+		std::lock_guard<std::recursive_mutex> lifecycleLock(peer->dataChannelLifecycleMutex);
+		{
+			std::lock_guard<std::mutex> lock(peersMutex_);
+			const auto current = peers_.find(peer->uuid);
+			if (current == peers_.end() || current->second != peer || peer->generation != generation) {
+				return;
+			}
+			std::lock_guard<std::mutex> mediaLock(peer->mediaMutex);
+			if (peer->dataChannel != dc || peer->dataChannelRevision != revision) {
+				return;
+			}
+			peer->dataChannel.reset();
+			peer->hasDataChannel = false;
+			peer->dataChannelOpenDispatched = false;
+			peer->dataChannelOpenDispatchPending = false;
+			peer->dataChannelsWithObservedOpen.erase(
+			    std::remove_if(peer->dataChannelsWithObservedOpen.begin(), peer->dataChannelsWithObservedOpen.end(),
+			                   [&dc](const std::weak_ptr<rtc::DataChannel> &opened) {
+				                   const auto handle = opened.lock();
+				                   return !handle || handle == dc;
+			                   }),
+			    peer->dataChannelsWithObservedOpen.end());
+			++peer->dataChannelRevision;
+			retired = true;
+		}
+	}
+	if (!retired) {
+		return;
+	}
+	purgeDataChannelAliasesForLease(peer->uuid, generation, dc, revision);
+	if (!error.empty()) {
+		logWarning("DataChannel for %s failed (%s): %s", peer->uuid.c_str(), reason ? reason : "terminal",
+		           error.c_str());
+		try {
+			dc->close();
+		} catch (const std::exception &) {
+		}
+	}
+	clearRetiredDataChannelCallbacksIfUnused(peer, dc);
+}
+
+void VDONinjaPeerManager::clearRetiredDataChannelCallbacksIfUnused(const std::shared_ptr<PeerInfo> &peer,
+                                                                   const std::shared_ptr<rtc::DataChannel> &dc)
+{
+	if (!peer || !dc) {
+		return;
+	}
+#if defined(VDONINJA_NATIVE_MEDIA_INTEGRATION_TEST)
+	invokeNativeMediaTestDataChannelLifecycleHook(NativeMediaTestDataChannelStage::BeforeCallbackCleanup, peer, dc, 0);
+#endif
+	if (activeManagerDataChannelCallback == dc.get()) {
+		std::lock_guard<std::mutex> mediaLock(peer->mediaMutex);
+		const auto &pending = peer->retiredDataChannelsPendingCallbackCleanup;
+		if (std::find(pending.begin(), pending.end(), dc) == pending.end()) {
+			peer->retiredDataChannelsPendingCallbackCleanup.push_back(dc);
+		}
+		return;
+	}
+
+	std::lock_guard<std::recursive_mutex> callbackMutationLock(peer->dataChannelCallbackMutationMutex);
+	bool currentHandle = false;
+	{
+		std::lock_guard<std::recursive_mutex> lifecycleLock(peer->dataChannelLifecycleMutex);
+		{
+			std::lock_guard<std::mutex> lock(peersMutex_);
+			const auto current = peers_.find(peer->uuid);
+			if (current != peers_.end() && current->second == peer && !peer->cleanupRetired.load() &&
+			    !isTerminalPeerState(peer->state.load())) {
+				std::lock_guard<std::mutex> mediaLock(peer->mediaMutex);
+				if (peer->dataChannel == dc) {
+					currentHandle = true;
+				}
+			}
+		}
+	}
+	if (!currentHandle) {
+		clearDataChannelCallbacks(dc);
+	}
+	{
+		std::lock_guard<std::mutex> mediaLock(peer->mediaMutex);
+		auto &pending = peer->retiredDataChannelsPendingCallbackCleanup;
+		pending.erase(std::remove(pending.begin(), pending.end(), dc), pending.end());
+	}
+}
+
+void VDONinjaPeerManager::drainRetiredDataChannelCallbackCleanupForHandle(
+    const std::weak_ptr<PeerInfo> &weakPeer, const std::weak_ptr<rtc::DataChannel> &weakDataChannel)
+{
+	const auto peer = weakPeer.lock();
+	const auto dc = weakDataChannel.lock();
+	if (!peer || !dc) {
+		return;
+	}
+	bool pending = false;
+	{
+		std::lock_guard<std::mutex> mediaLock(peer->mediaMutex);
+		const auto &retired = peer->retiredDataChannelsPendingCallbackCleanup;
+		pending = std::find(retired.begin(), retired.end(), dc) != retired.end();
+	}
+	if (pending) {
+		clearRetiredDataChannelCallbacksIfUnused(peer, dc);
+	}
+}
+
+void VDONinjaPeerManager::purgeDataChannelAliasesForLease(const std::string &transportUuid,
+                                                          uint64_t transportGeneration,
+                                                          const std::shared_ptr<rtc::DataChannel> &dc,
+                                                          uint64_t revision)
+{
+	if (transportUuid.empty() || transportGeneration == 0 || !dc || revision == 0) {
+		return;
+	}
+	std::lock_guard<std::mutex> aliasLock(dataChannelAliasMutex_);
+	std::lock_guard<std::mutex> lock(peersMutex_);
+	for (const auto &entry : peers_) {
+		if (!entry.second) {
+			continue;
+		}
+		std::lock_guard<std::mutex> mediaLock(entry.second->mediaMutex);
+		if (entry.second->signalingDataChannel == dc &&
+		    entry.second->signalingDataChannelTransportUuid == transportUuid &&
+		    entry.second->signalingDataChannelTransportGeneration == transportGeneration &&
+		    entry.second->signalingDataChannelRevision == revision) {
+			entry.second->signalingDataChannel.reset();
+			entry.second->signalingDataChannelTransportUuid.clear();
+			entry.second->signalingDataChannelTransportGeneration = 0;
+			entry.second->signalingDataChannelRevision = 0;
+		}
+	}
+	std::lock_guard<std::mutex> pendingLock(pendingViewerSignalingMutex_);
+	for (auto it = pendingViewerSignalingDataChannels_.begin(); it != pendingViewerSignalingDataChannels_.end();) {
+		const auto &route = it->second;
+		if (route.channel == dc && route.transportUuid == transportUuid &&
+		    route.transportGeneration == transportGeneration && route.dataChannelRevision == revision) {
+			it = pendingViewerSignalingDataChannels_.erase(it);
+		} else {
+			++it;
+		}
+	}
+}
+
+void VDONinjaPeerManager::retirePeerDataChannel(const std::shared_ptr<PeerInfo> &peer)
+{
+	if (!peer) {
+		return;
+	}
+	std::shared_ptr<rtc::DataChannel> retired;
+	uint64_t retiredRevision = 0;
+	{
+		std::lock_guard<std::recursive_mutex> lifecycleLock(peer->dataChannelLifecycleMutex);
+		{
+			std::lock_guard<std::mutex> aliasLock(dataChannelAliasMutex_);
+			std::lock_guard<std::mutex> lock(peersMutex_);
 			{
-				std::lock_guard<std::mutex> callbackLock(callbackMutex_);
-				cb = onDataChannel_;
+				std::lock_guard<std::mutex> mediaLock(peer->mediaMutex);
+				retired = peer->dataChannel;
+				retiredRevision = peer->dataChannelRevision;
+				if (retired) {
+					peer->dataChannel.reset();
+					peer->hasDataChannel = false;
+					peer->dataChannelOpenDispatched = false;
+					peer->dataChannelOpenDispatchPending = false;
+					++peer->dataChannelRevision;
+				}
+				peer->signalingDataChannel.reset();
+				peer->signalingDataChannelTransportUuid.clear();
+				peer->signalingDataChannelTransportGeneration = 0;
+				peer->signalingDataChannelRevision = 0;
+				peer->dataChannelsWithObservedOpen.clear();
 			}
-			if (cb) {
-				cb(uuid, dc);
+			if (retired) {
+				for (const auto &entry : peers_) {
+					if (!entry.second || entry.second == peer) {
+						continue;
+					}
+					std::lock_guard<std::mutex> mediaLock(entry.second->mediaMutex);
+					if (entry.second->signalingDataChannel == retired &&
+					    entry.second->signalingDataChannelTransportUuid == peer->uuid &&
+					    entry.second->signalingDataChannelTransportGeneration == peer->generation &&
+					    entry.second->signalingDataChannelRevision == retiredRevision) {
+						entry.second->signalingDataChannel.reset();
+						entry.second->signalingDataChannelTransportUuid.clear();
+						entry.second->signalingDataChannelTransportGeneration = 0;
+						entry.second->signalingDataChannelRevision = 0;
+					}
+				}
+				std::lock_guard<std::mutex> pendingLock(pendingViewerSignalingMutex_);
+				for (auto it = pendingViewerSignalingDataChannels_.begin();
+				     it != pendingViewerSignalingDataChannels_.end();) {
+					const auto &route = it->second;
+					if (route.channel == retired && route.transportUuid == peer->uuid &&
+					    route.transportGeneration == peer->generation && route.dataChannelRevision == retiredRevision) {
+						it = pendingViewerSignalingDataChannels_.erase(it);
+					} else {
+						++it;
+					}
+				}
 			}
+		}
+	}
+	if (retired) {
+		clearRetiredDataChannelCallbacksIfUnused(peer, retired);
+	}
+}
+
+#if defined(VDONINJA_NATIVE_MEDIA_INTEGRATION_TEST)
+void VDONinjaPeerManager::invokeNativeMediaTestDataChannelLifecycleHook(NativeMediaTestDataChannelStage stage,
+                                                                        const std::shared_ptr<PeerInfo> &peer,
+                                                                        const std::shared_ptr<rtc::DataChannel> &dc,
+                                                                        uint64_t revision)
+{
+	NativeMediaTestDataChannelLifecycleHook hook;
+	{
+		std::lock_guard<std::mutex> callbackLock(callbackMutex_);
+		hook = nativeMediaTestDataChannelLifecycleHook_;
+	}
+	if (hook) {
+		hook(stage, peer, dc, revision);
+	}
+}
+#endif
+
+void VDONinjaPeerManager::consumePendingViewerSignalingDataChannel(const std::shared_ptr<PeerInfo> &peer,
+                                                                   const std::string &session)
+{
+	if (!peer) {
+		return;
+	}
+	ViewerSignalingDataChannelRoute route;
+	{
+		std::lock_guard<std::mutex> aliasLock(dataChannelAliasMutex_);
+		std::lock_guard<std::mutex> lock(pendingViewerSignalingMutex_);
+		auto it = pendingViewerSignalingDataChannels_.find(viewerSignalingKey(peer->uuid, session));
+		if (it == pendingViewerSignalingDataChannels_.end()) {
+			return;
+		}
+		route = it->second;
+		pendingViewerSignalingDataChannels_.erase(it);
+	}
+#if defined(VDONINJA_NATIVE_MEDIA_INTEGRATION_TEST)
+	invokeNativeMediaTestDataChannelLifecycleHook(NativeMediaTestDataChannelStage::BeforePendingAliasConsume, peer,
+	                                              route.channel, route.dataChannelRevision);
+#endif
+	std::lock_guard<std::mutex> aliasLock(dataChannelAliasMutex_);
+	std::lock_guard<std::mutex> lock(peersMutex_);
+	const auto targetIt = peers_.find(peer->uuid);
+	const auto transportIt = peers_.find(route.transportUuid);
+	if (targetIt == peers_.end() || targetIt->second != peer || transportIt == peers_.end() || !transportIt->second ||
+	    transportIt->second->generation != route.transportGeneration) {
+		return;
+	}
+	const auto transport = transportIt->second;
+	std::unique_lock<std::mutex> transportMediaLock(transport->mediaMutex);
+	if (transport->dataChannel != route.channel || transport->dataChannelRevision != route.dataChannelRevision ||
+	    !transport->dataChannelOpenDispatched) {
+		return;
+	}
+	if (transport == peer) {
+		peer->signalingDataChannel = route.channel;
+		peer->signalingDataChannelTransportUuid = route.transportUuid;
+		peer->signalingDataChannelTransportGeneration = route.transportGeneration;
+		peer->signalingDataChannelRevision = route.dataChannelRevision;
+		return;
+	}
+	std::lock_guard<std::mutex> targetMediaLock(peer->mediaMutex);
+	peer->signalingDataChannel = route.channel;
+	peer->signalingDataChannelTransportUuid = route.transportUuid;
+	peer->signalingDataChannelTransportGeneration = route.transportGeneration;
+	peer->signalingDataChannelRevision = route.dataChannelRevision;
+}
+
+void VDONinjaPeerManager::dispatchPeerDisconnected(const std::shared_ptr<PeerInfo> &peer)
+{
+	if (!peer || peer->cleanupRetired.load() || !isCurrentPeer(peer)) {
+		return;
+	}
+
+	const PeerEventIdentity identity = nextPeerEventIdentity(peer);
+	OnPeerDisconnectedCallback callback;
+#if defined(VDONINJA_NATIVE_MEDIA_INTEGRATION_TEST)
+	NativeMediaTestPeerDispatchHook testHook;
+#endif
+	{
+		std::lock_guard<std::mutex> callbackLock(callbackMutex_);
+		callback = onPeerDisconnected_;
+#if defined(VDONINJA_NATIVE_MEDIA_INTEGRATION_TEST)
+		testHook = nativeMediaTestPeerDisconnectDispatchHook_;
+#endif
+	}
+#if defined(VDONINJA_NATIVE_MEDIA_INTEGRATION_TEST)
+	if (testHook) {
+		testHook(peer);
+	}
+#endif
+	if (callback) {
+		callback(identity);
+	}
+}
+
+void VDONinjaPeerManager::dispatchDataChannelOpen(const std::shared_ptr<PeerInfo> &peer,
+                                                  const std::shared_ptr<rtc::DataChannel> &dc, uint64_t generation,
+                                                  uint64_t revision)
+{
+	if (!peer || !dc || peer->cleanupRetired.load() || isTerminalPeerState(peer->state.load()) ||
+	    !isCurrentPeer(peer)) {
+		return;
+	}
+
+	const PeerEventIdentity identity = nextPeerEventIdentity(peer);
+	OnDataChannelCallback callback;
+#if defined(VDONINJA_NATIVE_MEDIA_INTEGRATION_TEST)
+	NativeMediaTestPeerDispatchHook testHook;
+#endif
+	{
+		std::lock_guard<std::mutex> callbackLock(callbackMutex_);
+		callback = onDataChannel_;
+#if defined(VDONINJA_NATIVE_MEDIA_INTEGRATION_TEST)
+		testHook = nativeMediaTestPeerDataOpenDispatchHook_;
+#endif
+	}
+#if defined(VDONINJA_NATIVE_MEDIA_INTEGRATION_TEST)
+	if (testHook) {
+		testHook(peer);
+	}
+#endif
+	bool committed = false;
+	{
+		std::lock_guard<std::recursive_mutex> lifecycleLock(peer->dataChannelLifecycleMutex);
+		std::lock_guard<std::mutex> lock(peersMutex_);
+		const auto current = peers_.find(peer->uuid);
+		if (current != peers_.end() && current->second == peer && peer->generation == generation &&
+		    !peer->cleanupRetired.load() && !isTerminalPeerState(peer->state.load())) {
+			std::lock_guard<std::mutex> mediaLock(peer->mediaMutex);
+			if (peer->dataChannel == dc && peer->dataChannelRevision == revision && !peer->dataChannelOpenDispatched &&
+			    peer->dataChannelOpenDispatchPending) {
+				// This is the application-open linearization point. Transport-open
+				// observation is retained separately and never authorizes messages.
+				peer->dataChannelOpenDispatched = true;
+				peer->dataChannelOpenDispatchPending = false;
+				committed = true;
+			}
+		}
+	}
+	if (!committed) {
+		return;
+	}
+	logInfo("Data channel opened with %s", peer->uuid.c_str());
+	if (callback) {
+		callback(identity, dc);
+	}
+}
+
+void VDONinjaPeerManager::dispatchDataChannelMessage(const std::shared_ptr<PeerInfo> &peer, const std::string &message,
+                                                     const std::shared_ptr<rtc::DataChannel> &dc, uint64_t generation,
+                                                     uint64_t revision)
+{
+	if (!peer || peer->cleanupRetired.load() || isTerminalPeerState(peer->state.load()) || !isCurrentPeer(peer)) {
+		return;
+	}
+
+	const PeerEventIdentity identity = nextPeerEventIdentity(peer);
+	OnDataChannelMessageCallback callback;
+#if defined(VDONINJA_NATIVE_MEDIA_INTEGRATION_TEST)
+	NativeMediaTestPeerDispatchHook testHook;
+	NativeMediaTestPeerDispatchHook completionHook;
+#endif
+	{
+		std::lock_guard<std::mutex> callbackLock(callbackMutex_);
+		callback = onDataChannelMessage_;
+#if defined(VDONINJA_NATIVE_MEDIA_INTEGRATION_TEST)
+		testHook = nativeMediaTestPeerDataDispatchHook_;
+		completionHook = nativeMediaTestPeerDataDispatchCompleteHook_;
+#endif
+	}
+#if defined(VDONINJA_NATIVE_MEDIA_INTEGRATION_TEST)
+	if (testHook) {
+		testHook(peer);
+	}
+#endif
+	bool exactCurrent = true;
+	if (generation != 0 && revision != 0) {
+		std::lock_guard<std::recursive_mutex> lifecycleLock(peer->dataChannelLifecycleMutex);
+		exactCurrent = isDataChannelLeaseCurrent(peer, dc, generation, revision, true);
+	}
+	if (exactCurrent && callback) {
+		callback(identity, message);
+	}
+#if defined(VDONINJA_NATIVE_MEDIA_INTEGRATION_TEST)
+	if (completionHook) {
+		completionHook(peer);
+	}
+#endif
+}
+
+void VDONinjaPeerManager::handleIncomingTrack(const std::shared_ptr<PeerInfo> &peer,
+                                              const std::shared_ptr<rtc::Track> &track)
+{
+	if (!peer || peer->cleanupRetired.load() || isTerminalPeerState(peer->state.load()) || !isCurrentPeer(peer)) {
+		clearTrackCallbacks(track);
+		return;
+	}
+
+	TrackType type = TrackType::Video;
+	TrackSlotEvent event;
+	bool rejected = false;
+	{
+		std::lock_guard<std::mutex> mediaLock(peer->mediaMutex);
+		if (peer->cleanupRetired.load() || isTerminalPeerState(peer->state.load())) {
+			rejected = true;
+		} else {
+			type = classifyIncomingTrack(peer, track);
+			std::shared_ptr<rtc::Track> *slot = &peer->videoTrack;
+			uint64_t *revision = &peer->videoTrackRevision;
+			if (type == TrackType::Audio) {
+				slot = &peer->audioTrack;
+				revision = &peer->audioTrackRevision;
+			} else if (type == TrackType::AlphaVideo) {
+				slot = &peer->alphaVideoTrack;
+				revision = &peer->alphaVideoTrackRevision;
+			}
+			if (*slot == track) {
+				return;
+			}
+			event = {
+			    peer->uuid, peer->session, type, peer->generation, ++(*revision), nextPeerEventIdentity(peer).sequence,
+			    track,      *slot};
+			*slot = track;
+		}
+	}
+	if (rejected) {
+		clearTrackCallbacks(track);
+		return;
+	}
+
+	const char *typeLabel =
+	    type == TrackType::Audio ? "audio" : (type == TrackType::AlphaVideo ? "alpha video" : "video");
+	logInfo("Received %s track from %s (mid=%s)", typeLabel, peer->uuid.c_str(), track ? track->mid().c_str() : "");
+	dispatchCommittedTrackSlotEvent(peer, event);
+}
+
+bool VDONinjaPeerManager::updateTrackSlot(const std::shared_ptr<PeerInfo> &peer, TrackType type,
+                                          const std::shared_ptr<rtc::Track> &track, TrackSlotEvent &event,
+                                          const std::shared_ptr<rtc::Track> &expectedTrack, bool requireExpected,
+                                          uint64_t expectedRevision)
+
+{
+	if (!peer) {
+		return false;
+	}
+
+	std::lock_guard<std::mutex> mediaLock(peer->mediaMutex);
+	if (track && (peer->cleanupRetired.load() || isTerminalPeerState(peer->state.load()))) {
+		return false;
+	}
+	std::shared_ptr<rtc::Track> *slot = &peer->videoTrack;
+	uint64_t *revision = &peer->videoTrackRevision;
+	if (type == TrackType::Audio) {
+		slot = &peer->audioTrack;
+		revision = &peer->audioTrackRevision;
+	} else if (type == TrackType::AlphaVideo) {
+		slot = &peer->alphaVideoTrack;
+		revision = &peer->alphaVideoTrackRevision;
+	}
+	if (*slot == track) {
+		return false;
+	}
+	if (requireExpected && *slot != expectedTrack) {
+		return false;
+	}
+	if (expectedRevision != 0 && *revision != expectedRevision) {
+		return false;
+	}
+
+	event.uuid = peer->uuid;
+	event.session = peer->session;
+	event.type = type;
+	event.generation = peer->generation;
+	event.revision = ++(*revision);
+	event.sequence = nextPeerEventIdentity(peer).sequence;
+	event.track = track;
+	event.retiredTrack = *slot;
+	*slot = track;
+	return true;
+}
+
+bool VDONinjaPeerManager::isTrackSlotLeaseCurrent(const std::shared_ptr<PeerInfo> &peer, TrackType type,
+                                                  const std::shared_ptr<rtc::Track> &track, uint64_t generation,
+                                                  uint64_t revision) const
+{
+	if (!peer || !track || generation == 0 || revision == 0) {
+		return false;
+	}
+
+	std::lock_guard<std::mutex> peersLock(peersMutex_);
+	const auto peerIt = peers_.find(peer->uuid);
+	if (peerIt == peers_.end() || peerIt->second != peer || peer->generation != generation ||
+	    peer->cleanupRetired.load()) {
+		return false;
+	}
+
+	std::lock_guard<std::mutex> mediaLock(peer->mediaMutex);
+	const std::shared_ptr<rtc::Track> *slot = &peer->videoTrack;
+	const uint64_t *slotRevision = &peer->videoTrackRevision;
+	if (type == TrackType::Audio) {
+		slot = &peer->audioTrack;
+		slotRevision = &peer->audioTrackRevision;
+	} else if (type == TrackType::AlphaVideo) {
+		slot = &peer->alphaVideoTrack;
+		slotRevision = &peer->alphaVideoTrackRevision;
+	}
+	return *slot == track && *slotRevision == revision;
+}
+
+void VDONinjaPeerManager::handleTrackTerminal(const std::weak_ptr<PeerInfo> &weakPeer, TrackType type,
+                                              const std::weak_ptr<rtc::Track> &weakTrack, uint64_t generation,
+                                              uint64_t revision, const char *reason, const std::string &error)
+{
+	auto peer = weakPeer.lock();
+	auto track = weakTrack.lock();
+	if (!peer || !track) {
+		return;
+	}
+
+#if defined(VDONINJA_NATIVE_MEDIA_INTEGRATION_TEST)
+	NativeMediaTestTrackLifecycleHook lifecycleHook;
+	{
+		std::lock_guard<std::mutex> callbackLock(callbackMutex_);
+		lifecycleHook = nativeMediaTestTrackLifecycleHook_;
+	}
+	if (lifecycleHook) {
+		lifecycleHook(peer, type, track, revision);
+	}
+#endif
+
+	TrackSlotEvent event;
+	{
+		std::lock_guard<std::mutex> peersLock(peersMutex_);
+		const auto peerIt = peers_.find(peer->uuid);
+		if (peerIt == peers_.end() || peerIt->second != peer || peer->generation != generation ||
+		    peer->cleanupRetired.load()) {
+			return;
+		}
+
+		std::lock_guard<std::mutex> mediaLock(peer->mediaMutex);
+		std::shared_ptr<rtc::Track> *slot = &peer->videoTrack;
+		uint64_t *slotRevision = &peer->videoTrackRevision;
+		if (type == TrackType::Audio) {
+			slot = &peer->audioTrack;
+			slotRevision = &peer->audioTrackRevision;
+		} else if (type == TrackType::AlphaVideo) {
+			slot = &peer->alphaVideoTrack;
+			slotRevision = &peer->alphaVideoTrackRevision;
+		}
+		if (*slot != track || *slotRevision != revision) {
+			return;
+		}
+
+		event.uuid = peer->uuid;
+		event.session = peer->session;
+		event.type = type;
+		event.generation = peer->generation;
+		event.revision = ++(*slotRevision);
+		event.sequence = nextPeerEventIdentity(peer).sequence;
+		event.retiredTrack = track;
+		slot->reset();
+	}
+
+	const char *typeLabel =
+	    type == TrackType::Audio ? "audio" : (type == TrackType::AlphaVideo ? "alpha video" : "video");
+	if (!error.empty()) {
+		logWarning("Native receiver %s track for %s retired after %s: %s", typeLabel, peer->uuid.c_str(),
+		           reason ? reason : "terminal event", error.c_str());
+		// libdatachannel can report a terminal media error without marking the
+		// Track closed. Closing the exact retired handle prevents a later
+		// emplaceTrack(mid) renegotiation from reusing the failed implementation.
+		try {
+			track->close();
+		} catch (const std::exception &) {
+		}
+	} else {
+		logInfo("Native receiver %s track for %s retired after %s", typeLabel, peer->uuid.c_str(),
+		        reason ? reason : "terminal event");
+	}
+	dispatchTrackSlotEvent(event);
+}
+
+bool VDONinjaPeerManager::installTrackLifecycleCallbacks(const std::shared_ptr<PeerInfo> &peer,
+                                                         const TrackSlotEvent &event)
+{
+	if (!peer || !event.track || event.generation == 0 || event.revision == 0) {
+		return false;
+	}
+
+	const auto weakPeer = std::weak_ptr<PeerInfo>(peer);
+	const auto weakTrack = std::weak_ptr<rtc::Track>(event.track);
+	const void *trackHandle = event.track.get();
+	const auto ownerSession = ownerSession_;
+	const std::weak_ptr<PeerManagerOwnerSession> weakOwnerSession = ownerSession;
+	const TrackType type = event.type;
+	const uint64_t generation = event.generation;
+	const uint64_t revision = event.revision;
+	event.track->onClosed([weakOwnerSession, weakPeer, weakTrack, type, generation, revision, trackHandle]() {
+		auto permit =
+		    PeerManagerOwnerSession::acquire(weakOwnerSession, PeerManagerCompletionKind::TrackClosed, trackHandle);
+		if (!permit) {
+			return;
+		}
+		auto *manager = permit.owner();
+		runRtcCallbackNoexcept("Track::onClosed", [&]() {
+			manager->handleTrackTerminal(weakPeer, type, weakTrack, generation, revision, "track-closed");
 		});
 	});
+	registerInstalledFunction(ownerSession, PeerManagerCompletionKind::TrackClosed, trackHandle, [weakTrack]() {
+		if (const auto track = weakTrack.lock()) {
+			track->onClosed(nullptr);
+		}
+	});
+	if (!isTrackSlotLeaseCurrent(peer, type, event.track, generation, revision)) {
+		return false;
+	}
+	event.track->onError(
+	    [weakOwnerSession, weakPeer, weakTrack, type, generation, revision, trackHandle](std::string error) {
+		    auto permit =
+		        PeerManagerOwnerSession::acquire(weakOwnerSession, PeerManagerCompletionKind::TrackError, trackHandle);
+		    if (!permit) {
+			    return;
+		    }
+		    auto *manager = permit.owner();
+		    runRtcCallbackNoexcept("Track::onError", [&]() {
+			    manager->handleTrackTerminal(weakPeer, type, weakTrack, generation, revision, "track-error", error);
+		    });
+	    });
+	registerInstalledFunction(ownerSession, PeerManagerCompletionKind::TrackError, trackHandle, [weakTrack]() {
+		if (const auto track = weakTrack.lock()) {
+			track->onError(nullptr);
+		}
+	});
+	return isTrackSlotLeaseCurrent(peer, type, event.track, generation, revision);
+}
+
+void VDONinjaPeerManager::dispatchCommittedTrackSlotEvent(const std::shared_ptr<PeerInfo> &peer,
+                                                          const TrackSlotEvent &event)
+{
+	if (!event.track) {
+		dispatchTrackSlotEvent(event);
+		return;
+	}
+
+#if defined(VDONINJA_NATIVE_MEDIA_INTEGRATION_TEST)
+	NativeMediaTestTrackHandleHook beforeInstallHook;
+	{
+		std::lock_guard<std::mutex> callbackLock(callbackMutex_);
+		beforeInstallHook = nativeMediaTestTrackBeforeInstallHook_;
+	}
+	if (beforeInstallHook) {
+		beforeInstallHook(event.track);
+	}
+#endif
+	if (!installTrackLifecycleCallbacks(peer, event)) {
+		clearRetiredTrackCallbacksIfUnused(event);
+		return;
+	}
+#if defined(VDONINJA_NATIVE_MEDIA_INTEGRATION_TEST)
+	NativeMediaTestTrackCommitHook commitHook;
+	{
+		std::lock_guard<std::mutex> callbackLock(callbackMutex_);
+		commitHook = nativeMediaTestTrackCommitHook_;
+	}
+	if (commitHook && event.track) {
+		commitHook(event.uuid, event.type, event.track, event.generation);
+	}
+#endif
+
+	if (event.track->isClosed()) {
+		handleTrackTerminal(peer, event.type, event.track, event.generation, event.revision,
+		                    "closed-during-lifecycle-install");
+	}
+	if (!isTrackSlotLeaseCurrent(peer, event.type, event.track, event.generation, event.revision)) {
+		clearRetiredTrackCallbacksIfUnused(event);
+		return;
+	}
+	dispatchTrackSlotEvent(event);
+}
+
+void VDONinjaPeerManager::dispatchTrackSlotEvent(const TrackSlotEvent &event)
+{
+
+	OnTrackCallback callback;
+#if defined(VDONINJA_NATIVE_MEDIA_INTEGRATION_TEST)
+	NativeMediaTestTrackDispatchHook dispatchHook;
+#endif
+	{
+		std::lock_guard<std::mutex> callbackLock(callbackMutex_);
+		callback = onTrack_;
+#if defined(VDONINJA_NATIVE_MEDIA_INTEGRATION_TEST)
+		dispatchHook = nativeMediaTestTrackDispatchHook_;
+#endif
+	}
+#if defined(VDONINJA_NATIVE_MEDIA_INTEGRATION_TEST)
+	if (dispatchHook) {
+		dispatchHook(event, static_cast<bool>(callback));
+	}
+#endif
+	if (callback) {
+		callback(event);
+	}
+	clearRetiredTrackCallbacksIfUnused(event);
+}
+
+void VDONinjaPeerManager::clearRetiredTrackCallbacksIfUnused(const TrackSlotEvent &event)
+{
+	struct CurrentLease {
+		std::shared_ptr<PeerInfo> peer;
+		TrackSlotEvent event;
+	};
+	const auto currentLeaseForHandle =
+	    [this, &event](const std::shared_ptr<rtc::Track> &handle) -> std::optional<CurrentLease> {
+		std::lock_guard<std::mutex> peersLock(peersMutex_);
+		const auto peerIt = peers_.find(event.uuid);
+		if (peerIt == peers_.end() || !peerIt->second || peerIt->second->cleanupRetired.load()) {
+			return std::nullopt;
+		}
+		const auto &peer = peerIt->second;
+		std::lock_guard<std::mutex> mediaLock(peer->mediaMutex);
+		TrackType type = TrackType::Video;
+		uint64_t revision = peer->videoTrackRevision;
+		if (peer->videoTrack != handle) {
+			if (peer->alphaVideoTrack == handle) {
+				type = TrackType::AlphaVideo;
+				revision = peer->alphaVideoTrackRevision;
+			} else if (peer->audioTrack == handle) {
+				type = TrackType::Audio;
+				revision = peer->audioTrackRevision;
+			} else {
+				return std::nullopt;
+			}
+		}
+		return CurrentLease{peer, {peer->uuid, peer->session, type, peer->generation, revision, 0, handle, nullptr}};
+	};
+
+	// Callback setters synchronize with callbacks already in flight, so they
+	// must never run under peersMutex_ or mediaMutex. If a same-handle re-add
+	// races the unlocked detach, re-check and reinstall the exact current lease;
+	// libdatachannel's stored callbacks replay any close/error from that gap.
+	std::shared_ptr<rtc::Track> previousHandle;
+	for (const auto &handle : {event.track, event.retiredTrack}) {
+		if (!handle || handle == previousHandle) {
+			continue;
+		}
+		previousHandle = handle;
+		if (currentLeaseForHandle(handle)) {
+			continue;
+		}
+#if defined(VDONINJA_NATIVE_MEDIA_INTEGRATION_TEST)
+		NativeMediaTestTrackHandleHook cleanupHook;
+		{
+			std::lock_guard<std::mutex> callbackLock(callbackMutex_);
+			cleanupHook = nativeMediaTestTrackCleanupHook_;
+		}
+		if (cleanupHook) {
+			cleanupHook(handle);
+		}
+#endif
+		while (true) {
+			clearTrackLifecycleCallbacks(handle);
+			const auto current = currentLeaseForHandle(handle);
+			if (!current) {
+				break;
+			}
+			if (installTrackLifecycleCallbacks(current->peer, current->event)) {
+				break;
+			}
+			// The captured lease was replaced while callbacks were installed.
+			// Remove that stale capture and converge on whichever exact lease is
+			// current now; its replacement event owns cleanup after success.
+		}
+	}
+}
+
+void VDONinjaPeerManager::clearTrackSlots(const std::shared_ptr<PeerInfo> &peer)
+{
+	if (!peer) {
+		return;
+	}
+	std::vector<TrackSlotEvent> events;
+	for (const TrackType type : {TrackType::Video, TrackType::AlphaVideo, TrackType::Audio}) {
+		TrackSlotEvent event;
+		if (updateTrackSlot(peer, type, nullptr, event)) {
+			events.push_back(std::move(event));
+		}
+	}
+	for (const auto &event : events) {
+		dispatchTrackSlotEvent(event);
+	}
 }
 
 void VDONinjaPeerManager::setupPublisherTracks(std::shared_ptr<PeerInfo> peer)
@@ -1548,7 +3224,11 @@ void VDONinjaPeerManager::setupPublisherTracks(std::shared_ptr<PeerInfo> peer)
 	// browser viewers from completing peer connection setup on macOS.
 	videoDesc.addH264Codec(kH264PayloadType);
 	videoDesc.addSSRC(videoSsrc_, "video-stream");
-	peer->videoTrack = peer->pc->addTrack(videoDesc);
+	const auto videoTrack = peer->pc->addTrack(videoDesc);
+	{
+		std::lock_guard<std::mutex> mediaLock(peer->mediaMutex);
+		peer->videoTrack = videoTrack;
+	}
 	peer->videoRtpConfig =
 	    std::make_shared<rtc::RtpPacketizationConfig>(videoSsrc_, "video-stream", kH264PayloadType, kVideoClockRate);
 	peer->videoRtpConfig->sequenceNumber = peer->videoSeq;
@@ -1556,14 +3236,24 @@ void VDONinjaPeerManager::setupPublisherTracks(std::shared_ptr<PeerInfo> peer)
 	peer->videoSrReporter = std::make_shared<rtc::RtcpSrReporter>(peer->videoRtpConfig);
 	peer->videoFeedbackTracker = std::make_shared<RtcpFeedbackTracker>(videoSsrc_);
 	auto weakPeer = std::weak_ptr<PeerInfo>(peer);
-	auto videoPliHandler = std::make_shared<rtc::PliHandler>([this, weakPeer, uuid = peer->uuid]() {
+	const auto ownerSession = ownerSession_;
+	const std::weak_ptr<PeerManagerOwnerSession> weakOwnerSession = ownerSession;
+	const void *videoFeedbackHandle = videoTrack.get();
+	std::function<void()> videoFeedbackCompletion = [weakOwnerSession, weakPeer, uuid = peer->uuid,
+	                                                 videoFeedbackHandle]() {
+		auto permit = PeerManagerOwnerSession::acquire(weakOwnerSession, PeerManagerCompletionKind::VideoFeedback,
+		                                               videoFeedbackHandle);
+		if (!permit) {
+			return;
+		}
+		auto *manager = permit.owner();
 		runRtcCallbackNoexcept("PliHandler", [&]() {
-			if (shuttingDown_) {
+			if (manager->shuttingDown_) {
 				return;
 			}
 			auto peer = weakPeer.lock();
 			if (!peer || peer->cleanupRetired.load() || isTerminalPeerState(peer->state.load()) ||
-			    !isCurrentPeer(peer)) {
+			    !manager->isCurrentPeer(peer)) {
 				return;
 			}
 			size_t discardedFrames = 0;
@@ -1596,14 +3286,21 @@ void VDONinjaPeerManager::setupPublisherTracks(std::shared_ptr<PeerInfo> peer)
 			}
 			OnKeyframeRequestCallback cb;
 			{
-				std::lock_guard<std::mutex> callbackLock(callbackMutex_);
-				cb = onKeyframeRequest_;
+				std::lock_guard<std::mutex> callbackLock(manager->callbackMutex_);
+				cb = manager->onKeyframeRequest_;
 			}
 			if (cb) {
 				cb(uuid);
 			}
 		});
-	});
+	};
+#if defined(VDONINJA_NATIVE_MEDIA_INTEGRATION_TEST)
+	{
+		std::lock_guard<std::mutex> callbackLock(callbackMutex_);
+		nativeMediaTestVideoFeedbackCompletions_[peer->generation] = videoFeedbackCompletion;
+	}
+#endif
+	auto videoPliHandler = std::make_shared<rtc::PliHandler>(videoFeedbackCompletion);
 	const int currentEncoderBitrate = bitrate_.load(std::memory_order_acquire);
 	RtpPacketDuplicationConfig duplicationConfig;
 	duplicationConfig.mode = videoProtectionMode_;
@@ -1611,7 +3308,7 @@ void VDONinjaPeerManager::setupPublisherTracks(std::shared_ptr<PeerInfo> peer)
 	    videoProtectionBitrateForEncoderRate(currentEncoderBitrate, videoProtectionMode_);
 	const uint64_t pacerBitrate = videoPacerBitrateForEncoderAndProtectionRate(
 	    currentEncoderBitrate, duplicationConfig.averageBitrateBitsPerSecond);
-	const auto pacerTrack = peer->videoTrack;
+	const auto pacerTrack = videoTrack;
 	const auto pacerRtpConfig = peer->videoRtpConfig;
 	const auto pacerSrReporter = peer->videoSrReporter;
 	peer->videoPacer = std::make_shared<RtpPacketPacer>(
@@ -1634,7 +3331,14 @@ void VDONinjaPeerManager::setupPublisherTracks(std::shared_ptr<PeerInfo> peer)
 	peer->videoSrReporter->addToChain(
 	    std::make_shared<PacedNackResponder>(videoSsrc_, peer->videoPacer, peer->videoFeedbackTracker));
 	peer->videoSrReporter->addToChain(videoPliHandler);
-	peer->videoTrack->setMediaHandler(peer->videoSrReporter);
+	videoTrack->setMediaHandler(peer->videoSrReporter);
+	const std::weak_ptr<rtc::Track> weakVideoTrack = videoTrack;
+	registerInstalledFunction(ownerSession, PeerManagerCompletionKind::VideoFeedback, videoFeedbackHandle,
+	                          [weakVideoTrack]() {
+		                          if (const auto track = weakVideoTrack.lock()) {
+			                          track->setMediaHandler(nullptr);
+		                          }
+	                          });
 	logInfo("Viewer %s video RTP pacer: %.1f Mbps, %zu KB per %lld ms batch, %zu KB queue limit, %zu KB shared "
 	        "aggregate burst, encoder H.264 profile-level-id=%s, SDP uses the WebRTC compatibility profile",
 	        peer->uuid.c_str(), static_cast<double>(pacerBitrate) / 1000000.0,
@@ -1657,14 +3361,25 @@ void VDONinjaPeerManager::setupPublisherTracks(std::shared_ptr<PeerInfo> peer)
 	}
 	audioDesc.addOpusCodec(kOpusPayloadType);
 	audioDesc.addSSRC(audioSsrc_, "audio-stream");
-	peer->audioTrack = peer->pc->addTrack(audioDesc);
+	const auto audioTrack = peer->pc->addTrack(audioDesc);
+	{
+		std::lock_guard<std::mutex> mediaLock(peer->mediaMutex);
+		peer->audioTrack = audioTrack;
+	}
 	peer->audioRtpConfig =
 	    std::make_shared<rtc::RtpPacketizationConfig>(audioSsrc_, "audio-stream", kOpusPayloadType, kAudioClockRate);
 	peer->audioRtpConfig->sequenceNumber = peer->audioSeq;
 	peer->audioRtpConfig->timestamp = peer->audioTimestamp;
 	peer->audioSrReporter = std::make_shared<rtc::RtcpSrReporter>(peer->audioRtpConfig);
 	peer->audioSrReporter->addToChain(std::make_shared<rtc::RtcpNackResponder>());
-	peer->audioTrack->setMediaHandler(peer->audioSrReporter);
+	audioTrack->setMediaHandler(peer->audioSrReporter);
+	const std::weak_ptr<rtc::Track> weakAudioTrack = audioTrack;
+	registerInstalledFunction(ownerSession, PeerManagerCompletionKind::AudioFeedback, audioTrack.get(),
+	                          [weakAudioTrack]() {
+		                          if (const auto track = weakAudioTrack.lock()) {
+			                          track->setMediaHandler(nullptr);
+		                          }
+	                          });
 
 	// OBS emits already-encoded Opus payloads; send manual RTP packets for maximum
 	// compatibility across libdatachannel versions.
@@ -1679,53 +3394,7 @@ void VDONinjaPeerManager::setupPublisherTracks(std::shared_ptr<PeerInfo> peer)
 	if (enableDataChannel_) {
 		// VDO.Ninja expects publisher data channels to use "sendChannel".
 		auto dc = peer->pc->createDataChannel("sendChannel");
-		peer->dataChannel = dc;
-		peer->hasDataChannel = true;
-
-		dc->onOpen([this, weakPeer, uuid = peer->uuid, dc]() {
-			runRtcCallbackNoexcept("DataChannel::onOpen", [&]() {
-				if (shuttingDown_) {
-					return;
-				}
-				auto peer = weakPeer.lock();
-				if (!peer || peer->cleanupRetired.load() || isTerminalPeerState(peer->state.load()) ||
-				    !isCurrentPeer(peer)) {
-					return;
-				}
-				logInfo("Data channel opened for %s", uuid.c_str());
-				OnDataChannelCallback cb;
-				{
-					std::lock_guard<std::mutex> callbackLock(callbackMutex_);
-					cb = onDataChannel_;
-				}
-				if (cb) {
-					cb(uuid, dc);
-				}
-			});
-		});
-
-		dc->onMessage([this, weakPeer, uuid = peer->uuid](auto data) {
-			runRtcCallbackNoexcept("DataChannel::onMessage", [&]() {
-				if (shuttingDown_) {
-					return;
-				}
-				auto peer = weakPeer.lock();
-				if (!peer || peer->cleanupRetired.load() || isTerminalPeerState(peer->state.load()) ||
-				    !isCurrentPeer(peer)) {
-					return;
-				}
-				if (std::holds_alternative<std::string>(data)) {
-					OnDataChannelMessageCallback cb;
-					{
-						std::lock_guard<std::mutex> callbackLock(callbackMutex_);
-						cb = onDataChannelMessage_;
-					}
-					if (cb) {
-						cb(uuid, std::get<std::string>(data));
-					}
-				}
-			});
-		});
+		handleIncomingDataChannel(peer, dc, true);
 	}
 
 	logDebug("Set up publisher tracks for %s", peer->uuid.c_str());
@@ -1752,10 +3421,14 @@ void VDONinjaPeerManager::prepareViewerTracks(const std::shared_ptr<PeerInfo> &p
 		           peer->uuid.c_str(), offerSdp.size(), hasActualLineBreaks ? "yes" : "no",
 		           hasEscapedLineBreaks ? "yes" : "no");
 	}
-	OnTrackCallback trackCallback;
-	{
-		std::lock_guard<std::mutex> callbackLock(callbackMutex_);
-		trackCallback = onTrack_;
+	const bool alphaSectionActive = offerHasActiveVp9AlphaSection(offeredSections);
+	TrackSlotEvent retiredAlphaEvent;
+	if (!alphaSectionActive) {
+		updateTrackSlot(peer, TrackType::AlphaVideo, nullptr, retiredAlphaEvent);
+	}
+	if (retiredAlphaEvent.retiredTrack) {
+		logInfo("Renegotiated offer removed the active VP9 alpha section for %s", peer->uuid.c_str());
+		dispatchTrackSlotEvent(retiredAlphaEvent);
 	}
 
 	const int requestedVideoBitrateKbps = std::max(1, bitrate_.load(std::memory_order_acquire) / 1000);
@@ -1763,18 +3436,31 @@ void VDONinjaPeerManager::prepareViewerTracks(const std::shared_ptr<PeerInfo> &p
 
 	for (const auto &section : offeredSections) {
 		try {
+			if (!offeredMediaSectionCanSend(section)) {
+				logDebug("Skipping remote %s section %s because it cannot send media (port=%d, direction=%s)",
+				         section.type.c_str(), section.mid.c_str(), section.port, section.direction.c_str());
+				continue;
+			}
 			if (section.type == "video") {
 				const size_t currentVideoIndex = offeredVideoIndex++;
-				const std::string primaryMid = peer->videoTrack ? peer->videoTrack->mid() : "";
+				std::shared_ptr<rtc::Track> currentVideoTrack;
+				std::shared_ptr<rtc::Track> currentAlphaTrack;
+				std::string primaryMid;
+				{
+					std::lock_guard<std::mutex> mediaLock(peer->mediaMutex);
+					currentVideoTrack = peer->videoTrack;
+					currentAlphaTrack = peer->alphaVideoTrack;
+					primaryMid = currentVideoTrack ? currentVideoTrack->mid() : "";
+				}
 				if (isExistingPrimaryVideoSection(currentVideoIndex, section.mid, primaryMid,
-				                                  static_cast<bool>(peer->videoTrack))) {
+				                                  static_cast<bool>(currentVideoTrack))) {
 					logDebug("Reusing existing primary video section for %s (mid=%s)", peer->uuid.c_str(),
 					         section.mid.c_str());
 					continue;
 				}
-				if (peer->videoTrack) {
+				if (currentVideoTrack) {
 					// Second video section: treat as alpha track if VP9 and no alpha track yet.
-					if (!peer->alphaVideoTrack) {
+					if (!currentAlphaTrack) {
 						const SdpOfferedCodec *alphaCodec = findPreferredOfferedCodec(section, "vp9");
 						if (alphaCodec) {
 							rtc::Description::Video receiveAlpha(section.mid.empty() ? "video-alpha" : section.mid,
@@ -1782,24 +3468,37 @@ void VDONinjaPeerManager::prepareViewerTracks(const std::shared_ptr<PeerInfo> &p
 							receiveAlpha.addVP9Codec(alphaCodec->payloadType);
 							auto alphaTrack = peer->pc->addTrack(receiveAlpha);
 							const std::string alphaTrackMid = alphaTrack ? alphaTrack->mid() : "";
+							TrackType installedType = TrackType::AlphaVideo;
+							TrackSlotEvent installedEvent;
+							bool installed = false;
+							std::shared_ptr<rtc::Track> rejectedTrack;
 							if (!alphaTrackMid.empty() && alphaTrackMid == section.mid) {
-								peer->alphaVideoTrack = alphaTrack;
-								logInfo("Prepared native recvonly VP9 alpha video track for %s (mid=%s)",
-								        peer->uuid.c_str(), alphaTrackMid.c_str());
-								if (trackCallback && alphaTrack) {
-									trackCallback(peer->uuid, TrackType::AlphaVideo, alphaTrack);
+								installed = alphaTrack && updateTrackSlot(peer, TrackType::AlphaVideo, alphaTrack,
+								                                          installedEvent, currentAlphaTrack, true);
+								if (!installed) {
+									rejectedTrack = alphaTrack;
 								}
 							} else {
-								peer->videoTrack = alphaTrack;
-								logInfo(
-								    "Prepared renegotiated VP9 alpha receive handle for %s but libdatachannel bound it "
-								    "to primary mid=%s; refreshing native video callbacks before waiting for "
-								    "video-alpha onTrack",
-								    peer->uuid.c_str(), alphaTrackMid.empty() ? "(unset)" : alphaTrackMid.c_str());
-								if (trackCallback && alphaTrack) {
-									trackCallback(peer->uuid, TrackType::Video, alphaTrack);
+								installedType = TrackType::Video;
+								installed = alphaTrack && updateTrackSlot(peer, TrackType::Video, alphaTrack,
+								                                          installedEvent, currentVideoTrack, true);
+								if (!installed) {
+									rejectedTrack = alphaTrack;
 								}
 							}
+							if (installed && !rejectedTrack && alphaTrack) {
+								if (installedType == TrackType::AlphaVideo) {
+									logInfo("Prepared native recvonly VP9 alpha video track for %s (mid=%s)",
+									        peer->uuid.c_str(), alphaTrackMid.c_str());
+								} else {
+									logInfo("Prepared renegotiated VP9 alpha receive handle for %s but libdatachannel "
+									        "bound it to primary mid=%s",
+									        peer->uuid.c_str(),
+									        alphaTrackMid.empty() ? "(unset)" : alphaTrackMid.c_str());
+								}
+								dispatchCommittedTrackSlotEvent(peer, installedEvent);
+							}
+							clearTrackCallbacks(rejectedTrack);
 						}
 					}
 					continue;
@@ -1833,16 +3532,26 @@ void VDONinjaPeerManager::prepareViewerTracks(const std::shared_ptr<PeerInfo> &p
 				}
 				receiveVideo.setBitrate(requestedVideoBitrateKbps);
 				auto track = peer->pc->addTrack(receiveVideo);
-				peer->videoTrack = track;
-				logInfo("Prepared native recvonly %s video track for %s (mid=%s, bitrate=%d kbps)",
-				        useVP9 ? "VP9" : "H.264", peer->uuid.c_str(), track ? track->mid().c_str() : "",
-				        requestedVideoBitrateKbps);
-				if (trackCallback && track) {
-					trackCallback(peer->uuid, TrackType::Video, track);
+				TrackSlotEvent installedEvent;
+				bool installed = false;
+				std::shared_ptr<rtc::Track> rejectedTrack;
+				installed = track && updateTrackSlot(peer, TrackType::Video, track, installedEvent, nullptr, true);
+				if (!installed) {
+					rejectedTrack = track;
 				}
+				if (installed) {
+					logInfo("Prepared native recvonly %s video track for %s (mid=%s, bitrate=%d kbps)",
+					        useVP9 ? "VP9" : "H.264", peer->uuid.c_str(), track ? track->mid().c_str() : "",
+					        requestedVideoBitrateKbps);
+					dispatchCommittedTrackSlotEvent(peer, installedEvent);
+				}
+				clearTrackCallbacks(rejectedTrack);
 			} else if (section.type == "audio") {
-				if (peer->audioTrack) {
-					continue;
+				{
+					std::lock_guard<std::mutex> mediaLock(peer->mediaMutex);
+					if (peer->audioTrack) {
+						continue;
+					}
 				}
 
 				const SdpOfferedCodec *audioCodec = findPreferredOfferedCodec(section, "opus");
@@ -1860,12 +3569,19 @@ void VDONinjaPeerManager::prepareViewerTracks(const std::shared_ptr<PeerInfo> &p
 					receiveAudio.addOpusCodec(audioCodec->payloadType, audioCodec->formatParameters);
 				}
 				auto track = peer->pc->addTrack(receiveAudio);
-				peer->audioTrack = track;
-				logInfo("Prepared native recvonly audio track for %s (mid=%s)", peer->uuid.c_str(),
-				        track ? track->mid().c_str() : "");
-				if (trackCallback && track) {
-					trackCallback(peer->uuid, TrackType::Audio, track);
+				TrackSlotEvent installedEvent;
+				bool installed = false;
+				std::shared_ptr<rtc::Track> rejectedTrack;
+				installed = track && updateTrackSlot(peer, TrackType::Audio, track, installedEvent, nullptr, true);
+				if (!installed) {
+					rejectedTrack = track;
 				}
+				if (installed) {
+					logInfo("Prepared native recvonly audio track for %s (mid=%s)", peer->uuid.c_str(),
+					        track ? track->mid().c_str() : "");
+					dispatchCommittedTrackSlotEvent(peer, installedEvent);
+				}
+				clearTrackCallbacks(rejectedTrack);
 			}
 		} catch (const std::exception &e) {
 			logWarning("Failed to prepare native recvonly %s track for %s: %s", section.type.c_str(),
@@ -1918,14 +3634,7 @@ void VDONinjaPeerManager::onSignalingOffer(const std::string &uuid, const std::s
 		std::lock_guard<std::mutex> lock(candidateMutex_);
 		candidateBundles_[peer->generation].session = session;
 	}
-	{
-		std::lock_guard<std::mutex> lock(pendingViewerSignalingMutex_);
-		auto it = pendingViewerSignalingDataChannels_.find(viewerSignalingKey(uuid, session));
-		if (it != pendingViewerSignalingDataChannels_.end()) {
-			peer->signalingDataChannel = it->second;
-			pendingViewerSignalingDataChannels_.erase(it);
-		}
-	}
+	consumePendingViewerSignalingDataChannel(peer, session);
 
 	// Set remote description (the offer)
 	const std::string constrainedSdp = normalizeEscapedSdpLineEndings(constrainViewerOfferToNativeCodecs(sdp));
@@ -1941,8 +3650,17 @@ void VDONinjaPeerManager::onSignalingOffer(const std::string &uuid, const std::s
 		        uuid.c_str(), session.c_str(), constrainedSdp.size(), hasActualLineBreaks ? "yes" : "no",
 		        hasEscapedLineBreaks ? "yes" : "no", static_cast<int>(peer->pc->signalingState()));
 		prepareViewerTracks(peer, constrainedSdp);
+		bool hasVideoTrack = false;
+		bool hasAlphaVideoTrack = false;
+		bool hasAudioTrack = false;
+		{
+			std::lock_guard<std::mutex> mediaLock(peer->mediaMutex);
+			hasVideoTrack = static_cast<bool>(peer->videoTrack);
+			hasAlphaVideoTrack = static_cast<bool>(peer->alphaVideoTrack);
+			hasAudioTrack = static_cast<bool>(peer->audioTrack);
+		}
 		logInfo("Prepared native viewer tracks for %s (video=%s, alpha=%s, audio=%s)", uuid.c_str(),
-		        peer->videoTrack ? "yes" : "no", peer->alphaVideoTrack ? "yes" : "no", peer->audioTrack ? "yes" : "no");
+		        hasVideoTrack ? "yes" : "no", hasAlphaVideoTrack ? "yes" : "no", hasAudioTrack ? "yes" : "no");
 		peer->pc->setRemoteDescription(rtc::Description(constrainedSdp, rtc::Description::Type::Offer));
 		peer->remoteDescriptionSet.store(true);
 		drainPendingRemoteIceCandidates(peer);
@@ -2253,6 +3971,11 @@ void VDONinjaPeerManager::bundleAndSendCandidates(const std::shared_ptr<PeerInfo
 	}
 
 	CandidateBundle bundle;
+	std::shared_ptr<rtc::DataChannel> signalingDataChannel;
+	{
+		std::lock_guard<std::mutex> mediaLock(peer->mediaMutex);
+		signalingDataChannel = peer->signalingDataChannel;
+	}
 	{
 		std::lock_guard<std::mutex> lock(candidateMutex_);
 		if (peer->cleanupRetired.load() || !peer->signalingActive.load()) {
@@ -2268,8 +3991,8 @@ void VDONinjaPeerManager::bundleAndSendCandidates(const std::shared_ptr<PeerInfo
 
 		const std::string candidateType = peer->type == ConnectionType::Viewer ? "remote" : "local";
 		for (const auto &cand : bundle.candidates) {
-			if (peer->signalingDataChannel &&
-			    signaling_->sendIceCandidateViaDataChannel(peer->signalingDataChannel, peer->uuid, std::get<0>(cand),
+			if (signalingDataChannel &&
+			    signaling_->sendIceCandidateViaDataChannel(signalingDataChannel, peer->uuid, std::get<0>(cand),
 			                                               std::get<1>(cand), bundle.session, candidateType)) {
 				continue;
 			}
@@ -2668,26 +4391,33 @@ void VDONinjaPeerManager::stopViewing(const std::string &streamId)
 
 bool VDONinjaPeerManager::disconnectPeer(const std::string &uuid)
 {
-	pendingRemoteIceCandidates_.erase(uuid);
+	return disconnectPeer(PeerEventIdentity{uuid, "", 0});
+}
+
+bool VDONinjaPeerManager::disconnectPeer(const PeerEventIdentity &identity)
+{
+	if (identity.uuid.empty()) {
+		return false;
+	}
+	pendingRemoteIceCandidates_.erase(identity.uuid);
 	std::shared_ptr<PeerInfo> peer;
 	{
 		std::lock_guard<std::mutex> lock(peersMutex_);
-		auto it = peers_.find(uuid);
+		auto it = peers_.find(identity.uuid);
 		if (it == peers_.end()) {
 			return false;
 		}
 		peer = it->second;
-		std::lock_guard<std::mutex> candidateLock(candidateMutex_);
-		if (peer) {
-			peer->signalingActive.store(false);
+		if (!peer || (identity.generation != 0 && peer->generation != identity.generation) ||
+		    (!identity.session.empty() && peer->session != identity.session)) {
+			return false;
 		}
+		std::lock_guard<std::mutex> candidateLock(candidateMutex_);
+		peer->signalingActive.store(false);
 		peers_.erase(it);
 	}
 
-	if (!peer) {
-		return false;
-	}
-
+	retirePeerDataChannel(peer);
 	clearPeerCallbacks(peer);
 	try {
 		if (peer->pc) {
@@ -2699,8 +4429,8 @@ bool VDONinjaPeerManager::disconnectPeer(const std::string &uuid)
 	// signaling peer cleanup). Releasing the PeerConnection synchronously there
 	// destroys RTC objects from their own callbacks, which has caused heap
 	// corruption/crashes; defer the release like state-change cleanup does.
-	retirePeerForDeferredCleanup(uuid, peer);
-	logInfo("Disconnected peer: %s", uuid.c_str());
+	retirePeerForDeferredCleanup(identity.uuid, peer);
+	logInfo("Disconnected peer: %s", identity.uuid.c_str());
 	return true;
 }
 
@@ -2709,19 +4439,28 @@ void VDONinjaPeerManager::runDeferredCleanup()
 	pruneRetiredPeers(kRetiredPeerCleanupDelayMs);
 }
 
-void VDONinjaPeerManager::releasePeerResources(const std::shared_ptr<PeerInfo> &peer) const
+void VDONinjaPeerManager::releasePeerResources(const std::shared_ptr<PeerInfo> &peer)
 {
 	if (!peer) {
 		return;
 	}
 
 	peer->cleanupRetired.store(true);
+	retirePeerDataChannel(peer);
+	std::vector<std::shared_ptr<rtc::DataChannel>> pendingDataChannelCleanup;
+	{
+		std::lock_guard<std::mutex> mediaLock(peer->mediaMutex);
+		pendingDataChannelCleanup = peer->retiredDataChannelsPendingCallbackCleanup;
+	}
+	for (const auto &channel : pendingDataChannelCleanup) {
+		clearRetiredDataChannelCallbacksIfUnused(peer, channel);
+	}
+	clearTrackSlots(peer);
 
 	std::shared_ptr<rtc::PeerConnection> pc;
 	std::shared_ptr<rtc::Track> audioTrack;
 	std::shared_ptr<rtc::Track> videoTrack;
 	std::shared_ptr<rtc::Track> alphaVideoTrack;
-	std::shared_ptr<rtc::DataChannel> dataChannel;
 	std::shared_ptr<rtc::DataChannel> signalingDataChannel;
 	std::shared_ptr<rtc::RtcpSrReporter> audioSrReporter;
 	std::shared_ptr<rtc::RtcpSrReporter> videoSrReporter;
@@ -2735,7 +4474,6 @@ void VDONinjaPeerManager::releasePeerResources(const std::shared_ptr<PeerInfo> &
 		audioTrack = peer->audioTrack;
 		videoTrack = peer->videoTrack;
 		alphaVideoTrack = peer->alphaVideoTrack;
-		dataChannel = peer->dataChannel;
 		signalingDataChannel = peer->signalingDataChannel;
 		audioSrReporter = peer->audioSrReporter;
 		videoSrReporter = peer->videoSrReporter;
@@ -2752,15 +4490,16 @@ void VDONinjaPeerManager::releasePeerResources(const std::shared_ptr<PeerInfo> &
 	clearTrackCallbacks(audioTrack);
 	clearTrackCallbacks(videoTrack);
 	clearTrackCallbacks(alphaVideoTrack);
-	clearDataChannelCallbacks(dataChannel);
 
 	{
 		std::lock_guard<std::mutex> mediaLock(peer->mediaMutex);
 		peer->audioTrack.reset();
 		peer->videoTrack.reset();
 		peer->alphaVideoTrack.reset();
-		peer->dataChannel.reset();
 		peer->signalingDataChannel.reset();
+		peer->signalingDataChannelTransportUuid.clear();
+		peer->signalingDataChannelTransportGeneration = 0;
+		peer->signalingDataChannelRevision = 0;
 		peer->audioSrReporter.reset();
 		peer->videoSrReporter.reset();
 		peer->audioRtpConfig.reset();
@@ -2769,6 +4508,8 @@ void VDONinjaPeerManager::releasePeerResources(const std::shared_ptr<PeerInfo> &
 		peer->videoPacer.reset();
 		peer->pc.reset();
 		peer->hasDataChannel = false;
+		peer->dataChannelOpenDispatched = false;
+		peer->dataChannelOpenDispatchPending = false;
 	}
 	{
 		std::lock_guard<std::mutex> negotiationLock(peer->negotiationMutex);
@@ -2815,7 +4556,9 @@ void VDONinjaPeerManager::retirePeerForDeferredCleanup(const std::string &uuid, 
 		}
 		candidateBundles_.erase(peer->generation);
 	}
+	retirePeerDataChannel(peer);
 	{
+		std::lock_guard<std::mutex> aliasLock(dataChannelAliasMutex_);
 		std::lock_guard<std::mutex> lock(pendingViewerSignalingMutex_);
 		pendingViewerSignalingDataChannels_.erase(viewerSignalingKey(uuid, peer->session));
 		pendingViewerSignalingDataChannels_.erase(viewerSignalingKey(uuid, ""));
@@ -2824,6 +4567,8 @@ void VDONinjaPeerManager::retirePeerForDeferredCleanup(const std::string &uuid, 
 	if (alreadyRetired) {
 		return;
 	}
+
+	clearTrackSlots(peer);
 
 	// Keep RTC objects alive until a non-RTC callback path can clear callbacks
 	// and release them. Destroying a PeerConnection from its own state callback
@@ -2854,17 +4599,41 @@ void VDONinjaPeerManager::pruneRetiredPeers(int64_t minAgeMs)
 	}
 }
 
-void VDONinjaPeerManager::clearPeerCallbacks(const std::shared_ptr<PeerInfo> &peer) const
+void VDONinjaPeerManager::clearPeerCallbacks(const std::shared_ptr<PeerInfo> &peer)
 {
 	if (!peer) {
 		return;
 	}
 
-	clearPeerConnectionCallbacks(peer->pc);
-	clearTrackCallbacks(peer->videoTrack);
-	clearTrackCallbacks(peer->alphaVideoTrack);
-	clearTrackCallbacks(peer->audioTrack);
-	clearDataChannelCallbacks(peer->dataChannel);
+	std::shared_ptr<rtc::PeerConnection> pc;
+	std::shared_ptr<rtc::Track> videoTrack;
+	std::shared_ptr<rtc::Track> alphaVideoTrack;
+	std::shared_ptr<rtc::Track> audioTrack;
+	std::shared_ptr<rtc::DataChannel> dataChannel;
+	{
+		std::lock_guard<std::mutex> mediaLock(peer->mediaMutex);
+		pc = peer->pc;
+		videoTrack = peer->videoTrack;
+		alphaVideoTrack = peer->alphaVideoTrack;
+		audioTrack = peer->audioTrack;
+		dataChannel = peer->dataChannel;
+	}
+	clearPeerConnectionCallbacks(pc);
+	clearTrackCallbacks(videoTrack);
+	clearTrackCallbacks(alphaVideoTrack);
+	clearTrackCallbacks(audioTrack);
+	if (dataChannel) {
+		if (activeManagerDataChannelCallback == dataChannel.get()) {
+			std::lock_guard<std::mutex> mediaLock(peer->mediaMutex);
+			const auto &pending = peer->retiredDataChannelsPendingCallbackCleanup;
+			if (std::find(pending.begin(), pending.end(), dataChannel) == pending.end()) {
+				peer->retiredDataChannelsPendingCallbackCleanup.push_back(dataChannel);
+			}
+		} else {
+			std::lock_guard<std::recursive_mutex> callbackMutationLock(peer->dataChannelCallbackMutationMutex);
+			clearDataChannelCallbacks(dataChannel);
+		}
+	}
 }
 
 void VDONinjaPeerManager::sendDataToAll(const std::string &message)
@@ -2883,7 +4652,8 @@ void VDONinjaPeerManager::sendDataToAll(const std::string &message)
 			if (!pair.second || isTerminalPeerState(pair.second->state.load())) {
 				continue;
 			}
-			if (!pair.second->hasDataChannel || !pair.second->dataChannel) {
+			std::lock_guard<std::mutex> mediaLock(pair.second->mediaMutex);
+			if (!pair.second->hasDataChannel || !pair.second->dataChannel || !pair.second->dataChannelOpenDispatched) {
 				continue;
 			}
 			targets.push_back({pair.first, pair.second->dataChannel});
@@ -2915,7 +4685,8 @@ void VDONinjaPeerManager::sendDataToPeer(const std::string &uuid, const std::str
 			return;
 		}
 
-		if (it->second->hasDataChannel && it->second->dataChannel) {
+		std::lock_guard<std::mutex> mediaLock(it->second->mediaMutex);
+		if (it->second->hasDataChannel && it->second->dataChannel && it->second->dataChannelOpenDispatched) {
 			targetChannel = it->second->dataChannel;
 			targetMessage = message;
 		} else if (it->second->type == ConnectionType::Viewer && it->second->signalingDataChannel) {
@@ -2936,6 +4707,45 @@ void VDONinjaPeerManager::sendDataToPeer(const std::string &uuid, const std::str
 	}
 }
 
+void VDONinjaPeerManager::sendDataToPeer(const PeerEventIdentity &identity, const std::string &message)
+{
+	if (identity.uuid.empty() || identity.generation == 0) {
+		return;
+	}
+	pruneRetiredPeers(kRetiredPeerCleanupDelayMs);
+
+	std::shared_ptr<rtc::DataChannel> targetChannel;
+	std::string targetMessage;
+	{
+		std::lock_guard<std::mutex> lock(peersMutex_);
+		const auto it = peers_.find(identity.uuid);
+		if (it == peers_.end() || !it->second || it->second->generation != identity.generation ||
+		    it->second->session != identity.session || isTerminalPeerState(it->second->state.load())) {
+			return;
+		}
+
+		std::lock_guard<std::mutex> mediaLock(it->second->mediaMutex);
+		if (it->second->hasDataChannel && it->second->dataChannel && it->second->dataChannelOpenDispatched) {
+			targetChannel = it->second->dataChannel;
+			targetMessage = message;
+		} else if (it->second->type == ConnectionType::Viewer && it->second->signalingDataChannel) {
+			targetChannel = it->second->signalingDataChannel;
+			targetMessage = wrapTargetedPeerMessage(identity.uuid, identity.session, message);
+		} else {
+			return;
+		}
+	}
+
+	try {
+		if (targetChannel->isOpen()) {
+			targetChannel->send(targetMessage);
+		}
+	} catch (const std::exception &e) {
+		logError("Failed to send identity-bound data to %s generation %llu: %s", identity.uuid.c_str(),
+		         static_cast<unsigned long long>(identity.generation), e.what());
+	}
+}
+
 void VDONinjaPeerManager::bindViewerSignalingDataChannel(const std::string &transportPeerUuid,
                                                          const std::string &targetUuid,
                                                          const std::string &targetSession)
@@ -2944,38 +4754,74 @@ void VDONinjaPeerManager::bindViewerSignalingDataChannel(const std::string &tran
 		return;
 	}
 
-	std::shared_ptr<rtc::DataChannel> transportDataChannel;
+	ViewerSignalingDataChannelRoute route;
+	bool targetWasEligible = false;
 	{
+		std::lock_guard<std::mutex> aliasLock(dataChannelAliasMutex_);
 		std::lock_guard<std::mutex> lock(peersMutex_);
-		auto transportIt = peers_.find(transportPeerUuid);
-		if (transportIt != peers_.end() && transportIt->second) {
-			transportDataChannel = transportIt->second->dataChannel;
+		const auto transportIt = peers_.find(transportPeerUuid);
+		if (transportIt == peers_.end() || !transportIt->second) {
+			return;
+		}
+		const auto transport = transportIt->second;
+		std::lock_guard<std::mutex> transportMediaLock(transport->mediaMutex);
+		if (!transport->dataChannel || !transport->dataChannelOpenDispatched) {
+			return;
+		}
+		route = {transport->uuid, transport->generation, transport->dataChannelRevision, transport->dataChannel};
+		const auto targetIt = peers_.find(targetUuid);
+		if (targetIt != peers_.end() && targetIt->second &&
+		    (targetSession.empty() || targetIt->second->session.empty() ||
+		     targetIt->second->session == targetSession)) {
+			targetWasEligible = true;
 		}
 	}
-	if (!transportDataChannel) {
+
+#if defined(VDONINJA_NATIVE_MEDIA_INTEGRATION_TEST)
+	invokeNativeMediaTestDataChannelLifecycleHook(targetWasEligible
+	                                                  ? NativeMediaTestDataChannelStage::BeforeAliasCommit
+	                                                  : NativeMediaTestDataChannelStage::BeforePendingAliasCommit,
+	                                              nullptr, route.channel, route.dataChannelRevision);
+#endif
+
+	std::lock_guard<std::mutex> aliasLock(dataChannelAliasMutex_);
+	std::lock_guard<std::mutex> lock(peersMutex_);
+	const auto transportIt = peers_.find(route.transportUuid);
+	if (transportIt == peers_.end() || !transportIt->second ||
+	    transportIt->second->generation != route.transportGeneration) {
+		return;
+	}
+	const auto transport = transportIt->second;
+	std::unique_lock<std::mutex> transportMediaLock(transport->mediaMutex);
+	if (transport->dataChannel != route.channel || transport->dataChannelRevision != route.dataChannelRevision ||
+	    !transport->dataChannelOpenDispatched) {
+		return;
+	}
+	const auto targetIt = peers_.find(targetUuid);
+	if (targetIt != peers_.end() && targetIt->second &&
+	    (targetSession.empty() || targetIt->second->session.empty() || targetIt->second->session == targetSession)) {
+		const auto target = targetIt->second;
+		if (target != transport) {
+			std::lock_guard<std::mutex> targetMediaLock(target->mediaMutex);
+			target->signalingDataChannel = route.channel;
+			target->signalingDataChannelTransportUuid = route.transportUuid;
+			target->signalingDataChannelTransportGeneration = route.transportGeneration;
+			target->signalingDataChannelRevision = route.dataChannelRevision;
+		} else {
+			target->signalingDataChannel = route.channel;
+			target->signalingDataChannelTransportUuid = route.transportUuid;
+			target->signalingDataChannelTransportGeneration = route.transportGeneration;
+			target->signalingDataChannelRevision = route.dataChannelRevision;
+		}
 		return;
 	}
 
-	{
-		std::lock_guard<std::mutex> lock(peersMutex_);
-		auto targetIt = peers_.find(targetUuid);
-		if (targetIt != peers_.end() && targetIt->second) {
-			if (targetSession.empty() || targetIt->second->session.empty() ||
-			    targetIt->second->session == targetSession) {
-				targetIt->second->signalingDataChannel = transportDataChannel;
-				return;
-			}
-		}
-	}
-
-	std::lock_guard<std::mutex> lock(pendingViewerSignalingMutex_);
-	// Bound the pending map: entries for peers that never produce an offer would
-	// otherwise accumulate forever, pinning their DataChannels alive.
+	std::lock_guard<std::mutex> pendingLock(pendingViewerSignalingMutex_);
 	constexpr size_t kMaxPendingViewerSignalingChannels = 32;
 	while (pendingViewerSignalingDataChannels_.size() >= kMaxPendingViewerSignalingChannels) {
 		pendingViewerSignalingDataChannels_.erase(pendingViewerSignalingDataChannels_.begin());
 	}
-	pendingViewerSignalingDataChannels_[viewerSignalingKey(targetUuid, targetSession)] = transportDataChannel;
+	pendingViewerSignalingDataChannels_[viewerSignalingKey(targetUuid, targetSession)] = route;
 }
 
 void VDONinjaPeerManager::setOnPeerConnected(OnPeerConnectedCallback callback)
@@ -2993,6 +4839,236 @@ void VDONinjaPeerManager::setOnTrack(OnTrackCallback callback)
 	std::lock_guard<std::mutex> callbackLock(callbackMutex_);
 	onTrack_ = callback;
 }
+#if defined(VDONINJA_NATIVE_MEDIA_INTEGRATION_TEST)
+std::shared_ptr<PeerInfo> VDONinjaPeerManager::createNativeMediaTestViewerPeer(const std::string &uuid,
+                                                                               const std::string &session)
+{
+	auto peer = createViewerConnection(uuid);
+	if (peer) {
+		peer->session = session;
+	}
+	return peer;
+}
+
+std::shared_ptr<PeerInfo> VDONinjaPeerManager::createNativeMediaTestPublisherPeer(const std::string &uuid,
+                                                                                  const std::string &session)
+{
+	return createPublisherConnection(uuid, session);
+}
+
+void VDONinjaPeerManager::receiveNativeMediaTestTrack(const std::shared_ptr<PeerInfo> &peer,
+                                                      const std::shared_ptr<rtc::Track> &track)
+{
+	handleIncomingTrack(peer, track);
+}
+
+void VDONinjaPeerManager::prepareNativeMediaTestViewerTracks(const std::shared_ptr<PeerInfo> &peer,
+                                                             const std::string &offerSdp)
+{
+	prepareViewerTracks(peer, offerSdp);
+}
+
+void VDONinjaPeerManager::retireNativeMediaTestPeer(const std::shared_ptr<PeerInfo> &peer)
+{
+	if (peer) {
+		retirePeerForDeferredCleanup(peer->uuid, peer);
+	}
+}
+
+void VDONinjaPeerManager::dispatchNativeMediaTestPeerDisconnected(const std::shared_ptr<PeerInfo> &peer)
+{
+	dispatchPeerDisconnected(peer);
+}
+
+void VDONinjaPeerManager::dispatchNativeMediaTestDataChannelMessage(const std::shared_ptr<PeerInfo> &peer,
+                                                                    const std::string &message)
+{
+	dispatchDataChannelMessage(peer, message);
+}
+
+void VDONinjaPeerManager::dispatchNativeMediaTestDataChannelOpen(const std::shared_ptr<PeerInfo> &peer,
+                                                                 const std::shared_ptr<rtc::DataChannel> &dc)
+{
+	uint64_t revision = 0;
+	if (peer) {
+		std::lock_guard<std::mutex> mediaLock(peer->mediaMutex);
+		revision = peer->dataChannelRevision;
+	}
+	handleDataChannelOpen(peer, dc, peer ? peer->generation : 0, revision);
+}
+
+void VDONinjaPeerManager::receiveNativeMediaTestDataChannel(const std::shared_ptr<PeerInfo> &peer,
+                                                            const std::shared_ptr<rtc::DataChannel> &dc)
+{
+	handleIncomingDataChannel(peer, dc);
+}
+
+void VDONinjaPeerManager::dispatchNativeMediaTestDataChannelError(const std::shared_ptr<PeerInfo> &peer,
+                                                                  const std::shared_ptr<rtc::DataChannel> &dc,
+                                                                  const std::string &error)
+{
+	uint64_t revision = 0;
+	if (peer) {
+		std::lock_guard<std::mutex> mediaLock(peer->mediaMutex);
+		revision = peer->dataChannelRevision;
+	}
+	handleDataChannelTerminal(peer, dc, peer ? peer->generation : 0, revision, "test-datachannel-error", error);
+}
+
+size_t VDONinjaPeerManager::nativeMediaTestPendingViewerSignalingDataChannelCount() const
+{
+	std::lock_guard<std::mutex> aliasLock(dataChannelAliasMutex_);
+	std::lock_guard<std::mutex> lock(pendingViewerSignalingMutex_);
+	return pendingViewerSignalingDataChannels_.size();
+}
+
+size_t
+VDONinjaPeerManager::nativeMediaTestPendingDataChannelCallbackCleanupCount(const std::shared_ptr<PeerInfo> &peer) const
+{
+	if (!peer) {
+		return 0;
+	}
+	std::lock_guard<std::mutex> mediaLock(peer->mediaMutex);
+	return peer->retiredDataChannelsPendingCallbackCleanup.size();
+}
+
+void VDONinjaPeerManager::consumeNativeMediaTestPendingViewerSignalingDataChannel(const std::shared_ptr<PeerInfo> &peer,
+                                                                                  const std::string &session)
+{
+	consumePendingViewerSignalingDataChannel(peer, session);
+}
+
+void VDONinjaPeerManager::retireNativeMediaTestTrackSlot(const std::shared_ptr<PeerInfo> &peer, TrackType type)
+{
+	TrackSlotEvent event;
+	if (updateTrackSlot(peer, type, nullptr, event)) {
+		dispatchTrackSlotEvent(event);
+	}
+}
+
+void VDONinjaPeerManager::dispatchNativeMediaTestTrackError(const std::shared_ptr<PeerInfo> &peer, TrackType type)
+{
+	if (!peer) {
+		return;
+	}
+	std::shared_ptr<rtc::Track> track;
+	uint64_t revision = 0;
+	{
+		std::lock_guard<std::mutex> mediaLock(peer->mediaMutex);
+		if (type == TrackType::Audio) {
+			track = peer->audioTrack;
+			revision = peer->audioTrackRevision;
+		} else if (type == TrackType::AlphaVideo) {
+			track = peer->alphaVideoTrack;
+			revision = peer->alphaVideoTrackRevision;
+		} else {
+			track = peer->videoTrack;
+			revision = peer->videoTrackRevision;
+		}
+	}
+	handleTrackTerminal(peer, type, track, peer->generation, revision, "test-track-error", "injected error");
+}
+
+bool VDONinjaPeerManager::nativeMediaTestPeerRegistryLockAvailable()
+{
+	if (!peersMutex_.try_lock()) {
+		return false;
+	}
+	peersMutex_.unlock();
+	return true;
+}
+
+void VDONinjaPeerManager::setNativeMediaTestTrackCommitHook(NativeMediaTestTrackCommitHook hook)
+{
+	std::lock_guard<std::mutex> callbackLock(callbackMutex_);
+	nativeMediaTestTrackCommitHook_ = std::move(hook);
+}
+
+void VDONinjaPeerManager::setNativeMediaTestTrackDispatchHook(NativeMediaTestTrackDispatchHook hook)
+{
+	std::lock_guard<std::mutex> callbackLock(callbackMutex_);
+	nativeMediaTestTrackDispatchHook_ = std::move(hook);
+}
+
+void VDONinjaPeerManager::setNativeMediaTestTrackLifecycleHook(NativeMediaTestTrackLifecycleHook hook)
+{
+	std::lock_guard<std::mutex> callbackLock(callbackMutex_);
+	nativeMediaTestTrackLifecycleHook_ = std::move(hook);
+}
+
+void VDONinjaPeerManager::setNativeMediaTestTrackBeforeInstallHook(NativeMediaTestTrackHandleHook hook)
+{
+	std::lock_guard<std::mutex> callbackLock(callbackMutex_);
+	nativeMediaTestTrackBeforeInstallHook_ = std::move(hook);
+}
+
+void VDONinjaPeerManager::setNativeMediaTestTrackCleanupHook(NativeMediaTestTrackHandleHook hook)
+{
+	std::lock_guard<std::mutex> callbackLock(callbackMutex_);
+	nativeMediaTestTrackCleanupHook_ = std::move(hook);
+}
+
+void VDONinjaPeerManager::setNativeMediaTestDataChannelLifecycleHook(NativeMediaTestDataChannelLifecycleHook hook)
+{
+	std::lock_guard<std::mutex> callbackLock(callbackMutex_);
+	nativeMediaTestDataChannelLifecycleHook_ = std::move(hook);
+}
+
+void VDONinjaPeerManager::setNativeMediaTestSignalingLifecycleHook(NativeMediaTestSignalingLifecycleHook hook)
+{
+	std::lock_guard<std::mutex> callbackLock(callbackMutex_);
+	nativeMediaTestSignalingLifecycleHook_ = std::move(hook);
+}
+
+void VDONinjaPeerManager::setNativeMediaTestPeerDisconnectDispatchHook(NativeMediaTestPeerDispatchHook hook)
+{
+	std::lock_guard<std::mutex> callbackLock(callbackMutex_);
+	nativeMediaTestPeerDisconnectDispatchHook_ = std::move(hook);
+}
+
+void VDONinjaPeerManager::setNativeMediaTestPeerDataDispatchHook(NativeMediaTestPeerDispatchHook hook)
+{
+	std::lock_guard<std::mutex> callbackLock(callbackMutex_);
+	nativeMediaTestPeerDataDispatchHook_ = std::move(hook);
+}
+
+void VDONinjaPeerManager::setNativeMediaTestPeerDataDispatchCompleteHook(NativeMediaTestPeerDispatchHook hook)
+{
+	std::lock_guard<std::mutex> callbackLock(callbackMutex_);
+	nativeMediaTestPeerDataDispatchCompleteHook_ = std::move(hook);
+}
+
+void VDONinjaPeerManager::setNativeMediaTestPeerDataOpenDispatchHook(NativeMediaTestPeerDispatchHook hook)
+{
+	std::lock_guard<std::mutex> callbackLock(callbackMutex_);
+	nativeMediaTestPeerDataOpenDispatchHook_ = std::move(hook);
+}
+
+void VDONinjaPeerManager::setNativeMediaTestOwnerSessionHook(NativeMediaTestOwnerSessionHook hook)
+{
+	if (ownerSession_) {
+		ownerSession_->setTestHook(std::move(hook));
+	}
+}
+
+void VDONinjaPeerManager::failNextNativeMediaTestOwnerSessionFunctionRegistration(PeerManagerCompletionKind kind)
+{
+	if (ownerSession_) {
+		ownerSession_->failNextFunctionRegistration(kind);
+	}
+}
+
+std::function<void()>
+VDONinjaPeerManager::nativeMediaTestVideoFeedbackCompletion(const std::shared_ptr<PeerInfo> &peer) const
+{
+	if (!peer) {
+		return {};
+	}
+	std::lock_guard<std::mutex> callbackLock(callbackMutex_);
+	const auto completion = nativeMediaTestVideoFeedbackCompletions_.find(peer->generation);
+	return completion != nativeMediaTestVideoFeedbackCompletions_.end() ? completion->second : std::function<void()>{};
+}
+#endif
 void VDONinjaPeerManager::setOnDataChannel(OnDataChannelCallback callback)
 {
 	std::lock_guard<std::mutex> callbackLock(callbackMutex_);
@@ -3032,7 +5108,10 @@ std::vector<PeerSnapshot> VDONinjaPeerManager::getPeerSnapshots() const
 		snapshot.streamId = pair.second ? pair.second->streamId : "";
 		snapshot.type = pair.second ? pair.second->type : ConnectionType::Publisher;
 		snapshot.state = pair.second ? pair.second->state.load() : ConnectionState::Closed;
-		snapshot.hasDataChannel = pair.second && pair.second->hasDataChannel;
+		if (pair.second) {
+			std::lock_guard<std::mutex> mediaLock(pair.second->mediaMutex);
+			snapshot.hasDataChannel = pair.second->hasDataChannel && pair.second->dataChannelOpenDispatched;
+		}
 		if (pair.second) {
 			std::lock_guard<std::mutex> mediaLock(pair.second->mediaMutex);
 			snapshot.audioSendEnabled = pair.second->audioSendEnabled;
@@ -3051,6 +5130,165 @@ ConnectionState VDONinjaPeerManager::getPeerState(const std::string &uuid) const
 		return it->second->state;
 	}
 	return ConnectionState::Closed;
+}
+
+std::optional<PeerEventIdentity> VDONinjaPeerManager::getPeerIdentity(const std::string &uuid) const
+{
+	std::lock_guard<std::mutex> lock(peersMutex_);
+	const auto it = peers_.find(uuid);
+	if (it == peers_.end() || !it->second) {
+		return std::nullopt;
+	}
+	return peerEventIdentity(it->second);
+}
+
+std::optional<PeerEventIdentity> VDONinjaPeerManager::claimPeerEventIdentity(const std::string &uuid,
+                                                                             const std::string &expectedSession,
+                                                                             uint64_t expectedGeneration)
+{
+	std::lock_guard<std::mutex> lock(peersMutex_);
+	const auto it = peers_.find(uuid);
+	if (it == peers_.end() || !it->second || (!expectedSession.empty() && it->second->session != expectedSession) ||
+	    (expectedGeneration != 0 && it->second->generation != expectedGeneration)) {
+		return std::nullopt;
+	}
+	return nextPeerEventIdentity(it->second);
+}
+
+std::optional<PeerEventIdentity> VDONinjaPeerManager::claimSignalingPeerCleanupIdentity(const std::string &uuid,
+                                                                                        const std::string &session,
+                                                                                        bool *ambiguousReuse)
+{
+	if (ambiguousReuse) {
+		*ambiguousReuse = false;
+	}
+	std::lock_guard<std::mutex> lock(peersMutex_);
+	const auto peerIt = peers_.find(uuid);
+	if (peerIt == peers_.end() || !peerIt->second || (!session.empty() && peerIt->second->session != session)) {
+		return std::nullopt;
+	}
+	const auto historyIt = peerGenerationRegistrationCounts_.find(uuid);
+	if (session.empty() && historyIt != peerGenerationRegistrationCounts_.end() && historyIt->second > 1) {
+		if (ambiguousReuse) {
+			*ambiguousReuse = true;
+		}
+		return std::nullopt;
+	}
+	return nextPeerEventIdentity(peerIt->second);
+}
+
+SignalingLifecycleDisposition VDONinjaPeerManager::processSignalingLifecycleEvent(const SignalingLifecycleEvent &event)
+{
+	const bool hasSocketEpoch = event.socketEpoch != 0;
+	const bool hasWsSequence = event.wsSequence != 0;
+	if (hasSocketEpoch != hasWsSequence) {
+		logWarning("Ignoring signaling lifecycle event with incomplete socket ordering metadata");
+		return SignalingLifecycleDisposition::Stale;
+	}
+
+	const bool websocketOrigin = hasSocketEpoch && hasWsSequence;
+	const bool correlatedSession = event.session.has_value() && !event.session->empty();
+	std::shared_ptr<PeerInfo> admittedPeer;
+	std::optional<PeerEventIdentity> admittedIdentity;
+	{
+		std::lock_guard<std::mutex> lock(peersMutex_);
+		if (websocketOrigin) {
+			if (event.socketEpoch < latestSignalingLifecycleSocketEpoch_ ||
+			    (event.socketEpoch == latestSignalingLifecycleSocketEpoch_ &&
+			     event.wsSequence <= latestSignalingLifecycleWsSequence_)) {
+				logDebug("Ignoring stale signaling lifecycle envelope epoch=%llu sequence=%llu",
+				         static_cast<unsigned long long>(event.socketEpoch),
+				         static_cast<unsigned long long>(event.wsSequence));
+				return SignalingLifecycleDisposition::Stale;
+			}
+			if (event.socketEpoch > latestSignalingLifecycleSocketEpoch_) {
+				latestSignalingLifecycleSocketEpoch_ = event.socketEpoch;
+			}
+			latestSignalingLifecycleWsSequence_ = event.wsSequence;
+		}
+
+		if (event.uuid.empty()) {
+			logWarning("Treating UUID-less signaling stream removal for '%s' as a non-destructive hint",
+			           event.streamId.c_str());
+			return SignalingLifecycleDisposition::NonDestructiveHint;
+		}
+
+		const auto peerIt = peers_.find(event.uuid);
+		if (peerIt == peers_.end() || !peerIt->second) {
+			return SignalingLifecycleDisposition::NonDestructiveHint;
+		}
+		admittedPeer = peerIt->second;
+		if ((correlatedSession && admittedPeer->session != *event.session) ||
+		    admittedPeer->signalingLifecycleTerminalClaimed || admittedPeer->cleanupRetired.load() ||
+		    isTerminalPeerState(admittedPeer->state.load())) {
+			return SignalingLifecycleDisposition::Stale;
+		}
+		const auto historyIt = peerGenerationRegistrationCounts_.find(event.uuid);
+		if (!correlatedSession && historyIt != peerGenerationRegistrationCounts_.end() && historyIt->second > 1) {
+			logWarning("Treating ambiguous sessionless signaling lifecycle event for reused peer %s as a "
+			           "non-destructive hint",
+			           event.uuid.c_str());
+			return SignalingLifecycleDisposition::AmbiguousSessionless;
+		}
+		admittedIdentity = nextPeerEventIdentity(admittedPeer);
+	}
+
+#if defined(VDONINJA_NATIVE_MEDIA_INTEGRATION_TEST)
+	NativeMediaTestSignalingLifecycleHook testHook;
+	{
+		std::lock_guard<std::mutex> callbackLock(callbackMutex_);
+		testHook = nativeMediaTestSignalingLifecycleHook_;
+	}
+	if (testHook) {
+		testHook(event, admittedIdentity);
+	}
+#endif
+
+	OnAcceptedSignalingLifecycleEventCallback callback;
+	{
+		std::lock_guard<std::mutex> callbackLock(callbackMutex_);
+		callback = onAcceptedSignalingLifecycleEvent_;
+	}
+	if (!callback) {
+		return SignalingLifecycleDisposition::NoSubscriber;
+	}
+
+	{
+		std::lock_guard<std::mutex> lock(peersMutex_);
+		if (websocketOrigin && (event.socketEpoch != latestSignalingLifecycleSocketEpoch_ ||
+		                        event.wsSequence != latestSignalingLifecycleWsSequence_)) {
+			return SignalingLifecycleDisposition::Stale;
+		}
+		const auto peerIt = peers_.find(event.uuid);
+		if (!admittedIdentity || peerIt == peers_.end() || peerIt->second != admittedPeer ||
+		    admittedPeer->generation != admittedIdentity->generation ||
+		    (correlatedSession && admittedPeer->session != *event.session) ||
+		    admittedPeer->signalingLifecycleTerminalClaimed || admittedPeer->cleanupRetired.load() ||
+		    isTerminalPeerState(admittedPeer->state.load())) {
+			return SignalingLifecycleDisposition::Stale;
+		}
+		const auto historyIt = peerGenerationRegistrationCounts_.find(event.uuid);
+		if (!correlatedSession && historyIt != peerGenerationRegistrationCounts_.end() && historyIt->second > 1) {
+			return SignalingLifecycleDisposition::AmbiguousSessionless;
+		}
+		admittedPeer->signalingLifecycleTerminalClaimed = true;
+	}
+
+	AcceptedSignalingLifecycleEvent accepted;
+	accepted.kind = event.kind;
+	accepted.socketEpoch = event.socketEpoch;
+	accepted.wsSequence = event.wsSequence;
+	accepted.identity = *admittedIdentity;
+	accepted.streamId = event.streamId;
+	runRtcCallbackNoexcept("Signaling lifecycle event callback", [&]() { callback(accepted); });
+	(void)disconnectPeer(accepted.identity);
+	return SignalingLifecycleDisposition::Accepted;
+}
+
+void VDONinjaPeerManager::setOnAcceptedSignalingLifecycleEvent(OnAcceptedSignalingLifecycleEventCallback callback)
+{
+	std::lock_guard<std::mutex> callbackLock(callbackMutex_);
+	onAcceptedSignalingLifecycleEvent_ = std::move(callback);
 }
 
 void VDONinjaPeerManager::setVideoCodec(VideoCodec codec)

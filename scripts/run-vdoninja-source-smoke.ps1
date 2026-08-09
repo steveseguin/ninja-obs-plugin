@@ -196,8 +196,10 @@ try {
         throw "Source check failed with exit code $checkExit"
     }
 
-    $expectedPluginHash =
-        (Get-FileHash (Join-Path $installPrefixPath "obs-plugins\64bit\obs-vdoninja.dll") -Algorithm SHA256).Hash
+    $expectedPluginPath = (Resolve-Path -LiteralPath (
+        Join-Path $installPrefixPath "obs-plugins\64bit\obs-vdoninja.dll"
+    )).Path
+    $expectedPluginHash = (Get-FileHash -LiteralPath $expectedPluginPath -Algorithm SHA256).Hash
     $loadedPluginModules = @(
         (Get-Process -Id $obsProc.Id -ErrorAction Stop).Modules |
             Where-Object { $_.ModuleName -ieq "obs-vdoninja.dll" } |
@@ -208,6 +210,19 @@ try {
                 }
             }
     )
+    $loadedPluginModulesEvidence = @(
+        $loadedPluginModules | ForEach-Object {
+            [ordered]@{
+                path = [System.IO.Path]::GetFullPath([string]$_.path)
+                sha256 = ([string]$_.sha256).ToLowerInvariant()
+            }
+        }
+    )
+    $loadedPluginModulesJson = ConvertTo-Json -InputObject $loadedPluginModulesEvidence -Depth 5 -Compress
+    $loadedPluginModulesBase64 = [Convert]::ToBase64String(
+        [Text.Encoding]::UTF8.GetBytes($loadedPluginModulesJson)
+    )
+    Write-Output "LOADED_PLUGIN_MODULES_JSON_BASE64=$loadedPluginModulesBase64"
     if ($loadedPluginModules.Count -ne 1) {
         $loadedPaths = ($loadedPluginModules | ForEach-Object { $_.path }) -join ", "
         throw "Portable OBS must load exactly one obs-vdoninja.dll; found: $loadedPaths"
@@ -215,6 +230,14 @@ try {
     if ($loadedPluginModules[0].sha256 -ne $expectedPluginHash) {
         throw "Portable OBS loaded a stale plugin DLL from $($loadedPluginModules[0].path)"
     }
+    $loadedPluginPath = (Resolve-Path -LiteralPath $loadedPluginModules[0].path).Path
+    $obsExeHash = (Get-FileHash -LiteralPath $obsExePath -Algorithm SHA256).Hash
+    Write-Output "OBS_EXE_PATH=$obsExePath"
+    Write-Output "OBS_EXE_SHA256=$($obsExeHash.ToLowerInvariant())"
+    Write-Output "EXPECTED_PLUGIN_PATH=$expectedPluginPath"
+    Write-Output "EXPECTED_PLUGIN_SHA256=$($expectedPluginHash.ToLowerInvariant())"
+    Write-Output "LOADED_PLUGIN_PATH=$loadedPluginPath"
+    Write-Output "LOADED_PLUGIN_SHA256=$($loadedPluginModules[0].sha256.ToLowerInvariant())"
 } finally {
     if ($originalObsWebSocketConfig -ne $null) {
         Set-Content -Path $obsWebSocketConfigPath -Value $originalObsWebSocketConfig -Encoding UTF8

@@ -1990,22 +1990,34 @@ void VDONinjaOutput::startThread(OutputSettings settingsSnap)
 			}
 		});
 
-		peerManager_->setOnPeerConnected([callbackState](const std::string &uuid) {
+		peerManager_->setOnPeerConnected([callbackState](const PeerEventIdentity &identity) {
 			AsyncCallbackGuard<VDONinjaOutput> guard(callbackState.get());
 			if (!guard) {
 				return;
 			}
 			VDONinjaOutput *self = guard.owner();
+			const std::string &uuid = identity.uuid;
+			const auto currentIdentity = self->peerManager_->getPeerIdentity(uuid);
+			if (!currentIdentity || currentIdentity->generation != identity.generation ||
+			    currentIdentity->session != identity.session) {
+				return;
+			}
 			logInfo("Viewer connected: %s (total: %d)", uuid.c_str(), self->peerManager_->getViewerCount());
 			self->primeViewerWithCachedKeyframe(uuid);
 		});
 
-		peerManager_->setOnPeerDisconnected([callbackState](const std::string &uuid) {
+		peerManager_->setOnPeerDisconnected([callbackState](const PeerEventIdentity &identity) {
 			AsyncCallbackGuard<VDONinjaOutput> guard(callbackState.get());
 			if (!guard) {
 				return;
 			}
 			VDONinjaOutput *self = guard.owner();
+			const std::string &uuid = identity.uuid;
+			const auto currentIdentity = self->peerManager_->getPeerIdentity(uuid);
+			if (currentIdentity &&
+			    (currentIdentity->generation != identity.generation || currentIdentity->session != identity.session)) {
+				return;
+			}
 			{
 				std::lock_guard<std::mutex> lock(self->telemetryMutex_);
 				self->lastPeerStats_.erase(uuid);
@@ -2023,21 +2035,34 @@ void VDONinjaOutput::startThread(OutputSettings settingsSnap)
 			guard.owner()->primeViewerWithCachedKeyframe(uuid);
 		});
 
-		peerManager_->setOnDataChannel([callbackState](const std::string &uuid, std::shared_ptr<rtc::DataChannel>) {
-			AsyncCallbackGuard<VDONinjaOutput> guard(callbackState.get());
-			if (!guard) {
-				return;
-			}
-			guard.owner()->sendInitialPeerInfo(uuid);
-		});
+		peerManager_->setOnDataChannel(
+		    [callbackState](const PeerEventIdentity &identity, std::shared_ptr<rtc::DataChannel>) {
+			    AsyncCallbackGuard<VDONinjaOutput> guard(callbackState.get());
+			    if (!guard) {
+				    return;
+			    }
+			    VDONinjaOutput *self = guard.owner();
+			    const auto currentIdentity = self->peerManager_->getPeerIdentity(identity.uuid);
+			    if (!currentIdentity || currentIdentity->generation != identity.generation ||
+			        currentIdentity->session != identity.session) {
+				    return;
+			    }
+			    self->sendInitialPeerInfo(identity.uuid);
+		    });
 
-		peerManager_->setOnDataChannelMessage([callbackState, settingsSnap](const std::string &uuid,
+		peerManager_->setOnDataChannelMessage([callbackState, settingsSnap](const PeerEventIdentity &identity,
 		                                                                    const std::string &message) {
 			AsyncCallbackGuard<VDONinjaOutput> guard(callbackState.get());
 			if (!guard) {
 				return;
 			}
 			VDONinjaOutput *self = guard.owner();
+			const std::string &uuid = identity.uuid;
+			const auto currentIdentity = self->peerManager_->getPeerIdentity(uuid);
+			if (!currentIdentity || currentIdentity->generation != identity.generation ||
+			    currentIdentity->session != identity.session) {
+				return;
+			}
 			self->dataChannel_.handleMessage(uuid, message);
 
 			const DataMessage parsed = self->dataChannel_.parseMessage(message);
@@ -2196,7 +2221,7 @@ void VDONinjaOutput::startThread(OutputSettings settingsSnap)
 				}
 				self->removeRemoteStatsSubscriber(uuid);
 				if (self->peerManager_) {
-					self->peerManager_->disconnectPeer(uuid);
+					self->peerManager_->disconnectPeer(identity);
 				}
 				return;
 			}

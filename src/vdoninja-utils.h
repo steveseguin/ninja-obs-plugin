@@ -36,6 +36,8 @@ struct SdpOfferedCodec {
 struct SdpOfferedMediaSection {
 	std::string type;
 	std::string mid;
+	int port = -1;
+	std::string direction = "sendrecv";
 	std::vector<int> payloadTypes;
 	std::vector<SdpOfferedCodec> codecs;
 };
@@ -160,6 +162,8 @@ std::string modifySdpBitrate(const std::string &sdp, int bitrate);
 std::string extractMid(const std::string &sdp, const std::string &mediaType);
 std::string stripUnsupportedTransportCcFeedback(const std::string &sdp);
 std::vector<SdpOfferedMediaSection> parseOfferedMediaSections(const std::string &sdp);
+bool offeredMediaSectionCanSend(const SdpOfferedMediaSection &section);
+bool offerHasActiveVp9AlphaSection(const std::vector<SdpOfferedMediaSection> &sections);
 
 // Logging helpers
 void logInfo(const char *format, ...);

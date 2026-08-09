@@ -430,6 +430,7 @@ https://vdo.ninja/?view=YourStreamID&amp;room=YourRoomID&amp;solo</code></pre>
               <li><a href="https://github.com/steveseguin/ninja-obs-plugin/blob/main/INSTALL.md#install-linux">Linux install guide</a></li>
               <li><a href="https://github.com/steveseguin/ninja-obs-plugin/blob/main/INSTALL.md#install-macos">macOS install guide</a></li>
               <li><a href="https://github.com/steveseguin/ninja-obs-plugin/blob/main/README.md">README</a></li>
+              <li><a href="https://docs.vdo.ninja/guides/packet-loss-recovery-and-resilient-media">Advanced packet-loss and protection reference</a></li>
               <li><a href="https://github.com/steveseguin/ninja-obs-plugin/blob/main/TESTING_OBS_MANUAL.md">Manual test matrix</a></li>
               <li><a href="https://github.com/steveseguin/ninja-obs-plugin/issues">Issue tracker</a></li>
               <li><a href="https://vdo.ninja/">VDO.Ninja</a></li>
@@ -441,6 +442,7 @@ https://vdo.ninja/?view=YourStreamID&amp;room=YourRoomID&amp;solo</code></pre>
             <ul class="list">
               <li><strong>Does <code>Go Live</code> do anything different from <code>Start Streaming</code>?</strong> No. They trigger the same OBS stream output pipeline.</li>
               <li><strong>Can I publish to VDO.Ninja and another stream destination at the same time?</strong> Not with this plugin path alone. It uses the active OBS stream output slot as a single destination.</li>
+              <li><strong>Which packet-protection mode should I use?</strong> Start with <code>Off</code>; automatic NACK repair still works. Try <code>Low</code> only after the media bitrate fits the route, then use <code>Medium</code> or <code>High</code> only with measured loss and enough spare upload for the added traffic. See the <a href="https://docs.vdo.ninja/guides/packet-loss-recovery-and-resilient-media">advanced reference</a>.</li>
               <li><strong>Where are Linux/macOS install steps?</strong> Use the install guide links above, or open <a href="https://github.com/steveseguin/ninja-obs-plugin/blob/main/INSTALL.md">INSTALL.md</a>.</li>
             </ul>
           </section>

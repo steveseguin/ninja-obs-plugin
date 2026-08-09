@@ -899,6 +899,7 @@ jobs:
 
           $ffmpegIncludeDir = Join-Path $ffmpegDepsRoot.FullName "include"
           $ffmpegLibDir = Join-Path $ffmpegDepsRoot.FullName "lib"
+          $plogIncludeDir = (Resolve-Path "${{ github.workspace }}\libdatachannel-src\deps\plog\include").Path
           $ffmpegAvcodec = Find-FirstMatch $ffmpegLibDir @("avcodec*.lib", "libavcodec*.lib")
           $ffmpegAvutil = Find-FirstMatch $ffmpegLibDir @("avutil*.lib", "libavutil*.lib")
           $ffmpegSwscale = Find-FirstMatch $ffmpegLibDir @("swscale*.lib", "libswscale*.lib")
@@ -922,6 +923,10 @@ jobs:
             -DFFMPEG_AVUTIL_LIBRARY="$ffmpegAvutil" `
             -DFFMPEG_SWSCALE_LIBRARY="$ffmpegSwscale" `
             -DFFMPEG_SWRESAMPLE_LIBRARY="$ffmpegSwresample" `
+            -DBUILD_PLUGIN=ON `
+            -DBUILD_NATIVE_MEDIA_LINKED_GATE=ON `
+            -DBUILD_MODULE_LIFECYCLE_LINKED_GATE=ON `
+            -DLIBDATACHANNEL_PLOG_INCLUDE_DIR="$plogIncludeDir" `
             $qtArg
 
       - name: Verify local libdatachannel prefix
@@ -946,49 +951,23 @@ jobs:
       - name: Build Plugin
         run: cmake --build build
 
-      - name: Verify Windows Runtime Imports
+      - name: Run release linked gates
+        shell: pwsh
+        timeout-minutes: 20
         run: |
-          python -m pip install --quiet pefile
-          $script = @'
-          import pefile
-          import os
-          from pathlib import Path
-
-          dll_path = Path("build") / "obs-vdoninja.dll"
-          if not dll_path.exists():
-              raise SystemExit(f"Missing plugin binary: {dll_path}")
-
-          pe = pefile.PE(str(dll_path))
-          imports = {entry.dll.decode(errors="ignore").lower() for entry in pe.DIRECTORY_ENTRY_IMPORT}
-          blocked = {"datachannel.dll", "libcrypto-3-x64.dll", "libssl-3-x64.dll"}
-          bad = sorted(blocked.intersection(imports))
-          if bad:
-              raise SystemExit(
-                  "Unexpected dynamic runtime imports in obs-vdoninja.dll: "
-                  + ", ".join(bad)
-                  + ". Windows release must be self-contained for libdatachannel/OpenSSL."
-              )
-          expected_ffmpeg = {
-              item.strip().lower()
-              for item in os.environ["EXPECTED_FFMPEG_IMPORTS"].split(",")
-              if item.strip()
+          $ffmpegDepsRoot = Get-ChildItem -Path "${{ github.workspace }}\obs-studio\.deps" -Directory -Filter "obs-deps-*" |
+            Where-Object { $_.Name -notmatch "qt6" } |
+            Select-Object -First 1
+          if (-not $ffmpegDepsRoot) {
+            throw "Could not locate non-Qt OBS dependency runtime prefix."
           }
-          known_ffmpeg = {
-              "avcodec-61.dll", "avutil-59.dll", "swscale-8.dll", "swresample-5.dll",
-              "avcodec-62.dll", "avutil-60.dll", "swscale-9.dll", "swresample-6.dll",
-          }
-          actual_ffmpeg = imports.intersection(known_ffmpeg)
-          if actual_ffmpeg != expected_ffmpeg:
-              raise SystemExit(
-                  "Unexpected FFmpeg runtime imports. Expected: "
-                  + ", ".join(sorted(expected_ffmpeg))
-                  + "; actual: "
-                  + ", ".join(sorted(actual_ffmpeg))
-              )
-          print("Import check passed:", ", ".join(sorted(imports)))
-          '@
-          $env:EXPECTED_FFMPEG_IMPORTS = "${{ matrix.ffmpeg_imports }}"
-          $script | python -
+          pwsh -NoLogo -NoProfile -ExecutionPolicy Bypass -File scripts\run-release-linked-gates.ps1 `
+            -BuildDirectory build `
+            -ObsRundir "${{ github.workspace }}\obs-studio\build_x64\rundir\RelWithDebInfo\bin\64bit" `
+            -LibobsRuntimeDirectory "${{ github.workspace }}\obs-studio\build_x64\libobs\RelWithDebInfo" `
+            -PthreadsRuntimeDirectory "${{ github.workspace }}\obs-studio\build_x64\deps\w32-pthreads\RelWithDebInfo" `
+            -ObsDepsBinDirectory "$($ffmpegDepsRoot.FullName)\bin" `
+            -ExpectedFfmpegImports "${{ matrix.ffmpeg_imports }}"
 
       - name: Prepare Windows signing certificate
         if: ${{ env.WIN_SIGN_CERT_B64 != '' && env.WIN_CSC_KEY_PASSWORD != '' }}

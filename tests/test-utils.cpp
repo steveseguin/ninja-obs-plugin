@@ -1331,6 +1331,7 @@ TEST_F(SDPTest, ParseOfferedMediaSectionsCapturesMidsPayloadsAndFmtp)
 	std::string sdp = "v=0\r\n"
 	                  "m=audio 9 UDP/TLS/RTP/SAVPF 111 126\r\n"
 	                  "a=mid:audio-main\r\n"
+	                  "a=sendonly\r\n"
 	                  "a=rtpmap:111 opus/48000/2\r\n"
 	                  "a=fmtp:111 minptime=10;useinbandfec=1\r\n"
 	                  "a=rtpmap:126 telephone-event/8000\r\n"
@@ -1348,6 +1349,8 @@ TEST_F(SDPTest, ParseOfferedMediaSectionsCapturesMidsPayloadsAndFmtp)
 	ASSERT_EQ(sections.size(), 2u);
 	EXPECT_EQ(sections[0].type, "audio");
 	EXPECT_EQ(sections[0].mid, "audio-main");
+	EXPECT_EQ(sections[0].port, 9);
+	EXPECT_EQ(sections[0].direction, "sendonly");
 	ASSERT_EQ(sections[0].payloadTypes.size(), 2u);
 	EXPECT_EQ(sections[0].payloadTypes[0], 111);
 	EXPECT_EQ(sections[0].payloadTypes[1], 126);
@@ -1359,6 +1362,8 @@ TEST_F(SDPTest, ParseOfferedMediaSectionsCapturesMidsPayloadsAndFmtp)
 
 	EXPECT_EQ(sections[1].type, "video");
 	EXPECT_EQ(sections[1].mid, "video-main");
+	EXPECT_EQ(sections[1].port, 9);
+	EXPECT_EQ(sections[1].direction, "sendrecv");
 	ASSERT_EQ(sections[1].payloadTypes.size(), 3u);
 	EXPECT_EQ(sections[1].payloadTypes[0], 96);
 	EXPECT_EQ(sections[1].payloadTypes[1], 97);
@@ -1369,6 +1374,46 @@ TEST_F(SDPTest, ParseOfferedMediaSectionsCapturesMidsPayloadsAndFmtp)
 	EXPECT_EQ(sections[1].codecs[1].codec, "rtx");
 	EXPECT_EQ(sections[1].codecs[1].associatedPayloadType, 96);
 	EXPECT_EQ(sections[1].codecs[2].codec, "VP8");
+}
+
+TEST_F(SDPTest, ParseOfferedMediaSectionsCapturesRejectedAndInactiveAlphaLifecycle)
+{
+	const std::string sdp = "v=0\r\n"
+	                        "m=video 9 UDP/TLS/RTP/SAVPF 98\r\n"
+	                        "a=mid:video\r\n"
+	                        "a=sendonly\r\n"
+	                        "a=rtpmap:98 VP9/90000\r\n"
+	                        "m=video 0 UDP/TLS/RTP/SAVPF 99\r\n"
+	                        "a=mid:video-alpha\r\n"
+	                        "a=inactive\r\n"
+	                        "a=rtpmap:99 VP9/90000\r\n";
+
+	const auto sections = parseOfferedMediaSections(sdp);
+	ASSERT_EQ(sections.size(), 2u);
+	EXPECT_EQ(sections[0].port, 9);
+	EXPECT_EQ(sections[0].direction, "sendonly");
+	EXPECT_EQ(sections[1].port, 0);
+	EXPECT_EQ(sections[1].direction, "inactive");
+	EXPECT_TRUE(offeredMediaSectionCanSend(sections[0]));
+	EXPECT_FALSE(offeredMediaSectionCanSend(sections[1]));
+	EXPECT_FALSE(offerHasActiveVp9AlphaSection(sections));
+
+	const std::string reenabled = "v=0\r\n"
+	                              "m=video 9 UDP/TLS/RTP/SAVPF 98\r\n"
+	                              "a=mid:video\r\n"
+	                              "a=sendonly\r\n"
+	                              "a=rtpmap:98 VP9/90000\r\n"
+	                              "m=video 9 UDP/TLS/RTP/SAVPF 99\r\n"
+	                              "a=mid:video-alpha\r\n"
+	                              "a=sendonly\r\n"
+	                              "a=rtpmap:99 VP9/90000\r\n";
+	EXPECT_TRUE(offerHasActiveVp9AlphaSection(parseOfferedMediaSections(reenabled)));
+	const std::string explicitAlphaOnly = "v=0\r\n"
+	                                      "m=video 9 UDP/TLS/RTP/SAVPF 99\r\n"
+	                                      "a=mid:video-alpha\r\n"
+	                                      "a=sendonly\r\n"
+	                                      "a=rtpmap:99 VP9/90000\r\n";
+	EXPECT_TRUE(offerHasActiveVp9AlphaSection(parseOfferedMediaSections(explicitAlphaOnly)));
 }
 
 TEST_F(SDPTest, ParseOfferedMediaSectionsIgnoresUnsupportedMediaBlocks)
@@ -1415,8 +1460,8 @@ TEST(SdpParserFuzzTest, RandomAndStructuredLinesRemainBoundedAndDeterministic)
 		for (size_t sectionIndex = 0; sectionIndex < left.size(); ++sectionIndex) {
 			const auto &a = left[sectionIndex];
 			const auto &b = right[sectionIndex];
-			if (a.type != b.type || a.mid != b.mid || a.payloadTypes != b.payloadTypes ||
-			    a.codecs.size() != b.codecs.size()) {
+			if (a.type != b.type || a.mid != b.mid || a.port != b.port || a.direction != b.direction ||
+			    a.payloadTypes != b.payloadTypes || a.codecs.size() != b.codecs.size()) {
 				return false;
 			}
 			for (size_t codecIndex = 0; codecIndex < a.codecs.size(); ++codecIndex) {

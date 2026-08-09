@@ -12,6 +12,7 @@
 #include "plugin-main.h"
 
 #include "vdoninja-dock.h"
+#include "vdoninja-module-lifecycle.h"
 
 OBS_DECLARE_MODULE()
 OBS_MODULE_USE_DEFAULT_LOCALE("obs-vdoninja", "en-US")
@@ -146,6 +147,43 @@ void initRtcLogger()
 
 		blog(obsLevel, "[VDO.Ninja/RTC] %s", message.c_str());
 	});
+}
+
+VDONinjaModuleLifecycle &moduleLifecycle()
+{
+	static VDONinjaModuleLifecycle lifecycle(
+	    [] {
+		    ModuleLifecycleOperations operations;
+		    operations.attachLogger = [] { initRtcLogger(); };
+		    operations.detachLogger = [] { rtc::InitLogger(rtc::LogLevel::None, nullptr); };
+		    operations.preloadRtc = [] { rtc::Preload(); };
+		    operations.beginRtcCleanup = [] { return rtc::Cleanup(); };
+		    operations.log = [](ModuleLifecycleLogLevel level, const std::string &message) {
+			    switch (level) {
+			    case ModuleLifecycleLogLevel::Debug:
+				    logDebug("%s", message.c_str());
+				    break;
+			    case ModuleLifecycleLogLevel::Info:
+				    logInfo("%s", message.c_str());
+				    break;
+			    case ModuleLifecycleLogLevel::Warning:
+				    logWarning("%s", message.c_str());
+				    break;
+			    case ModuleLifecycleLogLevel::Error:
+				    logError("%s", message.c_str());
+				    break;
+			    }
+		    };
+		    return operations;
+	    }(),
+	    std::chrono::seconds(10));
+	return lifecycle;
+}
+
+VDONinjaModuleInstanceBoundary &moduleInstanceBoundary()
+{
+	static VDONinjaModuleInstanceBoundary boundary(moduleLifecycle());
+	return boundary;
 }
 
 std::string findAudioEncoderIdForCodec(const char *codec)
@@ -2062,6 +2100,134 @@ static obs_source_info vdoninja_control_center_source_info = {
     .update = vdoninja_control_center_update,
 };
 
+obs_output_info gTrackedOutputInfo = {};
+obs_source_info gTrackedSourceInfo = {};
+obs_source_info gTrackedNativeSourceInfo = {};
+obs_source_info gTrackedControlCenterSourceInfo = {};
+
+void *createTrackedSourceInstance(const char *label, const obs_source_info &original, obs_data_t *settings,
+                                  obs_source_t *source) noexcept
+{
+	try {
+		if (!original.create || !original.destroy) {
+			logError("Cannot create tracked %s: original callbacks are incomplete", label);
+			return nullptr;
+		}
+		return moduleInstanceBoundary().create(
+		    ModuleInstanceKind::Source, [&] { return original.create(settings, source); },
+		    [&](void *instance) { original.destroy(instance); });
+	} catch (...) {
+		logError("Cannot create tracked %s: unexpected module-boundary exception", label);
+		return nullptr;
+	}
+}
+
+void destroyTrackedSourceInstance(const char *label, const obs_source_info &original, void *data) noexcept
+{
+	try {
+		if (!original.destroy ||
+		    !moduleInstanceBoundary().destroy(ModuleInstanceKind::Source, data,
+		                                      [&](void *instance) { original.destroy(instance); })) {
+			logError("Ignored duplicate or untracked %s destroy callback", label);
+		}
+	} catch (...) {
+		logError("Failed destroying tracked %s: unexpected module-boundary exception", label);
+	}
+}
+
+static void *vdoninja_tracked_source_create(obs_data_t *settings, obs_source_t *source) noexcept
+{
+	return createTrackedSourceInstance("VDO.Ninja source", vdoninja_source_info, settings, source);
+}
+
+static void vdoninja_tracked_source_destroy(void *data) noexcept
+{
+	destroyTrackedSourceInstance("VDO.Ninja source", vdoninja_source_info, data);
+}
+
+static void *vdoninja_tracked_native_source_create(obs_data_t *settings, obs_source_t *source) noexcept
+{
+	return createTrackedSourceInstance("VDO.Ninja native source", vdoninja_native_source_info, settings, source);
+}
+
+static void vdoninja_tracked_native_source_destroy(void *data) noexcept
+{
+	destroyTrackedSourceInstance("VDO.Ninja native source", vdoninja_native_source_info, data);
+}
+
+static void *vdoninja_tracked_control_center_create(obs_data_t *settings, obs_source_t *source) noexcept
+{
+	try {
+		return moduleInstanceBoundary().create(
+		    ModuleInstanceKind::ControlCenter,
+		    [&] { return vdoninja_control_center_source_info.create(settings, source); },
+		    [&](void *instance) { vdoninja_control_center_source_info.destroy(instance); });
+	} catch (...) {
+		logError("Cannot create tracked VDO.Ninja Control Center: unexpected module-boundary exception");
+		return nullptr;
+	}
+}
+
+static void vdoninja_tracked_control_center_destroy(void *data) noexcept
+{
+	try {
+		if (!moduleInstanceBoundary().destroy(ModuleInstanceKind::ControlCenter, data, [&](void *instance) {
+			    vdoninja_control_center_source_info.destroy(instance);
+		    })) {
+			logError("Ignored duplicate or untracked VDO.Ninja Control Center destroy callback");
+		}
+	} catch (...) {
+		logError("Failed destroying tracked VDO.Ninja Control Center: unexpected module-boundary exception");
+	}
+}
+
+static void *vdoninja_tracked_output_create(obs_data_t *settings, obs_output_t *output) noexcept
+{
+	try {
+		if (!vdoninja_output_info.create || !vdoninja_output_info.destroy) {
+			logError("Cannot create tracked VDO.Ninja output: original callbacks are incomplete");
+			return nullptr;
+		}
+		return moduleInstanceBoundary().create(
+		    ModuleInstanceKind::Output, [&] { return vdoninja_output_info.create(settings, output); },
+		    [&](void *instance) { vdoninja_output_info.destroy(instance); });
+	} catch (...) {
+		logError("Cannot create tracked VDO.Ninja output: unexpected module-boundary exception");
+		return nullptr;
+	}
+}
+
+static void vdoninja_tracked_output_destroy(void *data) noexcept
+{
+	try {
+		if (!moduleInstanceBoundary().destroy(ModuleInstanceKind::Output, data,
+		                                      [&](void *instance) { vdoninja_output_info.destroy(instance); })) {
+			logError("Ignored duplicate or untracked VDO.Ninja output destroy callback");
+		}
+	} catch (...) {
+		logError("Failed destroying tracked VDO.Ninja output: unexpected module-boundary exception");
+	}
+}
+
+void prepareTrackedObsTypeInfo()
+{
+	gTrackedOutputInfo = vdoninja_output_info;
+	gTrackedOutputInfo.create = vdoninja_tracked_output_create;
+	gTrackedOutputInfo.destroy = vdoninja_tracked_output_destroy;
+
+	gTrackedSourceInfo = vdoninja_source_info;
+	gTrackedSourceInfo.create = vdoninja_tracked_source_create;
+	gTrackedSourceInfo.destroy = vdoninja_tracked_source_destroy;
+
+	gTrackedNativeSourceInfo = vdoninja_native_source_info;
+	gTrackedNativeSourceInfo.create = vdoninja_tracked_native_source_create;
+	gTrackedNativeSourceInfo.destroy = vdoninja_tracked_native_source_destroy;
+
+	gTrackedControlCenterSourceInfo = vdoninja_control_center_source_info;
+	gTrackedControlCenterSourceInfo.create = vdoninja_tracked_control_center_create;
+	gTrackedControlCenterSourceInfo.destroy = vdoninja_tracked_control_center_destroy;
+}
+
 static obs_source_t *getOrCreateControlCenterSource()
 {
 	if (gControlCenterSource) {
@@ -2209,66 +2375,111 @@ void vdo_handle_remote_control(const char *action, const char *value)
 // Module load
 bool obs_module_load(void)
 {
-	logInfo("Loading VDO.Ninja plugin v%s", PLUGIN_VERSION);
-	initRtcLogger();
-	logInfo("Initialized libdatachannel logger");
+	g_frontend_exiting = false;
+	bool registrationsCommitted = false;
+	try {
+		logInfo("Loading VDO.Ninja plugin v%s", PLUGIN_VERSION);
+		if (!moduleLifecycle().load()) {
+			logError("VDO.Ninja plugin load blocked by an unfinished libdatachannel lifecycle");
+			return false;
+		}
+		logInfo("Initialized process-global libdatachannel lifecycle");
+		prepareTrackedObsTypeInfo();
 
-	// Register output
-	obs_register_output(&vdoninja_output_info);
-	logInfo("Registered VDO.Ninja output");
+		// OBS has no type-unregistration API. From this commit point onward an
+		// unexpected optional-UI failure must leave the module loaded rather than
+		// cleaning RTC out from under callback tables retained by libobs.
+		registrationsCommitted = true;
+		// Register copied callback tables whose create/destroy boundaries keep
+		// process-global RTC alive through every source and output destructor.
+		obs_register_output(&gTrackedOutputInfo);
+		logInfo("Registered VDO.Ninja output");
+		obs_register_source(&gTrackedSourceInfo);
+		logInfo("Registered VDO.Ninja source");
+		obs_register_source(&gTrackedNativeSourceInfo);
+		obs_register_source(&gTrackedControlCenterSourceInfo);
+		logInfo("Registered VDO.Ninja Control Center source");
 
-	// Register source
-	obs_register_source(&vdoninja_source_info);
-	logInfo("Registered VDO.Ninja source");
-	obs_register_source(&vdoninja_native_source_info);
+		registerVdoNinjaService();
+		logInfo("Registered VDO.Ninja service");
 
-	// Register control center source (legacy UI host)
-	obs_register_source(&vdoninja_control_center_source_info);
-	logInfo("Registered VDO.Ninja Control Center source");
+		try {
+			g_vdo_dock = new VDONinjaDock();
+			if (obs_frontend_add_custom_qdock("VDONinjaStudioDock", g_vdo_dock.data())) {
+				logInfo("Registered VDO.Ninja Studio Dock");
+			} else {
+				logWarning("Failed to register VDO.Ninja Studio Dock");
+				delete g_vdo_dock.data();
+				g_vdo_dock = nullptr;
+			}
+		} catch (const std::exception &error) {
+			delete g_vdo_dock.data();
+			g_vdo_dock = nullptr;
+			logError("Failed to create VDO.Ninja Studio Dock: %s", error.what());
+		} catch (...) {
+			delete g_vdo_dock.data();
+			g_vdo_dock = nullptr;
+			logError("Failed to create VDO.Ninja Studio Dock: unknown exception");
+		}
 
-	// Register service
-	registerVdoNinjaService();
-	logInfo("Registered VDO.Ninja service");
+		obs_frontend_add_tools_menu_item(tr("Tools.OpenStudio", "VDO.Ninja Studio"), open_vdoninja_studio_callback,
+		                                 nullptr);
+		logInfo("Registered VDO.Ninja Studio tools menu action");
+		obs_frontend_add_event_callback(frontend_event_callback, nullptr);
 
-	// Create and register Studio Dock
-	g_vdo_dock = new VDONinjaDock();
-	if (obs_frontend_add_custom_qdock("VDONinjaStudioDock", g_vdo_dock.data())) {
-		logInfo("Registered VDO.Ninja Studio Dock");
-	} else {
-		logWarning("Failed to register VDO.Ninja Studio Dock");
-		delete g_vdo_dock.data();
-		g_vdo_dock = nullptr;
+		logInfo("VDO.Ninja plugin loaded successfully");
+		return true;
+	} catch (const std::exception &error) {
+		logError("VDO.Ninja plugin load failed: %s", error.what());
+	} catch (...) {
+		logError("VDO.Ninja plugin load failed: unknown exception");
+	}
+	if (registrationsCommitted) {
+		logError("VDO.Ninja plugin initialization failed after OBS type registration; keeping the module loaded for "
+		         "callback safety");
+		return true;
 	}
 
-	obs_frontend_add_tools_menu_item(tr("Tools.OpenStudio", "VDO.Ninja Studio"), open_vdoninja_studio_callback,
-	                                 nullptr);
-	logInfo("Registered VDO.Ninja Studio tools menu action");
-
-	// Register frontend callback
-	obs_frontend_add_event_callback(frontend_event_callback, nullptr);
-
-	logInfo("VDO.Ninja plugin loaded successfully");
-	return true;
+	try {
+		moduleLifecycle().unload();
+	} catch (...) {
+		logError("VDO.Ninja plugin load rollback could not complete the libdatachannel lifecycle");
+	}
+	return false;
 }
 
 // Module unload
 void obs_module_unload(void)
 {
 	logInfo("Unloading VDO.Ninja plugin");
+	try {
+		if (!g_frontend_exiting) {
+			obs_frontend_remove_event_callback(frontend_event_callback, nullptr);
+		}
 
-	if (!g_frontend_exiting) {
-		obs_frontend_remove_event_callback(frontend_event_callback, nullptr);
+		if (gControlCenterSource) {
+			obs_source_release(gControlCenterSource);
+			gControlCenterSource = nullptr;
+		}
+
+		destroyVdoDock(!g_frontend_exiting);
+		releaseServiceSnapshot(gTemporaryRestoreSnapshot);
+		releaseServiceSnapshot(gLastNonVdoServiceSnapshot);
+	} catch (const std::exception &error) {
+		logError("VDO.Ninja UI teardown failed during module unload: %s", error.what());
+	} catch (...) {
+		logError("VDO.Ninja UI teardown failed during module unload: unknown exception");
 	}
 
-	if (gControlCenterSource) {
-		obs_source_release(gControlCenterSource);
-		gControlCenterSource = nullptr;
+	logInfo("VDO.Ninja plugin UI teardown complete; entering libdatachannel unload boundary");
+	// This must remain the final action on the normal unload path. It synchronously detaches
+	// the RTC logger, then either waits for cleanup or defers cleanup until the
+	// last copied create/destroy wrapper releases its permit.
+	try {
+		moduleLifecycle().unload();
+	} catch (const std::exception &error) {
+		logError("VDO.Ninja libdatachannel unload boundary failed: %s", error.what());
+	} catch (...) {
+		logError("VDO.Ninja libdatachannel unload boundary failed: unknown exception");
 	}
-
-	destroyVdoDock(!g_frontend_exiting);
-
-	releaseServiceSnapshot(gTemporaryRestoreSnapshot);
-	releaseServiceSnapshot(gLastNonVdoServiceSnapshot);
-
-	logInfo("VDO.Ninja plugin unloaded");
 }

@@ -181,6 +181,10 @@ Pass criteria:
 
 Packet duplication adds upload and is not video RED/ULPFEC. Do not enable it as a default.
 
+See [Packet-Loss Protection Reference](docs/packet-loss-protection.md) for the automatic NACK baseline, exact mode
+behavior, fan-out costs, and the distinction between packet duplication, RFC 2198 Audio RED, Opus FEC, RTX, and video
+FEC.
+
 ## Test 13: Adaptive Bitrate Stability
 
 1. Start at H.264 1920x1080, 59.94/60 fps, and 8000 kbps.
@@ -248,6 +252,6 @@ If that gate reports `not-applied-to-media` or `unproven`, use an OS/router impa
 
 Validated recovery note: on the tested Pixel TURN/UDP route, `buffer=1000` gave NACK repairs enough time to arrive and removed the PLI/freezes seen with the shorter buffer. This is route-dependent; retain the counters in the report rather than assuming one buffer value fits every viewer.
 
-Video RED/ULPFEC note: Chromium, WebKit, and Firefox can advertise RED/ULPFEC payloads, and the current libwebrtc [receiver processes RED/ULPFEC](https://chromium.googlesource.com/external/webrtc/+/master/video/rtp_video_stream_receiver.cc). Its [sender disables H.264 ULPFEC when NACK is enabled](https://chromium.googlesource.com/external/webrtc/+/master/call/rtp_video_sender.cc) because the combination is inefficient. That does not prove a browser receiver will reject correctly generated native FEC, but it means SDP presence is not recovery proof. Audio RED remains a valid negotiated option. Validate H.264 RED/ULPFEC only with a native generator and induced loss; FlexFEC is the preferred H.264 FEC candidate.
+Video RED/ULPFEC note: Chromium, WebKit, and Firefox can advertise RED/ULPFEC payloads, and the current libwebrtc [receiver processes RED/ULPFEC](https://chromium.googlesource.com/external/webrtc/+/master/video/rtp_video_stream_receiver.cc). The plugin and its libdatachannel publisher path do not contain a video FEC generator, so adding SDP payload types alone would not produce recovery traffic. The libwebrtc [sender also disables H.264 ULPFEC when NACK is enabled](https://chromium.googlesource.com/external/webrtc/+/master/call/rtp_video_sender.cc) because that combination can require retransmitting FEC packets. SDP presence is therefore not recovery proof. Audio RED remains a valid negotiated option. Validate any future H.264 FEC implementation with a native generator and induced loss in supported receivers; FlexFEC is the preferred candidate.
 
 VP9 alpha note: BrowserStack can compare VP9 capability and ordinary color playback, but a normal browser does not composite the plugin's separate alpha track. The packaged Game Capture to native `VDO.Ninja Source` workflow in Test 14 is the release gate for transparency.

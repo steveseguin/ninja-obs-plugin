@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cstring>
+#include <limits>
 #include <set>
 #include <unordered_map>
 
@@ -98,29 +99,6 @@ const char *pixelFormatName(AVPixelFormat format)
 {
 	const char *name = av_get_pix_fmt_name(format);
 	return name ? name : "unknown";
-}
-
-bool scaleAlphaPlaneNearest(const std::vector<uint8_t> &src, int srcWidth, int srcHeight, int srcLinesize, int dstWidth,
-                            int dstHeight, std::vector<uint8_t> &dst)
-{
-	if (srcWidth <= 0 || srcHeight <= 0 || srcLinesize <= 0 || dstWidth <= 0 || dstHeight <= 0) {
-		return false;
-	}
-	if (src.size() < static_cast<size_t>(srcLinesize) * static_cast<size_t>(srcHeight)) {
-		return false;
-	}
-
-	dst.resize(static_cast<size_t>(dstWidth) * static_cast<size_t>(dstHeight));
-	for (int y = 0; y < dstHeight; ++y) {
-		const int srcY = std::min(srcHeight - 1, (y * srcHeight) / dstHeight);
-		const uint8_t *srcRow = src.data() + static_cast<size_t>(srcY) * static_cast<size_t>(srcLinesize);
-		uint8_t *dstRow = dst.data() + static_cast<size_t>(y) * static_cast<size_t>(dstWidth);
-		for (int x = 0; x < dstWidth; ++x) {
-			const int srcX = std::min(srcWidth - 1, (x * srcWidth) / dstWidth);
-			dstRow[x] = srcRow[srcX];
-		}
-	}
-	return true;
 }
 
 obs_data_t *createBrowserSourceSettings(const std::string &url, uint32_t width, uint32_t height)
@@ -516,18 +494,6 @@ void clearTrackCallbacks(const std::shared_ptr<rtc::Track> &track)
 	} catch (const std::exception &) {
 	}
 	try {
-		track->onOpen(nullptr);
-	} catch (const std::exception &) {
-	}
-	try {
-		track->onClosed(nullptr);
-	} catch (const std::exception &) {
-	}
-	try {
-		track->onError(nullptr);
-	} catch (const std::exception &) {
-	}
-	try {
 		track->setMediaHandler(nullptr);
 	} catch (const std::exception &) {
 	}
@@ -918,8 +884,338 @@ VDONinjaSource::VDONinjaSource(obs_data_t *settings, obs_source_t *source) : sou
 	}
 }
 
+#if defined(VDONINJA_NATIVE_MEDIA_INTEGRATION_TEST)
+VDONinjaSource::VDONinjaSource(NativeMediaTestTag)
+{
+	callbackState_ = std::make_shared<AsyncCallbackState<VDONinjaSource>>();
+	callbackState_->owner.store(this, std::memory_order_release);
+	internalNativeSource_ = true;
+	settings_.useNativeReceiver = true;
+	nativeRunning_.store(true, std::memory_order_release);
+	active_.store(true, std::memory_order_release);
+	nativeVideoCodec_ = NativeVideoCodec::VP9;
+	videoHwDecodeDisabled_ = true;
+	publishOutputDimensions(16, 16);
+	outputMediaEpoch_.store(mediaEpochGate_.capture(), std::memory_order_release);
+}
+
+void VDONinjaSource::setNativeMediaTestStageHook(NativeMediaTestStageHook hook)
+{
+	nativeMediaTestStageHook_ = std::move(hook);
+}
+
+void VDONinjaSource::setNativeMediaTestOutputHook(NativeMediaTestOutputHook hook)
+{
+	nativeMediaTestOutputHook_ = std::move(hook);
+}
+
+void VDONinjaSource::setNativeMediaTestAudioOutputHook(NativeMediaTestAudioOutputHook hook)
+{
+	nativeMediaTestAudioOutputHook_ = std::move(hook);
+}
+
+void VDONinjaSource::setNativeMediaTestClearOutputHook(NativeMediaTestClearOutputHook hook)
+{
+	nativeMediaTestClearOutputHook_ = std::move(hook);
+}
+
+void VDONinjaSource::setNativeMediaTestVideoDecoderHooks(NativeMediaTestSendPacketHook sendHook,
+                                                         NativeMediaTestReceiveFrameHook receiveHook)
+{
+	nativeMediaTestSendPacketHook_ = std::move(sendHook);
+	nativeMediaTestReceiveFrameHook_ = std::move(receiveHook);
+}
+
+void VDONinjaSource::setNativeMediaTestAlphaDecoderHooks(NativeMediaTestSendPacketHook sendHook,
+                                                         NativeMediaTestReceiveFrameHook receiveHook)
+{
+	nativeMediaTestAlphaSendPacketHook_ = std::move(sendHook);
+	nativeMediaTestAlphaReceiveFrameHook_ = std::move(receiveHook);
+}
+
+void VDONinjaSource::runNativeMediaTestStage(NativeMediaTestStage stage, bool alpha, uint32_t rtpTimestamp,
+                                             uint64_t mediaEpoch)
+{
+	if (nativeMediaTestStageHook_) {
+		nativeMediaTestStageHook_(stage, alpha, rtpTimestamp, mediaEpoch);
+	}
+}
+
+void VDONinjaSource::feedNativeMediaTestVp9AccessUnit(bool alpha, const std::vector<uint8_t> &accessUnit,
+                                                      uint32_t rtpTimestamp)
+{
+	feedNativeMediaTestVp9Packet(alpha, accessUnit, rtpTimestamp, true, true);
+}
+
+void VDONinjaSource::feedNativeMediaTestVp9Packet(bool alpha, const std::vector<uint8_t> &payload,
+                                                  uint32_t rtpTimestamp, bool startOfFrame, bool endOfFrame)
+{
+	if (payload.empty()) {
+		return;
+	}
+
+	const uint64_t mediaEpoch = mediaEpochGate_.capture();
+	runNativeMediaTestStage(NativeMediaTestStage::Identity, alpha, rtpTimestamp, mediaEpoch);
+	if (!mediaEpochGate_.isCurrent(mediaEpoch)) {
+		return;
+	}
+
+	std::vector<uint8_t> packet(13 + payload.size(), 0);
+	packet[0] = 0x80;
+	packet[1] = static_cast<uint8_t>((endOfFrame ? 0x80 : 0x00) | 98);
+	packet[2] = 0;
+	packet[3] = 1;
+	packet[4] = static_cast<uint8_t>(rtpTimestamp >> 24);
+	packet[5] = static_cast<uint8_t>(rtpTimestamp >> 16);
+	packet[6] = static_cast<uint8_t>(rtpTimestamp >> 8);
+	packet[7] = static_cast<uint8_t>(rtpTimestamp);
+	packet[8] = 0x01;
+	packet[9] = 0x02;
+	packet[10] = 0x03;
+	packet[11] = alpha ? 0x05 : 0x04;
+	packet[12] = static_cast<uint8_t>((startOfFrame ? 0x08 : 0x00) | (endOfFrame ? 0x04 : 0x00));
+	std::copy(payload.begin(), payload.end(), packet.begin() + 13);
+
+	if (alpha) {
+		processAlphaRtpPacket(packet.data(), packet.size(), mediaEpoch);
+	} else {
+		processVideoRtpPacket(packet.data(), packet.size(), mediaEpoch);
+	}
+}
+
+void VDONinjaSource::transitionNativeMediaTestPipeline(bool alphaActive, bool enableOutput)
+{
+	{
+		std::unique_lock<std::mutex> stateLock(nativeStateMutex_);
+		std::unique_lock<std::mutex> videoAssemblyLock(videoAssemblyMutex_);
+		std::unique_lock<std::mutex> videoDecodeLock(videoDecodeMutex_);
+		std::unique_lock<std::mutex> alphaAssemblyLock(alphaAssemblyMutex_);
+		std::unique_lock<std::mutex> alphaDecodeLock(alphaDecodeMutex_);
+		std::unique_lock<std::mutex> outputLock(videoOutputMutex_);
+		std::unique_lock<std::mutex> pairingLock(alphaPairingMutex_);
+		std::unique_lock<std::mutex> audioDecodeLock(audioDecodeMutex_);
+		resetMediaPipelineStateLocked();
+		alphaTrackActive_.store(alphaActive, std::memory_order_release);
+		preferSoftwareVp9DecodeForAlpha_.store(alphaActive, std::memory_order_release);
+	}
+	completeMediaPipelineTransition("native-media-linked-gate", enableOutput);
+}
+
+void VDONinjaSource::applyNativeMediaTestVideoSuppression(bool suppressed)
+{
+	ReceiverVideoSuppressionUpdate update;
+	update.hasMediaVideoMuted = true;
+	update.mediaVideoMuted = suppressed;
+	handleReceiverVideoSuppressionState("native-media-linked-gate", update);
+}
+
+void VDONinjaSource::applyNativeMediaTestVideoSuppressionUpdate(const ReceiverVideoSuppressionUpdate &update)
+{
+	handleReceiverVideoSuppressionState("native-media-linked-gate", update);
+}
+
+void VDONinjaSource::resetNativeMediaTestState()
+{
+	resetNativeState();
+}
+
+void VDONinjaSource::applyNativeMediaTestPeerCleanup(const PeerEventIdentity &identity)
+{
+	handlePeerCleanupSignal(identity);
+}
+
+void VDONinjaSource::applyNativeMediaTestSignalingCleanup(VDONinjaPeerManager &manager, const std::string &uuid,
+                                                          const std::string &session)
+{
+	handleSignalingPeerCleanup(manager, uuid, session);
+}
+
+void VDONinjaSource::applyNativeMediaTestSignalingLifecycleEvent(VDONinjaPeerManager &manager,
+                                                                 const SignalingLifecycleEvent &event)
+{
+	if (manager.processSignalingLifecycleEvent(event) == SignalingLifecycleDisposition::AmbiguousSessionless) {
+		nativeMediaTestAmbiguousSessionlessCleanups_.fetch_add(1, std::memory_order_acq_rel);
+	}
+}
+
+void VDONinjaSource::applyNativeMediaTestLegacyStreamRemoved(const std::string &streamId, const std::string &uuid)
+{
+	handleStreamRemovedSignal(streamId, uuid);
+}
+
+void VDONinjaSource::setNativeMediaTestSignalingLifecycleHook(NativeMediaTestSignalingLifecycleHook hook)
+{
+	if (nativeMediaTestPeerManager_) {
+		nativeMediaTestPeerManager_->setNativeMediaTestSignalingLifecycleHook(std::move(hook));
+	}
+}
+
+void VDONinjaSource::setNativeMediaTestStreamId(const std::string &streamId)
+{
+	settings_.streamId = streamId;
+}
+
+void VDONinjaSource::bindNativeMediaTestSignaling(VDONinjaSignaling &signaling, VDONinjaPeerManager &manager)
+{
+	configureSignalingLifecycleCallbacks(signaling, manager);
+}
+
+bool VDONinjaSource::advanceNativeMediaTestPeerIdentity(const PeerEventIdentity &identity)
+{
+	std::lock_guard<std::mutex> applyLock(trackEventApplyMutex_);
+	return acceptPeerEventIdentityLocked(identity);
+}
+
+void VDONinjaSource::emitNativeMediaTestAudioFrame(uint64_t timestampNs)
+{
+	AVFrame *frame = av_frame_alloc();
+	if (!frame) {
+		return;
+	}
+	outputDecodedAudioFrame(frame, timestampNs);
+	av_frame_free(&frame);
+}
+
+void VDONinjaSource::ageNativeMediaTestVideoOutput(int64_t ageMs)
+{
+	lastVideoTime_.store(currentTimeMs() - std::max<int64_t>(0, ageMs), std::memory_order_relaxed);
+}
+
+void VDONinjaSource::updateNativeMediaTestDimensions(uint32_t width, uint32_t height)
+{
+	publishOutputDimensions(width, height);
+}
+
+NativeMediaTestSnapshot VDONinjaSource::nativeMediaTestSnapshot()
+{
+	NativeMediaTestSnapshot snapshot;
+	std::unique_lock<std::mutex> stateLock(nativeStateMutex_);
+	std::unique_lock<std::mutex> videoAssemblyLock(videoAssemblyMutex_);
+	std::unique_lock<std::mutex> videoDecodeLock(videoDecodeMutex_);
+	std::unique_lock<std::mutex> alphaAssemblyLock(alphaAssemblyMutex_);
+	std::unique_lock<std::mutex> alphaDecodeLock(alphaDecodeMutex_);
+	std::unique_lock<std::mutex> outputLock(videoOutputMutex_);
+	std::unique_lock<std::mutex> commitStateLock(videoCommitStateMutex_);
+	std::unique_lock<std::mutex> pairingLock(alphaPairingMutex_);
+	snapshot.primaryAssemblyActive = videoAssemblyActive_;
+	snapshot.alphaAssemblyActive = alphaAssemblyActive_;
+	snapshot.primaryDecoderAllocated = videoDecoder_ != nullptr;
+	snapshot.alphaDecoderAllocated = alphaDecoder_ != nullptr;
+	snapshot.primaryAssemblyBytes = videoAssemblyBuffer_.size();
+	snapshot.alphaAssemblyBytes = alphaAssemblyBuffer_.size();
+	snapshot.pendingPrimaryFrames = alphaFrameSynchronizer_.pendingPrimaryCount();
+	snapshot.pendingAlphaFrames = alphaFrameSynchronizer_.pendingAlphaCount();
+	snapshot.retainedVideoFrames = nativeMediaTestRetainedVideoFrames_->load(std::memory_order_acquire);
+	snapshot.primaryRequestedThreadCount = nativeMediaTestPrimaryRequestedThreadCount_;
+	snapshot.primaryRequestedThreadType = nativeMediaTestPrimaryRequestedThreadType_;
+	snapshot.primaryActiveThreadType = videoDecoder_ ? videoDecoder_->active_thread_type : 0;
+	snapshot.alphaRequestedThreadCount = nativeMediaTestAlphaRequestedThreadCount_;
+	snapshot.alphaRequestedThreadType = nativeMediaTestAlphaRequestedThreadType_;
+	snapshot.alphaActiveThreadType = alphaDecoder_ ? alphaDecoder_->active_thread_type : 0;
+	snapshot.videoOutputActive = videoOutputActive_.load(std::memory_order_relaxed);
+	snapshot.lastVideoTimeMs = lastVideoTime_.load(std::memory_order_relaxed);
+	const auto dimensions = outputDimensions();
+	snapshot.outputWidth = dimensions.width;
+	snapshot.outputHeight = dimensions.height;
+	snapshot.videoSuppressed = remoteVideoMuted_.load(std::memory_order_acquire);
+	snapshot.audioMuted = remoteAudioMuted_.load(std::memory_order_relaxed);
+	snapshot.sourceAudioActive = sourceAudioActive_.load(std::memory_order_relaxed);
+	snapshot.mediaVideoMuted = remoteMediaVideoMuted_.load(std::memory_order_relaxed);
+	snapshot.directorVideoMuted = remoteDirectorVideoMuted_.load(std::memory_order_relaxed);
+	snapshot.virtualHangup = remoteVirtualHangup_.load(std::memory_order_relaxed);
+	snapshot.acceptedPeerCleanups = nativeMediaTestAcceptedPeerCleanups_.load(std::memory_order_acquire);
+	snapshot.peerRetirements = nativeMediaTestPeerRetirements_.load(std::memory_order_acquire);
+	snapshot.peerRetrySchedules = nativeMediaTestPeerRetrySchedules_.load(std::memory_order_acquire);
+	snapshot.dataChannelOpenActions = nativeMediaTestDataChannelOpenActions_.load(std::memory_order_acquire);
+	snapshot.ambiguousSessionlessCleanups =
+	    nativeMediaTestAmbiguousSessionlessCleanups_.load(std::memory_order_acquire);
+	snapshot.targetedPeerByes = nativeMediaTestTargetedPeerByes_.load(std::memory_order_acquire);
+	snapshot.legacyStreamRemovalActions = nativeMediaTestLegacyStreamRemovalActions_.load(std::memory_order_acquire);
+	return snapshot;
+}
+
+NativeMediaTestTrackSnapshot VDONinjaSource::nativeMediaTestTrackSnapshot()
+{
+	std::lock_guard<std::mutex> stateLock(nativeStateMutex_);
+	return {videoTrack_.get(), alphaVideoTrack_.get(), audioTrack_.get()};
+}
+
+void VDONinjaSource::bindNativeMediaTestPeerManager(VDONinjaPeerManager &manager)
+{
+	nativeMediaTestPeerManager_ = &manager;
+	const auto callbackState = callbackState_;
+	manager.setOnTrack([callbackState](const TrackSlotEvent &event) {
+		AsyncCallbackGuard<VDONinjaSource> guard(callbackState.get());
+		if (!guard) {
+			return;
+		}
+		guard.owner()->handleTrackSlotEvent(event);
+	});
+	manager.setOnPeerDisconnected([callbackState](const PeerEventIdentity &identity) {
+		AsyncCallbackGuard<VDONinjaSource> guard(callbackState.get());
+		if (!guard) {
+			return;
+		}
+		guard.owner()->handlePeerDisconnected(identity);
+	});
+	manager.setOnDataChannel(
+	    [callbackState](const PeerEventIdentity &identity, const std::shared_ptr<rtc::DataChannel> &dc) {
+		    AsyncCallbackGuard<VDONinjaSource> guard(callbackState.get());
+		    if (!guard) {
+			    return;
+		    }
+		    guard.owner()->handlePeerDataChannelOpen(identity, dc);
+	    });
+	manager.setOnDataChannelMessage([callbackState](const PeerEventIdentity &identity, const std::string &message) {
+		AsyncCallbackGuard<VDONinjaSource> guard(callbackState.get());
+		if (!guard) {
+			return;
+		}
+		guard.owner()->handlePeerDataChannelMessage(identity, message);
+	});
+	manager.setOnAcceptedSignalingLifecycleEvent([callbackState](const AcceptedSignalingLifecycleEvent &event) {
+		AsyncCallbackGuard<VDONinjaSource> guard(callbackState.get());
+		if (!guard) {
+			return;
+		}
+		guard.owner()->handleAcceptedSignalingLifecycleEvent(event);
+	});
+}
+
+bool VDONinjaSource::nativeMediaTestCanAcquireVideoCommitState()
+{
+	if (!videoCommitStateMutex_.try_lock()) {
+		return false;
+	}
+	videoCommitStateMutex_.unlock();
+	return true;
+}
+
+int VDONinjaSource::nativeMediaTestRejectedTrackEventCount() const
+{
+	return nativeMediaTestRejectedTrackEvents_.load(std::memory_order_acquire);
+}
+
+uint64_t VDONinjaSource::nativeMediaTestEpoch() const
+{
+	return mediaEpochGate_.capture();
+}
+#endif
+
 VDONinjaSource::~VDONinjaSource()
 {
+#if defined(VDONINJA_NATIVE_MEDIA_INTEGRATION_TEST)
+	// Test callbacks often reference collectors declared after this source.
+	// They are observation seams only and must not participate in teardown.
+	nativeMediaTestStageHook_ = nullptr;
+	nativeMediaTestOutputHook_ = nullptr;
+	nativeMediaTestAudioOutputHook_ = nullptr;
+	nativeMediaTestClearOutputHook_ = nullptr;
+	nativeMediaTestSendPacketHook_ = nullptr;
+	nativeMediaTestReceiveFrameHook_ = nullptr;
+	nativeMediaTestAlphaSendPacketHook_ = nullptr;
+	nativeMediaTestAlphaReceiveFrameHook_ = nullptr;
+#endif
 	if (isInternalNativeSource()) {
 		disconnect();
 		resetNativeState();
@@ -960,14 +1256,16 @@ void VDONinjaSource::loadSettings(obs_data_t *settings)
 
 	const int64_t rawWidth = obs_data_get_int(settings, "width");
 	const int64_t rawHeight = obs_data_get_int(settings, "height");
-	width_ = normalizeSourceDimension(rawWidth, kDefaultSourceWidth, kMinSourceWidth, kMaxSourceWidth);
-	height_ = normalizeSourceDimension(rawHeight, kDefaultSourceHeight, kMinSourceHeight, kMaxSourceHeight);
-	if (rawWidth != static_cast<int64_t>(width_)) {
-		logWarning("Clamped VDO.Ninja source width setting from %lld to %u", static_cast<long long>(rawWidth), width_);
+	const uint32_t width = normalizeSourceDimension(rawWidth, kDefaultSourceWidth, kMinSourceWidth, kMaxSourceWidth);
+	const uint32_t height =
+	    normalizeSourceDimension(rawHeight, kDefaultSourceHeight, kMinSourceHeight, kMaxSourceHeight);
+	publishOutputDimensions(width, height);
+	if (rawWidth != static_cast<int64_t>(width)) {
+		logWarning("Clamped VDO.Ninja source width setting from %lld to %u", static_cast<long long>(rawWidth), width);
 	}
-	if (rawHeight != static_cast<int64_t>(height_)) {
+	if (rawHeight != static_cast<int64_t>(height)) {
 		logWarning("Clamped VDO.Ninja source height setting from %lld to %u", static_cast<long long>(rawHeight),
-		           height_);
+		           height);
 	}
 }
 
@@ -985,15 +1283,16 @@ void VDONinjaSource::update(obs_data_t *settings)
 {
 	if (isInternalNativeSource()) {
 		const SourceSettings previousSettings = settings_;
-		const uint32_t previousWidth = width_;
-		const uint32_t previousHeight = height_;
+		const auto previousDimensions = outputDimensions();
 
 		loadSettings(settings);
 
 		logWarning("VDO.Ninja Source native receiver mode is experimental (VP9/H.264 video + Opus audio)");
 
 		const bool connectionSettingsChanged = !sourceSettingsEqualForChild(previousSettings, settings_);
-		const bool dimensionsChanged = previousWidth != width_ || previousHeight != height_;
+		const auto dimensions = outputDimensions();
+		const bool dimensionsChanged =
+		    previousDimensions.width != dimensions.width || previousDimensions.height != dimensions.height;
 		if (!active_.load()) {
 			if (nativeRunning_.load() && connectionSettingsChanged) {
 				disconnect();
@@ -1010,9 +1309,11 @@ void VDONinjaSource::update(obs_data_t *settings)
 			return;
 		}
 		if (dimensionsChanged) {
-			logInfo("Updated native receiver dimensions to %ux%u without reconnecting", width_, height_);
+			logInfo("Updated native receiver dimensions to %ux%u without reconnecting", dimensions.width,
+			        dimensions.height);
 			if (peerManager_) {
-				peerManager_->sendDataToAll(buildViewerRequestMessage(width_, height_, !settings_.roomId.empty(),
+				peerManager_->sendDataToAll(buildViewerRequestMessage(dimensions.width, dimensions.height,
+				                                                      !settings_.roomId.empty(),
 				                                                      buildNativeViewerInfoJson(source_)));
 			}
 			requestNativeTargetBitrate("source-dimension-update");
@@ -1135,6 +1436,7 @@ void VDONinjaSource::disconnect()
 		signaling_->setOnStreamAdded(nullptr);
 		signaling_->setOnStreamRemoved(nullptr);
 		signaling_->setOnPeerCleanup(nullptr);
+		signaling_->setOnLifecycleEvent(nullptr);
 	}
 
 	if (peerManager_) {
@@ -1143,6 +1445,7 @@ void VDONinjaSource::disconnect()
 		peerManager_->setOnTrack(nullptr);
 		peerManager_->setOnDataChannel(nullptr);
 		peerManager_->setOnDataChannelMessage(nullptr);
+		peerManager_->setOnAcceptedSignalingLifecycleEvent(nullptr);
 	}
 
 	if (connectionThread_.joinable()) {
@@ -1164,125 +1467,59 @@ void VDONinjaSource::connectionThread()
 		peerManager_->setForceTurn(settings_.forceTurn);
 		signaling_->setSalt(settings_.salt);
 
-		peerManager_->setOnTrack(
-		    [callbackState](const std::string &uuid, TrackType type, std::shared_ptr<rtc::Track> track) {
+		peerManager_->setOnTrack([callbackState](const TrackSlotEvent &event) {
+			AsyncCallbackGuard<VDONinjaSource> guard(callbackState.get());
+			if (!guard) {
+				return;
+			}
+			guard.owner()->handleTrackSlotEvent(event);
+		});
+
+		peerManager_->setOnPeerConnected([callbackState](const PeerEventIdentity &identity) {
+			AsyncCallbackGuard<VDONinjaSource> guard(callbackState.get());
+			if (!guard) {
+				return;
+			}
+			VDONinjaSource *self = guard.owner();
+			logInfo("Connected to publisher: %s", identity.uuid.c_str());
+			self->markNativePeerConnectedIfReady(identity, "peer-connected");
+		});
+
+		peerManager_->setOnPeerDisconnected([callbackState](const PeerEventIdentity &identity) {
+			AsyncCallbackGuard<VDONinjaSource> guard(callbackState.get());
+			if (!guard) {
+				return;
+			}
+			logInfo("Disconnected from publisher: %s", identity.uuid.c_str());
+			guard.owner()->handlePeerDisconnected(identity);
+		});
+
+		peerManager_->setOnDataChannel(
+		    [callbackState](const PeerEventIdentity &identity, std::shared_ptr<rtc::DataChannel> dc) {
 			    AsyncCallbackGuard<VDONinjaSource> guard(callbackState.get());
 			    if (!guard) {
 				    return;
 			    }
-
-			    if (type == TrackType::Video) {
-				    guard.owner()->onVideoTrack(uuid, track);
-			    } else if (type == TrackType::AlphaVideo) {
-				    guard.owner()->onAlphaVideoTrack(uuid, track);
-			    } else {
-				    guard.owner()->onAudioTrack(uuid, track);
-			    }
+			    guard.owner()->handlePeerDataChannelOpen(identity, dc);
 		    });
 
-		peerManager_->setOnPeerConnected([callbackState](const std::string &uuid) {
-			AsyncCallbackGuard<VDONinjaSource> guard(callbackState.get());
-			if (!guard) {
-				return;
-			}
-			VDONinjaSource *self = guard.owner();
-			logInfo("Connected to publisher: %s", uuid.c_str());
-			self->markNativePeerConnectedIfReady(uuid, "peer-connected");
-		});
+		peerManager_->setOnDataChannelMessage(
+		    [callbackState](const PeerEventIdentity &identity, const std::string &message) {
+			    AsyncCallbackGuard<VDONinjaSource> guard(callbackState.get());
+			    if (!guard) {
+				    return;
+			    }
+			    guard.owner()->handlePeerDataChannelMessage(identity, message);
+		    });
 
-		peerManager_->setOnPeerDisconnected([callbackState](const std::string &uuid) {
-			AsyncCallbackGuard<VDONinjaSource> guard(callbackState.get());
-			if (!guard) {
-				return;
-			}
-			logInfo("Disconnected from publisher: %s", uuid.c_str());
-			guard.owner()->handlePeerDisconnected(uuid);
-		});
-
-		peerManager_->setOnDataChannel([callbackState](const std::string &uuid, std::shared_ptr<rtc::DataChannel> dc) {
-			AsyncCallbackGuard<VDONinjaSource> guard(callbackState.get());
-			if (!guard) {
-				return;
-			}
-			if (!dc) {
-				return;
-			}
-			guard.owner()->sendViewerPreferencesToPeer(uuid, "datachannel-open");
-		});
-
-		peerManager_->setOnDataChannelMessage([callbackState](const std::string &uuid, const std::string &message) {
-			AsyncCallbackGuard<VDONinjaSource> guard(callbackState.get());
-			if (!guard) {
-				return;
-			}
-			VDONinjaSource *self = guard.owner();
-			constexpr size_t kMaxPreviewChars = 256;
-			std::string preview = message;
-			if (preview.size() > kMaxPreviewChars) {
-				preview = preview.substr(0, kMaxPreviewChars) + "...(truncated)";
-			}
-			logInfo("Received source datachannel message from %s: %s", uuid.c_str(), preview.c_str());
-
-			const DataMessage parsed = self->dataChannel_.parseMessage(message);
-			if (parsed.type == DataMessageType::Ping) {
-				if (self->peerManager_) {
-					self->peerManager_->sendDataToPeer(uuid, self->dataChannel_.createPongMessage(parsed.data));
-				}
-				return;
-			}
-			if (parsed.type == DataMessageType::Pong) {
-				return;
-			}
-
-			std::string targetUuid;
-			std::string targetSession;
-			try {
-				JsonParser raw(message);
-				targetUuid = raw.getString("UUID");
-				if (targetUuid.empty()) {
-					targetUuid = raw.getString("uuid");
-				}
-				targetSession = raw.getString("session");
-			} catch (const std::exception &e) {
-				logWarning("Ignoring malformed source datachannel message from %s: %s", uuid.c_str(), e.what());
-				return;
-			}
-			if (!targetUuid.empty()) {
-				self->peerManager_->bindViewerSignalingDataChannel(uuid, targetUuid, targetSession);
-			}
-			if (parsed.type == DataMessageType::Mute) {
-				const std::string stateUuid = targetUuid.empty() ? uuid : targetUuid;
-				self->handleRemoteMuteState(stateUuid, self->dataChannel_.parseMuteState(message));
-				self->handleReceiverVideoSuppressionState(stateUuid,
-				                                          self->dataChannel_.parseReceiverVideoSuppression(message));
-				return;
-			}
-
-			if (parsed.type == DataMessageType::DirectorVideoState) {
-				self->handleReceiverVideoSuppressionState(targetUuid.empty() ? uuid : targetUuid,
-				                                          self->dataChannel_.parseReceiverVideoSuppression(message));
-				return;
-			}
-
-			if (parsed.type == DataMessageType::Signaling) {
-				if (self->signaling_) {
-					self->signaling_->processIncomingMessage(self->dataChannel_.prepareSignalingMessage(message, uuid));
-				}
-				if (!targetUuid.empty()) {
-					self->sendViewerPreferencesToPeer(targetUuid, "resolved-media-peer");
-				}
-				return;
-			}
-
-			if (parsed.type == DataMessageType::PeerBye) {
-				if (targetUuid.empty()) {
-					self->handlePeerCleanupSignal(uuid);
-				} else if (self->signaling_) {
-					self->signaling_->processIncomingMessage(message);
-				}
-				return;
-			}
-		});
+		peerManager_->setOnAcceptedSignalingLifecycleEvent(
+		    [callbackState](const AcceptedSignalingLifecycleEvent &event) {
+			    AsyncCallbackGuard<VDONinjaSource> guard(callbackState.get());
+			    if (!guard) {
+				    return;
+			    }
+			    guard.owner()->handleAcceptedSignalingLifecycleEvent(event);
+		    });
 
 		signaling_->setOnConnected([callbackState]() {
 			AsyncCallbackGuard<VDONinjaSource> guard(callbackState.get());
@@ -1327,20 +1564,7 @@ void VDONinjaSource::connectionThread()
 				self->requestViewStream("stream-added", false);
 			}
 		});
-		signaling_->setOnStreamRemoved([callbackState](const std::string &streamId, const std::string &uuid) {
-			AsyncCallbackGuard<VDONinjaSource> guard(callbackState.get());
-			if (!guard) {
-				return;
-			}
-			guard.owner()->handleStreamRemovedSignal(streamId, uuid);
-		});
-		signaling_->setOnPeerCleanup([callbackState](const std::string &uuid) {
-			AsyncCallbackGuard<VDONinjaSource> guard(callbackState.get());
-			if (!guard) {
-				return;
-			}
-			guard.owner()->handlePeerCleanupSignal(uuid);
-		});
+		configureSignalingLifecycleCallbacks(*signaling_, *peerManager_);
 
 		signaling_->setAutoReconnect(settings_.autoReconnect, DEFAULT_RECONNECT_ATTEMPTS);
 
@@ -1369,16 +1593,62 @@ void VDONinjaSource::connectionThread()
 	}
 }
 
+VDONinjaPeerManager *VDONinjaSource::activePeerManager() const
+{
+	VDONinjaPeerManager *manager = peerManager_.get();
+#if defined(VDONINJA_NATIVE_MEDIA_INTEGRATION_TEST)
+	if (!manager) {
+		manager = nativeMediaTestPeerManager_;
+	}
+#endif
+	return manager;
+}
+
 void VDONinjaSource::sendViewerPreferencesToPeer(const std::string &uuid, const char *reason)
 {
-	if (uuid.empty() || !peerManager_) {
+	VDONinjaPeerManager *manager = activePeerManager();
+	if (uuid.empty() || !manager) {
 		return;
 	}
 
-	const std::string preferences =
-	    buildViewerRequestMessage(width_, height_, !settings_.roomId.empty(), buildNativeViewerInfoJson(source_));
-	peerManager_->sendDataToPeer(uuid, preferences);
+	const auto dimensions = outputDimensions();
+	const std::string preferences = buildViewerRequestMessage(
+	    dimensions.width, dimensions.height, !settings_.roomId.empty(), buildNativeViewerInfoJson(source_));
+	manager->sendDataToPeer(uuid, preferences);
 	logInfo("Sent viewer preferences to %s (%s): %s", uuid.c_str(), reason ? reason : "unknown", preferences.c_str());
+}
+
+void VDONinjaSource::sendViewerPreferencesToPeer(const PeerEventIdentity &identity, const char *reason)
+{
+	VDONinjaPeerManager *manager = activePeerManager();
+	if (identity.uuid.empty() || identity.generation == 0 || !manager) {
+		return;
+	}
+
+	const auto dimensions = outputDimensions();
+	const std::string preferences = buildViewerRequestMessage(
+	    dimensions.width, dimensions.height, !settings_.roomId.empty(), buildNativeViewerInfoJson(source_));
+	manager->sendDataToPeer(identity, preferences);
+	logInfo("Sent viewer preferences to %s generation %llu (%s): %s", identity.uuid.c_str(),
+	        static_cast<unsigned long long>(identity.generation), reason ? reason : "unknown", preferences.c_str());
+}
+
+void VDONinjaSource::handlePeerDataChannelOpen(const PeerEventIdentity &identity,
+                                               const std::shared_ptr<rtc::DataChannel> &dc)
+{
+	if (!dc || identity.uuid.empty()) {
+		return;
+	}
+	{
+		std::lock_guard<std::mutex> applyLock(trackEventApplyMutex_);
+		if (!acceptPeerEventIdentityLocked(identity, false, PeerEventLane::DataChannelOpen)) {
+			return;
+		}
+	}
+#if defined(VDONINJA_NATIVE_MEDIA_INTEGRATION_TEST)
+	nativeMediaTestDataChannelOpenActions_.fetch_add(1, std::memory_order_acq_rel);
+#endif
+	sendViewerPreferencesToPeer(identity, "datachannel-open");
 }
 
 void VDONinjaSource::requestNativeTargetBitrate(const char *reason)
@@ -1389,66 +1659,392 @@ void VDONinjaSource::requestNativeTargetBitrate(const char *reason)
 		currentVideoTrack = videoTrack_;
 	}
 
+	const auto dimensions = outputDimensions();
 	const unsigned int targetBitrateBps =
-	    static_cast<unsigned int>(chooseViewerTargetBitrateKbps(width_, height_)) * 1000U;
+	    static_cast<unsigned int>(chooseViewerTargetBitrateKbps(dimensions.width, dimensions.height)) * 1000U;
 	if (safeRequestBitrate(currentVideoTrack, targetBitrateBps, reason)) {
 		logInfo("Requested native video REMB target of %u bps (%s)", targetBitrateBps, reason ? reason : "unknown");
 	}
 }
 
-void VDONinjaSource::handleRemoteMuteState(const std::string &uuid, const MuteStateUpdate &update)
+bool VDONinjaSource::acceptPeerEventIdentityLocked(const PeerEventIdentity &identity, bool terminalEvent,
+                                                   PeerEventLane lane)
 {
-	if (update.hasAudioMuted) {
-		const bool previous = remoteAudioMuted_.exchange(update.audioMuted, std::memory_order_relaxed);
-		if (previous != update.audioMuted) {
-			logInfo("Native receiver remote audio mute from %s: %s", uuid.empty() ? "unknown peer" : uuid.c_str(),
-			        update.audioMuted ? "muted" : "unmuted");
+	if (identity.uuid.empty() || identity.generation == 0) {
+		return false;
+	}
+
+	uint64_t retiredGeneration = 0;
+	{
+		std::lock_guard<std::mutex> stateLock(nativeStateMutex_);
+		auto &state = peerEventStates_[identity.uuid];
+		if (identity.generation < state.generation) {
+			return false;
 		}
-		setObsSourceAudioActive(!update.audioMuted);
+		if (identity.generation > state.generation) {
+			retiredGeneration = state.generation;
+			state.generation = identity.generation;
+			state.highestSequence = 0;
+			state.lastDataMessageSequence = 0;
+			state.lastDataChannelOpenSequence = 0;
+			state.terminal = false;
+			++state.seenGenerations;
+		} else if (state.terminal) {
+			return false;
+		}
+		if (identity.sequence != 0) {
+			uint64_t *laneSequence = nullptr;
+			if (lane == PeerEventLane::DataMessage) {
+				laneSequence = &state.lastDataMessageSequence;
+			} else if (lane == PeerEventLane::DataChannelOpen) {
+				laneSequence = &state.lastDataChannelOpenSequence;
+			}
+			if (laneSequence && *laneSequence != 0 && identity.sequence <= *laneSequence) {
+				return false;
+			}
+			if (laneSequence) {
+				*laneSequence = identity.sequence;
+			}
+			state.highestSequence = std::max(state.highestSequence, identity.sequence);
+		}
+		if (terminalEvent) {
+			state.terminal = true;
+		}
+	}
+
+	// The first event from a replacement generation atomically retires all
+	// source-owned media from the previous generation before the new event is
+	// applied. trackEventApplyMutex_ serializes every peer-scoped source event,
+	// so primary/alpha/audio can never straddle generations for one UUID.
+	if (retiredGeneration != 0) {
+		handlePeerDisconnectedAccepted({identity.uuid, "", retiredGeneration}, false);
+		resetPeerGenerationSuppressionStateLocked(identity);
+	}
+	return true;
+}
+
+void VDONinjaSource::resetPeerGenerationSuppressionStateLocked(const PeerEventIdentity &identity)
+{
+	{
+		std::lock_guard<std::mutex> commitStateLock(videoCommitStateMutex_);
+		peerControlStates_[identity.uuid][identity.generation] = {};
+	}
+	publishActivePeerControlStateLocked("peer-generation-start");
+}
+
+void VDONinjaSource::publishActivePeerControlStateLocked(const char *reason)
+{
+	PeerEventIdentity owner;
+	bool ownerHasAudio = false;
+	{
+		std::lock_guard<std::mutex> stateLock(nativeStateMutex_);
+		if (!videoTrackPeerUuid_.empty()) {
+			owner = {videoTrackPeerUuid_, "", videoTrackPeerGeneration_};
+		} else if (!alphaVideoTrackPeerUuid_.empty()) {
+			owner = {alphaVideoTrackPeerUuid_, "", alphaVideoTrackPeerGeneration_};
+		} else if (!audioTrackPeerUuid_.empty()) {
+			owner = {audioTrackPeerUuid_, "", audioTrackPeerGeneration_};
+		}
+		ownerHasAudio =
+		    audioTrack_ && audioTrackPeerUuid_ == owner.uuid && audioTrackPeerGeneration_ == owner.generation;
+	}
+
+	PeerControlState stored;
+	bool previousSuppressed = false;
+	bool suppressed = false;
+	{
+		std::lock_guard<std::mutex> commitStateLock(videoCommitStateMutex_);
+		if (!owner.uuid.empty() && owner.generation != 0) {
+			const auto peerStates = peerControlStates_.find(owner.uuid);
+			if (peerStates != peerControlStates_.end()) {
+				const auto generationState = peerStates->second.find(owner.generation);
+				if (generationState != peerStates->second.end()) {
+					stored = generationState->second;
+				}
+			}
+		}
+		previousSuppressed = remoteVideoSuppressedState_;
+		suppressed = stored.mediaVideoMuted || stored.directorVideoMuted || stored.virtualHangup;
+		remoteAudioMuted_.store(stored.audioMuted, std::memory_order_relaxed);
+		remoteMediaVideoMuted_.store(stored.mediaVideoMuted, std::memory_order_relaxed);
+		remoteDirectorVideoMuted_.store(stored.directorVideoMuted, std::memory_order_relaxed);
+		remoteVirtualHangup_.store(stored.virtualHangup, std::memory_order_relaxed);
+		remoteVideoSuppressedState_ = suppressed;
+		remoteVideoMuted_.store(suppressed, std::memory_order_release);
+	}
+
+	// Host/output callbacks are intentionally outside videoCommitStateMutex_.
+	setObsSourceAudioActive(ownerHasAudio && !stored.audioMuted);
+	if (previousSuppressed != suppressed) {
+		logInfo("Native receiver owner state from %s: %s (%s)",
+		        owner.uuid.empty() ? "no active peer" : owner.uuid.c_str(), suppressed ? "suppressed" : "restored",
+		        reason ? reason : "peer-owner-transition");
+	}
+	if (suppressed) {
+		clearNativeVideoOutput(reason ? reason : "peer-owner-transition");
+	}
+}
+
+void VDONinjaSource::handlePeerDataChannelMessage(const PeerEventIdentity &identity, const std::string &message)
+{
+	constexpr size_t kMaxPreviewChars = 256;
+	std::string preview = message;
+	if (preview.size() > kMaxPreviewChars) {
+		preview = preview.substr(0, kMaxPreviewChars) + "...(truncated)";
+	}
+	logInfo("Received source datachannel message from %s [generation %llu]: %s", identity.uuid.c_str(),
+	        static_cast<unsigned long long>(identity.generation), preview.c_str());
+
+	const DataMessage parsed = dataChannel_.parseMessage(message);
+	VDONinjaPeerManager *manager = activePeerManager();
+	std::string targetUuid;
+	std::string targetSession;
+	try {
+		JsonParser raw(message);
+		targetUuid = raw.getString("UUID");
+		if (targetUuid.empty()) {
+			targetUuid = raw.getString("uuid");
+		}
+		targetSession = raw.getString("session");
+	} catch (const std::exception &e) {
+		logWarning("Ignoring malformed source datachannel message from %s: %s", identity.uuid.c_str(), e.what());
+		return;
+	}
+	if (parsed.type == DataMessageType::PeerBye && targetUuid.empty()) {
+		handlePeerCleanupSignal(identity);
+		return;
+	}
+
+	std::unique_lock<std::mutex> applyLock(trackEventApplyMutex_);
+	if (!acceptPeerEventIdentityLocked(identity, false, PeerEventLane::DataMessage)) {
+		logDebug("Ignoring stale datachannel message from %s generation %llu", identity.uuid.c_str(),
+		         static_cast<unsigned long long>(identity.generation));
+		return;
+	}
+
+	if (parsed.type == DataMessageType::Ping) {
+		applyLock.unlock();
+		if (manager) {
+			manager->sendDataToPeer(identity.uuid, dataChannel_.createPongMessage(parsed.data));
+		}
+		return;
+	}
+	if (parsed.type == DataMessageType::Pong) {
+		return;
+	}
+
+	std::optional<PeerEventIdentity> stateIdentity = identity;
+	if (!targetUuid.empty()) {
+		if (manager) {
+			manager->bindViewerSignalingDataChannel(identity.uuid, targetUuid, targetSession);
+			stateIdentity = manager->claimPeerEventIdentity(targetUuid, targetSession);
+		} else {
+			stateIdentity = std::nullopt;
+		}
+		if (!stateIdentity || (!targetSession.empty() && stateIdentity->session != targetSession) ||
+		    !acceptPeerEventIdentityLocked(*stateIdentity, false, PeerEventLane::DataMessage)) {
+			return;
+		}
+	}
+
+	if (parsed.type == DataMessageType::Mute) {
+		const MuteStateUpdate muteUpdate = dataChannel_.parseMuteState(message);
+		const ReceiverVideoSuppressionUpdate videoUpdate = dataChannel_.parseReceiverVideoSuppression(message);
+		handlePeerControlState(*stateIdentity, &muteUpdate, &videoUpdate);
+		return;
+	}
+
+	if (parsed.type == DataMessageType::DirectorVideoState) {
+		const ReceiverVideoSuppressionUpdate videoUpdate = dataChannel_.parseReceiverVideoSuppression(message);
+		handlePeerControlState(*stateIdentity, nullptr, &videoUpdate);
+		return;
+	}
+
+	if (parsed.type == DataMessageType::Signaling) {
+		applyLock.unlock();
+		if (signaling_) {
+			signaling_->processIncomingMessage(dataChannel_.prepareSignalingMessage(message, identity.uuid));
+		}
+		if (!targetUuid.empty()) {
+			sendViewerPreferencesToPeer(*stateIdentity, "resolved-media-peer");
+		}
+		return;
+	}
+
+	if (parsed.type == DataMessageType::PeerBye) {
+		applyLock.unlock();
+#if defined(VDONINJA_NATIVE_MEDIA_INTEGRATION_TEST)
+		nativeMediaTestTargetedPeerByes_.fetch_add(1, std::memory_order_acq_rel);
+#endif
+		if (signaling_) {
+			signaling_->processIncomingMessage(message);
+		}
+	}
+}
+
+void VDONinjaSource::handlePeerControlState(const PeerEventIdentity &identity, const MuteStateUpdate *muteUpdate,
+                                            const ReceiverVideoSuppressionUpdate *videoUpdate)
+{
+	if (identity.uuid.empty() || identity.generation == 0 || (!muteUpdate && !videoUpdate)) {
+		return;
+	}
+	const bool directorApplies = !videoUpdate || !videoUpdate->hasDirectorVideoMuted ||
+	                             dataChannel_.receiverDirectorVideoAppliesToPeer(*videoUpdate, identity.uuid);
+#if defined(VDONINJA_NATIVE_MEDIA_INTEGRATION_TEST)
+	if (videoUpdate) {
+		runNativeMediaTestStage(NativeMediaTestStage::SuppressionRequest, false, 0, mediaEpochGate_.capture());
+	}
+#endif
+	bool activeOwner = false;
+	bool hasActiveOwner = false;
+	bool activeAudioOwner = false;
+	{
+		std::lock_guard<std::mutex> stateLock(nativeStateMutex_);
+		hasActiveOwner =
+		    !videoTrackPeerUuid_.empty() || !alphaVideoTrackPeerUuid_.empty() || !audioTrackPeerUuid_.empty();
+		activeOwner =
+		    (videoTrackPeerUuid_ == identity.uuid && videoTrackPeerGeneration_ == identity.generation) ||
+		    (alphaVideoTrackPeerUuid_ == identity.uuid && alphaVideoTrackPeerGeneration_ == identity.generation) ||
+		    (audioTrackPeerUuid_ == identity.uuid && audioTrackPeerGeneration_ == identity.generation);
+		activeAudioOwner =
+		    audioTrack_ && audioTrackPeerUuid_ == identity.uuid && audioTrackPeerGeneration_ == identity.generation;
+	}
+	// A state event may be the first accepted event for a replacement
+	// generation, before that generation's track commit reaches the source. In
+	// that ownerless interval it is authoritative immediately. When another
+	// peer still owns media, however, only store this peer's state for a later
+	// adoption; publishing it would let a deferred peer suppress the owner.
+	const bool publishState = activeOwner || !hasActiveOwner;
+
+	bool audioChanged = false;
+	bool audioMuted = false;
+	bool previousSuppressed = false;
+	bool suppressed = false;
+	bool videoPublished = false;
+	const char *reason = "remote-video-state";
+	{
+		std::lock_guard<std::mutex> commitStateLock(videoCommitStateMutex_);
+		auto &stored = peerControlStates_[identity.uuid][identity.generation];
+		if (muteUpdate && muteUpdate->hasAudioMuted) {
+			stored.audioMuted = muteUpdate->audioMuted;
+		}
+		if (videoUpdate) {
+			if (videoUpdate->hasMediaVideoMuted) {
+				stored.mediaVideoMuted = videoUpdate->mediaVideoMuted;
+				reason = videoUpdate->mediaVideoMuted ? "remote-video-muted" : "remote-video-unmuted";
+			}
+			if (videoUpdate->hasDirectorVideoMuted && directorApplies) {
+				stored.directorVideoMuted = videoUpdate->directorVideoMuted;
+				reason = videoUpdate->directorVideoMuted ? "director-video-muted" : "director-video-unmuted";
+			}
+			if (videoUpdate->hasVirtualHangup) {
+				stored.virtualHangup = videoUpdate->virtualHangup;
+				reason = videoUpdate->virtualHangup ? "remote-virtual-hangup" : "remote-virtual-hangup-cleared";
+			}
+		}
+
+		if (publishState) {
+			audioMuted = stored.audioMuted;
+			audioChanged = remoteAudioMuted_.load(std::memory_order_relaxed) != stored.audioMuted;
+			previousSuppressed = remoteVideoSuppressedState_;
+			suppressed = stored.mediaVideoMuted || stored.directorVideoMuted || stored.virtualHangup;
+			remoteAudioMuted_.store(stored.audioMuted, std::memory_order_relaxed);
+			remoteMediaVideoMuted_.store(stored.mediaVideoMuted, std::memory_order_relaxed);
+			remoteDirectorVideoMuted_.store(stored.directorVideoMuted, std::memory_order_relaxed);
+			remoteVirtualHangup_.store(stored.virtualHangup, std::memory_order_relaxed);
+			remoteVideoSuppressedState_ = suppressed;
+			remoteVideoMuted_.store(suppressed, std::memory_order_release);
+			videoPublished = videoUpdate != nullptr;
+#if defined(VDONINJA_NATIVE_MEDIA_INTEGRATION_TEST)
+			if (videoUpdate) {
+				runNativeMediaTestStage(NativeMediaTestStage::SuppressionAttempt, false, 0, mediaEpochGate_.capture());
+			}
+#endif
+		}
+	}
+
+	if (videoUpdate && videoUpdate->hasDirectorVideoMuted && !directorApplies) {
+		logDebug("Ignoring director video mute for non-local target %s from %s",
+		         videoUpdate->directorVideoTarget.empty() ? "unknown" : videoUpdate->directorVideoTarget.c_str(),
+		         identity.uuid.c_str());
+	}
+	if (!publishState) {
+		return;
+	}
+	if (audioChanged) {
+		logInfo("Native receiver remote audio mute from %s: %s", identity.uuid.c_str(),
+		        audioMuted ? "muted" : "unmuted");
+	}
+	if (muteUpdate && muteUpdate->hasAudioMuted) {
+		setObsSourceAudioActive(activeAudioOwner && !audioMuted);
+	}
+#if defined(VDONINJA_NATIVE_MEDIA_INTEGRATION_TEST)
+	if (videoPublished) {
+		runNativeMediaTestStage(NativeMediaTestStage::MutePublished, false, 0, mediaEpochGate_.capture());
+	}
+#endif
+	if (videoPublished && previousSuppressed != suppressed) {
+		logInfo("Native receiver remote video output from %s: %s (%s)", identity.uuid.c_str(),
+		        suppressed ? "suppressed" : "restored", reason);
+	}
+	if (videoPublished && suppressed) {
+		clearNativeVideoOutput(reason);
 	}
 }
 
 void VDONinjaSource::handleReceiverVideoSuppressionState(const std::string &uuid,
                                                          const ReceiverVideoSuppressionUpdate &update)
 {
+	const bool directorApplies =
+	    !update.hasDirectorVideoMuted || dataChannel_.receiverDirectorVideoAppliesToPeer(update, uuid);
+#if defined(VDONINJA_NATIVE_MEDIA_INTEGRATION_TEST)
+	runNativeMediaTestStage(NativeMediaTestStage::SuppressionRequest, false, 0, mediaEpochGate_.capture());
+#endif
 	bool changed = false;
 	const char *reason = "remote-video-state";
-
-	if (update.hasMediaVideoMuted) {
-		const bool previous = remoteMediaVideoMuted_.exchange(update.mediaVideoMuted, std::memory_order_relaxed);
-		changed = changed || previous != update.mediaVideoMuted;
-		reason = update.mediaVideoMuted ? "remote-video-muted" : "remote-video-unmuted";
-	}
-	if (update.hasDirectorVideoMuted) {
-		if (dataChannel_.receiverDirectorVideoAppliesToPeer(update, uuid)) {
+	bool previousSuppressed = false;
+	bool suppressed = false;
+	{
+		std::lock_guard<std::mutex> commitStateLock(videoCommitStateMutex_);
+		if (update.hasMediaVideoMuted) {
+			const bool previous = remoteMediaVideoMuted_.exchange(update.mediaVideoMuted, std::memory_order_relaxed);
+			changed = changed || previous != update.mediaVideoMuted;
+			reason = update.mediaVideoMuted ? "remote-video-muted" : "remote-video-unmuted";
+		}
+		if (update.hasDirectorVideoMuted && directorApplies) {
 			const bool previous =
 			    remoteDirectorVideoMuted_.exchange(update.directorVideoMuted, std::memory_order_relaxed);
 			changed = changed || previous != update.directorVideoMuted;
 			reason = update.directorVideoMuted ? "director-video-muted" : "director-video-unmuted";
-		} else {
-			logDebug("Ignoring director video mute for non-local target %s from %s",
-			         update.directorVideoTarget.empty() ? "unknown" : update.directorVideoTarget.c_str(),
-			         uuid.empty() ? "unknown peer" : uuid.c_str());
 		}
-	}
-	if (update.hasVirtualHangup) {
-		const bool previous = remoteVirtualHangup_.exchange(update.virtualHangup, std::memory_order_relaxed);
-		changed = changed || previous != update.virtualHangup;
-		reason = update.virtualHangup ? "remote-virtual-hangup" : "remote-virtual-hangup-cleared";
-	}
+		if (update.hasVirtualHangup) {
+			const bool previous = remoteVirtualHangup_.exchange(update.virtualHangup, std::memory_order_relaxed);
+			changed = changed || previous != update.virtualHangup;
+			reason = update.virtualHangup ? "remote-virtual-hangup" : "remote-virtual-hangup-cleared";
+		}
+		if (!changed) {
+			return;
+		}
 
-	if (changed) {
-		refreshRemoteVideoSuppression(uuid, reason);
+		suppressed = remoteMediaVideoMuted_.load(std::memory_order_relaxed) ||
+		             remoteDirectorVideoMuted_.load(std::memory_order_relaxed) ||
+		             remoteVirtualHangup_.load(std::memory_order_relaxed);
+#if defined(VDONINJA_NATIVE_MEDIA_INTEGRATION_TEST)
+		runNativeMediaTestStage(NativeMediaTestStage::SuppressionAttempt, false, 0, mediaEpochGate_.capture());
+#endif
+		previousSuppressed = remoteVideoSuppressedState_;
+		remoteVideoSuppressedState_ = suppressed;
+		remoteVideoMuted_.store(suppressed, std::memory_order_release);
 	}
-}
-
-void VDONinjaSource::refreshRemoteVideoSuppression(const std::string &uuid, const char *reason)
-{
-	const bool suppressed = remoteMediaVideoMuted_.load(std::memory_order_relaxed) ||
-	                        remoteDirectorVideoMuted_.load(std::memory_order_relaxed) ||
-	                        remoteVirtualHangup_.load(std::memory_order_relaxed);
-	const bool previous = remoteVideoMuted_.exchange(suppressed, std::memory_order_relaxed);
-	if (previous != suppressed) {
+	if (update.hasDirectorVideoMuted && !directorApplies) {
+		logDebug("Ignoring director video mute for non-local target %s from %s",
+		         update.directorVideoTarget.empty() ? "unknown" : update.directorVideoTarget.c_str(),
+		         uuid.empty() ? "unknown peer" : uuid.c_str());
+	}
+#if defined(VDONINJA_NATIVE_MEDIA_INTEGRATION_TEST)
+	runNativeMediaTestStage(NativeMediaTestStage::MutePublished, false, 0, mediaEpochGate_.capture());
+#endif
+	if (previousSuppressed != suppressed) {
 		logInfo("Native receiver remote video output from %s: %s (%s)", uuid.empty() ? "unknown peer" : uuid.c_str(),
 		        suppressed ? "suppressed" : "restored", reason ? reason : "remote-video-state");
 	}
@@ -1602,17 +2198,87 @@ void VDONinjaSource::handleSignalingAlert(const std::string &message)
 	}
 }
 
-void VDONinjaSource::handlePeerCleanupSignal(const std::string &uuid)
+void VDONinjaSource::configureSignalingLifecycleCallbacks(VDONinjaSignaling &signaling, VDONinjaPeerManager &manager)
 {
-	if (uuid.empty()) {
+	// The lifecycle envelope and legacy callbacks are additive at the signaling
+	// layer. A receiver must install exactly one cleanup path or a single server
+	// message can compete with itself after identity has been discarded.
+	signaling.setOnStreamRemoved(nullptr);
+	signaling.setOnPeerCleanup(nullptr);
+	const auto callbackState = callbackState_;
+	signaling.setOnLifecycleEvent([callbackState, &manager](const SignalingLifecycleEvent &event) {
+		AsyncCallbackGuard<VDONinjaSource> guard(callbackState.get());
+		if (!guard) {
+			return;
+		}
+		const auto disposition = manager.processSignalingLifecycleEvent(event);
+#if defined(VDONINJA_NATIVE_MEDIA_INTEGRATION_TEST)
+		if (disposition == SignalingLifecycleDisposition::AmbiguousSessionless) {
+			guard.owner()->nativeMediaTestAmbiguousSessionlessCleanups_.fetch_add(1, std::memory_order_acq_rel);
+		}
+#else
+		(void)disposition;
+#endif
+	});
+}
+
+void VDONinjaSource::handleAcceptedSignalingLifecycleEvent(const AcceptedSignalingLifecycleEvent &event)
+{
+	const char *reason = event.kind == SignalingLifecycleEventKind::StreamRemoved ? "stream-removed" : "peer-cleanup";
+	if (event.kind == SignalingLifecycleEventKind::StreamRemoved) {
+		logInfo("Native receiver accepted stream removal for %s generation %llu (stream=%s)",
+		        event.identity.uuid.c_str(), static_cast<unsigned long long>(event.identity.generation),
+		        event.streamId.empty() ? "unknown" : event.streamId.c_str());
+	}
+	(void)applyPeerCleanupSignal(event.identity, reason);
+}
+
+void VDONinjaSource::handleSignalingPeerCleanup(VDONinjaPeerManager &manager, const std::string &uuid,
+                                                const std::string &session)
+{
+	bool ambiguousReuse = false;
+	const auto claimedIdentity = manager.claimSignalingPeerCleanupIdentity(uuid, session, &ambiguousReuse);
+	if (ambiguousReuse) {
+#if defined(VDONINJA_NATIVE_MEDIA_INTEGRATION_TEST)
+		nativeMediaTestAmbiguousSessionlessCleanups_.fetch_add(1, std::memory_order_acq_rel);
+#endif
+		logWarning("Ignoring ambiguous sessionless cleanup for peer %s with manager-observed UUID reuse", uuid.c_str());
 		return;
 	}
-
-	logInfo("Native receiver got cleanup/bye for peer %s", uuid.c_str());
-	if (peerManager_) {
-		peerManager_->disconnectPeer(uuid);
+	if (claimedIdentity) {
+		handlePeerCleanupSignal(*claimedIdentity);
 	}
-	handlePeerDisconnected(uuid);
+}
+
+bool VDONinjaSource::applyPeerCleanupSignal(const PeerEventIdentity &identity, const char *reason)
+{
+	if (identity.uuid.empty()) {
+		return false;
+	}
+	{
+		std::lock_guard<std::mutex> applyLock(trackEventApplyMutex_);
+		if (!acceptPeerEventIdentityLocked(identity, true)) {
+			return false;
+		}
+#if defined(VDONINJA_NATIVE_MEDIA_INTEGRATION_TEST)
+		nativeMediaTestAcceptedPeerCleanups_.fetch_add(1, std::memory_order_acq_rel);
+#endif
+
+		logInfo("Native receiver got %s for peer %s generation %llu", reason ? reason : "cleanup/bye",
+		        identity.uuid.c_str(), static_cast<unsigned long long>(identity.generation));
+		handlePeerDisconnectedAccepted(identity, true);
+	}
+	return true;
+}
+
+void VDONinjaSource::handlePeerCleanupSignal(const PeerEventIdentity &identity)
+{
+	if (!applyPeerCleanupSignal(identity, "cleanup/bye")) {
+		return;
+	}
+	if (peerManager_) {
+		peerManager_->disconnectPeer(identity);
+	}
 }
 
 bool VDONinjaSource::matchesTargetStreamId(const std::string &streamId) const
@@ -1628,22 +2294,45 @@ bool VDONinjaSource::matchesTargetStreamId(const std::string &streamId) const
 
 void VDONinjaSource::clearNativeVideoOutput(const char *reason)
 {
-	if (!source_) {
-		return;
-	}
+	std::lock_guard<std::mutex> outputLock(videoOutputMutex_);
+	clearNativeVideoOutputLocked(reason);
+}
 
+void VDONinjaSource::clearNativeVideoOutputLocked(const char *reason)
+{
 	const bool hadVideo = videoOutputActive_.exchange(false, std::memory_order_relaxed);
 	if (hadVideo && reason && *reason) {
 		logInfo("Clearing native video output (%s)", reason);
 	}
-	obs_source_output_video(source_, nullptr);
-}
-
-void VDONinjaSource::markNativePeerConnectedIfReady(const std::string &uuid, const char *reason)
-{
-	if (uuid.empty() || !peerManager_) {
+#if defined(VDONINJA_NATIVE_MEDIA_INTEGRATION_TEST)
+	if (nativeMediaTestClearOutputHook_) {
+		nativeMediaTestClearOutputHook_(hadVideo, reason ? reason : "");
 		return;
 	}
+#endif
+	if (source_) {
+		obs_source_output_video(source_, nullptr);
+	}
+}
+
+void VDONinjaSource::markNativePeerConnectedIfReady(const PeerEventIdentity &identity, const char *reason)
+{
+	if (identity.uuid.empty() || !peerManager_) {
+		return;
+	}
+	std::lock_guard<std::mutex> applyLock(trackEventApplyMutex_);
+	if (!acceptPeerEventIdentityLocked(identity)) {
+		return;
+	}
+	markNativePeerConnectedIfReadyAccepted(identity, reason);
+}
+
+void VDONinjaSource::markNativePeerConnectedIfReadyAccepted(const PeerEventIdentity &identity, const char *reason)
+{
+	if (identity.uuid.empty() || !peerManager_) {
+		return;
+	}
+	const std::string &uuid = identity.uuid;
 
 	std::shared_ptr<rtc::Track> videoTrack;
 	{
@@ -1658,7 +2347,9 @@ void VDONinjaSource::markNativePeerConnectedIfReady(const std::string &uuid, con
 		}
 	}
 
-	if (peerManager_->getPeerState(uuid) != ConnectionState::Connected) {
+	const auto currentIdentity = peerManager_->getPeerIdentity(uuid);
+	if (!currentIdentity || currentIdentity->generation != identity.generation ||
+	    peerManager_->getPeerState(uuid) != ConnectionState::Connected) {
 		return;
 	}
 
@@ -1691,6 +2382,10 @@ void VDONinjaSource::handleStreamRemovedSignal(const std::string &streamId, cons
 		return;
 	}
 
+#if defined(VDONINJA_NATIVE_MEDIA_INTEGRATION_TEST)
+	nativeMediaTestLegacyStreamRemovalActions_.fetch_add(1, std::memory_order_acq_rel);
+#endif
+
 	logInfo("Native receiver got stream-removed for target stream (%s) from %s; clearing active receiver state",
 	        streamId.empty() ? settings_.streamId.c_str() : streamId.c_str(),
 	        uuid.empty() ? "unknown peer" : uuid.c_str());
@@ -1710,8 +2405,221 @@ void VDONinjaSource::handleStreamRemovedSignal(const std::string &streamId, cons
 	}
 }
 
-void VDONinjaSource::onVideoTrack(const std::string &uuid, std::shared_ptr<rtc::Track> track)
+void VDONinjaSource::deferPeerTrackLocked(const PeerEventIdentity &identity, TrackType type,
+                                          const std::shared_ptr<rtc::Track> &track)
 {
+	if (identity.uuid.empty() || identity.generation == 0 || !track) {
+		return;
+	}
+	auto &bundle = pendingPeerTrackBundles_[identity.uuid][identity.generation];
+	if (bundle.order == 0) {
+		bundle.identity = identity;
+		bundle.order = nextPendingPeerTrackOrder_++;
+	}
+	if (type == TrackType::Audio) {
+		bundle.audio = track;
+	} else if (type == TrackType::AlphaVideo) {
+		bundle.alpha = track;
+	} else {
+		bundle.video = track;
+	}
+}
+
+void VDONinjaSource::removePendingPeerTrackLocked(const TrackSlotEvent &event)
+{
+	const auto uuidIt = pendingPeerTrackBundles_.find(event.uuid);
+	if (uuidIt == pendingPeerTrackBundles_.end()) {
+		return;
+	}
+	const auto generationIt = uuidIt->second.find(event.generation);
+	if (generationIt == uuidIt->second.end()) {
+		return;
+	}
+	auto &bundle = generationIt->second;
+	std::shared_ptr<rtc::Track> *slot = &bundle.video;
+	if (event.type == TrackType::Audio) {
+		slot = &bundle.audio;
+	} else if (event.type == TrackType::AlphaVideo) {
+		slot = &bundle.alpha;
+	}
+	if (!event.retiredTrack || *slot == event.retiredTrack) {
+		slot->reset();
+	}
+	if (!bundle.video && !bundle.alpha && !bundle.audio) {
+		uuidIt->second.erase(generationIt);
+		if (uuidIt->second.empty()) {
+			pendingPeerTrackBundles_.erase(uuidIt);
+		}
+	}
+}
+
+std::optional<PeerEventIdentity> VDONinjaSource::adoptNextPendingPeerBundleIfOwnerless(const char *reason)
+{
+	PendingPeerTrackBundle selected;
+	bool found = false;
+	{
+		std::lock_guard<std::mutex> stateLock(nativeStateMutex_);
+		if (videoTrack_ || alphaVideoTrack_ || audioTrack_) {
+			return std::nullopt;
+		}
+		std::string selectedUuid;
+		uint64_t selectedGeneration = 0;
+		uint64_t selectedOrder = std::numeric_limits<uint64_t>::max();
+		for (const auto &[uuid, generations] : pendingPeerTrackBundles_) {
+			for (const auto &[generation, bundle] : generations) {
+				if ((bundle.video || bundle.alpha || bundle.audio) && bundle.order < selectedOrder) {
+					selectedUuid = uuid;
+					selectedGeneration = generation;
+					selectedOrder = bundle.order;
+				}
+			}
+		}
+		if (!selectedUuid.empty()) {
+			auto uuidIt = pendingPeerTrackBundles_.find(selectedUuid);
+			auto generationIt = uuidIt->second.find(selectedGeneration);
+			selected = std::move(generationIt->second);
+			uuidIt->second.erase(generationIt);
+			if (uuidIt->second.empty()) {
+				pendingPeerTrackBundles_.erase(uuidIt);
+			}
+			found = true;
+		}
+	}
+	if (!found) {
+		return std::nullopt;
+	}
+
+	peerTrackBundleAdoptionInProgress_.store(true, std::memory_order_release);
+	logInfo("Adopting deferred native media bundle from %s generation %llu (%s)", selected.identity.uuid.c_str(),
+	        static_cast<unsigned long long>(selected.identity.generation), reason ? reason : "owner-retired");
+	try {
+		if (selected.video) {
+			onVideoTrack(selected.identity, selected.video);
+#if defined(VDONINJA_NATIVE_MEDIA_INTEGRATION_TEST)
+			runNativeMediaTestStage(NativeMediaTestStage::PendingBundlePrimaryAttached, false, 0,
+			                        mediaEpochGate_.capture());
+#endif
+		}
+		if (selected.alpha) {
+			onAlphaVideoTrack(selected.identity, selected.alpha);
+		}
+		if (selected.audio) {
+			onAudioTrack(selected.identity, selected.audio);
+		}
+	} catch (...) {
+		peerTrackBundleAdoptionInProgress_.store(false, std::memory_order_release);
+		throw;
+	}
+	return selected.identity;
+}
+
+void VDONinjaSource::handleTrackSlotEvent(const TrackSlotEvent &event)
+{
+	std::lock_guard<std::mutex> applyLock(trackEventApplyMutex_);
+	const PeerEventIdentity identity{event.uuid, event.session, event.generation, event.sequence};
+	auto *positions = &videoTrackEventPositions_;
+	if (event.type == TrackType::AlphaVideo) {
+		positions = &alphaTrackEventPositions_;
+	} else if (event.type == TrackType::Audio) {
+		positions = &audioTrackEventPositions_;
+	}
+	auto &position = (*positions)[event.uuid];
+	if (event.generation < position.generation ||
+	    (event.generation == position.generation && event.revision <= position.revision)) {
+#if defined(VDONINJA_NATIVE_MEDIA_INTEGRATION_TEST)
+		nativeMediaTestRejectedTrackEvents_.fetch_add(1, std::memory_order_acq_rel);
+#endif
+		return;
+	}
+	if (!acceptPeerEventIdentityLocked({event.uuid, event.session, event.generation, event.sequence})) {
+#if defined(VDONINJA_NATIVE_MEDIA_INTEGRATION_TEST)
+		nativeMediaTestRejectedTrackEvents_.fetch_add(1, std::memory_order_acq_rel);
+#endif
+		return;
+	}
+	position = {event.generation, event.revision};
+
+	if (event.track) {
+		if (event.type == TrackType::Video) {
+			onVideoTrack(identity, event.track);
+		} else if (event.type == TrackType::AlphaVideo) {
+			onAlphaVideoTrack(identity, event.track, event.retiredTrack);
+		} else {
+			onAudioTrack(identity, event.track);
+		}
+	} else if (event.type == TrackType::Video || event.type == TrackType::AlphaVideo) {
+		handleVideoTrackClosed(identity, event.retiredTrack, event.type == TrackType::AlphaVideo,
+		                       event.type == TrackType::AlphaVideo ? "manager-alpha-slot-retired"
+		                                                           : "manager-video-slot-retired");
+		{
+			std::lock_guard<std::mutex> stateLock(nativeStateMutex_);
+			removePendingPeerTrackLocked(event);
+		}
+	} else {
+		handleAudioTrackRetired(event);
+	}
+	std::optional<PeerEventIdentity> adoptedIdentity;
+	if (!event.track) {
+		adoptedIdentity = adoptNextPendingPeerBundleIfOwnerless("track-slot-retired");
+	}
+
+	// The source owns callback retirement after an accepted slot transition.
+	// Never clear a handle which has already been re-added as any current or
+	// deferred slot; stale/rejected events have no side effects above.
+	bool retiredTrackIsCurrent = false;
+	{
+		std::lock_guard<std::mutex> stateLock(nativeStateMutex_);
+		retiredTrackIsCurrent =
+		    event.retiredTrack && (videoTrack_ == event.retiredTrack || alphaVideoTrack_ == event.retiredTrack ||
+		                           audioTrack_ == event.retiredTrack);
+		if (!retiredTrackIsCurrent && event.retiredTrack) {
+			for (const auto &[uuid, generations] : pendingPeerTrackBundles_) {
+				for (const auto &[generation, bundle] : generations) {
+					if (bundle.video == event.retiredTrack || bundle.alpha == event.retiredTrack ||
+					    bundle.audio == event.retiredTrack) {
+						retiredTrackIsCurrent = true;
+						break;
+					}
+				}
+				if (retiredTrackIsCurrent) {
+					break;
+				}
+			}
+		}
+	}
+	if (!retiredTrackIsCurrent) {
+		clearTrackCallbacks(event.retiredTrack);
+	}
+	publishActivePeerControlStateLocked("track-owner-transition");
+	if (adoptedIdentity) {
+		peerTrackBundleAdoptionInProgress_.store(false, std::memory_order_release);
+		markNativePeerConnectedIfReadyAccepted(*adoptedIdentity, "deferred-peer-bundle-adopted");
+	}
+}
+
+void VDONinjaSource::handleAudioTrackRetired(const TrackSlotEvent &event)
+{
+	{
+		std::unique_lock<std::mutex> stateLock(nativeStateMutex_);
+		std::unique_lock<std::mutex> audioDecodeLock(audioDecodeMutex_);
+		if (audioTrackPeerUuid_ == event.uuid && audioTrackPeerGeneration_ == event.generation &&
+		    (!event.retiredTrack || audioTrack_ == event.retiredTrack)) {
+			audioTrack_.reset();
+			audioTrackPeerUuid_.clear();
+			audioTrackPeerGeneration_ = 0;
+			resetAudioDecoder();
+			loggedFirstAudioPacket_.store(false, std::memory_order_relaxed);
+			loggedFirstDecodedAudioFrame_.store(false, std::memory_order_relaxed);
+			lastAudioTime_.store(0, std::memory_order_relaxed);
+		}
+		removePendingPeerTrackLocked(event);
+		connected_ = !videoTrackPeerUuid_.empty() || !alphaVideoTrackPeerUuid_.empty() || !audioTrackPeerUuid_.empty();
+	}
+}
+
+void VDONinjaSource::onVideoTrack(const PeerEventIdentity &identity, std::shared_ptr<rtc::Track> track)
+{
+	const std::string &uuid = identity.uuid;
 	logInfo("Received video track from %s", uuid.c_str());
 
 	if (!track) {
@@ -1754,34 +2662,48 @@ void VDONinjaSource::onVideoTrack(const std::string &uuid, std::shared_ptr<rtc::
 	        static_cast<int>(description.direction()));
 
 	bool replacedExistingTrack = false;
+	std::shared_ptr<rtc::Track> replacedTrack;
 	{
-		std::scoped_lock stateLock(nativeStateMutex_, videoAssemblyMutex_, videoDecodeMutex_);
+		// Canonical media-transition lock order. Packet callbacks never acquire
+		// these locks in reverse order, and RTC/OBS calls happen after release.
+		std::unique_lock<std::mutex> stateLock(nativeStateMutex_);
+		std::unique_lock<std::mutex> videoAssemblyLock(videoAssemblyMutex_);
+		std::unique_lock<std::mutex> videoDecodeLock(videoDecodeMutex_);
+		std::unique_lock<std::mutex> alphaAssemblyLock(alphaAssemblyMutex_);
+		std::unique_lock<std::mutex> alphaDecodeLock(alphaDecodeMutex_);
+		std::unique_lock<std::mutex> outputLock(videoOutputMutex_);
+		std::unique_lock<std::mutex> commitStateLock(videoCommitStateMutex_);
+		std::unique_lock<std::mutex> pairingLock(alphaPairingMutex_);
 		if (videoTrack_ == track) {
 			return;
 		}
-		if (!videoTrackPeerUuid_.empty() && videoTrackPeerUuid_ != uuid) {
-			logWarning("Deferring native video track from %s while peer %s remains active", uuid.c_str(),
-			           videoTrackPeerUuid_.c_str());
-			pendingVideoTrack_ = track;
-			pendingVideoTrackPeerUuid_ = uuid;
+		const std::string ownerUuid =
+		    !videoTrackPeerUuid_.empty()
+		        ? videoTrackPeerUuid_
+		        : (!alphaVideoTrackPeerUuid_.empty() ? alphaVideoTrackPeerUuid_ : audioTrackPeerUuid_);
+		const uint64_t ownerGeneration =
+		    !videoTrackPeerUuid_.empty()
+		        ? videoTrackPeerGeneration_
+		        : (!alphaVideoTrackPeerUuid_.empty() ? alphaVideoTrackPeerGeneration_ : audioTrackPeerGeneration_);
+		if (!ownerUuid.empty() && (ownerUuid != uuid || ownerGeneration != identity.generation)) {
+			logWarning("Deferring native video track from %s while media peer %s remains active", uuid.c_str(),
+			           ownerUuid.c_str());
+			deferPeerTrackLocked(identity, TrackType::Video, track);
 			return;
 		}
 		replacedExistingTrack = (videoTrack_ != nullptr);
-		clearTrackCallbacks(videoTrack_);
+		replacedTrack = videoTrack_;
 		videoTrack_ = track;
 		videoTrackPeerUuid_ = uuid;
-		if (pendingVideoTrackPeerUuid_ == uuid) {
-			pendingVideoTrack_.reset();
-			pendingVideoTrackPeerUuid_.clear();
-		}
+		videoTrackPeerGeneration_ = identity.generation;
 		videoRedPayloadTypes_ = redPayloadTypes;
 		nativeVideoCodec_ = negotiatedCodec;
-		videoAssemblyBuffer_.clear();
-		videoAssemblyTimestamp_ = 0;
-		videoAssemblyActive_ = false;
+		resetMediaPipelineStateLocked();
+		alphaTrackActive_.store(alphaVideoTrack_ != nullptr, std::memory_order_release);
+		preferSoftwareVp9DecodeForAlpha_.store(alphaVideoTrack_ != nullptr, std::memory_order_release);
 		if (replacedExistingTrack) {
-			logInfo("Replacing native video track for peer %s; resetting decoder state", uuid.c_str());
-			resetVideoDecoder();
+			logInfo("Replacing native video track for peer %s; reset both media tracks to epoch %llu", uuid.c_str(),
+			        static_cast<unsigned long long>(mediaEpochGate_.capture()));
 			loggedFirstVideoRtpPacket_ = false;
 			loggedFirstVideoPacket_ = false;
 			loggedFirstDecodedVideoFrame_ = false;
@@ -1789,6 +2711,8 @@ void VDONinjaSource::onVideoTrack(const std::string &uuid, std::shared_ptr<rtc::
 			lastKeyframeRequestTime_.store(0, std::memory_order_relaxed);
 		}
 	}
+	clearTrackCallbacks(replacedTrack);
+	completeMediaPipelineTransition(replacedExistingTrack ? "video-track-replaced" : "video-track-attached", true);
 	auto rtxFilter = std::make_shared<RtxRepairMediaHandler>();
 	const auto callbackState = callbackState_;
 	auto receivingSession =
@@ -1836,15 +2760,24 @@ void VDONinjaSource::onVideoTrack(const std::string &uuid, std::shared_ptr<rtc::
 				return;
 			}
 			VDONinjaSource *self = guard.owner();
+			if (self->peerTrackBundleAdoptionInProgress_.load(std::memory_order_acquire)) {
+#if defined(VDONINJA_NATIVE_MEDIA_INTEGRATION_TEST)
+				self->runNativeMediaTestStage(NativeMediaTestStage::PendingBundlePacketRejected, false, 0,
+				                              self->mediaEpochGate_.capture());
+#endif
+				return;
+			}
 			const auto strongTrack = weakTrack.lock();
 			if (!strongTrack) {
 				return;
 			}
+			uint64_t mediaEpoch = 0;
 			{
 				std::lock_guard<std::mutex> stateLock(self->nativeStateMutex_);
 				if (self->videoTrack_ != strongTrack) {
 					return;
 				}
+				mediaEpoch = self->mediaEpochGate_.capture();
 			}
 
 			if (!std::holds_alternative<rtc::binary>(message)) {
@@ -1852,85 +2785,92 @@ void VDONinjaSource::onVideoTrack(const std::string &uuid, std::shared_ptr<rtc::
 			}
 
 			const auto &packet = std::get<rtc::binary>(message);
-			self->processVideoRtpPacket(reinterpret_cast<const uint8_t *>(packet.data()), packet.size());
+			self->processVideoRtpPacket(reinterpret_cast<const uint8_t *>(packet.data()), packet.size(), mediaEpoch);
 		});
 	});
-
 	if (replacedExistingTrack && safeRequestKeyframe(track, "video-track-replaced")) {
 		lastKeyframeRequestTime_.store(currentTimeMs(), std::memory_order_relaxed);
 		logInfo("Requested video keyframe after replacing native video track");
 	}
 	requestNativeTargetBitrate("video-track-attached");
-	markNativePeerConnectedIfReady(uuid, "video-track-attached");
+	if (!peerTrackBundleAdoptionInProgress_.load(std::memory_order_acquire)) {
+		markNativePeerConnectedIfReadyAccepted(identity, "video-track-attached");
+	}
 }
 
-void VDONinjaSource::onAlphaVideoTrack(const std::string &uuid, std::shared_ptr<rtc::Track> track)
+void VDONinjaSource::onAlphaVideoTrack(const PeerEventIdentity &identity, std::shared_ptr<rtc::Track> track,
+                                       std::shared_ptr<rtc::Track> retiredTrack)
 {
+	const std::string &uuid = identity.uuid;
 	logInfo("Received VP9 alpha video track from %s", uuid.c_str());
 
 	if (!track) {
+		handleVideoTrackClosed(identity, retiredTrack, true, "alpha-capability-removed");
 		return;
 	}
 
-	std::string currentVideoMid;
+	std::shared_ptr<rtc::Track> currentVideoTrack;
 	{
 		std::lock_guard<std::mutex> stateLock(nativeStateMutex_);
-		if (videoTrack_) {
-			currentVideoMid = videoTrack_->mid();
-		}
+		currentVideoTrack = videoTrack_;
 	}
+	const std::string currentVideoMid = currentVideoTrack ? currentVideoTrack->mid() : "";
 	if (!currentVideoMid.empty() && !track->mid().empty() && track->mid() == currentVideoMid) {
 		logInfo("Alpha track for %s reused primary video mid=%s; reattaching it as the native video track",
 		        uuid.c_str(), track->mid().c_str());
-		onVideoTrack(uuid, track);
+		onVideoTrack(identity, track);
 		return;
 	}
 
-	bool resetPrimaryDecoder = false;
+	bool replacedExistingTrack = false;
+	std::shared_ptr<rtc::Track> replacedTrack;
 	{
-		std::scoped_lock stateLock(nativeStateMutex_, videoDecodeMutex_, alphaAssemblyMutex_, alphaDecodeMutex_);
+		std::unique_lock<std::mutex> stateLock(nativeStateMutex_);
+		std::unique_lock<std::mutex> videoAssemblyLock(videoAssemblyMutex_);
+		std::unique_lock<std::mutex> videoDecodeLock(videoDecodeMutex_);
+		std::unique_lock<std::mutex> alphaAssemblyLock(alphaAssemblyMutex_);
+		std::unique_lock<std::mutex> alphaDecodeLock(alphaDecodeMutex_);
+		std::unique_lock<std::mutex> outputLock(videoOutputMutex_);
+		std::unique_lock<std::mutex> pairingLock(alphaPairingMutex_);
 		if (alphaVideoTrack_ == track) {
 			return;
 		}
-		if ((!alphaVideoTrackPeerUuid_.empty() && alphaVideoTrackPeerUuid_ != uuid) ||
-		    (!videoTrackPeerUuid_.empty() && videoTrackPeerUuid_ != uuid)) {
-			const std::string &ownerUuid =
-			    !alphaVideoTrackPeerUuid_.empty() ? alphaVideoTrackPeerUuid_ : videoTrackPeerUuid_;
+		const std::string ownerUuid =
+		    !videoTrackPeerUuid_.empty()
+		        ? videoTrackPeerUuid_
+		        : (!alphaVideoTrackPeerUuid_.empty() ? alphaVideoTrackPeerUuid_ : audioTrackPeerUuid_);
+		const uint64_t ownerGeneration =
+		    !videoTrackPeerUuid_.empty()
+		        ? videoTrackPeerGeneration_
+		        : (!alphaVideoTrackPeerUuid_.empty() ? alphaVideoTrackPeerGeneration_ : audioTrackPeerGeneration_);
+		if (!ownerUuid.empty() && (ownerUuid != uuid || ownerGeneration != identity.generation)) {
 			logWarning("Deferring alpha video track from %s while peer %s remains active", uuid.c_str(),
 			           ownerUuid.c_str());
-			pendingAlphaVideoTrack_ = track;
-			pendingAlphaVideoTrackPeerUuid_ = uuid;
+			deferPeerTrackLocked(identity, TrackType::AlphaVideo, track);
 			return;
 		}
-		clearTrackCallbacks(alphaVideoTrack_);
+		replacedExistingTrack = (alphaVideoTrack_ != nullptr);
+		replacedTrack = alphaVideoTrack_;
 		alphaVideoTrack_ = track;
 		alphaVideoTrackPeerUuid_ = uuid;
-		if (pendingAlphaVideoTrackPeerUuid_ == uuid) {
-			pendingAlphaVideoTrack_.reset();
-			pendingAlphaVideoTrackPeerUuid_.clear();
-		}
-		alphaAssemblyBuffer_.clear();
-		alphaAssemblyTimestamp_ = 0;
-		alphaAssemblyActive_ = false;
-		alphaTrackActive_.store(true, std::memory_order_relaxed);
-		preferSoftwareVp9DecodeForAlpha_.store(true, std::memory_order_relaxed);
+		alphaVideoTrackPeerGeneration_ = identity.generation;
+		resetMediaPipelineStateLocked();
+		alphaTrackActive_.store(true, std::memory_order_release);
+		preferSoftwareVp9DecodeForAlpha_.store(true, std::memory_order_release);
 		loggedAlphaSoftwareDecodeMode_.store(false, std::memory_order_relaxed);
 		loggedAlphaCompositionActive_.store(false, std::memory_order_relaxed);
 		loggedAlphaTimestampSyncWait_.store(false, std::memory_order_relaxed);
 		loggedAlphaTimestampMiss_.store(false, std::memory_order_relaxed);
 		loggedAlphaPixelFormatMismatch_.store(false, std::memory_order_relaxed);
 		loggedAlphaDimensionMismatch_.store(false, std::memory_order_relaxed);
-		alphaTimestampPendingStreak_ = 0;
-		alphaTimestampMissStreak_ = 0;
-		resetAlphaDecoder();
 		loggedFirstAlphaRtpPacket_ = false;
-		if (videoDecoder_) {
-			resetVideoDecoder();
-			resetPrimaryDecoder = true;
-		}
 	}
-
-	if (resetPrimaryDecoder) {
+	clearTrackCallbacks(replacedTrack);
+	completeMediaPipelineTransition(replacedExistingTrack ? "alpha-track-replaced" : "alpha-track-attached", true);
+	if (replacedExistingTrack) {
+		logInfo("Replacing VP9 alpha track for peer %s; reset both media tracks to epoch %llu", uuid.c_str(),
+		        static_cast<unsigned long long>(mediaEpochGate_.capture()));
+	} else {
 		logInfo("Reset primary decoder so alpha composition uses software frames");
 	}
 
@@ -1944,28 +2884,109 @@ void VDONinjaSource::onAlphaVideoTrack(const std::string &uuid, std::shared_ptr<
 				return;
 			}
 			VDONinjaSource *self = guard.owner();
+			if (self->peerTrackBundleAdoptionInProgress_.load(std::memory_order_acquire)) {
+#if defined(VDONINJA_NATIVE_MEDIA_INTEGRATION_TEST)
+				self->runNativeMediaTestStage(NativeMediaTestStage::PendingBundlePacketRejected, true, 0,
+				                              self->mediaEpochGate_.capture());
+#endif
+				return;
+			}
 			const auto strongTrack = weakTrack.lock();
 			if (!strongTrack) {
 				return;
 			}
+			uint64_t mediaEpoch = 0;
 			{
 				std::lock_guard<std::mutex> stateLock(self->nativeStateMutex_);
 				if (self->alphaVideoTrack_ != strongTrack) {
 					return;
 				}
+				mediaEpoch = self->mediaEpochGate_.capture();
 			}
 			if (!std::holds_alternative<rtc::binary>(message)) {
 				return;
 			}
 			const auto &packet = std::get<rtc::binary>(message);
-			self->processAlphaRtpPacket(reinterpret_cast<const uint8_t *>(packet.data()), packet.size());
+			self->processAlphaRtpPacket(reinterpret_cast<const uint8_t *>(packet.data()), packet.size(), mediaEpoch);
 		});
 	});
-	markNativePeerConnectedIfReady(uuid, "alpha-track-attached");
+	if (!peerTrackBundleAdoptionInProgress_.load(std::memory_order_acquire)) {
+		markNativePeerConnectedIfReadyAccepted(identity, "alpha-track-attached");
+	}
 }
 
-void VDONinjaSource::onAudioTrack(const std::string &uuid, std::shared_ptr<rtc::Track> track)
+void VDONinjaSource::handleVideoTrackClosed(const PeerEventIdentity &identity, const std::shared_ptr<rtc::Track> &track,
+                                            bool alphaTrack, const char *reason)
 {
+	const std::string &uuid = identity.uuid;
+	std::shared_ptr<rtc::Track> removedTrack;
+	std::shared_ptr<rtc::Track> remainingVideoTrack;
+	bool removed = false;
+	bool removedAlphaTrack = alphaTrack;
+
+	{
+		std::unique_lock<std::mutex> stateLock(nativeStateMutex_);
+		std::unique_lock<std::mutex> videoAssemblyLock(videoAssemblyMutex_);
+		std::unique_lock<std::mutex> videoDecodeLock(videoDecodeMutex_);
+		std::unique_lock<std::mutex> alphaAssemblyLock(alphaAssemblyMutex_);
+		std::unique_lock<std::mutex> alphaDecodeLock(alphaDecodeMutex_);
+		std::unique_lock<std::mutex> outputLock(videoOutputMutex_);
+		std::unique_lock<std::mutex> pairingLock(alphaPairingMutex_);
+
+		if (alphaTrack && alphaVideoTrackPeerUuid_ == uuid && alphaVideoTrackPeerGeneration_ == identity.generation &&
+		    clearSharedSlotIfMatches(alphaVideoTrack_, track)) {
+			removedTrack = track;
+			alphaVideoTrackPeerUuid_.clear();
+			alphaVideoTrackPeerGeneration_ = 0;
+			removed = static_cast<bool>(removedTrack);
+		} else if (alphaTrack && videoTrackPeerUuid_ == uuid && videoTrackPeerGeneration_ == identity.generation &&
+		           clearSharedSlotIfMatches(videoTrack_, track)) {
+			// Some libdatachannel renegotiations report the alpha manager slot
+			// using the primary mid. The source intentionally treats that handle
+			// as primary, so its exact retirement must follow the handle too.
+			removedTrack = track;
+			videoTrackPeerUuid_.clear();
+			videoTrackPeerGeneration_ = 0;
+			videoRedPayloadTypes_.clear();
+			removed = static_cast<bool>(removedTrack);
+			removedAlphaTrack = false;
+		} else {
+			if (alphaTrack || videoTrackPeerUuid_ != uuid || videoTrackPeerGeneration_ != identity.generation ||
+			    !clearSharedSlotIfMatches(videoTrack_, track)) {
+				return;
+			}
+			removedTrack = track;
+			videoTrackPeerUuid_.clear();
+			videoTrackPeerGeneration_ = 0;
+			videoRedPayloadTypes_.clear();
+			removed = static_cast<bool>(removedTrack);
+		}
+		if (!removed) {
+			return;
+		}
+
+		resetMediaPipelineStateLocked();
+		alphaTrackActive_.store(alphaVideoTrack_ != nullptr, std::memory_order_release);
+		preferSoftwareVp9DecodeForAlpha_.store(alphaVideoTrack_ != nullptr, std::memory_order_release);
+		remainingVideoTrack = videoTrack_;
+
+		connected_ = !videoTrackPeerUuid_.empty() || !alphaVideoTrackPeerUuid_.empty() || !audioTrackPeerUuid_.empty();
+	}
+
+	// A close callback may currently be executing on removedTrack, so callback
+	// cleanup stays with the peer manager after this state transition returns.
+	completeMediaPipelineTransition(reason ? reason : "video-track-transition", static_cast<bool>(remainingVideoTrack));
+	logInfo("Native %s track for %s ended (%s); media epoch is now %llu", removedAlphaTrack ? "alpha" : "video",
+	        uuid.c_str(), reason ? reason : "closed", static_cast<unsigned long long>(mediaEpochGate_.capture()));
+
+	if (remainingVideoTrack && safeRequestKeyframe(remainingVideoTrack, reason ? reason : "track-transition")) {
+		lastKeyframeRequestTime_.store(currentTimeMs(), std::memory_order_relaxed);
+	}
+}
+
+void VDONinjaSource::onAudioTrack(const PeerEventIdentity &identity, std::shared_ptr<rtc::Track> track)
+{
+	const std::string &uuid = identity.uuid;
 	logInfo("Received audio track from %s", uuid.c_str());
 
 	if (!track) {
@@ -1993,36 +3014,32 @@ void VDONinjaSource::onAudioTrack(const std::string &uuid, std::shared_ptr<rtc::
 	}
 
 	bool replacedExistingTrack = false;
+	std::shared_ptr<rtc::Track> replacedTrack;
 	{
-		std::scoped_lock stateLock(nativeStateMutex_, audioDecodeMutex_);
+		std::unique_lock<std::mutex> stateLock(nativeStateMutex_);
+		std::unique_lock<std::mutex> audioDecodeLock(audioDecodeMutex_);
 		if (audioTrack_ == track) {
 			return;
 		}
-		if (audioTrack_ && audioTrackPeerUuid_ == uuid) {
-			logInfo("Ignoring additional native audio track from %s (mid=%s) while mid=%s is active", uuid.c_str(),
-			        track->mid().c_str(), audioTrack_->mid().c_str());
-			return;
-		}
-		if (!videoTrackPeerUuid_.empty() && videoTrackPeerUuid_ != uuid) {
-			logWarning("Deferring native audio track from %s while video peer %s remains active", uuid.c_str(),
-			           videoTrackPeerUuid_.c_str());
-			if (!pendingAudioTrack_ || pendingAudioTrackPeerUuid_ != uuid) {
-				pendingAudioTrack_ = track;
-				pendingAudioTrackPeerUuid_ = uuid;
-			} else {
-				logInfo("Ignoring additional deferred native audio track from %s (mid=%s) while mid=%s is pending",
-				        uuid.c_str(), track->mid().c_str(), pendingAudioTrack_->mid().c_str());
-			}
+		const std::string ownerUuid =
+		    !videoTrackPeerUuid_.empty()
+		        ? videoTrackPeerUuid_
+		        : (!alphaVideoTrackPeerUuid_.empty() ? alphaVideoTrackPeerUuid_ : audioTrackPeerUuid_);
+		const uint64_t ownerGeneration =
+		    !videoTrackPeerUuid_.empty()
+		        ? videoTrackPeerGeneration_
+		        : (!alphaVideoTrackPeerUuid_.empty() ? alphaVideoTrackPeerGeneration_ : audioTrackPeerGeneration_);
+		if (!ownerUuid.empty() && (ownerUuid != uuid || ownerGeneration != identity.generation)) {
+			logWarning("Deferring native audio track from %s while media peer %s remains active", uuid.c_str(),
+			           ownerUuid.c_str());
+			deferPeerTrackLocked(identity, TrackType::Audio, track);
 			return;
 		}
 		replacedExistingTrack = (audioTrack_ != nullptr);
-		clearTrackCallbacks(audioTrack_);
+		replacedTrack = audioTrack_;
 		audioTrack_ = track;
 		audioTrackPeerUuid_ = uuid;
-		if (pendingAudioTrackPeerUuid_ == uuid) {
-			pendingAudioTrack_.reset();
-			pendingAudioTrackPeerUuid_.clear();
-		}
+		audioTrackPeerGeneration_ = identity.generation;
 		if (replacedExistingTrack) {
 			logInfo("Replacing native audio track for peer %s; resetting decoder state", uuid.c_str());
 			resetAudioDecoder();
@@ -2032,6 +3049,7 @@ void VDONinjaSource::onAudioTrack(const std::string &uuid, std::shared_ptr<rtc::
 			lastAudioTime_.store(0, std::memory_order_relaxed);
 		}
 	}
+	clearTrackCallbacks(replacedTrack);
 	audioSampleRate_ = normalizedSampleRate;
 	audioChannels_ = normalizedChannels;
 	const auto callbackState = callbackState_;
@@ -2042,6 +3060,13 @@ void VDONinjaSource::onAudioTrack(const std::string &uuid, std::shared_ptr<rtc::
 				return;
 			}
 			VDONinjaSource *self = guard.owner();
+			if (self->peerTrackBundleAdoptionInProgress_.load(std::memory_order_acquire)) {
+#if defined(VDONINJA_NATIVE_MEDIA_INTEGRATION_TEST)
+				self->runNativeMediaTestStage(NativeMediaTestStage::PendingBundlePacketRejected, false, 0,
+				                              self->mediaEpochGate_.capture());
+#endif
+				return;
+			}
 			const auto strongTrack = weakTrack.lock();
 			if (!strongTrack) {
 				return;
@@ -2059,12 +3084,96 @@ void VDONinjaSource::onAudioTrack(const std::string &uuid, std::shared_ptr<rtc::
 			self->processAudioRtpPacket(reinterpret_cast<const uint8_t *>(packet.data()), packet.size());
 		});
 	});
-	markNativePeerConnectedIfReady(uuid, "audio-track-attached");
+	if (!peerTrackBundleAdoptionInProgress_.load(std::memory_order_acquire)) {
+		markNativePeerConnectedIfReadyAccepted(identity, "audio-track-attached");
+	}
 }
 
-void VDONinjaSource::processVideoData(const uint8_t *data, size_t size, uint32_t rtpTimestamp)
+std::shared_ptr<AVFrame> VDONinjaSource::retainVideoFrame(const AVFrame *frame)
 {
-	if (!nativeRunning_.load() || !data || size == 0) {
+	AVFrame *clonedFrame = frame ? av_frame_clone(frame) : nullptr;
+	if (!clonedFrame) {
+		return nullptr;
+	}
+#if defined(VDONINJA_NATIVE_MEDIA_INTEGRATION_TEST)
+	const auto retainedCount = nativeMediaTestRetainedVideoFrames_;
+	retainedCount->fetch_add(1, std::memory_order_acq_rel);
+	return std::shared_ptr<AVFrame>(clonedFrame, [retainedCount](AVFrame *ownedFrame) {
+		av_frame_free(&ownedFrame);
+		retainedCount->fetch_sub(1, std::memory_order_acq_rel);
+	});
+#else
+	return std::shared_ptr<AVFrame>(clonedFrame, [](AVFrame *ownedFrame) { av_frame_free(&ownedFrame); });
+#endif
+}
+
+int VDONinjaSource::sendVideoPacket(AVCodecContext *decoder, const AVPacket *packet)
+{
+#if defined(VDONINJA_NATIVE_MEDIA_INTEGRATION_TEST)
+	if (nativeMediaTestSendPacketHook_) {
+		return nativeMediaTestSendPacketHook_(decoder, packet);
+	}
+#endif
+	return avcodec_send_packet(decoder, packet);
+}
+
+int VDONinjaSource::receiveVideoFrame(AVCodecContext *decoder, AVFrame *frame)
+{
+#if defined(VDONINJA_NATIVE_MEDIA_INTEGRATION_TEST)
+	if (nativeMediaTestReceiveFrameHook_) {
+		return nativeMediaTestReceiveFrameHook_(decoder, frame);
+	}
+#endif
+	return avcodec_receive_frame(decoder, frame);
+}
+
+int VDONinjaSource::sendAlphaPacket(AVCodecContext *decoder, const AVPacket *packet)
+{
+#if defined(VDONINJA_NATIVE_MEDIA_INTEGRATION_TEST)
+	if (nativeMediaTestAlphaSendPacketHook_) {
+		return nativeMediaTestAlphaSendPacketHook_(decoder, packet);
+	}
+#endif
+	return avcodec_send_packet(decoder, packet);
+}
+
+int VDONinjaSource::receiveAlphaFrame(AVCodecContext *decoder, AVFrame *frame)
+{
+#if defined(VDONINJA_NATIVE_MEDIA_INTEGRATION_TEST)
+	if (nativeMediaTestAlphaReceiveFrameHook_) {
+		return nativeMediaTestAlphaReceiveFrameHook_(decoder, frame);
+	}
+#endif
+	return avcodec_receive_frame(decoder, frame);
+}
+
+bool VDONinjaSource::hasNativeVideoOutputTarget() const
+{
+#if defined(VDONINJA_NATIVE_MEDIA_INTEGRATION_TEST)
+	return source_ != nullptr || static_cast<bool>(nativeMediaTestOutputHook_);
+#else
+	return source_ != nullptr;
+#endif
+}
+
+VDONinjaSource::OutputDimensions VDONinjaSource::outputDimensions() const
+{
+	const uint64_t packed = outputDimensionsPacked_.load(std::memory_order_acquire);
+	return {static_cast<uint32_t>(packed >> 32), static_cast<uint32_t>(packed)};
+}
+
+void VDONinjaSource::publishOutputDimensions(uint32_t width, uint32_t height)
+{
+#if defined(VDONINJA_NATIVE_MEDIA_INTEGRATION_TEST)
+	runNativeMediaTestStage(NativeMediaTestStage::DimensionUpdateMidpoint, false, 0, mediaEpochGate_.capture());
+#endif
+	const uint64_t packed = (static_cast<uint64_t>(width) << 32) | static_cast<uint64_t>(height);
+	outputDimensionsPacked_.store(packed, std::memory_order_release);
+}
+
+void VDONinjaSource::processVideoData(const uint8_t *data, size_t size, uint32_t rtpTimestamp, uint64_t mediaEpoch)
+{
+	if (!nativeRunning_.load() || !data || size == 0 || !mediaEpochGate_.isCurrent(mediaEpoch)) {
 		return;
 	}
 
@@ -2076,108 +3185,142 @@ void VDONinjaSource::processVideoData(const uint8_t *data, size_t size, uint32_t
 	NativeVideoCodec codec = NativeVideoCodec::H264;
 	{
 		std::lock_guard<std::mutex> stateLock(nativeStateMutex_);
+		if (!mediaEpochGate_.isCurrent(mediaEpoch)) {
+			return;
+		}
 		currentVideoTrack = videoTrack_;
 		codec = nativeVideoCodec_;
 	}
 	const char *codecName = codec == NativeVideoCodec::VP9 ? "VP9" : "H.264";
 
-	std::lock_guard<std::mutex> lock(videoDecodeMutex_);
-	if (!initializeVideoDecoder()) {
-		return;
-	}
+#if defined(VDONINJA_NATIVE_MEDIA_INTEGRATION_TEST)
+	runNativeMediaTestStage(NativeMediaTestStage::PreDecode, false, rtpTimestamp, mediaEpoch);
+#endif
 
-	av_packet_unref(videoPacket_);
-	const int allocResult = av_new_packet(videoPacket_, static_cast<int>(size));
-	if (allocResult < 0) {
-		logError("Failed to allocate %s packet buffer: %s", codecName, ffmpegErrorString(allocResult).c_str());
-		return;
-	}
+	std::vector<std::pair<std::shared_ptr<AVFrame>, uint32_t>> decodedFrames;
+	{
+		std::lock_guard<std::mutex> lock(videoDecodeMutex_);
+		if (!mediaEpochGate_.isCurrent(mediaEpoch)) {
+			return;
+		}
+		if (!initializeVideoDecoder()) {
+			return;
+		}
 
-	std::memcpy(videoPacket_->data, data, size);
-	const int sendResult = avcodec_send_packet(videoDecoder_, videoPacket_);
-	if (sendResult < 0 && sendResult != AVERROR(EAGAIN)) {
-		if (!loggedVideoDecodeSubmitFailure_.exchange(true, std::memory_order_relaxed)) {
-			logWarning("Failed to submit %s packet before a decodable keyframe arrived: %s", codecName,
-			           ffmpegErrorString(sendResult).c_str());
+		av_packet_unref(videoPacket_);
+		const int allocResult = av_new_packet(videoPacket_, static_cast<int>(size));
+		if (allocResult < 0) {
+			logError("Failed to allocate %s packet buffer: %s", codecName, ffmpegErrorString(allocResult).c_str());
+			return;
 		}
-		const int64_t now = currentTimeMs();
-		const int64_t lastKeyframeRequestTime = lastKeyframeRequestTime_.load(std::memory_order_relaxed);
-		if ((lastKeyframeRequestTime == 0 || now - lastKeyframeRequestTime >= 1000) &&
-		    safeRequestKeyframe(currentVideoTrack, "send-packet-failure")) {
-			lastKeyframeRequestTime_.store(currentTimeMs(), std::memory_order_relaxed);
-		}
-		return;
-	}
-	if (sendResult >= 0) {
-		pendingVideoDecodeTimestamps_.push_back(rtpTimestamp);
-		// The decoder can swallow packets without emitting frames (e.g. waiting
-		// for a keyframe); keep the timestamp backlog bounded.
-		constexpr size_t kMaxPendingDecodeTimestamps = 128;
-		while (pendingVideoDecodeTimestamps_.size() > kMaxPendingDecodeTimestamps) {
-			pendingVideoDecodeTimestamps_.pop_front();
-		}
-	}
 
-	while (true) {
-		const int receiveResult = avcodec_receive_frame(videoDecoder_, videoFrame_);
-		if (receiveResult == AVERROR(EAGAIN) || receiveResult == AVERROR_EOF) {
-			break;
+		std::memcpy(videoPacket_->data, data, size);
+		videoPacket_->pts = static_cast<int64_t>(rtpTimestamp);
+		videoPacket_->dts = static_cast<int64_t>(rtpTimestamp);
+		const auto drainDecodedFrames = [&]() -> bool {
+			while (true) {
+				const int receiveResult = receiveVideoFrame(videoDecoder_, videoFrame_);
+				if (receiveResult == AVERROR(EAGAIN) || receiveResult == AVERROR_EOF) {
+					return true;
+				}
+				if (receiveResult < 0) {
+					logWarning("Failed to decode %s frame: %s", codecName, ffmpegErrorString(receiveResult).c_str());
+					if (safeRequestKeyframe(currentVideoTrack, "decode-failure")) {
+						lastKeyframeRequestTime_.store(currentTimeMs(), std::memory_order_relaxed);
+					}
+					return true;
+				}
+
+				const AVFrame *frameToOutput = videoFrame_;
+				if (videoHwDecodeConfigured_ && videoHwPixelFormat_ != AV_PIX_FMT_NONE && !videoHwStatusLogged_) {
+					if (videoFrame_->format == videoHwPixelFormat_) {
+						logInfo("Native receiver is using hardware video decode via %s", videoHwDeviceName_.c_str());
+					} else {
+						logWarning("Native receiver opened %s hardware decode but decoder is returning software frames",
+						           videoHwDeviceName_.c_str());
+					}
+					videoHwStatusLogged_ = true;
+				}
+				if (videoHwDecodeConfigured_ && videoHwPixelFormat_ != AV_PIX_FMT_NONE &&
+				    videoFrame_->format == videoHwPixelFormat_) {
+					av_frame_unref(videoTransferFrame_);
+					const int transferResult = av_hwframe_transfer_data(videoTransferFrame_, videoFrame_, 0);
+					if (transferResult < 0) {
+						logWarning("Failed to transfer hardware-decoded %s frame from %s: %s; disabling hardware "
+						           "decode for this session",
+						           codecName, videoHwDeviceName_.c_str(), ffmpegErrorString(transferResult).c_str());
+						videoHwDecodeDisabled_ = true;
+						resetVideoDecoder();
+						if (safeRequestKeyframe(currentVideoTrack, "hw-transfer-failure")) {
+							lastKeyframeRequestTime_.store(currentTimeMs(), std::memory_order_relaxed);
+						}
+						return false;
+					}
+					av_frame_copy_props(videoTransferFrame_, videoFrame_);
+					frameToOutput = videoTransferFrame_;
+				}
+
+				const auto decodedTimestamp =
+				    resolveDecodedRtpTimestamp(frameToOutput->pts, frameToOutput->best_effort_timestamp);
+				if (!decodedTimestamp && alphaTrackActive_.load(std::memory_order_relaxed)) {
+					logWarning(
+					    "Dropping primary video frame without a decoder-preserved RTP timestamp while alpha is active");
+				} else {
+					const uint32_t decodedRtpTimestamp = decodedTimestamp.value_or(rtpTimestamp);
+					auto retainedFrame = retainVideoFrame(frameToOutput);
+					if (retainedFrame) {
+						decodedFrames.emplace_back(std::move(retainedFrame), decodedRtpTimestamp);
+					} else {
+						logWarning("Failed to retain decoded %s frame for serialized output", codecName);
+					}
+				}
+				av_frame_unref(videoFrame_);
+				if (frameToOutput == videoTransferFrame_) {
+					av_frame_unref(videoTransferFrame_);
+				}
+			}
+		};
+
+		int sendResult = sendVideoPacket(videoDecoder_, videoPacket_);
+		bool canContinue = true;
+		if (sendResult == AVERROR(EAGAIN)) {
+			canContinue = drainDecodedFrames();
+			if (canContinue) {
+				sendResult = sendVideoPacket(videoDecoder_, videoPacket_);
+			}
 		}
-		if (receiveResult < 0) {
-			logWarning("Failed to decode %s frame: %s", codecName, ffmpegErrorString(receiveResult).c_str());
-			if (safeRequestKeyframe(currentVideoTrack, "decode-failure")) {
+		if (canContinue && sendResult < 0) {
+			if (!loggedVideoDecodeSubmitFailure_.exchange(true, std::memory_order_relaxed)) {
+				logWarning("Failed to submit %s packet before a decodable keyframe arrived: %s", codecName,
+				           ffmpegErrorString(sendResult).c_str());
+			}
+			const int64_t now = currentTimeMs();
+			const int64_t lastKeyframeRequestTime = lastKeyframeRequestTime_.load(std::memory_order_relaxed);
+			if ((lastKeyframeRequestTime == 0 || now - lastKeyframeRequestTime >= 1000) &&
+			    safeRequestKeyframe(currentVideoTrack, "send-packet-failure")) {
 				lastKeyframeRequestTime_.store(currentTimeMs(), std::memory_order_relaxed);
 			}
-			break;
+			canContinue = false;
 		}
-
-		const AVFrame *frameToOutput = videoFrame_;
-		if (videoHwDecodeConfigured_ && videoHwPixelFormat_ != AV_PIX_FMT_NONE && !videoHwStatusLogged_) {
-			if (videoFrame_->format == videoHwPixelFormat_) {
-				logInfo("Native receiver is using hardware video decode via %s", videoHwDeviceName_.c_str());
-			} else {
-				logWarning("Native receiver opened %s hardware decode but decoder is returning software frames",
-				           videoHwDeviceName_.c_str());
-			}
-			videoHwStatusLogged_ = true;
-		}
-		if (videoHwDecodeConfigured_ && videoHwPixelFormat_ != AV_PIX_FMT_NONE &&
-		    videoFrame_->format == videoHwPixelFormat_) {
-			av_frame_unref(videoTransferFrame_);
-			const int transferResult = av_hwframe_transfer_data(videoTransferFrame_, videoFrame_, 0);
-			if (transferResult < 0) {
-				logWarning("Failed to transfer hardware-decoded %s frame from %s: %s; disabling hardware decode for "
-				           "this session",
-				           codecName, videoHwDeviceName_.c_str(), ffmpegErrorString(transferResult).c_str());
-				videoHwDecodeDisabled_ = true;
-				resetVideoDecoder();
-				if (safeRequestKeyframe(currentVideoTrack, "hw-transfer-failure")) {
-					lastKeyframeRequestTime_.store(currentTimeMs(), std::memory_order_relaxed);
-				}
-				return;
-			}
-			av_frame_copy_props(videoTransferFrame_, videoFrame_);
-			frameToOutput = videoTransferFrame_;
-		}
-
-		uint32_t decodedRtpTimestamp = rtpTimestamp;
-		if (!pendingVideoDecodeTimestamps_.empty()) {
-			decodedRtpTimestamp = pendingVideoDecodeTimestamps_.front();
-			pendingVideoDecodeTimestamps_.pop_front();
-		}
-		outputDecodedVideoFrame(frameToOutput, mapVideoTimestamp(decodedRtpTimestamp), decodedRtpTimestamp);
-		av_frame_unref(videoFrame_);
-		if (frameToOutput == videoTransferFrame_) {
-			av_frame_unref(videoTransferFrame_);
+		if (canContinue) {
+			drainDecodedFrames();
 		}
 	}
 
-	lastVideoTime_.store(currentTimeMs(), std::memory_order_relaxed);
+	for (const auto &decodedFrame : decodedFrames) {
+#if defined(VDONINJA_NATIVE_MEDIA_INTEGRATION_TEST)
+		runNativeMediaTestStage(NativeMediaTestStage::PrePair, false, decodedFrame.second, mediaEpoch);
+#endif
+		if (mediaEpochGate_.isCurrent(mediaEpoch)) {
+			outputDecodedVideoFrame(decodedFrame.first.get(), decodedFrame.second, mediaEpoch);
+		}
+	}
 }
 
-void VDONinjaSource::processVideoRtpPacket(const uint8_t *packetData, size_t packetSize)
+void VDONinjaSource::processVideoRtpPacket(const uint8_t *packetData, size_t packetSize, uint64_t mediaEpoch)
 {
-	if (!nativeRunning_.load() || !packetData || packetSize < sizeof(rtc::RtpHeader)) {
+	if (!nativeRunning_.load() || !packetData || packetSize < sizeof(rtc::RtpHeader) ||
+	    !mediaEpochGate_.isCurrent(mediaEpoch)) {
 		return;
 	}
 
@@ -2193,6 +3336,9 @@ void VDONinjaSource::processVideoRtpPacket(const uint8_t *packetData, size_t pac
 	NativeVideoCodec codec;
 	{
 		std::lock_guard<std::mutex> stateLock(nativeStateMutex_);
+		if (!mediaEpochGate_.isCurrent(mediaEpoch)) {
+			return;
+		}
 		codec = nativeVideoCodec_;
 		if (videoRedPayloadTypes_.count(payloadView->payloadType) != 0) {
 			auto primaryPayload = extractRedPrimaryPayload(payload, payloadSize);
@@ -2206,7 +3352,7 @@ void VDONinjaSource::processVideoRtpPacket(const uint8_t *packetData, size_t pac
 	}
 
 	if (codec == NativeVideoCodec::VP9) {
-		processVP9RtpPacket(payload, payloadSize, rtpHeader->timestamp());
+		processVP9RtpPacket(payload, payloadSize, rtpHeader->timestamp(), mediaEpoch);
 		return;
 	}
 
@@ -2263,6 +3409,9 @@ void VDONinjaSource::processVideoRtpPacket(const uint8_t *packetData, size_t pac
 
 	{
 		std::lock_guard<std::mutex> lock(videoAssemblyMutex_);
+		if (!mediaEpochGate_.isCurrent(mediaEpoch)) {
+			return;
+		}
 		if (!videoAssemblyActive_) {
 			videoAssemblyActive_ = true;
 			videoAssemblyTimestamp_ = rtpHeader->timestamp();
@@ -2287,14 +3436,15 @@ void VDONinjaSource::processVideoRtpPacket(const uint8_t *packetData, size_t pac
 
 	for (const auto &frame : completedFrames) {
 		if (!frame.first.empty()) {
-			processVideoData(frame.first.data(), frame.first.size(), frame.second);
+			processVideoData(frame.first.data(), frame.first.size(), frame.second, mediaEpoch);
 		}
 	}
 }
 
-void VDONinjaSource::processVP9RtpPacket(const uint8_t *payload, size_t payloadSize, uint32_t rtpTimestamp)
+void VDONinjaSource::processVP9RtpPacket(const uint8_t *payload, size_t payloadSize, uint32_t rtpTimestamp,
+                                         uint64_t mediaEpoch)
 {
-	if (payloadSize == 0) {
+	if (payloadSize == 0 || !mediaEpochGate_.isCurrent(mediaEpoch)) {
 		return;
 	}
 
@@ -2313,8 +3463,15 @@ void VDONinjaSource::processVP9RtpPacket(const uint8_t *payload, size_t payloadS
 
 	std::vector<std::pair<std::vector<uint8_t>, uint32_t>> completedFrames;
 
+#if defined(VDONINJA_NATIVE_MEDIA_INTEGRATION_TEST)
+	runNativeMediaTestStage(NativeMediaTestStage::PreAssembly, false, rtpTimestamp, mediaEpoch);
+#endif
+
 	{
 		std::lock_guard<std::mutex> lock(videoAssemblyMutex_);
+		if (!mediaEpochGate_.isCurrent(mediaEpoch)) {
+			return;
+		}
 
 		// Start of frame: discard any incomplete prior frame and begin fresh.
 		if (desc.startOfFrame) {
@@ -2343,14 +3500,15 @@ void VDONinjaSource::processVP9RtpPacket(const uint8_t *payload, size_t payloadS
 
 	for (const auto &frame : completedFrames) {
 		if (!frame.first.empty()) {
-			processVideoData(frame.first.data(), frame.first.size(), frame.second);
+			processVideoData(frame.first.data(), frame.first.size(), frame.second, mediaEpoch);
 		}
 	}
 }
 
-void VDONinjaSource::processAlphaRtpPacket(const uint8_t *packetData, size_t packetSize)
+void VDONinjaSource::processAlphaRtpPacket(const uint8_t *packetData, size_t packetSize, uint64_t mediaEpoch)
 {
-	if (!nativeRunning_.load() || !packetData || packetSize < sizeof(rtc::RtpHeader)) {
+	if (!nativeRunning_.load() || !packetData || packetSize < sizeof(rtc::RtpHeader) ||
+	    !mediaEpochGate_.isCurrent(mediaEpoch)) {
 		return;
 	}
 
@@ -2365,12 +3523,13 @@ void VDONinjaSource::processAlphaRtpPacket(const uint8_t *packetData, size_t pac
 		        static_cast<unsigned>(rtpHeader->payloadType()), payloadView->size, rtpHeader->timestamp());
 	}
 
-	processAlphaVP9RtpPacket(packetData + payloadView->offset, payloadView->size, rtpHeader->timestamp());
+	processAlphaVP9RtpPacket(packetData + payloadView->offset, payloadView->size, rtpHeader->timestamp(), mediaEpoch);
 }
 
-void VDONinjaSource::processAlphaVP9RtpPacket(const uint8_t *payload, size_t payloadSize, uint32_t rtpTimestamp)
+void VDONinjaSource::processAlphaVP9RtpPacket(const uint8_t *payload, size_t payloadSize, uint32_t rtpTimestamp,
+                                              uint64_t mediaEpoch)
 {
-	if (payloadSize == 0) {
+	if (payloadSize == 0 || !mediaEpochGate_.isCurrent(mediaEpoch)) {
 		return;
 	}
 
@@ -2389,8 +3548,15 @@ void VDONinjaSource::processAlphaVP9RtpPacket(const uint8_t *payload, size_t pay
 
 	std::vector<std::pair<std::vector<uint8_t>, uint32_t>> completedFrames;
 
+#if defined(VDONINJA_NATIVE_MEDIA_INTEGRATION_TEST)
+	runNativeMediaTestStage(NativeMediaTestStage::PreAssembly, true, rtpTimestamp, mediaEpoch);
+#endif
+
 	{
 		std::lock_guard<std::mutex> lock(alphaAssemblyMutex_);
+		if (!mediaEpochGate_.isCurrent(mediaEpoch)) {
+			return;
+		}
 
 		if (desc.startOfFrame) {
 			if (alphaAssemblyActive_ && !alphaAssemblyBuffer_.empty()) {
@@ -2417,7 +3583,7 @@ void VDONinjaSource::processAlphaVP9RtpPacket(const uint8_t *payload, size_t pay
 
 	for (const auto &frame : completedFrames) {
 		if (!frame.first.empty()) {
-			processAlphaVideoData(frame.first.data(), frame.first.size(), frame.second);
+			processAlphaVideoData(frame.first.data(), frame.first.size(), frame.second, mediaEpoch);
 		}
 	}
 }
@@ -2504,14 +3670,34 @@ void VDONinjaSource::videoTick(float seconds)
 	}
 
 	const int64_t now = currentTimeMs();
-	const int64_t lastVideoTime = lastVideoTime_.load(std::memory_order_relaxed);
-	if (videoOutputActive_.load(std::memory_order_relaxed) && lastVideoTime != 0 &&
-	    now - lastVideoTime >= kNativeVideoStallBlankMs) {
-		if (!loggedVideoStallClear_.exchange(true, std::memory_order_relaxed)) {
-			logWarning("No native video packets for %lld ms; clearing stale frame",
-			           static_cast<long long>(now - lastVideoTime));
+#if defined(VDONINJA_NATIVE_MEDIA_INTEGRATION_TEST)
+	bool staleCandidate = false;
+	{
+		std::lock_guard<std::mutex> outputLock(videoOutputMutex_);
+		const int64_t candidateTime = lastVideoTime_.load(std::memory_order_relaxed);
+		staleCandidate = videoOutputActive_.load(std::memory_order_relaxed) && candidateTime != 0 &&
+		                 now - candidateTime >= kNativeVideoStallBlankMs;
+	}
+	if (staleCandidate) {
+		runNativeMediaTestStage(NativeMediaTestStage::PreStallClear, false, 0, mediaEpochGate_.capture());
+	}
+#endif
+	int64_t lastVideoTime = 0;
+	{
+		std::lock_guard<std::mutex> outputLock(videoOutputMutex_);
+		lastVideoTime = lastVideoTime_.load(std::memory_order_relaxed);
+		if (videoOutputActive_.load(std::memory_order_relaxed) && lastVideoTime != 0 &&
+		    now - lastVideoTime >= kNativeVideoStallBlankMs) {
+#if defined(VDONINJA_NATIVE_MEDIA_INTEGRATION_TEST)
+			// The observation latch runs before this lock is reacquired so a fresh
+			// commit can win; the age is deliberately re-evaluated here.
+#endif
+			if (!loggedVideoStallClear_.exchange(true, std::memory_order_relaxed)) {
+				logWarning("No native video packets for %lld ms; clearing stale frame",
+				           static_cast<long long>(now - lastVideoTime));
+			}
+			clearNativeVideoOutputLocked("stale-video-timeout");
 		}
-		clearNativeVideoOutput("stale-video-timeout");
 	}
 
 	if (!connected_.load() || !videoTrack) {
@@ -2549,12 +3735,12 @@ void VDONinjaSource::videoRender(gs_effect_t *effect)
 
 uint32_t VDONinjaSource::getWidth() const
 {
-	return width_;
+	return outputDimensions().width;
 }
 
 uint32_t VDONinjaSource::getHeight() const
 {
-	return height_;
+	return outputDimensions().height;
 }
 
 bool VDONinjaSource::isConnected() const
@@ -2607,6 +3793,7 @@ bool VDONinjaSource::initializeVideoDecoder()
 		resetVideoDecoder();
 		return false;
 	}
+	videoDecoder_->pkt_timebase = AVRational{1, 90000};
 
 	videoHwDecodeConfigured_ = false;
 	videoHwStatusLogged_ = false;
@@ -2624,6 +3811,11 @@ bool VDONinjaSource::initializeVideoDecoder()
 		videoDecoder_->thread_count = 0;
 		videoDecoder_->thread_type = FF_THREAD_FRAME | FF_THREAD_SLICE;
 	}
+
+#if defined(VDONINJA_NATIVE_MEDIA_INTEGRATION_TEST)
+	nativeMediaTestPrimaryRequestedThreadCount_ = videoDecoder_->thread_count;
+	nativeMediaTestPrimaryRequestedThreadType_ = videoDecoder_->thread_type;
+#endif
 
 	const int openResult = avcodec_open2(videoDecoder_, codec, nullptr);
 	if (openResult < 0) {
@@ -2692,6 +3884,19 @@ bool VDONinjaSource::initializeAudioDecoder(int sampleRate, int channels)
 
 void VDONinjaSource::resetVideoDecoder()
 {
+	std::unique_lock<std::mutex> outputLock(videoOutputMutex_);
+	std::unique_lock<std::mutex> pairingLock(alphaPairingMutex_);
+	alphaFrameSynchronizer_.reset();
+	videoTimestampMapper_.reset();
+	resetVideoDecoderStorageLocked();
+}
+
+void VDONinjaSource::resetVideoDecoderStorageLocked()
+{
+	if (videoScaleContext_) {
+		sws_freeContext(videoScaleContext_);
+		videoScaleContext_ = nullptr;
+	}
 	if (videoPacket_) {
 		av_packet_free(&videoPacket_);
 	}
@@ -2704,18 +3909,9 @@ void VDONinjaSource::resetVideoDecoder()
 	if (videoDecoder_) {
 		avcodec_free_context(&videoDecoder_);
 	}
-	if (videoScaleContext_) {
-		sws_freeContext(videoScaleContext_);
-		videoScaleContext_ = nullptr;
-	}
 
-	videoTimingInitialized_ = false;
-	videoBaseRtpTimestamp_ = 0;
-	videoBaseTimestampNs_ = 0;
-	lastVideoTimestampNs_ = 0;
 	lastDecodedVideoWidth_ = 0;
 	lastDecodedVideoHeight_ = 0;
-	pendingVideoDecodeTimestamps_.clear();
 	loggedVideoDecodeSubmitFailure_.store(false, std::memory_order_relaxed);
 	videoHwDecodeConfigured_ = false;
 	videoHwStatusLogged_ = false;
@@ -2724,6 +3920,15 @@ void VDONinjaSource::resetVideoDecoder()
 }
 
 void VDONinjaSource::resetAlphaDecoder()
+{
+	std::unique_lock<std::mutex> outputLock(videoOutputMutex_);
+	std::unique_lock<std::mutex> pairingLock(alphaPairingMutex_);
+	alphaFrameSynchronizer_.reset();
+	videoTimestampMapper_.reset();
+	resetAlphaDecoderStorageLocked();
+}
+
+void VDONinjaSource::resetAlphaDecoderStorageLocked()
 {
 	if (alphaPacket_) {
 		av_packet_free(&alphaPacket_);
@@ -2734,11 +3939,29 @@ void VDONinjaSource::resetAlphaDecoder()
 	if (alphaDecoder_) {
 		avcodec_free_context(&alphaDecoder_);
 	}
-	{
-		std::lock_guard<std::mutex> lock(pendingAlphaMutex_);
-		pendingAlphaFrames_.clear();
-	}
-	pendingAlphaDecodeTimestamps_.clear();
+}
+
+void VDONinjaSource::resetMediaPipelineStateLocked()
+{
+	outputMediaEpoch_.store(0, std::memory_order_release);
+	mediaEpochGate_.advance();
+	videoAssemblyBuffer_.clear();
+	videoAssemblyTimestamp_ = 0;
+	videoAssemblyActive_ = false;
+	alphaAssemblyBuffer_.clear();
+	alphaAssemblyTimestamp_ = 0;
+	alphaAssemblyActive_ = false;
+	resetVideoDecoderStorageLocked();
+	resetAlphaDecoderStorageLocked();
+	alphaFrameSynchronizer_.reset();
+	videoTimestampMapper_.reset();
+}
+
+void VDONinjaSource::completeMediaPipelineTransition(const char *reason, bool enableOutput)
+{
+	std::lock_guard<std::mutex> outputLock(videoOutputMutex_);
+	clearNativeVideoOutputLocked(reason ? reason : "media-pipeline-transition");
+	outputMediaEpoch_.store(enableOutput ? mediaEpochGate_.capture() : 0, std::memory_order_release);
 }
 
 bool VDONinjaSource::initializeAlphaDecoder()
@@ -2763,6 +3986,13 @@ bool VDONinjaSource::initializeAlphaDecoder()
 		resetAlphaDecoder();
 		return false;
 	}
+	alphaDecoder_->pkt_timebase = AVRational{1, 90000};
+	alphaDecoder_->thread_count = 0;
+	alphaDecoder_->thread_type = FF_THREAD_FRAME | FF_THREAD_SLICE;
+#if defined(VDONINJA_NATIVE_MEDIA_INTEGRATION_TEST)
+	nativeMediaTestAlphaRequestedThreadCount_ = alphaDecoder_->thread_count;
+	nativeMediaTestAlphaRequestedThreadType_ = alphaDecoder_->thread_type;
+#endif
 
 	const int openResult = avcodec_open2(alphaDecoder_, codec, nullptr);
 	if (openResult < 0) {
@@ -2775,13 +4005,21 @@ bool VDONinjaSource::initializeAlphaDecoder()
 	return true;
 }
 
-void VDONinjaSource::processAlphaVideoData(const uint8_t *data, size_t size, uint32_t rtpTimestamp)
+void VDONinjaSource::processAlphaVideoData(const uint8_t *data, size_t size, uint32_t rtpTimestamp, uint64_t mediaEpoch)
 {
-	if (!nativeRunning_.load() || !data || size == 0) {
+	if (!nativeRunning_.load() || !data || size == 0 || !mediaEpochGate_.isCurrent(mediaEpoch)) {
 		return;
 	}
 
-	std::lock_guard<std::mutex> lock(alphaDecodeMutex_);
+#if defined(VDONINJA_NATIVE_MEDIA_INTEGRATION_TEST)
+	runNativeMediaTestStage(NativeMediaTestStage::PreDecode, true, rtpTimestamp, mediaEpoch);
+#endif
+
+	std::vector<PendingAlphaFrame> decodedFrames;
+	std::unique_lock<std::mutex> lock(alphaDecodeMutex_);
+	if (!mediaEpochGate_.isCurrent(mediaEpoch)) {
+		return;
+	}
 	if (!initializeAlphaDecoder()) {
 		return;
 	}
@@ -2793,73 +4031,110 @@ void VDONinjaSource::processAlphaVideoData(const uint8_t *data, size_t size, uin
 	}
 
 	std::memcpy(alphaPacket_->data, data, size);
-	const int sendResult = avcodec_send_packet(alphaDecoder_, alphaPacket_);
-	if (sendResult < 0 && sendResult != AVERROR(EAGAIN)) {
+	alphaPacket_->pts = static_cast<int64_t>(rtpTimestamp);
+	alphaPacket_->dts = static_cast<int64_t>(rtpTimestamp);
+	const auto drainDecodedFrames = [&]() {
+		while (true) {
+			const int receiveResult = receiveAlphaFrame(alphaDecoder_, alphaFrame_);
+			if (receiveResult == AVERROR(EAGAIN) || receiveResult == AVERROR_EOF) {
+				return;
+			}
+			if (receiveResult < 0) {
+				if (!loggedAlphaDecodeReceiveFailure_.exchange(true, std::memory_order_relaxed)) {
+					logWarning("Failed to decode VP9 alpha frame: %s", ffmpegErrorString(receiveResult).c_str());
+				}
+				return;
+			}
+
+			// We only need the Y plane — it carries the alpha values.
+			const int w = alphaFrame_->width;
+			const int h = alphaFrame_->height;
+			const int linesize = alphaFrame_->linesize[0];
+			const auto decodedTimestamp =
+			    resolveDecodedRtpTimestamp(alphaFrame_->pts, alphaFrame_->best_effort_timestamp);
+			if (!decodedTimestamp) {
+				logWarning("Dropping VP9 alpha frame without a decoder-preserved RTP timestamp");
+				av_frame_unref(alphaFrame_);
+				continue;
+			}
+			const uint32_t decodedRtpTimestamp = *decodedTimestamp;
+			if (w > 0 && h > 0 && linesize > 0 && alphaFrame_->data[0]) {
+				if (!loggedFirstDecodedAlphaFrame_.exchange(true, std::memory_order_relaxed)) {
+					uint8_t minAlpha = 255;
+					uint8_t maxAlpha = 0;
+					for (int y = 0; y < h; ++y) {
+						const uint8_t *row = alphaFrame_->data[0] + static_cast<ptrdiff_t>(y) * linesize;
+						for (int x = 0; x < w; ++x) {
+							const uint8_t alpha = row[x];
+							minAlpha = std::min(minAlpha, alpha);
+							maxAlpha = std::max(maxAlpha, alpha);
+						}
+					}
+					logInfo(
+					    "Native receiver decoded first alpha frame (%dx%d, format=%d, rtp ts=%u, alpha range=%u-%u)", w,
+					    h, alphaFrame_->format, decodedRtpTimestamp, static_cast<unsigned>(minAlpha),
+					    static_cast<unsigned>(maxAlpha));
+				}
+				loggedAlphaDecodeSubmitFailure_.store(false, std::memory_order_relaxed);
+				loggedAlphaDecodeReceiveFailure_.store(false, std::memory_order_relaxed);
+				PendingAlphaFrame pendingFrame;
+				pendingFrame.width = w;
+				pendingFrame.height = h;
+				pendingFrame.yLinesize = linesize;
+				pendingFrame.rtpTimestamp = decodedRtpTimestamp;
+				pendingFrame.mediaEpoch = mediaEpoch;
+				pendingFrame.yData.resize(static_cast<size_t>(linesize) * static_cast<size_t>(h));
+				std::memcpy(pendingFrame.yData.data(), alphaFrame_->data[0],
+				            static_cast<size_t>(linesize) * static_cast<size_t>(h));
+
+				decodedFrames.push_back(std::move(pendingFrame));
+			}
+			av_frame_unref(alphaFrame_);
+		}
+	};
+	int sendResult = sendAlphaPacket(alphaDecoder_, alphaPacket_);
+	if (sendResult == AVERROR(EAGAIN)) {
+		drainDecodedFrames();
+		sendResult = sendAlphaPacket(alphaDecoder_, alphaPacket_);
+	}
+	if (sendResult < 0) {
 		if (!loggedAlphaDecodeSubmitFailure_.exchange(true, std::memory_order_relaxed)) {
 			logWarning("Failed to submit VP9 alpha packet: %s", ffmpegErrorString(sendResult).c_str());
 		}
 		return;
 	}
-	if (sendResult >= 0) {
-		pendingAlphaDecodeTimestamps_.push_back(rtpTimestamp);
-		constexpr size_t kMaxPendingDecodeTimestamps = 128;
-		while (pendingAlphaDecodeTimestamps_.size() > kMaxPendingDecodeTimestamps) {
-			pendingAlphaDecodeTimestamps_.pop_front();
+	drainDecodedFrames();
+	lock.unlock();
+
+	for (auto &decodedFrame : decodedFrames) {
+#if defined(VDONINJA_NATIVE_MEDIA_INTEGRATION_TEST)
+		runNativeMediaTestStage(NativeMediaTestStage::PrePair, true, decodedFrame.rtpTimestamp, mediaEpoch);
+#endif
+		if (mediaEpochGate_.isCurrent(mediaEpoch)) {
+			handleDecodedAlphaFrame(std::move(decodedFrame), mediaEpoch);
 		}
 	}
+}
 
-	while (true) {
-		const int receiveResult = avcodec_receive_frame(alphaDecoder_, alphaFrame_);
-		if (receiveResult == AVERROR(EAGAIN) || receiveResult == AVERROR_EOF) {
-			break;
+void VDONinjaSource::handleDecodedAlphaFrame(PendingAlphaFrame frame, uint64_t mediaEpoch)
+{
+	AlphaFrameSyncResult result;
+	{
+		std::lock_guard<std::mutex> pairingLock(alphaPairingMutex_);
+		if (!mediaEpochGate_.isCurrent(mediaEpoch) || frame.mediaEpoch != mediaEpoch) {
+			return;
 		}
-		if (receiveResult < 0) {
-			if (!loggedAlphaDecodeReceiveFailure_.exchange(true, std::memory_order_relaxed)) {
-				logWarning("Failed to decode VP9 alpha frame: %s", ffmpegErrorString(receiveResult).c_str());
-			}
-			break;
-		}
+		result = alphaFrameSynchronizer_.pushAlpha(std::move(frame));
+	}
 
-		// We only need the Y plane — it carries the alpha values.
-		const int w = alphaFrame_->width;
-		const int h = alphaFrame_->height;
-		const int linesize = alphaFrame_->linesize[0];
-		uint32_t decodedRtpTimestamp = rtpTimestamp;
-		if (!pendingAlphaDecodeTimestamps_.empty()) {
-			decodedRtpTimestamp = pendingAlphaDecodeTimestamps_.front();
-			pendingAlphaDecodeTimestamps_.pop_front();
-		}
-		if (w > 0 && h > 0 && linesize > 0 && alphaFrame_->data[0]) {
-			if (!loggedFirstDecodedAlphaFrame_.exchange(true, std::memory_order_relaxed)) {
-				uint8_t minAlpha = 255;
-				uint8_t maxAlpha = 0;
-				for (int y = 0; y < h; ++y) {
-					const uint8_t *row = alphaFrame_->data[0] + static_cast<ptrdiff_t>(y) * linesize;
-					for (int x = 0; x < w; ++x) {
-						const uint8_t alpha = row[x];
-						minAlpha = std::min(minAlpha, alpha);
-						maxAlpha = std::max(maxAlpha, alpha);
-					}
-				}
-				logInfo("Native receiver decoded first alpha frame (%dx%d, format=%d, rtp ts=%u, alpha range=%u-%u)", w,
-				        h, alphaFrame_->format, decodedRtpTimestamp, static_cast<unsigned>(minAlpha),
-				        static_cast<unsigned>(maxAlpha));
-			}
-			loggedAlphaDecodeSubmitFailure_.store(false, std::memory_order_relaxed);
-			loggedAlphaDecodeReceiveFailure_.store(false, std::memory_order_relaxed);
-			PendingAlphaFrame pendingFrame;
-			pendingFrame.width = w;
-			pendingFrame.height = h;
-			pendingFrame.yLinesize = linesize;
-			pendingFrame.rtpTimestamp = decodedRtpTimestamp;
-			pendingFrame.yData.resize(static_cast<size_t>(linesize) * static_cast<size_t>(h));
-			std::memcpy(pendingFrame.yData.data(), alphaFrame_->data[0],
-			            static_cast<size_t>(linesize) * static_cast<size_t>(h));
-
-			std::lock_guard<std::mutex> alphaLock(pendingAlphaMutex_);
-			upsertPendingAlphaFrame(pendingAlphaFrames_, std::move(pendingFrame));
-		}
-		av_frame_unref(alphaFrame_);
+	if ((result.rejectedIncomingFrame || result.droppedPrimaryFrames > 0 || result.droppedAlphaFrames > 0) &&
+	    !loggedAlphaTimestampMiss_.exchange(true, std::memory_order_relaxed)) {
+		logInfo("Dropped unmatched VP9 alpha pairing state (primary=%zu, alpha=%zu, rejected=%s)",
+		        result.droppedPrimaryFrames, result.droppedAlphaFrames,
+		        result.rejectedIncomingFrame ? "true" : "false");
+	}
+	if (result.pair) {
+		outputPairedVideoFrame(std::move(*result.pair), true);
 	}
 }
 
@@ -2889,189 +4164,199 @@ void VDONinjaSource::resetAudioDecoder()
 
 void VDONinjaSource::resetNativeState()
 {
-	std::scoped_lock nativeLock(nativeStateMutex_, videoAssemblyMutex_, videoDecodeMutex_, alphaAssemblyMutex_,
-	                            alphaDecodeMutex_, audioDecodeMutex_);
-	clearTrackCallbacks(videoTrack_);
-	clearTrackCallbacks(alphaVideoTrack_);
-	clearTrackCallbacks(audioTrack_);
-	clearTrackCallbacks(pendingVideoTrack_);
-	clearTrackCallbacks(pendingAlphaVideoTrack_);
-	clearTrackCallbacks(pendingAudioTrack_);
-	loggedFirstVideoRtpPacket_ = false;
-	loggedFirstVideoPacket_ = false;
-	loggedFirstDecodedVideoFrame_ = false;
-	loggedFirstAlphaRtpPacket_ = false;
-	loggedFirstAudioPacket_ = false;
-	loggedFirstDecodedAudioFrame_ = false;
-	loggedAudioDecodeSubmitFailure_ = false;
-	remoteAudioMuted_.store(false, std::memory_order_relaxed);
-	remoteVideoMuted_.store(false, std::memory_order_relaxed);
-	remoteMediaVideoMuted_.store(false, std::memory_order_relaxed);
-	remoteDirectorVideoMuted_.store(false, std::memory_order_relaxed);
-	remoteVirtualHangup_.store(false, std::memory_order_relaxed);
-	loggedFirstDecodedAlphaFrame_ = false;
-	loggedAlphaDecodeSubmitFailure_ = false;
-	loggedAlphaDecodeReceiveFailure_ = false;
-	alphaTrackActive_.store(false, std::memory_order_relaxed);
-	preferSoftwareVp9DecodeForAlpha_.store(false, std::memory_order_relaxed);
-	loggedAlphaSoftwareDecodeMode_.store(false, std::memory_order_relaxed);
-	loggedAlphaCompositionActive_.store(false, std::memory_order_relaxed);
-	loggedAlphaTimestampSyncWait_.store(false, std::memory_order_relaxed);
-	loggedAlphaTimestampMiss_.store(false, std::memory_order_relaxed);
-	loggedAlphaPixelFormatMismatch_.store(false, std::memory_order_relaxed);
-	loggedAlphaDimensionMismatch_.store(false, std::memory_order_relaxed);
-	alphaTimestampPendingStreak_ = 0;
-	alphaTimestampMissStreak_ = 0;
-	videoTrack_.reset();
-	alphaVideoTrack_.reset();
-	audioTrack_.reset();
-	pendingVideoTrack_.reset();
-	pendingAlphaVideoTrack_.reset();
-	pendingAudioTrack_.reset();
-	videoTrackPeerUuid_.clear();
-	alphaVideoTrackPeerUuid_.clear();
-	audioTrackPeerUuid_.clear();
-	pendingVideoTrackPeerUuid_.clear();
-	pendingAlphaVideoTrackPeerUuid_.clear();
-	pendingAudioTrackPeerUuid_.clear();
-	videoRedPayloadTypes_.clear();
-	videoAssemblyBuffer_.clear();
-	videoAssemblyTimestamp_ = 0;
-	videoAssemblyActive_ = false;
-	alphaAssemblyBuffer_.clear();
-	alphaAssemblyTimestamp_ = 0;
-	alphaAssemblyActive_ = false;
-	videoHwDecodeDisabled_ = false;
-	videoOutputActive_.store(false, std::memory_order_relaxed);
-	loggedVideoStallClear_.store(false, std::memory_order_relaxed);
-	resetVideoDecoder();
-	resetAlphaDecoder();
-	resetAudioDecoder();
+#if defined(VDONINJA_NATIVE_MEDIA_INTEGRATION_TEST)
+	runNativeMediaTestStage(NativeMediaTestStage::SuppressionResetRequest, false, 0, mediaEpochGate_.capture());
+#endif
+	std::lock_guard<std::mutex> applyLock(trackEventApplyMutex_);
+	std::vector<std::shared_ptr<rtc::Track>> retiredTracks;
+	{
+		std::unique_lock<std::mutex> stateLock(nativeStateMutex_);
+		std::unique_lock<std::mutex> videoAssemblyLock(videoAssemblyMutex_);
+		std::unique_lock<std::mutex> videoDecodeLock(videoDecodeMutex_);
+		std::unique_lock<std::mutex> alphaAssemblyLock(alphaAssemblyMutex_);
+		std::unique_lock<std::mutex> alphaDecodeLock(alphaDecodeMutex_);
+		std::unique_lock<std::mutex> outputLock(videoOutputMutex_);
+		std::unique_lock<std::mutex> commitStateLock(videoCommitStateMutex_);
+		std::unique_lock<std::mutex> pairingLock(alphaPairingMutex_);
+		std::unique_lock<std::mutex> audioDecodeLock(audioDecodeMutex_);
+
+		retiredTracks = {videoTrack_, alphaVideoTrack_, audioTrack_};
+		for (const auto &[uuid, generations] : pendingPeerTrackBundles_) {
+			for (const auto &[generation, bundle] : generations) {
+				retiredTracks.push_back(bundle.video);
+				retiredTracks.push_back(bundle.alpha);
+				retiredTracks.push_back(bundle.audio);
+			}
+		}
+		loggedFirstVideoRtpPacket_ = false;
+		loggedFirstVideoPacket_ = false;
+		loggedFirstDecodedVideoFrame_ = false;
+		loggedFirstAlphaRtpPacket_ = false;
+		loggedFirstAudioPacket_ = false;
+		loggedFirstDecodedAudioFrame_ = false;
+		loggedAudioDecodeSubmitFailure_ = false;
+		remoteAudioMuted_.store(false, std::memory_order_relaxed);
+		remoteVideoSuppressedState_ = false;
+		remoteVideoMuted_.store(false, std::memory_order_release);
+		remoteMediaVideoMuted_.store(false, std::memory_order_relaxed);
+		remoteDirectorVideoMuted_.store(false, std::memory_order_relaxed);
+		remoteVirtualHangup_.store(false, std::memory_order_relaxed);
+		loggedFirstDecodedAlphaFrame_ = false;
+		loggedAlphaDecodeSubmitFailure_ = false;
+		loggedAlphaDecodeReceiveFailure_ = false;
+		alphaTrackActive_.store(false, std::memory_order_release);
+		preferSoftwareVp9DecodeForAlpha_.store(false, std::memory_order_release);
+		loggedAlphaSoftwareDecodeMode_.store(false, std::memory_order_relaxed);
+		loggedAlphaCompositionActive_.store(false, std::memory_order_relaxed);
+		loggedAlphaTimestampSyncWait_.store(false, std::memory_order_relaxed);
+		loggedAlphaTimestampMiss_.store(false, std::memory_order_relaxed);
+		loggedAlphaPixelFormatMismatch_.store(false, std::memory_order_relaxed);
+		loggedAlphaDimensionMismatch_.store(false, std::memory_order_relaxed);
+		videoTrack_.reset();
+		alphaVideoTrack_.reset();
+		audioTrack_.reset();
+		videoTrackPeerUuid_.clear();
+		alphaVideoTrackPeerUuid_.clear();
+		audioTrackPeerUuid_.clear();
+		videoTrackPeerGeneration_ = 0;
+		alphaVideoTrackPeerGeneration_ = 0;
+		audioTrackPeerGeneration_ = 0;
+		pendingPeerTrackBundles_.clear();
+		nextPendingPeerTrackOrder_ = 1;
+		peerTrackBundleAdoptionInProgress_.store(false, std::memory_order_release);
+		peerEventStates_.clear();
+		peerControlStates_.clear();
+		videoTrackEventPositions_.clear();
+		alphaTrackEventPositions_.clear();
+		audioTrackEventPositions_.clear();
+		videoRedPayloadTypes_.clear();
+		videoHwDecodeDisabled_ = false;
+		videoOutputActive_.store(false, std::memory_order_relaxed);
+		loggedVideoStallClear_.store(false, std::memory_order_relaxed);
+		resetMediaPipelineStateLocked();
+		resetAudioDecoder();
+	}
+	for (const auto &track : retiredTracks) {
+		clearTrackCallbacks(track);
+	}
 	if (source_) {
 		setObsSourceAudioActive(false);
-		clearNativeVideoOutput("reset-native-state");
 	}
+	completeMediaPipelineTransition("reset-native-state", false);
 }
 
-void VDONinjaSource::handlePeerDisconnected(const std::string &uuid)
+void VDONinjaSource::handlePeerDisconnected(const PeerEventIdentity &identity)
 {
-	bool videoRemoved = false;
+	std::lock_guard<std::mutex> applyLock(trackEventApplyMutex_);
+	if (!acceptPeerEventIdentityLocked(identity, true)) {
+		return;
+	}
+	handlePeerDisconnectedAccepted(identity, true);
+}
+
+void VDONinjaSource::handlePeerDisconnectedAccepted(const PeerEventIdentity &identity, bool scheduleRetry)
+{
+#if defined(VDONINJA_NATIVE_MEDIA_INTEGRATION_TEST)
+	nativeMediaTestPeerRetirements_.fetch_add(1, std::memory_order_acq_rel);
+#endif
+	const std::string &uuid = identity.uuid;
+	bool mediaRemoved = false;
 	bool audioRemoved = false;
-	std::shared_ptr<rtc::Track> deferredVideoTrack;
-	std::shared_ptr<rtc::Track> deferredAlphaVideoTrack;
-	std::shared_ptr<rtc::Track> deferredAudioTrack;
-	std::string deferredVideoPeerUuid;
-	std::string deferredAlphaVideoPeerUuid;
-	std::string deferredAudioPeerUuid;
+	bool enableOutputAfterTransition = false;
+	std::vector<std::shared_ptr<rtc::Track>> retiredTracks;
 
 	{
-		std::scoped_lock nativeLock(nativeStateMutex_, videoAssemblyMutex_, videoDecodeMutex_, alphaAssemblyMutex_,
-		                            alphaDecodeMutex_, audioDecodeMutex_);
+		std::unique_lock<std::mutex> stateLock(nativeStateMutex_);
+		std::unique_lock<std::mutex> videoAssemblyLock(videoAssemblyMutex_);
+		std::unique_lock<std::mutex> videoDecodeLock(videoDecodeMutex_);
+		std::unique_lock<std::mutex> alphaAssemblyLock(alphaAssemblyMutex_);
+		std::unique_lock<std::mutex> alphaDecodeLock(alphaDecodeMutex_);
+		std::unique_lock<std::mutex> outputLock(videoOutputMutex_);
+		std::unique_lock<std::mutex> pairingLock(alphaPairingMutex_);
+		std::unique_lock<std::mutex> audioDecodeLock(audioDecodeMutex_);
 
-		if (!uuid.empty() && uuid == pendingVideoTrackPeerUuid_) {
-			pendingVideoTrack_.reset();
-			pendingVideoTrackPeerUuid_.clear();
-		}
-		if (!uuid.empty() && uuid == pendingAlphaVideoTrackPeerUuid_) {
-			pendingAlphaVideoTrack_.reset();
-			pendingAlphaVideoTrackPeerUuid_.clear();
-		}
-		if (!uuid.empty() && uuid == pendingAudioTrackPeerUuid_) {
-			pendingAudioTrack_.reset();
-			pendingAudioTrackPeerUuid_.clear();
+		const auto pendingUuid = pendingPeerTrackBundles_.find(uuid);
+		if (pendingUuid != pendingPeerTrackBundles_.end()) {
+			const auto pendingGeneration = pendingUuid->second.find(identity.generation);
+			if (pendingGeneration != pendingUuid->second.end()) {
+				retiredTracks.push_back(pendingGeneration->second.video);
+				retiredTracks.push_back(pendingGeneration->second.alpha);
+				retiredTracks.push_back(pendingGeneration->second.audio);
+				pendingUuid->second.erase(pendingGeneration);
+				if (pendingUuid->second.empty()) {
+					pendingPeerTrackBundles_.erase(pendingUuid);
+				}
+			}
 		}
 
-		if (!uuid.empty() && uuid == videoTrackPeerUuid_) {
-			clearTrackCallbacks(videoTrack_);
+		if (!uuid.empty() && uuid == videoTrackPeerUuid_ && identity.generation == videoTrackPeerGeneration_) {
+			retiredTracks.push_back(videoTrack_);
 			videoTrack_.reset();
 			videoTrackPeerUuid_.clear();
+			videoTrackPeerGeneration_ = 0;
 			videoRedPayloadTypes_.clear();
-			videoAssemblyBuffer_.clear();
-			videoAssemblyTimestamp_ = 0;
-			videoAssemblyActive_ = false;
-			resetVideoDecoder();
-			videoRemoved = true;
+			mediaRemoved = true;
 		}
 
-		if (!uuid.empty() && uuid == alphaVideoTrackPeerUuid_) {
-			clearTrackCallbacks(alphaVideoTrack_);
+		if (!uuid.empty() && uuid == alphaVideoTrackPeerUuid_ &&
+		    identity.generation == alphaVideoTrackPeerGeneration_) {
+			retiredTracks.push_back(alphaVideoTrack_);
 			alphaVideoTrack_.reset();
 			alphaVideoTrackPeerUuid_.clear();
-			alphaAssemblyBuffer_.clear();
-			alphaAssemblyTimestamp_ = 0;
-			alphaAssemblyActive_ = false;
-			alphaTrackActive_.store(false, std::memory_order_relaxed);
-			preferSoftwareVp9DecodeForAlpha_.store(false, std::memory_order_relaxed);
-			loggedAlphaSoftwareDecodeMode_.store(false, std::memory_order_relaxed);
-			loggedAlphaCompositionActive_.store(false, std::memory_order_relaxed);
-			loggedAlphaTimestampSyncWait_.store(false, std::memory_order_relaxed);
-			loggedAlphaTimestampMiss_.store(false, std::memory_order_relaxed);
-			loggedAlphaPixelFormatMismatch_.store(false, std::memory_order_relaxed);
-			loggedAlphaDimensionMismatch_.store(false, std::memory_order_relaxed);
-			alphaTimestampPendingStreak_ = 0;
-			alphaTimestampMissStreak_ = 0;
-			loggedFirstDecodedAlphaFrame_.store(false, std::memory_order_relaxed);
-			loggedAlphaDecodeSubmitFailure_.store(false, std::memory_order_relaxed);
-			loggedAlphaDecodeReceiveFailure_.store(false, std::memory_order_relaxed);
-			resetAlphaDecoder();
+			alphaVideoTrackPeerGeneration_ = 0;
+			mediaRemoved = true;
 		}
+		if (mediaRemoved) {
+			resetMediaPipelineStateLocked();
+			alphaTrackActive_.store(alphaVideoTrack_ != nullptr, std::memory_order_release);
+			preferSoftwareVp9DecodeForAlpha_.store(alphaVideoTrack_ != nullptr, std::memory_order_release);
+		}
+		enableOutputAfterTransition = videoTrack_ != nullptr;
 
-		if (!uuid.empty() && uuid == audioTrackPeerUuid_) {
-			clearTrackCallbacks(audioTrack_);
+		if (!uuid.empty() && uuid == audioTrackPeerUuid_ && identity.generation == audioTrackPeerGeneration_) {
+			retiredTracks.push_back(audioTrack_);
 			audioTrack_.reset();
 			audioTrackPeerUuid_.clear();
+			audioTrackPeerGeneration_ = 0;
 			resetAudioDecoder();
 			loggedAudioDecodeSubmitFailure_ = false;
 			audioRemoved = true;
 		}
 
-		connected_ = !videoTrackPeerUuid_.empty() || !audioTrackPeerUuid_.empty();
-
-		if (videoTrackPeerUuid_.empty() && pendingVideoTrack_) {
-			deferredVideoTrack = pendingVideoTrack_;
-			deferredVideoPeerUuid = pendingVideoTrackPeerUuid_;
-			pendingVideoTrack_.reset();
-			pendingVideoTrackPeerUuid_.clear();
-		}
-		if (alphaVideoTrackPeerUuid_.empty() && pendingAlphaVideoTrack_) {
-			deferredAlphaVideoTrack = pendingAlphaVideoTrack_;
-			deferredAlphaVideoPeerUuid = pendingAlphaVideoTrackPeerUuid_;
-			pendingAlphaVideoTrack_.reset();
-			pendingAlphaVideoTrackPeerUuid_.clear();
-		}
-		if (audioTrackPeerUuid_.empty() && pendingAudioTrack_) {
-			deferredAudioTrack = pendingAudioTrack_;
-			deferredAudioPeerUuid = pendingAudioTrackPeerUuid_;
-			pendingAudioTrack_.reset();
-			pendingAudioTrackPeerUuid_.clear();
-		}
+		connected_ = !videoTrackPeerUuid_.empty() || !alphaVideoTrackPeerUuid_.empty() || !audioTrackPeerUuid_.empty();
+	}
+	for (const auto &track : retiredTracks) {
+		clearTrackCallbacks(track);
 	}
 
 	if (audioRemoved && source_) {
 		setObsSourceAudioActive(false);
 	}
 
-	if (videoRemoved && source_) {
-		clearNativeVideoOutput("peer-disconnected");
+	if (mediaRemoved) {
+		completeMediaPipelineTransition("peer-disconnected", enableOutputAfterTransition);
+	}
+	const auto adoptedIdentity = adoptNextPendingPeerBundleIfOwnerless("peer-disconnected");
+	{
+		std::lock_guard<std::mutex> commitStateLock(videoCommitStateMutex_);
+		const auto peerStates = peerControlStates_.find(identity.uuid);
+		if (peerStates != peerControlStates_.end()) {
+			peerStates->second.erase(identity.generation);
+			if (peerStates->second.empty()) {
+				peerControlStates_.erase(peerStates);
+			}
+		}
+	}
+	publishActivePeerControlStateLocked("peer-terminal-owner-transition");
+	if (adoptedIdentity) {
+		peerTrackBundleAdoptionInProgress_.store(false, std::memory_order_release);
+		markNativePeerConnectedIfReadyAccepted(*adoptedIdentity, "deferred-peer-bundle-adopted");
 	}
 
-	if (deferredVideoTrack) {
-		logInfo("Adopting deferred native video track from %s after peer %s disconnected",
-		        deferredVideoPeerUuid.c_str(), uuid.c_str());
-		onVideoTrack(deferredVideoPeerUuid, deferredVideoTrack);
-	}
-	if (deferredAlphaVideoTrack) {
-		logInfo("Adopting deferred alpha video track from %s after peer %s disconnected",
-		        deferredAlphaVideoPeerUuid.c_str(), uuid.c_str());
-		onAlphaVideoTrack(deferredAlphaVideoPeerUuid, deferredAlphaVideoTrack);
-	}
-	if (deferredAudioTrack) {
-		logInfo("Adopting deferred native audio track from %s after peer %s disconnected",
-		        deferredAudioPeerUuid.c_str(), uuid.c_str());
-		onAudioTrack(deferredAudioPeerUuid, deferredAudioTrack);
-	}
-
-	if (!connected_.load() && settings_.autoReconnect) {
+	if (scheduleRetry && !connected_.load() && settings_.autoReconnect) {
+#if defined(VDONINJA_NATIVE_MEDIA_INTEGRATION_TEST)
+		nativeMediaTestPeerRetrySchedules_.fetch_add(1, std::memory_order_acq_rel);
+#endif
 		int retryCount = 0;
 		{
 			std::lock_guard<std::mutex> lock(retryStateMutex_);
@@ -3081,15 +4366,101 @@ void VDONinjaSource::handlePeerDisconnected(const std::string &uuid)
 	}
 }
 
-void VDONinjaSource::outputDecodedVideoFrame(const AVFrame *frame, uint64_t timestampNs, uint32_t rtpTimestamp)
+void VDONinjaSource::outputDecodedVideoFrame(const AVFrame *frame, uint32_t rtpTimestamp, uint64_t mediaEpoch)
 {
-	if (!frame || !source_) {
+	if (!frame || !hasNativeVideoOutputTarget() || !mediaEpochGate_.isCurrent(mediaEpoch) ||
+	    outputMediaEpoch_.load(std::memory_order_acquire) != mediaEpoch) {
 		return;
 	}
 	if (remoteVideoMuted_.load(std::memory_order_relaxed)) {
 		return;
 	}
 
+	if (!alphaTrackActive_.load(std::memory_order_relaxed)) {
+#if defined(VDONINJA_NATIVE_MEDIA_INTEGRATION_TEST)
+		runNativeMediaTestStage(NativeMediaTestStage::PreOutput, false, rtpTimestamp, mediaEpoch);
+#endif
+		std::lock_guard<std::mutex> outputLock(videoOutputMutex_);
+		if (!mediaEpochGate_.isCurrent(mediaEpoch) || outputMediaEpoch_.load(std::memory_order_acquire) != mediaEpoch ||
+		    alphaTrackActive_.load(std::memory_order_acquire)) {
+			return;
+		}
+		outputDecodedVideoFrameLocked(frame, rtpTimestamp, nullptr, mediaEpoch);
+		return;
+	}
+
+	auto retainedFrame = retainVideoFrame(frame);
+	if (!retainedFrame) {
+		logWarning("Failed to retain primary video frame while waiting for exact VP9 alpha timestamp %u", rtpTimestamp);
+		return;
+	}
+	PendingPrimaryFrame primaryFrame;
+	primaryFrame.frame = std::move(retainedFrame);
+	primaryFrame.width = frame->width;
+	primaryFrame.height = frame->height;
+	primaryFrame.rtpTimestamp = rtpTimestamp;
+	primaryFrame.mediaEpoch = mediaEpoch;
+
+	AlphaFrameSyncResult result;
+	{
+		std::lock_guard<std::mutex> pairingLock(alphaPairingMutex_);
+		if (!mediaEpochGate_.isCurrent(mediaEpoch) || outputMediaEpoch_.load(std::memory_order_acquire) != mediaEpoch ||
+		    !alphaTrackActive_.load(std::memory_order_acquire)) {
+			return;
+		}
+		result = alphaFrameSynchronizer_.pushPrimary(std::move(primaryFrame));
+	}
+	if (result.queued && !loggedAlphaTimestampSyncWait_.exchange(true, std::memory_order_relaxed)) {
+		logInfo("Buffering primary video until the exact VP9 alpha RTP timestamp arrives");
+	}
+	if ((result.rejectedIncomingFrame || result.droppedPrimaryFrames > 0 || result.droppedAlphaFrames > 0) &&
+	    !loggedAlphaTimestampMiss_.exchange(true, std::memory_order_relaxed)) {
+		logInfo("Dropped unmatched VP9 alpha pairing state (primary=%zu, alpha=%zu, rejected=%s)",
+		        result.droppedPrimaryFrames, result.droppedAlphaFrames,
+		        result.rejectedIncomingFrame ? "true" : "false");
+	}
+	if (result.pair) {
+		outputPairedVideoFrame(std::move(*result.pair), false);
+	}
+}
+
+void VDONinjaSource::outputPairedVideoFrame(AlphaFramePair pair, bool completedByAlpha)
+{
+	if (!pair.primary.frame || !hasNativeVideoOutputTarget()) {
+		return;
+	}
+
+#if defined(VDONINJA_NATIVE_MEDIA_INTEGRATION_TEST)
+	runNativeMediaTestStage(NativeMediaTestStage::PreOutput, completedByAlpha, pair.primary.rtpTimestamp,
+	                        pair.mediaEpoch);
+#else
+	UNUSED_PARAMETER(completedByAlpha);
+#endif
+
+	std::lock_guard<std::mutex> outputLock(videoOutputMutex_);
+	{
+		std::lock_guard<std::mutex> pairingLock(alphaPairingMutex_);
+		if (!alphaFrameSynchronizer_.isCurrentGeneration(pair.generation) ||
+		    !mediaEpochGate_.isCurrent(pair.mediaEpoch)) {
+			return;
+		}
+	}
+	if (!nativeRunning_.load(std::memory_order_relaxed) || !alphaTrackActive_.load(std::memory_order_relaxed) ||
+	    remoteVideoMuted_.load(std::memory_order_relaxed) || !mediaEpochGate_.isCurrent(pair.mediaEpoch) ||
+	    outputMediaEpoch_.load(std::memory_order_acquire) != pair.mediaEpoch) {
+		return;
+	}
+
+	outputDecodedVideoFrameLocked(pair.primary.frame.get(), pair.primary.rtpTimestamp, &pair.alpha, pair.mediaEpoch);
+}
+
+void VDONinjaSource::outputDecodedVideoFrameLocked(const AVFrame *frame, uint32_t rtpTimestamp,
+                                                   const PendingAlphaFrame *alphaFrame, uint64_t mediaEpoch)
+{
+	if (!frame || !hasNativeVideoOutputTarget() || remoteVideoMuted_.load(std::memory_order_relaxed) ||
+	    !mediaEpochGate_.isCurrent(mediaEpoch) || outputMediaEpoch_.load(std::memory_order_acquire) != mediaEpoch) {
+		return;
+	}
 	if (!loggedFirstDecodedVideoFrame_.exchange(true)) {
 		logInfo("Native receiver decoded first video frame (%dx%d, format=%d)", frame->width, frame->height,
 		        frame->format);
@@ -3100,39 +4471,34 @@ void VDONinjaSource::outputDecodedVideoFrame(const AVFrame *frame, uint64_t time
 		lastDecodedVideoHeight_ = frame->height;
 	}
 
-	// Check for a pending alpha Y-plane (VP9 alpha dual-track support). Prefer an
-	// exact RTP timestamp and only tolerate a narrowly bounded past frame; future
-	// alpha must remain queued for its matching primary frame.
 	std::vector<uint8_t> alphaYCopy;
 	std::vector<uint8_t> scaledAlphaY;
 	int alphaYLinesize = 0;
 	bool hasAlpha = false;
-	bool alphaTimestampPending = false;
 	int alphaWidth = 0;
 	int alphaHeight = 0;
-	{
-		std::lock_guard<std::mutex> alphaLock(pendingAlphaMutex_);
-		// game-capture's asynchronous alpha encoder may trail primary video by a
-		// small number of frames. Accept up to 100 ms of past alpha, but never a
-		// future mask or the previous half-second of unrelated motion.
-		constexpr uint32_t kAlphaTimestampTolerance90k = 9000;
-		const auto alphaResult = consumePendingAlphaFrame(pendingAlphaFrames_, rtpTimestamp, frame->width,
-		                                                  frame->height, kAlphaTimestampTolerance90k);
-		if (alphaResult.hasMatch) {
-			if (alphaResult.dimensionsMatch) {
-				alphaYCopy = alphaResult.yData;
-				alphaYLinesize = alphaResult.yLinesize;
-				hasAlpha = true;
-			} else if (scaleAlphaPlaneNearest(alphaResult.yData, alphaResult.width, alphaResult.height,
-			                                  alphaResult.yLinesize, frame->width, frame->height, scaledAlphaY)) {
-				alphaYCopy = std::move(scaledAlphaY);
-				alphaYLinesize = frame->width;
-				hasAlpha = true;
-				alphaWidth = alphaResult.width;
-				alphaHeight = alphaResult.height;
+	if (alphaFrame) {
+		if (alphaFrame->width == frame->width && alphaFrame->height == frame->height &&
+		    alphaFrame->yLinesize >= alphaFrame->width &&
+		    alphaFrame->yData.size() >=
+		        static_cast<size_t>(alphaFrame->yLinesize) * static_cast<size_t>(alphaFrame->height)) {
+			alphaYCopy = alphaFrame->yData;
+			alphaYLinesize = alphaFrame->yLinesize;
+			hasAlpha = true;
+		} else if (scaleAlphaPlaneNearest(alphaFrame->yData, alphaFrame->width, alphaFrame->height,
+		                                  alphaFrame->yLinesize, frame->width, frame->height, scaledAlphaY)) {
+			alphaYCopy = std::move(scaledAlphaY);
+			alphaYLinesize = frame->width;
+			hasAlpha = true;
+			alphaWidth = alphaFrame->width;
+			alphaHeight = alphaFrame->height;
+		}
+		if (!hasAlpha) {
+			if (!loggedAlphaPixelFormatMismatch_.exchange(true, std::memory_order_relaxed)) {
+				logWarning("Dropping exactly paired primary/alpha frame with an invalid alpha plane (rtp ts=%u)",
+				           rtpTimestamp);
 			}
-		} else {
-			alphaTimestampPending = alphaResult.futureFramePending;
+			return;
 		}
 	}
 
@@ -3141,46 +4507,19 @@ void VDONinjaSource::outputDecodedVideoFrame(const AVFrame *frame, uint64_t time
 		logInfo("Scaled VP9 alpha frame for RTP timestamp %u from %dx%d to primary video %dx%d", rtpTimestamp,
 		        alphaWidth, alphaHeight, frame->width, frame->height);
 	}
-	const bool alphaTrackActive = alphaTrackActive_.load(std::memory_order_relaxed);
-	if (!alphaTrackActive || hasAlpha) {
-		alphaTimestampPendingStreak_ = 0;
-		alphaTimestampMissStreak_ = 0;
-	} else if (alphaTimestampPending) {
-		alphaTimestampPendingStreak_++;
-		alphaTimestampMissStreak_ = 0;
-	} else {
-		alphaTimestampPendingStreak_ = 0;
-		alphaTimestampMissStreak_++;
-	}
-	constexpr uint32_t kAlphaTimestampLogThreshold = 15;
-	if (!hasAlpha && alphaTrackActive && alphaTimestampPending &&
-	    alphaTimestampPendingStreak_ >= kAlphaTimestampLogThreshold &&
-	    !loggedAlphaTimestampSyncWait_.exchange(true, std::memory_order_relaxed)) {
-		logInfo("Waiting for matching VP9 alpha RTP timestamp before compositing transparency");
-	}
-	if (!hasAlpha && alphaTrackActive && !alphaTimestampPending &&
-	    alphaTimestampMissStreak_ >= kAlphaTimestampLogThreshold &&
-	    !loggedAlphaTimestampMiss_.exchange(true, std::memory_order_relaxed)) {
-		logInfo("No matching VP9 alpha frame available for primary RTP timestamp %u", rtpTimestamp);
-	}
-
 	const AVFrame *frameToScale = frame;
-	const AVPixelFormat primaryFmt = static_cast<AVPixelFormat>(frame->format);
 	if (hasAlpha) {
 		if (!loggedAlphaCompositionActive_.exchange(true, std::memory_order_relaxed)) {
 			logInfo("Native receiver alpha composition active");
 		}
-		alphaTimestampPendingStreak_ = 0;
-		alphaTimestampMissStreak_ = 0;
-		loggedAlphaTimestampSyncWait_.store(false, std::memory_order_relaxed);
-		loggedAlphaTimestampMiss_.store(false, std::memory_order_relaxed);
 		loggedAlphaPixelFormatMismatch_.store(false, std::memory_order_relaxed);
 	}
-	(void)primaryFmt;
 
+	const auto dimensions = outputDimensions();
 	const AVPixelFormat inputFormat = static_cast<AVPixelFormat>(frameToScale->format);
-	const AspectFitLayout layout = computeAspectFitLayout(static_cast<uint32_t>(frameToScale->width),
-	                                                      static_cast<uint32_t>(frameToScale->height), width_, height_);
+	const AspectFitLayout layout =
+	    computeAspectFitLayout(static_cast<uint32_t>(frameToScale->width), static_cast<uint32_t>(frameToScale->height),
+	                           dimensions.width, dimensions.height);
 	videoScaleContext_ =
 	    sws_getCachedContext(videoScaleContext_, frameToScale->width, frameToScale->height, inputFormat,
 	                         static_cast<int>(layout.contentWidth), static_cast<int>(layout.contentHeight),
@@ -3253,21 +4592,59 @@ void VDONinjaSource::outputDecodedVideoFrame(const AVFrame *frame, uint64_t time
 	obsFrame.width = layout.outputWidth;
 	obsFrame.height = layout.outputHeight;
 	obsFrame.format = VIDEO_FORMAT_BGRA;
-	obsFrame.timestamp = timestampNs;
+#if defined(VDONINJA_NATIVE_MEDIA_INTEGRATION_TEST)
+	runNativeMediaTestStage(NativeMediaTestStage::PreCommit, false, rtpTimestamp, mediaEpoch);
+#endif
+	std::unique_lock<std::mutex> commitStateLock(videoCommitStateMutex_);
+	if (remoteVideoSuppressedState_ || !mediaEpochGate_.isCurrent(mediaEpoch) ||
+	    outputMediaEpoch_.load(std::memory_order_acquire) != mediaEpoch) {
+		return;
+	}
+#if defined(VDONINJA_NATIVE_MEDIA_INTEGRATION_TEST)
+	runNativeMediaTestStage(NativeMediaTestStage::CommitAuthorized, false, rtpTimestamp, mediaEpoch);
+#endif
+	const auto outputTimestamp = videoTimestampMapper_.map(rtpTimestamp, os_gettime_ns());
+	if (!outputTimestamp) {
+		return;
+	}
+	obsFrame.timestamp = *outputTimestamp;
 	obsFrame.full_range = true;
 	obsFrame.data[0] = output.data();
 	obsFrame.linesize[0] = static_cast<uint32_t>(outputStride);
 	videoOutputActive_.store(true, std::memory_order_relaxed);
+	lastVideoTime_.store(currentTimeMs(), std::memory_order_relaxed);
 	loggedVideoStallClear_.store(false, std::memory_order_relaxed);
+#if defined(VDONINJA_NATIVE_MEDIA_INTEGRATION_TEST)
+	if (nativeMediaTestOutputHook_) {
+		NativeMediaTestOutput testOutput;
+		testOutput.bgra = output;
+		testOutput.width = layout.outputWidth;
+		testOutput.height = layout.outputHeight;
+		testOutput.rtpTimestamp = rtpTimestamp;
+		testOutput.outputTimestampNs = *outputTimestamp;
+		testOutput.hasAlpha = hasAlpha;
+		nativeMediaTestOutputHook_(std::move(testOutput));
+		return;
+	}
+#endif
 	obs_source_output_video(source_, &obsFrame);
 }
 
 void VDONinjaSource::outputDecodedAudioFrame(const AVFrame *frame, uint64_t timestampNs)
 {
-	if (!frame || !source_) {
+	if (!frame) {
 		return;
 	}
 	if (remoteAudioMuted_.load(std::memory_order_relaxed)) {
+		return;
+	}
+#if defined(VDONINJA_NATIVE_MEDIA_INTEGRATION_TEST)
+	if (nativeMediaTestAudioOutputHook_) {
+		nativeMediaTestAudioOutputHook_(timestampNs);
+		return;
+	}
+#endif
+	if (!source_) {
 		return;
 	}
 
@@ -3357,26 +4734,6 @@ void VDONinjaSource::outputDecodedAudioFrame(const AVFrame *frame, uint64_t time
 	av_channel_layout_uninit(&outputLayout);
 }
 
-uint64_t VDONinjaSource::mapVideoTimestamp(uint32_t rtpTimestamp)
-{
-	const uint64_t now = os_gettime_ns();
-	if (!videoTimingInitialized_) {
-		videoTimingInitialized_ = true;
-		videoBaseRtpTimestamp_ = rtpTimestamp;
-		videoBaseTimestampNs_ = now;
-		lastVideoTimestampNs_ = now;
-		return now;
-	}
-
-	const uint64_t delta = static_cast<uint32_t>(rtpTimestamp - videoBaseRtpTimestamp_);
-	uint64_t mapped = videoBaseTimestampNs_ + (delta * 1000000000ULL) / 90000ULL;
-	if (mapped <= lastVideoTimestampNs_) {
-		mapped = lastVideoTimestampNs_ + 1;
-	}
-	lastVideoTimestampNs_ = mapped;
-	return mapped;
-}
-
 uint64_t VDONinjaSource::mapAudioTimestamp(uint32_t rtpTimestamp)
 {
 	const uint64_t now = os_gettime_ns();
@@ -3411,7 +4768,8 @@ void VDONinjaSource::ensureNativeReceiverSource()
 		}
 	}
 
-	obs_data_t *nativeSettings = createNativeReceiverSourceSettings(settings_, width_, height_);
+	const auto dimensions = outputDimensions();
+	obs_data_t *nativeSettings = createNativeReceiverSourceSettings(settings_, dimensions.width, dimensions.height);
 	obs_source_t *created =
 	    obs_source_create_private(kInternalNativeSourceId, nativeReceiverSourceName_.c_str(), nativeSettings);
 	obs_data_release(nativeSettings);
@@ -3439,8 +4797,8 @@ void VDONinjaSource::ensureNativeReceiverSource()
 	{
 		std::lock_guard<std::mutex> lock(childSourceMutex_);
 		nativeReceiverSettings_ = settings_;
-		nativeReceiverWidth_ = width_;
-		nativeReceiverHeight_ = height_;
+		nativeReceiverWidth_ = dimensions.width;
+		nativeReceiverHeight_ = dimensions.height;
 		nativeReceiverConfigApplied_ = true;
 	}
 
@@ -3511,22 +4869,23 @@ void VDONinjaSource::updateNativeReceiverSource()
 		return;
 	}
 
-	if (configApplied && configuredWidth == width_ && configuredHeight == height_ &&
+	const auto dimensions = outputDimensions();
+	if (configApplied && configuredWidth == dimensions.width && configuredHeight == dimensions.height &&
 	    sourceSettingsEqualForChild(configuredSettings, settings_)) {
 		syncChildLifecycleState(child);
 		obs_source_release(child);
 		return;
 	}
 
-	obs_data_t *nativeSettings = createNativeReceiverSourceSettings(settings_, width_, height_);
+	obs_data_t *nativeSettings = createNativeReceiverSourceSettings(settings_, dimensions.width, dimensions.height);
 	obs_source_update(child, nativeSettings);
 	obs_data_release(nativeSettings);
 	{
 		std::lock_guard<std::mutex> lock(childSourceMutex_);
 		if (nativeReceiverSource_ == child) {
 			nativeReceiverSettings_ = settings_;
-			nativeReceiverWidth_ = width_;
-			nativeReceiverHeight_ = height_;
+			nativeReceiverWidth_ = dimensions.width;
+			nativeReceiverHeight_ = dimensions.height;
 			nativeReceiverConfigApplied_ = true;
 		}
 	}
@@ -3552,7 +4911,8 @@ void VDONinjaSource::ensureBrowserSource()
 		return;
 	}
 
-	obs_data_t *browserSettings = createBrowserSourceSettings(url, width_, height_);
+	const auto dimensions = outputDimensions();
+	obs_data_t *browserSettings = createBrowserSourceSettings(url, dimensions.width, dimensions.height);
 	obs_source_t *created = obs_source_create_private("browser_source", browserSourceName_.c_str(), browserSettings);
 	obs_data_release(browserSettings);
 
@@ -3579,8 +4939,8 @@ void VDONinjaSource::ensureBrowserSource()
 	{
 		std::lock_guard<std::mutex> lock(childSourceMutex_);
 		browserSourceUrl_ = url;
-		browserSourceWidth_ = width_;
-		browserSourceHeight_ = height_;
+		browserSourceWidth_ = dimensions.width;
+		browserSourceHeight_ = dimensions.height;
 		browserSourceConfigApplied_ = true;
 	}
 
@@ -3652,21 +5012,23 @@ void VDONinjaSource::updateBrowserSource()
 		return;
 	}
 
-	if (configApplied && configuredWidth == width_ && configuredHeight == height_ && configuredUrl == url) {
+	const auto dimensions = outputDimensions();
+	if (configApplied && configuredWidth == dimensions.width && configuredHeight == dimensions.height &&
+	    configuredUrl == url) {
 		syncChildLifecycleState(child);
 		obs_source_release(child);
 		return;
 	}
 
-	obs_data_t *browserSettings = createBrowserSourceSettings(url, width_, height_);
+	obs_data_t *browserSettings = createBrowserSourceSettings(url, dimensions.width, dimensions.height);
 	obs_source_update(child, browserSettings);
 	obs_data_release(browserSettings);
 	{
 		std::lock_guard<std::mutex> lock(childSourceMutex_);
 		if (browserSource_ == child) {
 			browserSourceUrl_ = url;
-			browserSourceWidth_ = width_;
-			browserSourceHeight_ = height_;
+			browserSourceWidth_ = dimensions.width;
+			browserSourceHeight_ = dimensions.height;
 			browserSourceConfigApplied_ = true;
 		}
 	}

@@ -1559,6 +1559,9 @@ std::vector<SdpOfferedMediaSection> parseOfferedMediaSections(const std::string 
 			sections.push_back({});
 			current = &sections.back();
 			current->type = mediaType;
+			if (tokens.size() > 1) {
+				current->port = parseIntOrDefault(tokens[1], -1);
+			}
 			for (size_t i = 3; i < tokens.size(); ++i) {
 				const int payloadType = parseIntOrDefault(tokens[i]);
 				if (payloadType >= 0) {
@@ -1574,6 +1577,11 @@ std::vector<SdpOfferedMediaSection> parseOfferedMediaSections(const std::string 
 
 		if (line.rfind("a=mid:", 0) == 0) {
 			current->mid = trim(line.substr(6));
+			continue;
+		}
+
+		if (line == "a=sendrecv" || line == "a=sendonly" || line == "a=recvonly" || line == "a=inactive") {
+			current->direction = line.substr(2);
 			continue;
 		}
 
@@ -1643,6 +1651,33 @@ std::vector<SdpOfferedMediaSection> parseOfferedMediaSections(const std::string 
 	}
 
 	return sections;
+}
+
+bool offeredMediaSectionCanSend(const SdpOfferedMediaSection &section)
+{
+	return section.port != 0 && section.direction != "inactive" && section.direction != "recvonly";
+}
+
+bool offerHasActiveVp9AlphaSection(const std::vector<SdpOfferedMediaSection> &sections)
+{
+	size_t videoSectionIndex = 0;
+	for (const auto &section : sections) {
+		if (section.type != "video") {
+			continue;
+		}
+		const std::string midLower = asciiLowerCopy(section.mid);
+		const bool isAlphaSection = midLower.find("alpha") != std::string::npos || videoSectionIndex > 0;
+		videoSectionIndex++;
+		if (!isAlphaSection || !offeredMediaSectionCanSend(section)) {
+			continue;
+		}
+		const auto codec = std::find_if(section.codecs.begin(), section.codecs.end(),
+		                                [](const auto &candidate) { return asciiLowerCopy(candidate.codec) == "vp9"; });
+		if (codec != section.codecs.end()) {
+			return true;
+		}
+	}
+	return false;
 }
 
 // Logging
