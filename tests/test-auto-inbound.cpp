@@ -66,3 +66,21 @@ TEST(AutoInboundRemovalGraceStateTest, RepeatedMissingListingDoesNotExtendDeadli
 
 	EXPECT_EQ(state.nextDeadlineMs(), 11000);
 }
+
+TEST(AutoInboundSceneAssignmentStateTest, ReturnsTheSceneRecordedWhenTheSourceWasAdded)
+{
+	AutoInboundSceneAssignmentState state;
+	state.remember("VDO_Cam_guest", "scene-a-uuid");
+
+	EXPECT_EQ(state.take("VDO_Cam_guest"), "scene-a-uuid");
+	EXPECT_TRUE(state.take("VDO_Cam_guest").empty());
+}
+
+TEST(AutoInboundSceneAssignmentStateTest, ReaddingASourceReplacesItsPreviousScene)
+{
+	AutoInboundSceneAssignmentState state;
+	state.remember("VDO_Cam_guest", "scene-a-uuid");
+	state.remember("VDO_Cam_guest", "scene-b-uuid");
+
+	EXPECT_EQ(state.take("VDO_Cam_guest"), "scene-b-uuid");
+}

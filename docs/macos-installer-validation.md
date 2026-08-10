@@ -1,6 +1,6 @@
 # macOS Installer Validation
 
-Current release artifacts target OBS `32.2+` and build against the OBS `32.2.0` baseline. Users remaining on OBS 32.0-32.1 should use plugin release v1.1.63 or earlier because OBS 32.2 changed its bundled FFmpeg runtime.
+Current release artifacts target OBS `32.2.x` and build against the OBS `32.2.0` baseline. Users remaining on OBS 32.0-32.1 should use plugin release v1.1.63 or earlier because OBS 32.2 changed its bundled FFmpeg runtime.
 
 ## OBS Load Paths
 
@@ -28,7 +28,7 @@ The macOS `.pkg` scripts perform these checks:
 - Install the bundle into the active user's OBS plugin directory.
 - Remove quarantine attributes and verify the installed bundle signature.
 - Log detected OBS apps from `/Applications`, `~/Applications`, and Spotlight metadata.
-- Warn when detected OBS is not `32.x`.
+- Warn when detected OBS does not match `32.2.x`.
 - Warn when detected OBS architecture slices do not overlap the plugin architecture slices.
 - Warn when OBS is not found, while still installing the plugin into the user OBS plugin directory.
 
@@ -177,12 +177,12 @@ Before publishing a macOS release, cover this matrix:
 | Scenario | Expected result |
 | --- | --- |
 | Apple Silicon Mac, native OBS 32.2.x from `/Applications/OBS.app` | Loads `obs-vdoninja` successfully. |
-| Apple Silicon Mac, native OBS 32.x from a nonstandard path | Loads from the user plugin directory. |
+| Apple Silicon Mac, native OBS 32.2.x from a nonstandard path | Loads from the user plugin directory. |
 | Apple Silicon Mac, OBS not installed yet | Installer succeeds and logs that OBS was not found. |
-| Apple Silicon Mac, OBS 31.x or 33.x | Installer succeeds but logs an OBS version warning. |
+| Apple Silicon Mac, OBS outside 32.2.x (for example 31.x, 32.0-32.1, or 33.x) | Installer succeeds but logs an OBS version warning. |
 | Apple Silicon Mac running Intel OBS under Rosetta | Installer logs architecture mismatch; OBS will not load the arm64 package. |
 | Intel Mac with arm64 package | Installer preinstall fails with a clear architecture error. |
-| Intel Mac with future x86_64 package | Should load in Intel OBS 32.x. |
+| Intel Mac with future x86_64 package | Should load in the matching supported OBS version. |
 
 The OBS log should include:
 

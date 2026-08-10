@@ -11,7 +11,7 @@ After installation, restart OBS and check:
 
 - `Add Source` includes: `VDO.Ninja Source`
 - `Settings -> Stream` includes service: `VDO.Ninja`
-- `Tools` menu includes: `VDO.Ninja Control Center`
+- `Tools` menu includes: `VDO.Ninja Studio`
 
 If either is missing, reinstall and confirm plugin/data paths from `INSTALL.md`.
 
@@ -19,19 +19,19 @@ If either is missing, reinstall and confirm plugin/data paths from `INSTALL.md`.
 
 1. In `Settings -> Stream`, set service to `VDO.Ninja`.
 2. Keep `Server` at default unless you use a custom signaling host.
-3. Use `Tools -> VDO.Ninja Control Center` for normal setup.
-   - `Signaling Server` and `Salt` are optional; leave blank for defaults.
+3. Use `Tools -> VDO.Ninja Studio` for basic setup: stream ID, password, optional room, viewer limit, links, and live controls.
+   - Configure advanced options such as `Signaling Server`, `Salt`, custom ICE/TURN, and packet protection under `Settings -> Stream`; leave optional values blank for defaults.
 4. The `Stream Key` box remains in OBS for compatibility; you can still use it directly with:
    - URL form: `https://vdo.ninja/?push=mytest123&password=secret&room=myroom&salt=vdo.ninja&wss=wss://wss.vdo.ninja:443`
    - Compact form: `mytest123|secret|myroom|vdo.ninja|wss://wss.vdo.ninja:443`
-5. If `VDO.Ninja` is not listed yet, open `Tools -> VDO.Ninja Control Center` and click `Apply As Stream Service`.
-6. Click `Start Streaming`.
+5. With basic/default settings, click OBS `Start Streaming` or `Go Live` in `VDO.Ninja Studio`.
+   - If you configured advanced service options, save them and use OBS `Start Streaming`; Studio `Go Live` rebuilds the service from the dock's basic fields and default advanced values.
 
-`Tools -> VDO.Ninja Control Center` `Start Publishing`/`Stop Publishing` map to the same OBS `Start Streaming`/`Stop Streaming` pipeline; they do not run as a second parallel destination.
+`VDO.Ninja Studio` `Go Live`/`Stop` map to the same OBS `Start Streaming`/`Stop Streaming` pipeline; they do not run as a second parallel destination.
 
-The Tools action also applies Opus audio defaults for compatibility.
+Starting VDO.Ninja publishing also applies Opus audio defaults for compatibility.
 
-Optional: open `Tools -> VDO.Ninja Control Center` for one-place publish config, start/stop controls, generated links, and runtime peer stats.
+The Studio dock also provides generated links and runtime peer stats.
 
 Viewer link pattern:
 
@@ -72,6 +72,8 @@ Browser Sources and normal browser viewers do not composite the alpha track; the
 
 ## 6) Useful advanced options
 
+Configure these under `Settings -> Stream`; the Studio dock does not expose them:
+
 - `Salt` (optional; blank uses default `vdo.ninja`) for compatibility/self-hosting needs
 - Custom signaling WebSocket URL (optional; blank uses default `wss://wss.vdo.ninja:443`)
 - Custom STUN/TURN servers (use `;` to separate multiple entries)
@@ -93,7 +95,7 @@ Default ICE behavior:
 ## FAQ
 
 Q: `Go Live` vs `Start Streaming` - are they different?  
-A: No. In this plugin, `Go Live` in `Tools -> VDO.Ninja Control Center` triggers the same OBS stream start/stop pipeline as `Start Streaming`.
+A: No. In this plugin, `Go Live` in `Tools -> VDO.Ninja Studio` triggers the same OBS stream start/stop pipeline as `Start Streaming`.
 
 Q: Can I stream to VDO.Ninja and another destination at the same time?  
 A: Not with this plugin/service path by itself. It uses OBS's active stream output slot, so VDO.Ninja is the single active destination in that slot.

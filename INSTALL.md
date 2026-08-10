@@ -157,9 +157,13 @@ Installer validation details: [docs/macos-installer-validation.md](docs/macos-in
 
 If scripts are not usable:
 
-**Linux / Windows:**
-- Copy plugin binaries from `obs-plugins/64bit` or `lib/obs-plugins` into your OBS plugin binary path.
-- Copy `data/obs-plugins/obs-vdoninja` or `share/obs/obs-plugins/obs-vdoninja` into your OBS data path.
+**Windows:**
+- Copy the plugin binary from `obs-plugins/64bit` into your OBS plugin binary path.
+- Copy `data/obs-plugins/obs-vdoninja` into your OBS data path.
+
+**Linux:**
+- Copy the plugin binary from `lib/x86_64-linux-gnu/obs-plugins` into your OBS plugin binary path.
+- Copy `share/obs/obs-plugins/obs-vdoninja` into your OBS data path.
 
 **macOS:**
 OBS on macOS requires a `.plugin` bundle. Create this structure under `~/Library/Application Support/obs-studio/plugins/`:

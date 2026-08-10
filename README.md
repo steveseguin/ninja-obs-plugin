@@ -79,7 +79,7 @@ In practice, many teams use both: VDO.Ninja workflows for interactive contributi
 - `VDO.Ninja Source` defaults to a browser-backed viewer path; `Use Native Receiver (Experimental)` switches to an experimental native VP9/H.264/Opus receive path.
 - Compatible dual-track VP9 alpha senders can preserve transparency in the native receiver. The tested user-facing path is [Game Capture](https://github.com/steveseguin/game-capture) publishing a Spout2 avatar/graphics source with VP9 alpha enabled.
 - Plugin injects a `VDO.Ninja` destination into OBS Stream service list via `rtmp-services` catalog compatibility.
-- `Tools -> VDO.Ninja Control Center` is the single in-app setup surface for publish config, service apply/start/stop controls, generated links, and runtime peer stats.
+- `Tools -> VDO.Ninja Studio` provides basic publish setup, Go Live/Stop controls, generated links, and runtime peer stats. Advanced service options remain under `Settings -> Stream`.
 - Locale fallback to built-in English strings is supported if locale files are missing.
 - Remote OBS control is not yet a fully hardened command surface.
 
@@ -120,14 +120,14 @@ Portable OBS note: if launching from terminal, start `obs64.exe` from `bin\64bit
 1. OBS -> `Settings` -> `Stream`
 2. Service: `VDO.Ninja`
 3. `Server` should stay at default (`wss://wss.vdo.ninja:443`) unless self-hosting or troubleshooting signaling; `wss://proxywss.rtc.ninja:443` is available as a fallback.
-4. Use OBS -> `Tools` -> `VDO.Ninja Control Center` for full setup (stream ID, password, room, salt, signaling).
-   - `Signaling Server` and `Salt` are optional; leave blank to use defaults.
+4. For basic setup, open OBS -> `Tools` -> `VDO.Ninja Studio` and enter the stream ID, password, and optional room.
+   - Configure advanced options such as `Signaling Server`, `Salt`, custom ICE/TURN, and packet protection under `Settings -> Stream`; leave optional values blank to use defaults.
 5. `Stream Key` remains visible in OBS for compatibility; if you use it directly, set your stream ID or an advanced envelope:
    - URL: `https://vdo.ninja/?push=<StreamID>&password=<Password>&room=<RoomID>&salt=<Salt>&wss=<WSS_URL>`
    - Compact: `<StreamID>|<Password>|<RoomID>|<Salt>|<WSS_URL>`
 6. Click `Start Streaming`
 
-Control Center note: `Start Publishing`/`Stop Publishing` are shortcuts to OBS `Start Streaming`/`Stop Streaming` for the same active stream slot. They are not a second parallel output path.
+Studio note: `Go Live`/`Stop` use the same OBS `Start Streaming`/`Stop Streaming` pipeline and active stream slot. They are not a second parallel output path. If you configured advanced service options, save them under `Settings -> Stream` and use OBS `Start Streaming`; Studio `Go Live` rebuilds the service from the dock's basic fields and default advanced values.
 
 The plugin parses stream-key URLs like:
 

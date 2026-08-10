@@ -9,6 +9,7 @@
 
 #include <condition_variable>
 #include <functional>
+#include <memory>
 #include <mutex>
 #include <set>
 #include <string>
@@ -55,6 +56,8 @@ private:
 	AutoInboundRemovalGraceState pendingListingRemovals_;
 	std::condition_variable removalCv_;
 	std::thread removalThread_;
+	std::shared_ptr<AutoInboundSceneAssignmentState> sceneAssignments_ =
+	    std::make_shared<AutoInboundSceneAssignmentState>();
 };
 
 } // namespace vdoninja

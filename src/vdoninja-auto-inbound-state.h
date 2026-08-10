@@ -96,4 +96,30 @@ private:
 	std::map<std::string, int64_t> deadlinesByStream_;
 };
 
+class AutoInboundSceneAssignmentState
+{
+public:
+	void remember(const std::string &sourceName, const std::string &sceneUuid)
+	{
+		if (!sourceName.empty() && !sceneUuid.empty()) {
+			sceneUuidBySource_[sourceName] = sceneUuid;
+		}
+	}
+
+	std::string take(const std::string &sourceName)
+	{
+		const auto it = sceneUuidBySource_.find(sourceName);
+		if (it == sceneUuidBySource_.end()) {
+			return {};
+		}
+
+		const std::string sceneUuid = it->second;
+		sceneUuidBySource_.erase(it);
+		return sceneUuid;
+	}
+
+private:
+	std::map<std::string, std::string> sceneUuidBySource_;
+};
+
 } // namespace vdoninja

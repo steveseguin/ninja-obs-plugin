@@ -162,9 +162,11 @@ void VDOAutoSceneManager::stop()
 		return;
 	}
 
+	const auto sceneAssignments = sceneAssignments_;
 	for (const auto &streamId : managedStreamsSnapshot) {
 		const std::string sourceName = sourceNameForStream(streamId);
-		runOnUiThread([sourceName]() {
+		runOnUiThread([sourceName, sceneAssignments]() {
+			sceneAssignments->take(sourceName);
 			obs_source_t *source = obs_get_source_by_name(sourceName.c_str());
 			if (!source) {
 				return;
@@ -251,8 +253,9 @@ void VDOAutoSceneManager::onStreamAdded(const std::string &streamId)
 	}
 
 	const std::string sourceName = sourceNameForStream(streamId);
+	const auto sceneAssignments = sceneAssignments_;
 
-	runOnUiThread([sourceName, sourceUrl, switchScene, sourceWidth, sourceHeight, targetScene]() {
+	runOnUiThread([sourceName, sourceUrl, switchScene, sourceWidth, sourceHeight, targetScene, sceneAssignments]() {
 		obs_source_t *sceneSource = acquireTargetSceneSource(targetScene);
 		obs_scene_t *scene = sceneSource ? obs_scene_from_source(sceneSource) : nullptr;
 
@@ -279,6 +282,10 @@ void VDOAutoSceneManager::onStreamAdded(const std::string &streamId)
 			}
 			if (item) {
 				obs_sceneitem_set_visible(item, true);
+				const char *sceneUuid = obs_source_get_uuid(sceneSource);
+				if (sceneUuid && *sceneUuid) {
+					sceneAssignments->remember(sourceName, sceneUuid);
+				}
 			}
 		}
 
@@ -360,12 +367,15 @@ bool VDOAutoSceneManager::queueStreamRemovalLocked(const std::string &streamId)
 	const std::string targetScene = settings_.targetScene;
 	const std::string sourceName = makeSourceName(settings_.sourcePrefix, streamId);
 	const bool refreshLayout = settings_.layoutMode == AutoLayoutMode::Grid;
+	const auto sceneAssignments = sceneAssignments_;
 
 	// Queue while holding stateMutex_ so a concurrent re-add is ordered after
 	// this removal on the OBS UI queue.
-	runOnUiThread([sourceName, removeSource, targetScene]() {
+	runOnUiThread([sourceName, removeSource, targetScene, sceneAssignments]() {
 		obs_source_t *source = obs_get_source_by_name(sourceName.c_str());
-		obs_source_t *sceneSource = acquireTargetSceneSource(targetScene);
+		const std::string assignedSceneUuid = sceneAssignments->take(sourceName);
+		obs_source_t *sceneSource = assignedSceneUuid.empty() ? acquireTargetSceneSource(targetScene)
+		                                                      : obs_get_source_by_uuid(assignedSceneUuid.c_str());
 		obs_scene_t *scene = sceneSource ? obs_scene_from_source(sceneSource) : nullptr;
 
 		if (source && removeSource) {
