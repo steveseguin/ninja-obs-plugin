@@ -20,6 +20,11 @@ param(
 $ErrorActionPreference = "Stop"
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
+$redirectedProcessOutputScript = Join-Path $PSScriptRoot "redirected-process-output.ps1"
+if (-not (Test-Path -LiteralPath $redirectedProcessOutputScript -PathType Leaf)) {
+    throw "Redirected process output helper not found at $redirectedProcessOutputScript"
+}
+. $redirectedProcessOutputScript
 . (Join-Path $PSScriptRoot "test-alpha-validation-common.ps1")
 $obsExePath = (Resolve-Path $ObsExe).Path
 $obsWorkingDirPath = (Resolve-Path $ObsWorkingDirectory).Path
@@ -148,6 +153,9 @@ try {
     $checkProc = [System.Diagnostics.Process]::new()
     $checkProc.StartInfo = $checkStartInfo
     [void]$checkProc.Start()
+    # Start both reads before waiting. Windows redirected pipes are small enough
+    # that progress logging can otherwise fill stderr and deadlock the child.
+    $checkOutputDrain = Start-RedirectedProcessOutputDrain -Process $checkProc
     $checkTimedOutAfterResult = $false
     if (-not $checkProc.WaitForExit($CheckTimeoutSeconds * 1000)) {
         $timedOutPid = $checkProc.Id
@@ -156,11 +164,10 @@ try {
         } catch {
         }
         [void]$checkProc.WaitForExit(10000)
-        $checkStdout = ""
-        $checkStderr = ""
+        $checkOutput = Complete-RedirectedProcessOutputDrain -Drain $checkOutputDrain
+        $checkStdout = $checkOutput.stdout
+        $checkStderr = $checkOutput.stderr
         if ($checkProc.HasExited) {
-            $checkStdout = $checkProc.StandardOutput.ReadToEnd()
-            $checkStderr = $checkProc.StandardError.ReadToEnd()
             Set-Content -Path $checkOut -Value $checkStdout -Encoding UTF8
             Set-Content -Path $checkErr -Value $checkStderr -Encoding UTF8
         }
@@ -175,8 +182,9 @@ try {
             throw "Timed out waiting for source check process PID $timedOutPid after $CheckTimeoutSeconds seconds"
         }
     } else {
-        $checkStdout = $checkProc.StandardOutput.ReadToEnd()
-        $checkStderr = $checkProc.StandardError.ReadToEnd()
+        $checkOutput = Complete-RedirectedProcessOutputDrain -Drain $checkOutputDrain
+        $checkStdout = $checkOutput.stdout
+        $checkStderr = $checkOutput.stderr
         $checkExit = $checkProc.ExitCode
         Set-Content -Path $checkOut -Value $checkStdout -Encoding UTF8
         Set-Content -Path $checkErr -Value $checkStderr -Encoding UTF8

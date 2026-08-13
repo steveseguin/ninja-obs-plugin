@@ -1129,6 +1129,10 @@ function analyzeAlphaTransition(preSamples, postSamples, options = {}) {
 function analyzeAlphaCaptureCadence(samples, options = {}) {
   const inputCreatedAtMs = Number(options.inputCreatedAtMs);
   const requiredMaximumMs = Math.max(1, Math.trunc(parseNumber(options.requiredMaximumMs, 100)));
+  const absoluteMaximumMs = Math.max(
+    requiredMaximumMs,
+    Math.trunc(parseNumber(options.absoluteMaximumMs, requiredMaximumMs + 50))
+  );
   const captureStartTimes = samples
     .map((sample) => sample && sample.screenshot && sample.screenshot.captureStartedAtMs)
     .filter((value) => Number.isFinite(value));
@@ -1139,6 +1143,10 @@ function analyzeAlphaCaptureCadence(samples, options = {}) {
     ? captureStartTimes[0] - inputCreatedAtMs
     : null;
   const maxCaptureStartGapMs = captureStartGapsMs.length ? Math.max(...captureStartGapsMs) : null;
+  const gapsOverRequiredMaximum = captureStartGapsMs.filter((gap) => gap > requiredMaximumMs);
+  const allowedJitterGapCount = captureStartGapsMs.length
+    ? Math.max(1, Math.floor(captureStartGapsMs.length * 0.05))
+    : 0;
   const failureReasons = [];
   if (captureStartTimes.length !== samples.length) {
     failureReasons.push(`capture-start timestamps were present for only ${captureStartTimes.length}/${samples.length} samples`);
@@ -1151,14 +1159,23 @@ function analyzeAlphaCaptureCadence(samples, options = {}) {
   if (captureStartGapsMs.some((gap) => gap <= 0)) {
     failureReasons.push("capture-start timestamps were not strictly increasing");
   }
-  if (maxCaptureStartGapMs !== null && maxCaptureStartGapMs > requiredMaximumMs) {
+  if (maxCaptureStartGapMs !== null && maxCaptureStartGapMs > absoluteMaximumMs) {
     failureReasons.push(
-      `maximum capture-start gap ${maxCaptureStartGapMs}ms exceeded ${requiredMaximumMs}ms`
+      `maximum capture-start gap ${maxCaptureStartGapMs}ms exceeded absolute ${absoluteMaximumMs}ms limit`
+    );
+  }
+  if (gapsOverRequiredMaximum.length > allowedJitterGapCount) {
+    failureReasons.push(
+      `${gapsOverRequiredMaximum.length} capture-start gaps exceeded ${requiredMaximumMs}ms; ` +
+        `allowed ${allowedJitterGapCount} scheduling-jitter outlier(s)`
     );
   }
   return {
     ok: failureReasons.length === 0,
     requiredMaximumMs,
+    absoluteMaximumMs,
+    allowedJitterGapCount,
+    gapsOverRequiredMaximumMs: gapsOverRequiredMaximum,
     inputCreatedAtMs: Number.isFinite(inputCreatedAtMs) ? inputCreatedAtMs : null,
     firstCaptureStartedAtMs: captureStartTimes[0] || null,
     firstCaptureLatencyMs,

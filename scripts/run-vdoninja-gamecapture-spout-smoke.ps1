@@ -205,9 +205,20 @@ function Get-FileBinding {
         return $null
     }
     $resolved = (Resolve-Path -LiteralPath $Path).Path
+    $stream = [IO.File]::Open($resolved, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::ReadWrite)
+    try {
+        $sha256 = [Security.Cryptography.SHA256]::Create()
+        try {
+            $hash = ([BitConverter]::ToString($sha256.ComputeHash($stream))).Replace("-", "").ToLowerInvariant()
+        } finally {
+            $sha256.Dispose()
+        }
+    } finally {
+        $stream.Dispose()
+    }
     return [ordered]@{
         path = $resolved
-        sha256 = (Get-FileHash -LiteralPath $resolved -Algorithm SHA256).Hash.ToLowerInvariant()
+        sha256 = $hash
     }
 }
 

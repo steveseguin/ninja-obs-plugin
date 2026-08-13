@@ -1422,7 +1422,17 @@ void VDONinjaSource::disconnect()
 	setObsSourceAudioActive(false);
 	resetViewRetryState();
 
+	// Tell the publisher to retire this viewer while its data channel is still
+	// open. Closing signaling alone leaves the publisher's peer alive until ICE
+	// times out, which prevents an OBS source toggle from reconnecting promptly.
+	if (peerManager_) {
+		peerManager_->sendDataToAll(R"({"bye":true})");
+	}
+
 	if (signaling_) {
+		if (!settings_.streamId.empty()) {
+			signaling_->stopViewing(settings_.streamId);
+		}
 		if (signaling_->isPublishing()) {
 			signaling_->unpublishStream();
 		}
