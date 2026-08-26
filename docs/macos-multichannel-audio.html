@@ -1,0 +1,426 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="Route separate input pairs from a multichannel macOS audio interface into OBS and publish the combined stereo mix to VDO.Ninja."
+    />
+    <title>macOS Multichannel Audio | OBS Plugin for VDO.Ninja</title>
+    <link rel="icon" type="image/x-icon" href="https://vdo.ninja/media/favicon.ico" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;700;800&family=JetBrains+Mono:wght@400;600&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --ink-strong: #10131a;
+        --ink: #1c2431;
+        --muted: #5f7289;
+        --card: #ffffff;
+        --line: #d9e3ef;
+        --accent: #00a596;
+        --accent-strong: #00786d;
+        --accent-soft: #e7faf8;
+        --warning-soft: #fff7e6;
+        --warning-line: #f0c36c;
+        --radius: 16px;
+        --shadow: 0 12px 40px rgba(5, 24, 43, 0.09);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html {
+        scroll-behavior: smooth;
+      }
+
+      body {
+        margin: 0;
+        font-family: "Outfit", "Segoe UI", sans-serif;
+        color: var(--ink);
+        background:
+          radial-gradient(circle at 5% 0%, #d5f4ef 0%, transparent 40%),
+          radial-gradient(circle at 95% 10%, #d9e9ff 0%, transparent 45%),
+          linear-gradient(180deg, #f5f8fd 0%, #eff4fb 100%);
+      }
+
+      a {
+        color: #0d6a9e;
+      }
+
+      .wrap {
+        width: min(920px, 92vw);
+        margin: 0 auto;
+      }
+
+      header {
+        padding: 20px 0;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+      }
+
+      .brand {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        color: var(--ink-strong);
+        font-weight: 700;
+        text-decoration: none;
+      }
+
+      .brand img {
+        width: 28px;
+        height: 28px;
+        object-fit: contain;
+        border-radius: 7px;
+        box-shadow: 0 0 0 5px rgba(0, 165, 150, 0.14);
+      }
+
+      .nav {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+      }
+
+      .nav a {
+        color: var(--ink);
+        text-decoration: none;
+        border: 1px solid var(--line);
+        background: rgba(255, 255, 255, 0.7);
+        padding: 8px 12px;
+        border-radius: 999px;
+      }
+
+      main {
+        display: grid;
+        gap: 14px;
+        padding-bottom: 34px;
+      }
+
+      .hero,
+      .section {
+        background: var(--card);
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        padding: clamp(18px, 4vw, 30px);
+        box-shadow: var(--shadow);
+      }
+
+      .eyebrow {
+        margin: 0;
+        color: var(--accent-strong);
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        font-size: 0.76rem;
+        font-weight: 700;
+      }
+
+      h1 {
+        margin: 10px 0 10px;
+        color: var(--ink-strong);
+        font-size: clamp(2rem, 6vw, 3.2rem);
+        line-height: 1.06;
+      }
+
+      h2 {
+        margin: 0 0 12px;
+        color: var(--ink-strong);
+        font-size: 1.3rem;
+      }
+
+      h3 {
+        margin: 18px 0 8px;
+        color: var(--ink-strong);
+        font-size: 1.05rem;
+      }
+
+      p {
+        line-height: 1.55;
+      }
+
+      .lede {
+        margin: 0;
+        color: var(--muted);
+        max-width: 68ch;
+        font-size: 1.08rem;
+      }
+
+      .answer {
+        margin-top: 20px;
+        padding: 14px 16px;
+        border: 1px solid #bdebe5;
+        border-radius: 12px;
+        background: var(--accent-soft);
+      }
+
+      .warning {
+        padding: 14px 16px;
+        border: 1px solid var(--warning-line);
+        border-radius: 12px;
+        background: var(--warning-soft);
+      }
+
+      .flow {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 10px;
+        margin-top: 16px;
+      }
+
+      .card {
+        padding: 14px;
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        background: #fbfdff;
+      }
+
+      .card strong {
+        display: block;
+        margin-bottom: 6px;
+      }
+
+      ol,
+      ul {
+        margin: 0;
+        padding-left: 1.3rem;
+        color: var(--muted);
+      }
+
+      li {
+        line-height: 1.5;
+      }
+
+      li + li {
+        margin-top: 8px;
+      }
+
+      code {
+        font-family: "JetBrains Mono", monospace;
+        font-size: 0.86em;
+        color: #133a36;
+        background: #eaf6f3;
+        border: 1px solid #c8e7e2;
+        border-radius: 6px;
+        padding: 2px 6px;
+      }
+
+      pre {
+        margin: 10px 0 0;
+        padding: 12px;
+        overflow-x: auto;
+        color: #d8ebff;
+        background: #0f1724;
+        border-radius: 12px;
+      }
+
+      pre code {
+        color: inherit;
+        background: transparent;
+        border: 0;
+        padding: 0;
+      }
+
+      footer {
+        padding: 2px 0 34px;
+        color: #6f8298;
+        font-size: 0.92rem;
+      }
+
+      @media (max-width: 760px) {
+        header {
+          align-items: flex-start;
+          flex-direction: column;
+        }
+
+        .nav {
+          justify-content: flex-start;
+        }
+
+        .flow {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <a class="brand" href="./">
+          <img
+            src="https://raw.githubusercontent.com/steveseguin/vdo.ninja/develop/media/vdoninja.png"
+            alt="VDO.Ninja logo"
+          />
+          <span>OBS Plugin for VDO.Ninja</span>
+        </a>
+        <nav class="nav">
+          <a href="#setup">Setup</a>
+          <a href="#two-camera">Two-camera workflow</a>
+          <a href="#limits">Limits</a>
+        </nav>
+      </header>
+
+      <main>
+        <section class="hero">
+          <p class="eyebrow">macOS audio-interface guide</p>
+          <h1>Send Scarlett inputs 1–2 and 3–4 with VDO.Ninja</h1>
+          <p class="lede">
+            Chrome normally exposes only the first stereo pair of a multichannel interface. OBS 32.2 can select
+            other CoreAudio input channels, and the OBS VDO.Ninja plugin can publish the resulting OBS mix without a
+            browser capture path or paid virtual-audio software.
+          </p>
+          <div class="answer">
+            <strong>What the plugin supports:</strong> one OBS audio mix, encoded as one VDO.Ninja-compatible Opus
+            stream. Route Scarlett 1–2 and 3–4 into that stereo mix in OBS. This solves a combined mic-and-piano feed;
+            it does not deliver four discrete channels to the receiver.
+          </div>
+        </section>
+
+        <section class="section" id="setup">
+          <h2>1. Prepare OBS on the sender's Mac</h2>
+          <ol>
+            <li>
+              Use OBS Studio <strong>32.2.x</strong>. The current prebuilt macOS VDO.Ninja plugin package is for
+              Apple silicon; an Intel Mac requires a compatible source build.
+            </li>
+            <li>Connect and power on the Scarlett before opening OBS.</li>
+            <li>In <code>OBS -> Settings -> Audio</code>, set <code>Channels</code> to <code>Stereo</code>.</li>
+            <li>
+              Disable the Scarlett as a global mic in <code>Settings -> Audio</code> if it is enabled there. The two
+              scene sources below should be the only Scarlett captures, which avoids duplicate audio.
+            </li>
+          </ol>
+        </section>
+
+        <section class="section">
+          <h2>2. Create a stereo source for Scarlett inputs 1–2</h2>
+          <ol>
+            <li>In <code>Sources</code>, select <code>+</code>, then <code>Audio Input Capture</code>.</li>
+            <li>Create a <strong>new</strong> source named <code>Scarlett Mic 1-2</code>.</li>
+            <li>Select the Scarlett under <code>Device</code> and turn off <code>Enable Downmixing</code>.</li>
+            <li>Set OBS <code>Channel 1</code> to Scarlett device channel 1.</li>
+            <li>Set OBS <code>Channel 2</code> to Scarlett device channel 2.</li>
+          </ol>
+          <p class="warning">
+            If the channel selectors do not appear immediately after selecting the Scarlett, click OK and reopen the
+            source's Properties. OBS populates the channel list after the device has initialized.
+          </p>
+        </section>
+
+        <section class="section">
+          <h2>3. Create a stereo source for Scarlett inputs 3–4</h2>
+          <ol>
+            <li>Add another <code>Audio Input Capture</code> and create a <strong>new</strong> source.</li>
+            <li>Name it <code>Scarlett Piano 3-4</code> and select the same Scarlett device.</li>
+            <li>Turn off <code>Enable Downmixing</code>.</li>
+            <li>Set OBS <code>Channel 1</code> to Scarlett device channel 3.</li>
+            <li>Set OBS <code>Channel 2</code> to Scarlett device channel 4.</li>
+          </ol>
+          <p>
+            Do not choose <code>Add Existing</code>: the mic and piano need separate source instances with different
+            channel maps.
+          </p>
+        </section>
+
+        <section class="section">
+          <h2>4. Put both sources on the streaming mix</h2>
+          <ol>
+            <li>Open <code>Advanced Audio Properties</code> from the Audio Mixer.</li>
+            <li>Enable <code>Track 1</code> for both Scarlett sources. Disable Track 1 for any source you do not want to send.</li>
+            <li>Set mic and piano levels while watching the OBS meters. Avoid clipping at the Scarlett and in OBS.</li>
+            <li>
+              If OBS uses Advanced Output mode, confirm <code>Settings -> Output -> Streaming -> Audio Track</code> is
+              <code>1</code>. Track 1 is also the normal Simple Output default.
+            </li>
+          </ol>
+        </section>
+
+        <section class="section" id="two-camera">
+          <h2>5. Choose how to keep the two camera views</h2>
+          <div class="flow">
+            <div class="card">
+              <strong>Keep both Ninja camera tabs</strong>
+              Mute their outgoing microphones. Publish a third, OBS-based stream for the combined audio. The remote
+              side can listen without receiving its video.
+            </div>
+            <div class="card">
+              <strong>Use one OBS program feed</strong>
+              Add both cameras to an OBS scene, arrange the desired layout, and let the plugin publish that scene plus
+              the combined Scarlett audio as one stream.
+            </div>
+            <div class="card">
+              <strong>Pair audio with one camera</strong>
+              Put one camera in OBS with both audio sources, publish it through the plugin, and keep the second Ninja
+              tab video-only.
+            </div>
+          </div>
+
+          <h3>Audio-only receiving link for the three-stream option</h3>
+          <p>
+            Configure <code>Tools -> VDO.Ninja Studio</code> with a unique stream ID such as
+            <code>PianoAudioMix</code>, then start streaming. At the receiver, open:
+          </p>
+          <pre><code>https://vdo.ninja/?view=PianoAudioMix&amp;novideo</code></pre>
+          <p>
+            Add the same password or room parameters used by the publisher. The <code>&amp;novideo</code> option tells the
+            receiver not to request the OBS video track, reducing network and decode load.
+          </p>
+        </section>
+
+        <section class="section">
+          <h2>6. Test before the performance</h2>
+          <ol>
+            <li>Play only the mic into Scarlett 1–2 and verify only the mic source meter moves.</li>
+            <li>Play only the piano into Scarlett 3–4 and verify only the piano source meter moves.</li>
+            <li>Listen to the remote VDO.Ninja link and confirm both signals are present and balanced.</li>
+            <li>Mute the two browser-tab microphones and confirm there is no doubling, echo, or comb filtering.</li>
+            <li>Save the OBS scene collection and profile so the sender only needs to open OBS and start streaming later.</li>
+          </ol>
+        </section>
+
+        <section class="section" id="limits">
+          <h2>Current limits and future work</h2>
+          <ul>
+            <li>
+              The plugin publishes one OBS streaming destination and one selected OBS audio track. It does not publish
+              OBS tracks 1 and 2 as separate VDO.Ninja stream IDs at the same time.
+            </li>
+            <li>
+              The supported browser-compatible output is mono or stereo Opus. Sending a four-channel Opus packet is
+              not a substitute for two independently controllable stereo feeds.
+            </li>
+            <li>
+              If separate mic and piano feeds are required at the receiver, the plugin would need an auxiliary-output
+              feature: multiple simultaneous VDO.Ninja publishers, each with its own stream ID and OBS audio-track
+              selection. That is a larger feature than multichannel device capture; OBS 32.2 already provides the
+              device channel mapping used in this guide.
+            </li>
+          </ul>
+        </section>
+
+        <section class="section">
+          <h2>References</h2>
+          <ul>
+            <li>
+              <a href="https://github.com/obsproject/obs-studio/blob/32.2.0/plugins/mac-capture/mac-audio.c"
+                >OBS 32.2 CoreAudio channel-mapping implementation</a
+              >
+            </li>
+            <li><a href="https://docs.vdo.ninja/advanced-settings/video-parameters/and-novideo">VDO.Ninja <code>&amp;novideo</code> documentation</a></li>
+            <li><a href="https://github.com/steveseguin/ninja-obs-plugin/blob/main/INSTALL.md#install-macos">macOS plugin installation</a></li>
+            <li><a href="./#quick-start">OBS VDO.Ninja plugin quick start</a></li>
+          </ul>
+        </section>
+      </main>
+
+      <footer>OBS Plugin for VDO.Ninja - AGPL-3.0-only</footer>
+    </div>
+  </body>
+</html>
