@@ -1,12 +1,57 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const {
+  hasAudioConcealment,
   analyzePcm16Le,
   createPcm16Wav,
 } = require("./tools/audio-continuity-analysis.cjs");
 
 const sampleRate = 48000;
 const toneHz = 997;
+
+test("discarded redundant audio is not evidence of a transport gap", () => {
+  // Browser-only Opus RED loopback: 778 packets received, clean PCM, no loss
+  // or concealment, but 747 redundant packets discarded by NetEq.
+  assert.equal(
+    hasAudioConcealment({
+      packetsLost: 0,
+      packetsDiscarded: 747,
+      concealedSamples: 0,
+      concealmentEvents: 0,
+    }),
+    false,
+  );
+});
+
+test("audio concealment still fails independently of discarded redundancy", () => {
+  for (const metric of ["concealedSamples", "concealmentEvents"]) {
+    assert.equal(
+      hasAudioConcealment({
+        packetsLost: 0,
+        packetsDiscarded: 747,
+        concealedSamples: 0,
+        concealmentEvents: 0,
+        [metric]: 1,
+      }),
+      true,
+      metric,
+    );
+  }
+});
+
+test("RED can recover lost packets without an audio gap", () => {
+  // Impaired relay run: four missing primary packets, but clean decoded PCM
+  // and zero concealment because the redundant copies supplied the audio.
+  assert.equal(
+    hasAudioConcealment({
+      packetsLost: 4,
+      packetsDiscarded: 1492,
+      concealedSamples: 0,
+      concealmentEvents: 0,
+    }),
+    false,
+  );
+});
 
 function makeTone(seconds = 2, amplitude = 0.08) {
   const sampleCount = Math.floor(sampleRate * seconds);

@@ -2,7 +2,22 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const {
   analyzeVideoContinuity,
+  hasDecodedVideoProgress,
 } = require("./tools/video-continuity-analysis.cjs");
+
+test("a cached first picture cannot satisfy decoded-video warmup", () => {
+  assert.equal(hasDecodedVideoProgress(snapshot(0, 1), snapshot(2000, 1), 30), false);
+  assert.equal(hasDecodedVideoProgress(snapshot(0, 1), snapshot(2000, 2), 30), false);
+  assert.equal(hasDecodedVideoProgress(snapshot(0, 1), snapshot(2000, 31), 30), true);
+});
+
+test("received packets and a decoder counter reset cannot satisfy warmup", () => {
+  assert.equal(
+    hasDecodedVideoProgress(snapshot(0, 10), snapshot(2000, 100, { framesDecoded: 10 }), 30),
+    false,
+  );
+  assert.equal(hasDecodedVideoProgress(snapshot(0, 100), snapshot(2000, 1), 30), false);
+});
 
 function snapshot(timestamp, frames, options = {}) {
   return {

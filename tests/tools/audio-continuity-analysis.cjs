@@ -205,7 +205,16 @@ function createPcm16Wav(pcm, sampleRate, channels = 1) {
   return Buffer.concat([header, pcm]);
 }
 
+function hasAudioConcealment(metrics) {
+  // NetEq counts unused RED copies as packetsDiscarded even when every primary
+  // packet arrives. Conversely, a lost primary can be recovered by RED without
+  // concealment. Keep packet counters in reports; use concealment and the
+  // separate PCM analysis to detect audio gaps instead of rejecting repairs.
+  return metrics.concealedSamples > 0 || metrics.concealmentEvents > 0;
+}
+
 module.exports = {
+  hasAudioConcealment,
   analyzePcm16Le,
   createPcm16Wav,
 };

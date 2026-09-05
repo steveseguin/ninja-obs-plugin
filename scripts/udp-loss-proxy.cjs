@@ -33,13 +33,14 @@ async function main() {
   }
   const remoteAddress = addresses[0].address;
   const socket = dgram.createSocket("udp4");
-  let client = null;
+  const clients = new Map();
   let firstPacketAt = 0;
   const counters = {
     clientToRemote: 0,
     remoteToClient: 0,
     droppedClientToRemote: 0,
     droppedRemoteToClient: 0,
+    rejectedClients: 0,
   };
 
   function shouldDrop(direction) {
@@ -63,20 +64,37 @@ async function main() {
     if (!firstPacketAt) {
       firstPacketAt = Date.now();
     }
-    const fromRemote =
-      rinfo.address === remoteAddress && rinfo.port === remotePort;
-    if (fromRemote) {
-      if (!client || shouldDrop("remoteToClient")) {
-        return;
-      }
-      socket.send(message, client.port, client.address);
-      return;
-    }
-    client = { address: rinfo.address, port: rinfo.port };
     if (shouldDrop("clientToRemote")) {
       return;
     }
-    socket.send(message, remotePort, remoteAddress);
+    const key = `${rinfo.address}:${rinfo.port}`;
+    let upstream = clients.get(key);
+    if (!upstream) {
+      // ICE can use several local sockets. Sharing one upstream socket loses
+      // the originating client and can deliver TURN authentication/media to
+      // a different socket. Keep each association stable until proxy shutdown.
+      if (clients.size >= 256) {
+        counters.rejectedClients += 1;
+        return;
+      }
+      upstream = dgram.createSocket("udp4");
+      clients.set(key, upstream);
+      upstream.on("message", (reply, remote) => {
+        if (
+          remote.address !== remoteAddress ||
+          remote.port !== remotePort ||
+          shouldDrop("remoteToClient")
+        ) {
+          return;
+        }
+        socket.send(reply, rinfo.port, rinfo.address);
+      });
+      upstream.on("error", (error) => {
+        console.error(`[udp-loss-proxy] ${error.stack || error}`);
+        process.exitCode = 1;
+      });
+    }
+    upstream.send(message, remotePort, remoteAddress);
   });
   socket.on("error", (error) => {
     console.error(`[udp-loss-proxy] ${error.stack || error}`);
@@ -104,6 +122,9 @@ async function main() {
   function stop() {
     clearInterval(reportTimer);
     console.error(`[udp-loss-proxy] final ${JSON.stringify(counters)}`);
+    for (const upstream of clients.values()) {
+      upstream.close();
+    }
     socket.close(() => process.exit(process.exitCode || 0));
   }
   process.on("SIGINT", stop);

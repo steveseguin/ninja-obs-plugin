@@ -4,11 +4,13 @@ const crypto = require("crypto");
 const childProcess = require("child_process");
 const { chromium } = require("playwright");
 const {
+  hasAudioConcealment,
   analyzePcm16Le,
   createPcm16Wav,
 } = require("../tests/tools/audio-continuity-analysis.cjs");
 const {
   analyzeVideoContinuity,
+  hasDecodedVideoProgress,
 } = require("../tests/tools/video-continuity-analysis.cjs");
 const {
   analyzePresentationContinuity,
@@ -798,7 +800,12 @@ async function startPresentationCapture(page, requireMarker, markerFormat) {
         }
         const sourceTrack = video.srcObject.getVideoTracks()[0].clone();
         capture.processorTrack = sourceTrack;
-        const processor = new MediaStreamTrackProcessor({ track: sourceTrack });
+        // The default one-frame queue can discard already-decoded pictures
+        // during a short delivery burst before JavaScript can inspect them.
+        const processor = new MediaStreamTrackProcessor({
+          track: sourceTrack,
+          maxBufferSize: 8,
+        });
         capture.processorReader = processor.readable.getReader();
         capture.processorDone = (async () => {
           try {
@@ -2201,10 +2208,6 @@ async function main() {
 
     fs.mkdirSync(outputDir, { recursive: true });
     let decodedAudioCaptureStart = null;
-    if (captureDecodedAudio) {
-      logStep("capturing decoded viewer audio as PCM");
-      decodedAudioCaptureStart = await startDecodedAudioCapture(page);
-    }
     let firstObsBrowserScreenshot = null;
     if (createdObsBrowserViewer) {
       await sleep(3000);
@@ -2228,6 +2231,28 @@ async function main() {
 
     if (viewerStabilizeMs > 0) {
       await sleep(viewerStabilizeMs);
+    }
+    // A cached IDR can make the element playable before live decoding starts.
+    // Require another second of decoded frames, otherwise the first inter-frame
+    // interval can straddle startup and falsely fail the steady-state gate.
+    const warmupStart = await collectViewerSnapshot(page);
+    const warmupFrames = Math.ceil(
+      appliedVideoSettings.fpsNumerator / appliedVideoSettings.fpsDenominator,
+    );
+    let warmupEnd = warmupStart;
+    while (
+      !hasDecodedVideoProgress(warmupStart, warmupEnd, warmupFrames) &&
+      Date.now() < deadline
+    ) {
+      await sleep(200);
+      warmupEnd = await collectViewerSnapshot(page);
+    }
+    if (!hasDecodedVideoProgress(warmupStart, warmupEnd, warmupFrames)) {
+      throw new Error("Viewer never progressed from its initial frame to live video");
+    }
+    if (captureDecodedAudio) {
+      logStep("capturing decoded viewer audio as PCM");
+      decodedAudioCaptureStart = await startDecodedAudioCapture(page);
     }
     let presentationCaptureStart = null;
     if (requirePresentationContinuity || requireVisualSequence) {
@@ -2453,10 +2478,12 @@ async function main() {
       if (
         !audioContinuityFailure &&
         requireZeroAudioConcealment &&
-        (newAudioPacketsLost > 0 ||
-          newPacketsDiscarded > 0 ||
-          newConcealedSamples > 0 ||
-          newConcealmentEvents > 0)
+        hasAudioConcealment({
+          packetsLost: newAudioPacketsLost,
+          packetsDiscarded: newPacketsDiscarded,
+          concealedSamples: newConcealedSamples,
+          concealmentEvents: newConcealmentEvents,
+        })
       ) {
         audioContinuityFailure =
           `Chrome recorded ${newAudioPacketsLost} newly lost audio packet(s), ` +

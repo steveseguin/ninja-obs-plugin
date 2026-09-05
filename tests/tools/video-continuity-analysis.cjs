@@ -17,6 +17,13 @@ function totalPcMetric(snapshot, key) {
   );
 }
 
+function hasDecodedVideoProgress(before, after, minimumFrames) {
+  return (
+    totalPcMetric(after, "framesDecoded") - totalPcMetric(before, "framesDecoded") >=
+    Math.max(2, minimumFrames)
+  );
+}
+
 function primaryVideoTime(snapshot) {
   const video = (snapshot.videos || []).find(
     (candidate) => candidate.videoTracks > 0,
@@ -220,4 +227,5 @@ function analyzeVideoContinuity(samples, options = {}) {
 
 module.exports = {
   analyzeVideoContinuity,
+  hasDecodedVideoProgress,
 };
