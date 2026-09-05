@@ -25,7 +25,7 @@ function analyzePresentationContinuity(records, options = {}) {
     options.maximumPresentationStallMs ?? Math.max(100, expectedIntervalMs * 3.5),
   );
   const maximumPresentedFrameJumps = Number(
-    options.maximumPresentedFrameJumps ?? 0,
+    options.maximumPresentedFrameJumps ?? Infinity,
   );
   const maximumMarkerErrors = Number(options.maximumMarkerErrors ?? 0);
   const requireMarker = options.requireMarker === true;
@@ -40,6 +40,15 @@ function analyzePresentationContinuity(records, options = {}) {
     throw new Error("Presentation continuity records did not contain two valid frames");
   }
 
+  // requestVideoFrameCallback is best-effort: counter jumps indicate missed callbacks,
+  // not necessarily missing video. Prefer the compositor submission timestamp.
+  // https://wicg.github.io/video-rvfc/
+  const timeKey = valid.every((record) => Number.isFinite(record.presentationTime))
+    ? "presentationTime" : "callbackTime";
+  const timingBasis = timeKey === "presentationTime" ? "compositor submission" : "callback arrival";
+  let rtpComparedIntervals = 0;
+  let missingMediaFrames = 0;
+  let excessPresentedFrames = 0;
   const callbackIntervalsMs = [];
   const callbackDeviationsMs = [];
   const mediaIntervalsMs = [];
@@ -58,14 +67,25 @@ function analyzePresentationContinuity(records, options = {}) {
   for (let index = 1; index < valid.length; index += 1) {
     const before = valid[index - 1];
     const after = valid[index];
-    const callbackInterval = Number(after.callbackTime) - Number(before.callbackTime);
+    const callbackInterval = Number(after[timeKey]) - Number(before[timeKey]);
     const mediaInterval = (Number(after.mediaTime) - Number(before.mediaTime)) * 1000;
     callbackIntervalsMs.push(callbackInterval);
-    callbackDeviationsMs.push(Math.abs(callbackInterval - expectedIntervalMs));
+    const counterDelta = Number(after.presentedFrames) - Number(before.presentedFrames);
+    callbackDeviationsMs.push(Math.abs(callbackInterval / Math.max(1, counterDelta) - expectedIntervalMs));
+    // WebRTC mediaTime may follow the receiver playout clock. Only the RTP
+    // source clock can establish missing fixed-rate source frames here.
+    const hasRtp = Number.isInteger(before.rtpTimestamp) && Number.isInteger(after.rtpTimestamp);
+    const rtpTicks = hasRtp ? (after.rtpTimestamp - before.rtpTimestamp) >>> 0 : 0;
+    const mediaFrames = Math.round(rtpTicks / (90000 / expectedFps));
+    if (hasRtp && counterDelta > 0 && rtpTicks < 0x80000000) {
+      rtpComparedIntervals += 1;
+      missingMediaFrames += Math.max(0, mediaFrames - counterDelta);
+      excessPresentedFrames += Math.max(0, counterDelta - mediaFrames);
+    }
     mediaIntervalsMs.push(mediaInterval);
     driftMs.push(
       Math.abs(
-        (Number(after.callbackTime) - Number(first.callbackTime)) -
+        (Number(after[timeKey]) - Number(first[timeKey])) -
           (Number(after.mediaTime) - Number(first.mediaTime)) * 1000,
       ),
     );
@@ -95,8 +115,8 @@ function analyzePresentationContinuity(records, options = {}) {
         markerDuplicates += 1;
       } else if (markerDelta > 32768) {
         markerBackwards += 1;
-      } else if (markerDelta > 1) {
-        markerSkipped += markerDelta - 1;
+      } else if (markerDelta > presentedDelta) {
+        markerSkipped += markerDelta - presentedDelta;
       }
     }
   }
@@ -105,13 +125,14 @@ function analyzePresentationContinuity(records, options = {}) {
   }
 
   const durationSeconds =
-    (Number(valid[valid.length - 1].callbackTime) -
-      Number(valid[0].callbackTime)) /
+    (Number(valid[valid.length - 1][timeKey]) -
+      Number(valid[0][timeKey])) /
     1000;
   if (!(durationSeconds > 0)) {
     throw new Error("Presentation callbacks must have increasing timestamps");
   }
-  const averagePresentedFps = (valid.length - 1) / durationSeconds;
+  const averagePresentedFps =
+    (Number(valid[valid.length - 1].presentedFrames) - Number(first.presentedFrames)) / durationSeconds;
   const averageFpsRatio = averagePresentedFps / expectedFps;
   const maximumCallbackIntervalMs = Math.max(...callbackIntervalsMs);
   const p99CallbackDeviationMs = percentile(callbackDeviationsMs, 0.99);
@@ -145,8 +166,11 @@ function analyzePresentationContinuity(records, options = {}) {
   ) {
     failures.push(
       `presented-frame counter recorded ${duplicatePresentedFrames} duplicate, ` +
-        `${nonForwardPresentedFrames} backwards, and ${presentedFrameJumps} skipped frame(s)`,
+        `${nonForwardPresentedFrames} backwards, and ${presentedFrameJumps} missed callback(s)`,
     );
+  }
+  if (missingMediaFrames > 0 || excessPresentedFrames > 0) {
+    failures.push(`${missingMediaFrames} missing media frame(s), ${excessPresentedFrames} excess presented frame(s)`);
   }
   if (nonForwardMediaTimes > 0) {
     failures.push(`${nonForwardMediaTimes} media timestamp(s) did not advance`);
@@ -165,6 +189,10 @@ function analyzePresentationContinuity(records, options = {}) {
     ok: failures.length === 0,
     failures,
     expectedFps,
+    timingBasis,
+    rtpComparedIntervals,
+    missingMediaFrames,
+    excessPresentedFrames,
     expectedIntervalMs,
     durationSeconds,
     frameCount: valid.length,

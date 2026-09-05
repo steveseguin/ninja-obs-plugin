@@ -515,6 +515,9 @@ async function collectViewerSnapshot(page) {
           let pliCount = 0;
           let keyFramesDecoded = 0;
           let videoJitter = 0;
+          let videoJitterBufferDelay = 0;
+          let videoJitterBufferEmittedCount = 0;
+          let videoJitterBufferTargetDelay = 0;
           let totalInterFrameDelay = 0;
           let totalSquaredInterFrameDelay = 0;
           let framesPerSecond = 0;
@@ -535,6 +538,9 @@ async function collectViewerSnapshot(page) {
               packetsLost += s.packetsLost || 0;
               if (s.kind === "video") {
                 videoPacketsLost += s.packetsLost || 0;
+                videoJitterBufferDelay += s.jitterBufferDelay || 0;
+                videoJitterBufferEmittedCount += s.jitterBufferEmittedCount || 0;
+                videoJitterBufferTargetDelay += s.jitterBufferTargetDelay || 0;
                 inboundVideoBytes += s.bytesReceived || 0;
                 framesDecoded += s.framesDecoded || 0;
                 framesReceived += s.framesReceived || 0;
@@ -598,6 +604,9 @@ async function collectViewerSnapshot(page) {
             pliCount,
             keyFramesDecoded,
             videoJitter,
+            videoJitterBufferDelay,
+            videoJitterBufferEmittedCount,
+            videoJitterBufferTargetDelay,
             totalInterFrameDelay,
             totalSquaredInterFrameDelay,
             framesPerSecond,
@@ -783,6 +792,7 @@ async function startPresentationCapture(page, requireMarker, markerFormat) {
             expectedDisplayTime: metadata.expectedDisplayTime,
             presentationTime: metadata.presentationTime,
             mediaTime: metadata.mediaTime,
+            rtpTimestamp: metadata.rtpTimestamp,
             presentedFrames: metadata.presentedFrames,
             processingDuration: metadata.processingDuration,
             width: metadata.width,
@@ -1203,13 +1213,14 @@ async function main() {
   const sourceMode = String(
     process.env.VDONINJA_SOURCE_MODE || "static",
   ).toLowerCase();
+  const useClockSource = sourceMode === "obs-clock";
   const useMotionSource = sourceMode === "motion";
   const useAudioContinuitySource = sourceMode === "audio-continuity";
   const useMediaSequenceSource = sourceMode === "media-sequence";
   const loopMediaSequence = process.env.VDONINJA_MEDIA_SEQUENCE_LOOP === "1";
   const useGeneratedBrowserSource = useMotionSource || useAudioContinuitySource;
   const useGeneratedVisualSource =
-    useGeneratedBrowserSource || useMediaSequenceSource;
+    useGeneratedBrowserSource || useMediaSequenceSource || useClockSource;
   const requireAudioContinuity =
     useAudioContinuitySource ||
     process.env.VDONINJA_REQUIRE_AUDIO_CONTINUITY === "1";
@@ -1715,6 +1726,12 @@ async function main() {
       generatedSourceInputSettings = await client.request("GetInputSettings", {
         inputName,
       });
+    } else if (useClockSource) {
+      const created = await client.request("CreateInput", {
+        sceneName, inputName, inputKind: "vdoninja_clock_fixture", inputSettings: {}, sceneItemEnabled: true,
+      });
+      programSceneItemId = created.sceneItemId;
+      generatedSourceInputSettings = await client.request("GetInputSettings", { inputName });
     } else if (useMediaSequenceSource) {
       const createdProgramInput = await client.request("CreateInput", {
         sceneName,
@@ -2273,17 +2290,18 @@ async function main() {
       if (
         requireVisualSequence &&
         !useMotionSource &&
-        !useMediaSequenceSource
+        !useMediaSequenceSource &&
+        !useClockSource
       ) {
         throw new Error(
-          "VDONINJA_REQUIRE_VISUAL_SEQUENCE requires motion or media-sequence source mode",
+          "VDONINJA_REQUIRE_VISUAL_SEQUENCE requires motion, media-sequence or obs-clock source mode",
         );
       }
       logStep("capturing every browser-presented video frame");
       presentationCaptureStart = await startPresentationCapture(
         page,
         requireVisualSequence,
-        useMediaSequenceSource ? "counter-complement" : "gray-crc",
+        (useMediaSequenceSource || useClockSource) ? "counter-complement" : "gray-crc",
       );
     }
     const continuityBaseline = await collectViewerSnapshot(page);
@@ -2311,6 +2329,9 @@ async function main() {
     let visualSequenceAnalysis = null;
     if (presentationCaptureStart) {
       presentationCapture = await stopPresentationCapture(page);
+    }
+    if (presentationCapture) {
+      fs.writeFileSync(path.join(outputDir, `obs-presentation-records-${stamp}.json`), JSON.stringify(presentationCapture));
     }
     let decodedAudioCapture = null;
     if (captureDecodedAudio) {

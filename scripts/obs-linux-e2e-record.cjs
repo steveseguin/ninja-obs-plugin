@@ -1,14 +1,15 @@
 // Opt-in recording/control test. Use an isolated OBS profile with WebSocket enabled.
-// Usage: node scripts/obs-linux-e2e-record.cjs file MEDIA_FILE | native STREAM_ID
+// Usage: node scripts/obs-linux-e2e-record.cjs file MEDIA_FILE | native STREAM_ID | clock LABEL
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const childProcess = require('child_process');
 const { ObsWebSocketClient } = require('./obs-websocket-vdoninja-source-check.cjs');
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 async function main() {
   const [mode, input] = process.argv.slice(2);
-  if (!['file', 'native'].includes(mode) || !input) throw new Error('Specify file MEDIA_FILE or native STREAM_ID');
+  if (!['file', 'native', 'clock'].includes(mode) || !input) throw new Error('Specify file MEDIA_FILE, native STREAM_ID or clock LABEL');
   const durationMs = Number(process.env.E2E_DURATION_MS || 30000);
   const width = Number(process.env.E2E_WIDTH || 1280);
   const height = Number(process.env.E2E_HEIGHT || 720);
@@ -46,8 +47,8 @@ async function main() {
     await client.request('CreateScene', { sceneName: scene });
     created = true;
     await client.request('CreateInput', { sceneName: scene, inputName: name,
-      inputKind: mode === 'file' ? 'ffmpeg_source' : 'vdoninja_source',
-      inputSettings: mode === 'file'
+      inputKind: mode === 'file' ? 'ffmpeg_source' : mode === 'clock' ? 'vdoninja_clock_fixture' : 'vdoninja_source',
+      inputSettings: mode === 'clock' ? {} : mode === 'file'
         ? { is_local_file: true, local_file: path.resolve(input), looping: false, restart_on_activate: true }
         : { stream_id: input, password: process.env.VDONINJA_PASSWORD || 'false', use_native_receiver: true,
           auto_reconnect: true, width, height }, sceneItemEnabled: true });
@@ -64,6 +65,15 @@ async function main() {
     report.recording = await client.request('StopRecord');
     await waitForRecordingStop();
     recording = false;
+    if (mode === 'clock' || process.env.E2E_REQUIRE_VISUAL_SEQUENCE === '1') {
+      const analysis = childProcess.spawnSync(process.execPath,
+        [path.join(__dirname, 'analyze-publish-sequence-video.cjs'), report.recording.outputPath], { encoding: 'utf8' });
+      if (analysis.error) throw analysis.error;
+      report.visualSequenceAnalysis = JSON.parse(analysis.stdout);
+      if (analysis.status !== 0 || !report.visualSequenceAnalysis.ok) {
+        throw new Error('Recorded frame-counter validation failed');
+      }
+    }
     if (mode === 'native') {
       // Retire the current receiver and prove moving video returns after restoring its stream.
       await client.request('SetInputSettings', { inputName: name, inputSettings: { stream_id: `${input}_offline` } });
@@ -85,6 +95,7 @@ async function main() {
     }
     report.passed = true;
   } catch (error) {
+    report.passed = false;
     report.failure = String(error);
     throw error;
   } finally {

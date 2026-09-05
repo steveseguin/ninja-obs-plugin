@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Prioritize repeated NACK requests without expanding repair budgets or deadlines, and expire repairs that outlast the shared pacing wait.
 - Correct RTX/RED packet parsing and native Opus timestamp wrapping during long-running reception.
 - Wait for requested source audio observations when screenshot capture is disabled in the validation harness.
+- Prevent repair backlogs from interrupting keyframe delivery and expiring recoverable packets while the RTP pacer has spare capacity.
 - Resolve OBS headers installed below the include directory advertised by Arch pkg-config files.
 - Respect custom XDG configuration directories in Linux per-user installation and removal.
 - Keep unit-test RTC headers out of the native publisher build when libdatachannel is installed in a system include directory.
@@ -27,6 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Repaired VP9 alpha publisher test headers, optional alpha-plane writes, and RTP SSRC signaling, and prevented duplicate OBS module loading in the source stress harness.
 
 ### Added
+- Add packet-reordering regression tests, an opt-in impaired-network runner, and an OBS-clocked pixel-counter fixture to isolate rendering from source-decoder timing.
 - Record real Linux OBS/browser frame, render, encoder and network-stress measurements, with strict regression tests for performance counters and reproducible native receiver recording/recovery tools.
 - Add an Arch/AUR development source recipe with package build, real media, pacman install/reinstall/removal, and OBS initialization checks.
 - Test the native archive installer against a fully installed official Ubuntu OBS package in an isolated container.

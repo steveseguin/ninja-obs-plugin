@@ -19,6 +19,7 @@ function frames(count, options = {}) {
       callbackTime,
       mediaTime,
       presentedFrames: index + 1,
+      rtpTimestamp: Math.round(index * interval * 90),
       markerFrame: marker,
     });
     marker = (marker + 1) & 0xffff;
@@ -47,7 +48,7 @@ test("a single short presentation hitch is detected by strict cadence", () => {
   assert.equal(result.markerErrors, 0);
 });
 
-test("one skipped decoded frame is detected independently of average FPS", () => {
+test("inconsistent media and compositor counters fail independently of average FPS", () => {
   const records = frames(300);
   records[150].presentedFrames += 1;
   for (let index = 151; index < records.length; index += 1) {
@@ -56,7 +57,7 @@ test("one skipped decoded frame is detected independently of average FPS", () =>
   const result = analyzePresentationContinuity(records, { expectedFps: 60 });
   assert.equal(result.presentedFrameJumps, 1);
   assert.equal(result.ok, false);
-  assert.match(result.failures.join(" "), /skipped frame/);
+  assert.match(result.failures.join(" "), /excess presented frame/);
 });
 
 test("duplicate, backwards, skipped, and corrupt visual markers fail", () => {
@@ -79,4 +80,47 @@ test("16-bit marker rollover is forward and continuous", () => {
   const result = analyzeVisualSequence(records);
   assert.equal(result.ok, true);
   assert.equal(result.markerErrors, 0);
+});
+
+test("a missed callback does not mean the compositor skipped a frame", () => {
+  const records = frames(300).filter((_, index) => index !== 150);
+  const result = analyzePresentationContinuity(records, { expectedFps: 60 });
+  assert.equal(result.ok, true);
+  assert.equal(result.presentedFrameJumps, 1);
+  assert.equal(result.missingMediaFrames, 0);
+  assert.ok(result.averagePresentedFps > 59.99);
+});
+
+test("compositor timestamps separate callback lateness from video cadence", () => {
+  const records = frames(300);
+  records.forEach((record, index) => {
+    record.presentationTime = record.callbackTime;
+    if (index >= 150) record.callbackTime += 16;
+  });
+  const result = analyzePresentationContinuity(records, { expectedFps: 60, maximumCallbackDeviationMs: 8 });
+  assert.equal(result.ok, true);
+  assert.equal(result.timingBasis, "compositor submission");
+});
+
+test("missing media is detected even when every compositor callback arrives", () => {
+  const records = frames(300);
+  for (let index = 150; index < records.length; ++index) {
+    records[index].mediaTime += 1 / 60;
+    records[index].rtpTimestamp += 1500;
+  }
+  const result = analyzePresentationContinuity(records, { expectedFps: 60 });
+  assert.equal(result.ok, false);
+  assert.equal(result.missingMediaFrames, 1);
+});
+
+test("receiver playout-clock adjustment is not source-frame loss", () => {
+  const records = frames(300);
+  for (let index = 150; index < records.length; ++index) records[index].mediaTime += 0.020;
+  assert.equal(analyzePresentationContinuity(records, { expectedFps: 60 }).ok, true);
+});
+
+test("RTP timestamp rollover is continuous", () => {
+  const records = frames(300);
+  records.forEach(record => { record.rtpTimestamp = (record.rtpTimestamp + 0xffff0000) >>> 0; });
+  assert.equal(analyzePresentationContinuity(records, { expectedFps: 60 }).ok, true);
 });

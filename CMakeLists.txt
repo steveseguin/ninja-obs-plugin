@@ -608,6 +608,7 @@ if(BUILD_TESTS)
 
     # Unit tests
     add_executable(vdoninja-tests
+        tests/test-obs-clock.cpp
         tests/test-alpha-sync.cpp
         tests/test-audio-red.cpp
         tests/test-auto-inbound.cpp
@@ -975,4 +976,20 @@ if(BUILD_PUBLISHER_TOOL)
     endif()
 
     message(STATUS "VP9 alpha publisher tool enabled")
+endif()
+
+# Opt-in real OBS rendering fixture; never installed in release packages.
+option(BUILD_OBS_CLOCK_FIXTURE "Build the OBS-clocked frame-counter source for E2E isolation" OFF)
+if(BUILD_OBS_CLOCK_FIXTURE)
+    if(NOT BUILD_PLUGIN)
+        message(FATAL_ERROR "BUILD_OBS_CLOCK_FIXTURE requires BUILD_PLUGIN=ON")
+    endif()
+    add_library(vdoninja-clock-fixture MODULE tests/obs-clock-source/main.cpp)
+    set_target_properties(vdoninja-clock-fixture PROPERTIES PREFIX "")
+    target_include_directories(vdoninja-clock-fixture PRIVATE ${LIBOBS_INCLUDE_DIRS})
+    if(TARGET OBS::libobs)
+        target_link_libraries(vdoninja-clock-fixture PRIVATE OBS::libobs)
+    else()
+        target_link_libraries(vdoninja-clock-fixture PRIVATE ${LIBOBS_LIBRARIES})
+    endif()
 endif()

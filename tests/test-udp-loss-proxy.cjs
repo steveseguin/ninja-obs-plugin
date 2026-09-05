@@ -19,6 +19,7 @@ async function startProxy(port, args = []) {
       let output = "";
       timer = setTimeout(() => reject(new Error("Proxy startup timed out")), 3000);
       child.on("error", reject);
+      child.once("exit", code => reject(new Error(`Proxy exited before readiness: ${code}`)));
       child.stdout.on("data", (data) => {
         output += data;
         if (output.includes("\n")) {
@@ -113,4 +114,59 @@ test("UDP proxy still applies deterministic loss in both directions", async () =
   const counters = JSON.parse(log.match(/final (\{[^\n]+\})/)[1]);
   assert.equal(counters.droppedClientToRemote, 2);
   assert.equal(counters.droppedRemoteToClient, 1);
+});
+
+test("UDP proxy deterministically reorders outbound packets without losing or misrouting them", async () => {
+  const server = dgram.createSocket("udp4");
+  const client = dgram.createSocket("udp4");
+  const forwarded = [];
+  server.on("message", data => forwarded.push(data.toString()));
+  server.bind(0, "127.0.0.1");
+  await once(server, "listening");
+  const { child, port } = await startProxy(server.address().port, [
+    "--reorder-every", "2", "--reorder-delay-ms", "50", "--warmup-ms", "0",
+    "--direction", "client-to-remote",
+  ]);
+  try {
+    for (const message of ["1", "2", "3", "4"]) client.send(Buffer.from(message), port, "127.0.0.1");
+    await new Promise(resolve => setTimeout(resolve, 250));
+    assert.deepEqual(forwarded, ["1", "3", "2", "4"]);
+  } finally {
+    child.kill("SIGTERM");
+    await once(child, "exit");
+    client.close(); server.close();
+  }
+});
+
+
+test("UDP proxy can impair replies without reordering client requests", async () => {
+  const server = dgram.createSocket("udp4");
+  const client = dgram.createSocket("udp4");
+  const requests = [], replies = [];
+  server.on("message", (data, remote) => {
+    requests.push(data.toString());
+    server.send(data, remote.port, remote.address);
+  });
+  client.on("message", data => replies.push(data.toString()));
+  server.bind(0, "127.0.0.1");
+  await once(server, "listening");
+  const { child, port } = await startProxy(server.address().port, [
+    "--reorder-every", "2", "--reorder-delay-ms", "50", "--warmup-ms", "0",
+    "--direction", "remote-to-client",
+  ]);
+  try {
+    for (const message of ["1", "2", "3", "4"]) client.send(Buffer.from(message), port, "127.0.0.1");
+    await new Promise(resolve => setTimeout(resolve, 250));
+    assert.deepEqual(requests, ["1", "2", "3", "4"]);
+    assert.deepEqual(replies, ["1", "3", "2", "4"]);
+  } finally {
+    child.kill("SIGTERM"); await once(child, "exit");
+    client.close(); server.close();
+  }
+});
+
+test("UDP proxy rejects invalid impairment settings instead of silently bypassing loss", async () => {
+  await assert.rejects(startProxy(3478, ["--drop-every", "invalid"]), /exited/);
+  await assert.rejects(startProxy(3478, ["--direction", "invalid"]), /exited/);
+  await assert.rejects(startProxy(3478, ["--reorder-delay-ms", "Infinity"]), /exited/);
 });

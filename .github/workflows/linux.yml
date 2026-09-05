@@ -182,6 +182,7 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_INSTALL_PREFIX=/usr \
             -DBUNDLE_LINUX_RUNTIME=ON \
+            -DBUILD_OBS_CLOCK_FIXTURE=ON \
             -DBUILD_NATIVE_MEDIA_LINKED_GATE=ON \
             -DBUILD_PUBLISHER_TOOL=ON \
             -DCMAKE_PREFIX_PATH="/usr/local;${{ github.workspace }}/obs-sdk;${OBS_LIB_DIR}/cmake/libobs;${OBS_LIB_DIR}/cmake/obs-frontend-api" \
@@ -249,7 +250,7 @@ jobs:
             initialization_args=()
             if [[ "$version" == 32.2.* ]]; then
               expect=compatible
-              initialization_args=(--initialize)
+              initialization_args=(--initialize --clock-fixture "$GITHUB_WORKSPACE/build/vdoninja-clock-fixture.so")
             fi
             LD_LIBRARY_PATH="$runtime_dir/usr/local/lib/x86_64-linux-gnu" \
               timeout 60s xvfb-run -a --server-args='-screen 0 1280x720x24 -extension GLX' \
