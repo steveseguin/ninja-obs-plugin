@@ -8,10 +8,27 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <vector>
 
 namespace vdoninja
 {
+
+struct RtpPayloadView {
+	size_t offset = 0;
+	size_t size = 0;
+	uint8_t payloadType = 0;
+};
+
+// Validate RTP headers, extensions, and padding before accessing the payload.
+std::optional<RtpPayloadView> parseRtpPayloadView(const uint8_t *packetData, size_t packetSize);
+
+// Extract the primary encoded block from an RFC 2198 payload.
+std::optional<std::vector<uint8_t>> extractRedPrimaryPayload(const uint8_t *payload, size_t payloadSize);
+
+// Remove the RTX original-sequence prefix in place after validating packet bounds.
+// Returns the new packet size; invalid packets are left untouched.
+std::optional<size_t> normalizeRtxPacket(uint8_t *packetData, size_t packetSize, uint8_t originalPayloadType);
 
 // ---------------------------------------------------------------------------
 // VP9 RTP payload descriptor (RFC 9628)

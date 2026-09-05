@@ -142,8 +142,8 @@ TEST(SignalingStateTest, ReplacedSocketAlertCannotCommitReconnectPolicyAfterCurr
 
 TEST(SignalingStateTest, ReplacedSocketCloseCannotDisconnectOrScheduleReconnect)
 {
-	VDONinjaSignaling signaling;
 	std::atomic<int> disconnectedCount{0};
+	VDONinjaSignaling signaling;
 	signaling.setOnDisconnected([&]() { disconnectedCount.fetch_add(1); });
 
 	auto ws1 = signaling.beginSocketAttemptForTesting();

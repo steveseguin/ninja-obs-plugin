@@ -2180,8 +2180,10 @@ void testCompletionDelayedUntilAfterOwnerShutdownIsRejected()
 	probe.waitUntilBlocked();
 	manager.reset();
 	probe.waitUntilSeen(NativeMediaTestOwnerSessionStage::WorkDrained, PeerManagerCompletionKind::OwnerSession);
-	require(probe.count(NativeMediaTestOwnerSessionStage::WaitingForPermits, PeerManagerCompletionKind::OwnerSession) ==
-	            0,
+	// The live PeerConnection can have unrelated admitted callbacks to drain.
+	// Only this exact feedback completion is held before permit acquisition.
+	require(probe.count(NativeMediaTestOwnerSessionStage::PermitAcquired, PeerManagerCompletionKind::VideoFeedback,
+	                    videoTrack.get()) == 0,
 	        "pre-permit completion was incorrectly admitted into the shutdown drain");
 	probe.releaseBlock();
 	completion.join();

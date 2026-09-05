@@ -452,10 +452,8 @@ private:
 	std::atomic<bool> loggedAlphaTimestampMiss_{false};
 	std::atomic<bool> loggedAlphaPixelFormatMismatch_{false};
 	std::atomic<bool> loggedAlphaDimensionMismatch_{false};
-	uint32_t audioBaseRtpTimestamp_ = 0;
-	uint64_t audioBaseTimestampNs_ = 0;
+	RtpOutputTimestampMapper audioTimestampMapper_;
 	uint64_t lastAudioTimestampNs_ = 0;
-	bool audioTimingInitialized_ = false;
 	std::atomic<int64_t> lastVideoTime_{0};
 	std::atomic<int64_t> lastAudioTime_{0};
 	std::atomic<int64_t> lastKeyframeRequestTime_{0};

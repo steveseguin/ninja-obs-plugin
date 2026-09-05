@@ -171,3 +171,85 @@ TEST(RtpSendTrackerTest, CountsExceptionBeforeRethrowing)
 	EXPECT_EQ(stats.sentPackets, 0u);
 	EXPECT_EQ(stats.sendFailures, 1u);
 }
+
+TEST(RedPayloadTest, SkipsAllRedundantBlocksBeforePrimary)
+{
+	const std::vector<uint8_t> packet{0xE0, 0, 0, 2, 0xE0, 0, 0, 3, 96, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0x67, 0x12};
+	const auto primary = extractRedPrimaryPayload(packet.data(), packet.size());
+	ASSERT_TRUE(primary);
+	EXPECT_EQ(*primary, (std::vector<uint8_t>{0x67, 0x12}));
+}
+
+TEST(RedPayloadTest, RejectsTruncatedRedundantDataAndMissingPrimary)
+{
+	for (const auto &packet : std::vector<std::vector<uint8_t>>{{0xE0, 0, 0, 3, 96, 0xAA}, {0xE0, 0, 0, 1, 96, 0xAA}}) {
+		EXPECT_FALSE(extractRedPrimaryPayload(packet.data(), packet.size()));
+	}
+}
+
+TEST(RedPayloadTest, PreservesPrimaryOnlyPacketsAndRejectsIncompleteHeaders)
+{
+	const std::vector<uint8_t> packet{96, 0x67, 0x12};
+	EXPECT_EQ(extractRedPrimaryPayload(packet.data(), packet.size()), (std::vector<uint8_t>{0x67, 0x12}));
+	for (const auto &invalid : std::vector<std::vector<uint8_t>>{{}, {96}, {0xE0}, {0xE0, 0, 0}, {0xE0, 0, 0, 0}}) {
+		EXPECT_FALSE(extractRedPrimaryPayload(invalid.data(), invalid.size()));
+	}
+}
+
+TEST(RtxPacketTest, PreservesExtensionsCsrcMarkerAndPadding)
+{
+	// One CSRC, one extension word, OSN, media, and four padding bytes.
+	std::vector<uint8_t> packet{0xB1, 0xE1, 0, 9, 1,    2,    3, 4, 5,    6,    7,    8,    9, 10, 11, 12,
+	                            0xBE, 0xDE, 0, 1, 0x10, 0x42, 0, 0, 0x12, 0x34, 0x67, 0x89, 0, 0,  0,  4};
+	auto expected = packet;
+	expected[1] = 0xE0;
+	expected[2] = 0x12;
+	expected[3] = 0x34;
+	expected.erase(expected.begin() + 24, expected.begin() + 26);
+	const auto normalizedSize = normalizeRtxPacket(packet.data(), packet.size(), 96);
+	ASSERT_TRUE(normalizedSize);
+	packet.resize(*normalizedSize);
+	EXPECT_EQ(packet, expected);
+	const auto payload = parseRtpPayloadView(packet.data(), packet.size());
+	ASSERT_TRUE(payload);
+	EXPECT_EQ(payload->offset, 24u);
+	EXPECT_EQ(payload->size, 2u);
+}
+
+TEST(RtxPacketTest, NormalizesOrdinaryPacket)
+{
+	std::vector<uint8_t> packet{0x80, 97, 0, 9, 1, 2, 3, 4, 5, 6, 7, 8, 0x12, 0x34, 0x67};
+	ASSERT_EQ(normalizeRtxPacket(packet.data(), packet.size(), 96), 13u);
+	packet.resize(13);
+	EXPECT_EQ(packet, (std::vector<uint8_t>{0x80, 96, 0x12, 0x34, 1, 2, 3, 4, 5, 6, 7, 8, 0x67}));
+}
+
+TEST(RtxPacketTest, RejectsMalformedPacketsWithoutMutation)
+{
+	std::vector<std::vector<uint8_t>> packets;
+	for (size_t size = 0; size < 15; ++size) {
+		std::vector<uint8_t> packet(size, 0);
+		if (size)
+			packet[0] = 0x80;
+		packets.push_back(packet);
+	}
+	for (uint8_t first : {0x90, 0x9F, 0x81, 0x40}) {
+		std::vector<uint8_t> packet(15, 0);
+		packet[0] = first;
+		packets.push_back(packet);
+	}
+	// Truncated extension body; padding claiming the original sequence or all media.
+	packets.push_back({0x90, 97, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xBE, 0xDE, 0, 2, 0, 0, 0});
+	for (uint8_t padding : {0, 2, 3, 4, 255}) {
+		std::vector<uint8_t> packet(16, 0);
+		packet[0] = 0xA0;
+		packet.back() = padding;
+		packets.push_back(packet);
+	}
+	for (auto packet : packets) {
+		const auto original = packet;
+		EXPECT_FALSE(normalizeRtxPacket(packet.data(), packet.size(), 96));
+		EXPECT_EQ(packet, original);
+	}
+	EXPECT_FALSE(normalizeRtxPacket(nullptr, 20, 96));
+}

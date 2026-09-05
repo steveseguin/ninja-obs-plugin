@@ -38,8 +38,11 @@ bool mediaTrackPeerCanOwn(const std::string &incomingPeer, const std::string &pr
 	       (alphaPeer.empty() || alphaPeer == incomingPeer);
 }
 
-std::optional<uint64_t> RtpOutputTimestampMapper::map(uint32_t rtpTimestamp, uint64_t nowNs)
+std::optional<uint64_t> RtpOutputTimestampMapper::map(uint32_t rtpTimestamp, uint64_t nowNs, uint32_t clockRate)
 {
+	if (clockRate == 0) {
+		return std::nullopt;
+	}
 	if (!initialized_) {
 		initialized_ = true;
 		lastRtpTimestamp_ = rtpTimestamp;
@@ -56,8 +59,8 @@ std::optional<uint64_t> RtpOutputTimestampMapper::map(uint32_t rtpTimestamp, uin
 	extendedRtpTicks_ += static_cast<uint32_t>(rtpTimestamp - lastRtpTimestamp_);
 	// Convert whole seconds separately so the intermediate multiplication
 	// cannot wrap after roughly 57 hours of continuous video.
-	uint64_t mapped = baseTimestampNs_ + (extendedRtpTicks_ / 90000ULL) * 1000000000ULL +
-	                  ((extendedRtpTicks_ % 90000ULL) * 1000000000ULL) / 90000ULL;
+	uint64_t mapped = baseTimestampNs_ + (extendedRtpTicks_ / clockRate) * 1000000000ULL +
+	                  ((extendedRtpTicks_ % clockRate) * 1000000000ULL) / clockRate;
 	if (mapped <= lastTimestampNs_) {
 		mapped = lastTimestampNs_ + 1;
 	}

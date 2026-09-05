@@ -75,12 +75,12 @@ template <typename T> bool clearSharedSlotIfMatches(std::shared_ptr<T> &slot, co
 	return true;
 }
 
-// Maps RTP video time only after a frame has passed final serialized output
+// Maps RTP media time only after a frame has passed final serialized output
 // ordering. Equal/older frames are rejected, including across uint32 wrap.
 class RtpOutputTimestampMapper
 {
 public:
-	std::optional<uint64_t> map(uint32_t rtpTimestamp, uint64_t nowNs);
+	std::optional<uint64_t> map(uint32_t rtpTimestamp, uint64_t nowNs, uint32_t clockRate = 90000);
 	void reset();
 
 private:

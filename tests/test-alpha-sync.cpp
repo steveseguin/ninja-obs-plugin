@@ -495,3 +495,28 @@ TEST(AlphaSyncTest, RejectsInvalidAlphaPlaneDimensionsAndStride)
 	EXPECT_FALSE(scaleAlphaPlaneNearest({1, 2, 3, 4}, 2, 2, 1, 4, 4, output));
 	EXPECT_FALSE(scaleAlphaPlaneNearest({1, 2, 3}, 2, 2, 2, 4, 4, output));
 }
+
+TEST(AlphaSyncTest, AudioOutputTimestampMappingPreservesTimingAcrossMultipleFullCycles)
+{
+	RtpOutputTimestampMapper mapper;
+	constexpr uint64_t baseNs = 1000000000ULL;
+	constexpr uint32_t clockRate = 48000;
+	EXPECT_EQ(mapper.map(0, baseNs, clockRate), baseNs);
+	for (uint64_t hour = 1; hour <= 80; ++hour) {
+		const uint64_t ticks = hour * 3600 * clockRate;
+		const uint64_t expected = baseNs + hour * 3600 * 1000000000ULL;
+		EXPECT_EQ(mapper.map(static_cast<uint32_t>(ticks), expected, clockRate), expected) << hour;
+	}
+	mapper.reset();
+	EXPECT_EQ(mapper.map(123, baseNs, clockRate), baseNs);
+	EXPECT_FALSE(mapper.map(122, baseNs, clockRate));
+	EXPECT_FALSE(mapper.map(123, baseNs, clockRate));
+	EXPECT_EQ(mapper.map(1083, baseNs, clockRate), baseNs + 20000000ULL);
+}
+
+TEST(AlphaSyncTest, ZeroClockRateDoesNotInitializeTimestampMapper)
+{
+	RtpOutputTimestampMapper mapper;
+	EXPECT_FALSE(mapper.map(100, 1000, 0));
+	EXPECT_EQ(mapper.map(100, 2000, 48000), 2000u);
+}

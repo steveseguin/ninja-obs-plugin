@@ -12,6 +12,107 @@
 namespace vdoninja
 {
 
+std::optional<RtpPayloadView> parseRtpPayloadView(const uint8_t *packetData, size_t packetSize)
+{
+	if (!packetData || packetSize < 12) {
+		return std::nullopt;
+	}
+
+	const uint8_t version = static_cast<uint8_t>((packetData[0] >> 6) & 0x03);
+	if (version != 2) {
+		return std::nullopt;
+	}
+
+	// With RTP/RTCP mux enabled, track callbacks can surface RTCP control packets
+	// alongside media packets. RTCP packet types occupy the raw second-octet range
+	// 192-223, while our RTP payload types are dynamic values outside that band.
+	const uint8_t rawPacketType = packetData[1];
+	if (rawPacketType >= 192 && rawPacketType <= 223) {
+		return std::nullopt;
+	}
+
+	const bool hasPadding = (packetData[0] & 0x20) != 0;
+	const bool hasExtension = (packetData[0] & 0x10) != 0;
+	const size_t csrcCount = static_cast<size_t>(packetData[0] & 0x0F);
+	const uint8_t payloadType = static_cast<uint8_t>(packetData[1] & 0x7F);
+
+	size_t headerSize = 12 + (csrcCount * 4);
+	if (headerSize > packetSize) {
+		return std::nullopt;
+	}
+
+	if (hasExtension) {
+		if (headerSize + 4 > packetSize) {
+			return std::nullopt;
+		}
+		const size_t extensionWords = static_cast<size_t>((static_cast<uint16_t>(packetData[headerSize + 2]) << 8) |
+		                                                  static_cast<uint16_t>(packetData[headerSize + 3]));
+		headerSize += 4 + (extensionWords * 4);
+		if (headerSize > packetSize) {
+			return std::nullopt;
+		}
+	}
+
+	size_t payloadSize = packetSize - headerSize;
+	if (hasPadding) {
+		const uint8_t paddingSize = packetData[packetSize - 1];
+		if (paddingSize == 0 || paddingSize > payloadSize) {
+			return std::nullopt;
+		}
+		payloadSize -= paddingSize;
+	}
+
+	if (payloadSize == 0) {
+		return std::nullopt;
+	}
+
+	return RtpPayloadView{headerSize, payloadSize, payloadType};
+}
+
+std::optional<std::vector<uint8_t>> extractRedPrimaryPayload(const uint8_t *payload, size_t payloadSize)
+{
+	if (!payload || payloadSize < 2) {
+		return std::nullopt;
+	}
+	size_t index = 0;
+	size_t redundantBytes = 0;
+	while (index < payloadSize) {
+		if ((payload[index] & 0x80) == 0) {
+			++index;
+			if (redundantBytes >= payloadSize - index) {
+				return std::nullopt;
+			}
+			index += redundantBytes;
+			return std::vector<uint8_t>(payload + index, payload + payloadSize);
+		}
+		if (payloadSize - index < 4) {
+			return std::nullopt;
+		}
+		const size_t blockLength = (static_cast<size_t>(payload[index + 2] & 0x03) << 8) | payload[index + 3];
+		if (blockLength > payloadSize - redundantBytes) {
+			return std::nullopt;
+		}
+		redundantBytes += blockLength;
+		index += 4;
+	}
+	return std::nullopt;
+}
+
+std::optional<size_t> normalizeRtxPacket(uint8_t *packetData, size_t packetSize, uint8_t originalPayloadType)
+{
+	const auto payload = parseRtpPayloadView(packetData, packetSize);
+	if (!payload || payload->size <= 2 || originalPayloadType > 127) {
+		return std::nullopt;
+	}
+	// The first two payload bytes are the original sequence number. Preserve
+	// CSRCs, header extensions, marker, SSRC, and trailing RTP padding.
+	packetData[2] = packetData[payload->offset];
+	packetData[3] = packetData[payload->offset + 1];
+	packetData[1] = (packetData[1] & 0x80) | originalPayloadType;
+	std::memmove(packetData + payload->offset, packetData + payload->offset + 2, packetSize - payload->offset - 2);
+	return packetSize - 2;
+}
+
 // ---------------------------------------------------------------------------
 // VP9 RTP payload descriptor parser — RFC 9628 section 4.2
 //
