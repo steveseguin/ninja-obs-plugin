@@ -27,10 +27,14 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake build-essential libssl-dev
+          sudo apt-get install -y cmake build-essential libssl-dev locales
+          sudo localedef -i en_US -f ISO-8859-1 en_US.ISO8859-1
 
       - name: Configure CMake (tests only)
         run: cmake -B build -DBUILD_TESTS=ON -DBUILD_PLUGIN=OFF -DCMAKE_BUILD_TYPE=Debug
+
+      - name: Linux package regression tests (isolated filesystem)
+        run: sudo python3 tests/test-linux-package.py
 
       - name: Build tests
         run: cmake --build build --target vdoninja-tests -j$(nproc)
@@ -54,7 +58,8 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake build-essential libssl-dev
+          sudo apt-get install -y cmake build-essential libssl-dev locales
+          sudo localedef -i en_US -f ISO-8859-1 en_US.ISO8859-1
 
       - name: Configure CMake (tests only, sanitized)
         run: |

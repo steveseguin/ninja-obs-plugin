@@ -831,6 +831,12 @@ Add-PolicyCheck `
     "Do not directly or conditionally fall back to deps/libdatachannel/deps/plog/include; release wiring must supply the clean-checkout path explicitly."
 
 $linuxJob = Get-YamlJobBlock $buildWorkflowText "build-linux"
+$linuxCallerJob = $linuxJob
+# Linux packaging is shared by PR builds and the release workflow. Follow only
+# the repository-owned reusable workflow, retaining the caller's required gate.
+if ([regex]::IsMatch($linuxJob, '(?m)^    uses: \./\.github/workflows/linux\.yml\s*$')) {
+    $linuxJob = Get-YamlJobBlock (Read-RepositoryText ".github/workflows/linux.yml") "build-linux"
+}
 $linuxSteps = @(Get-YamlSteps $linuxJob)
 $linuxConfigureSteps = @($linuxSteps | Where-Object Name -ceq "Configure Plugin")
 $linuxConfigureText = if ($linuxConfigureSteps.Count -eq 1) { $linuxConfigureSteps[0].Text } else { "" }
@@ -850,6 +856,8 @@ $linuxConfigureUsesBashShell = (
 Add-PolicyCheck `
     "Linux Configure Plugin remains an unconditional Bash step" `
     ($linuxConfigureSteps.Count -eq 1 -and
+        -not [regex]::IsMatch($linuxCallerJob, '(?m)^    if:\s*') -and
+        -not [regex]::IsMatch($linuxCallerJob, '(?i)continue-on-error\s*:') -and
         $linuxConfigureUsesBashShell -and
         -not [regex]::IsMatch($linuxJob, '(?m)^    if:\s*') -and
         -not [regex]::IsMatch($linuxConfigureText, '(?m)^        if:\s*') -and

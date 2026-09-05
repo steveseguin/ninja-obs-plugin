@@ -11,6 +11,7 @@ set(PLUGIN_LICENSE "AGPL-3.0-only")
 # Options
 option(BUILD_TESTS "Build unit tests" OFF)
 option(BUILD_PLUGIN "Build the OBS plugin (requires OBS SDK)" ON)
+option(BUNDLE_LINUX_RUNTIME "Bundle libdatachannel privately in Linux release packages" OFF)
 option(BUILD_PUBLISHER_TOOL "Build the VP9 alpha publisher test tool (requires BUILD_PLUGIN deps)" OFF)
 option(BUILD_NATIVE_MEDIA_LINKED_GATE
     "Build the OBS/FFmpeg-linked native receiver packet-path validation gate"
@@ -502,6 +503,22 @@ if(BUILD_PLUGIN)
         LIBRARY DESTINATION ${OBS_PLUGIN_DIR}
         RUNTIME DESTINATION ${OBS_PLUGIN_DIR}
     )
+
+    if(BUNDLE_LINUX_RUNTIME)
+        if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux" OR NOT TARGET LibDataChannel::LibDataChannel)
+            message(FATAL_ERROR "BUNDLE_LINUX_RUNTIME requires Linux and the LibDataChannel CMake package")
+        endif()
+        get_target_property(_ldc_type LibDataChannel::LibDataChannel TYPE)
+        if(NOT _ldc_type STREQUAL "SHARED_LIBRARY")
+            message(FATAL_ERROR "BUNDLE_LINUX_RUNTIME requires the shared LibDataChannel target")
+        endif()
+        # Keep the runtime beside the plugin in both system and per-user installs.
+        # Do not expose it as another OBS module or require a global ldconfig change.
+        set_target_properties(${PROJECT_NAME} PROPERTIES INSTALL_RPATH "$ORIGIN/obs-vdoninja")
+        install(FILES "$<TARGET_FILE:LibDataChannel::LibDataChannel>"
+            DESTINATION "${OBS_PLUGIN_DIR}/obs-vdoninja"
+            RENAME "$<TARGET_SONAME_FILE_NAME:LibDataChannel::LibDataChannel>")
+    endif()
 
     install(DIRECTORY data/
         DESTINATION ${OBS_DATA_DIR}

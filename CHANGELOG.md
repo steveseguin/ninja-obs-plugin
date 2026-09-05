@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Bundle the Linux libdatachannel runtime privately and remove build-machine library search paths from release packages.
+- Remove Linux plugin copies from multiarch and legacy system directories during uninstall, including the private runtime.
+- Reject incompatible native OBS versions, Snap installs, and unresolved runtime dependencies before installing the Linux package.
+
+### Added
+- Run the Linux release build on main and pull requests, with isolated install/uninstall regression tests and an extracted-package ELF loading and OBS API compatibility gate.
+
 ## [1.1.66] - 2026-09-05
 
 ### Fixed

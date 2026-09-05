@@ -95,6 +95,17 @@ Remove plugin + data:
 
 ## Linux (`obs-vdoninja-linux-x86_64.tar.gz`)
 
+This package is for **native x86-64 OBS Studio 32.2.x** on Ubuntu 24.04.
+Ubuntu 24.04's stock OBS 30.0.2 package is too old. Check `obs --version` before
+installing; see the [OBS Linux installation guide](https://obsproject.com/kb/linux-installation)
+for native installation options, and verify the installed version matches this package.
+The scripts do not install into Snap or Flatpak. Switching to Flatpak alone does
+not make this native archive compatible with its runtime.
+
+The archive includes a private libdatachannel runtime beside the plugin. Keep
+the `obs-vdoninja/` directory with `obs-vdoninja.so` when copying files manually.
+The installer checks the OBS version and missing shared libraries before copying files.
+
 ### Install or update
 
 ```bash
@@ -114,6 +125,16 @@ Remove plugin + data:
 ```bash
 sudo ./uninstall.sh --remove-data
 ```
+
+Use the same install scope when uninstalling: `sudo` for a system install, or
+run both scripts without `sudo` for a per-user install. If you installed in both
+scopes, uninstall in both. Updated uninstallers also remove system copies from
+Ubuntu's multiarch directory and the older `/usr/lib/obs-plugins` location.
+
+If a load warning remains, open **Help -> Log Files -> View Current Log** and
+look for `obs-vdoninja`, `not found`, or an incompatible module version. Include
+the OBS version, install type (native/Snap/Flatpak), and log when reporting a problem.
+An OBS scene collection can also retain references to a removed VDO.Ninja source.
 
 <a id="install-macos"></a>
 
@@ -163,6 +184,7 @@ If scripts are not usable:
 
 **Linux:**
 - Copy the plugin binary from `lib/x86_64-linux-gnu/obs-plugins` into your OBS plugin binary path.
+- Copy the adjacent `obs-vdoninja/` private runtime directory into that same path.
 - Copy `share/obs/obs-plugins/obs-vdoninja` into your OBS data path.
 
 **macOS:**

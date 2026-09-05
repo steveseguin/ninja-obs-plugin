@@ -7,25 +7,33 @@ if [[ "${1:-}" == "--remove-data" ]]; then
 fi
 
 if [[ "${EUID}" -eq 0 ]]; then
-  DST_PLUGIN_DIR="/usr/lib/obs-plugins"
+  # Remove every copy left by current or older system-wide installers.
+  DST_PLUGIN_DIRS=(/usr/lib/obs-plugins /usr/lib64/obs-plugins /usr/lib/*/obs-plugins /usr/lib64/*/obs-plugins)
   DST_DATA_DIR="/usr/share/obs/obs-plugins/obs-vdoninja"
 else
-  DST_PLUGIN_DIR="$HOME/.config/obs-studio/plugins/obs-vdoninja/bin/64bit"
+  DST_PLUGIN_DIRS=("$HOME/.config/obs-studio/plugins/obs-vdoninja/bin/64bit")
   DST_DATA_DIR="$HOME/.config/obs-studio/plugins/obs-vdoninja/data"
 fi
 
 echo "Uninstalling OBS VDO.Ninja plugin..."
-echo "Plugin dir: $DST_PLUGIN_DIR"
+printf 'Plugin dir: %s\n' "${DST_PLUGIN_DIRS[@]}"
 echo "Data dir:   $DST_DATA_DIR"
 
-if [[ -f "$DST_PLUGIN_DIR/obs-vdoninja.so" ]]; then
-  rm -f "$DST_PLUGIN_DIR/obs-vdoninja.so"
-  echo "Removed: $DST_PLUGIN_DIR/obs-vdoninja.so"
-fi
-if [[ -f "$DST_PLUGIN_DIR/libobs-vdoninja.so" ]]; then
-  rm -f "$DST_PLUGIN_DIR/libobs-vdoninja.so"
-  echo "Removed: $DST_PLUGIN_DIR/libobs-vdoninja.so"
-fi
+for DST_PLUGIN_DIR in "${DST_PLUGIN_DIRS[@]}"; do
+  if [[ -f "$DST_PLUGIN_DIR/obs-vdoninja.so" ]]; then
+    rm -f "$DST_PLUGIN_DIR/obs-vdoninja.so"
+    echo "Removed: $DST_PLUGIN_DIR/obs-vdoninja.so"
+  fi
+  if [[ -f "$DST_PLUGIN_DIR/libobs-vdoninja.so" ]]; then
+    rm -f "$DST_PLUGIN_DIR/libobs-vdoninja.so"
+    echo "Removed: $DST_PLUGIN_DIR/libobs-vdoninja.so"
+  fi
+
+  if [[ -d "$DST_PLUGIN_DIR/obs-vdoninja" ]]; then
+    rm -rf "$DST_PLUGIN_DIR/obs-vdoninja"
+    echo "Removed private runtime: $DST_PLUGIN_DIR/obs-vdoninja"
+  fi
+done
 
 if [[ "$REMOVE_DATA" -eq 1 && -d "$DST_DATA_DIR" ]]; then
   rm -rf "$DST_DATA_DIR"

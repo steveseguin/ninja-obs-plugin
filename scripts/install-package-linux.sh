@@ -48,12 +48,46 @@ else
   exit 1
 fi
 
+if ! command -v obs >/dev/null 2>&1; then
+  echo "Native OBS Studio 32.2.x is required. This installer does not install into Snap or Flatpak." >&2
+  exit 1
+fi
+OBS_PATH="$(readlink -f "$(command -v obs)")"
+case "$OBS_PATH" in
+  /snap/*|*/snap)
+    echo "This package is for native OBS Studio, not Snap. See INSTALL.md." >&2
+    exit 1
+    ;;
+esac
+OBS_VERSION_TEXT="$(obs --version 2>&1)" || {
+  echo "Could not determine the native OBS version: $OBS_VERSION_TEXT" >&2
+  exit 1
+}
+if [[ ! "$OBS_VERSION_TEXT" =~ OBS[[:space:]]+Studio[[:space:]]+(-[[:space:]]+)?32\.2\.[0-9]+([^0-9]|$) ]]; then
+  echo "This package requires OBS Studio 32.2.x; detected: $OBS_VERSION_TEXT" >&2
+  exit 1
+fi
+
+# Resolve dependencies from the extracted package before copying anything.
+# The release binary's relative RUNPATH finds its private libdatachannel here.
+PLUGIN_FILE="$SRC_PLUGIN_DIR/obs-vdoninja.so"
+if [[ ! -f "$PLUGIN_FILE" ]]; then
+  echo "Package is missing obs-vdoninja.so." >&2
+  exit 1
+fi
+if ! DEPENDENCIES="$(ldd "$PLUGIN_FILE" 2>&1)" || [[ "$DEPENDENCIES" == *"not found"* ]]; then
+  echo "Plugin runtime dependencies could not be resolved; nothing was installed:" >&2
+  echo "$DEPENDENCIES" >&2
+  exit 1
+fi
+
 if [[ "${EUID}" -eq 0 ]]; then
   # Install where this system's OBS actually scans. Debian/Ubuntu multiarch
   # builds use /usr/lib/<arch-triplet>/obs-plugins, so prefer an obs-plugins
-  # directory that already exists over the plain /usr/lib default.
+  # directory that already exists over the plain /usr/lib default. Check
+  # multiarch first: an older installer may have created the plain directory.
   DST_PLUGIN_DIR=""
-  for dir in /usr/lib/obs-plugins /usr/lib64/obs-plugins /usr/lib/*/obs-plugins; do
+  for dir in /usr/lib/*/obs-plugins /usr/lib64/*/obs-plugins /usr/lib64/obs-plugins /usr/lib/obs-plugins; do
     if [[ -d "$dir" ]]; then
       DST_PLUGIN_DIR="$dir"
       break
