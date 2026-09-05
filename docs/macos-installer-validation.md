@@ -191,3 +191,16 @@ Loading module: obs-vdoninja
 [VDO.Ninja] Loading VDO.Ninja plugin v<version>
 [VDO.Ninja] VDO.Ninja plugin loaded successfully
 ```
+
+## September 5, 2026 local package cycle
+
+The command-line package installer was exercised on macOS 26.4.1 with OBS
+32.2.2 through install, upgrade, uninstall with data preserved, reinstall, full
+removal, and final install. Every installed bundle passed strict code-signature
+verification. The first upgrade exposed read-only bundled dylibs that `cp -a`
+could not overwrite. Copying with replacement enabled fixes that failure while
+preserving the package file modes; the complete cycle then passed.
+
+An ad-hoc-signed local `.pkg` also passed payload, architecture, dependency and
+script validation. This does not certify Developer ID signing, notarization,
+Gatekeeper acceptance, or execution of the privileged Installer.app path.

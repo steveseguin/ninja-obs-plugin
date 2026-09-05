@@ -130,16 +130,18 @@ if [[ "$FOUND_OBS" -eq 0 ]]; then
   echo "The plugin will still be installed to OBS's user plugin directory."
 fi
 
-cp -a "$PLUGIN_BIN" "$DST_PLUGIN_DIR/obs-vdoninja"
+# Bundled libraries can retain read-only modes from their build. Replace an
+# existing read-only file on upgrade instead of failing partway through.
+cp -af "$PLUGIN_BIN" "$DST_PLUGIN_DIR/obs-vdoninja"
 
 # Copy any bundled dylibs shipped alongside the plugin binary (e.g. OpenSSL,
 # libdatachannel) so they live next to it inside Contents/MacOS/.
 for dylib in "$SRC_PLUGIN_DIR"/*.dylib; do
-  [ -f "$dylib" ] && cp -a "$dylib" "$DST_PLUGIN_DIR/"
+  [ -f "$dylib" ] && cp -af "$dylib" "$DST_PLUGIN_DIR/"
 done
 
 # Copy data files
-cp -a "$SRC_DATA_DIR"/. "$DST_DATA_DIR"/
+cp -af "$SRC_DATA_DIR"/. "$DST_DATA_DIR"/
 
 # OBS resolves module locale files relative to Contents/Resources/locale/.
 # Our data is at Contents/Resources/data/locale/, so add a symlink.
