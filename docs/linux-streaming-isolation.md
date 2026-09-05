@@ -4,7 +4,7 @@ This follow-up separates the two failures in [the initial Linux report](linux-e2
 
 ## Packet reordering combined with loss
 
-The isolated relay has no published host ports. All `netem` changes apply to its Docker network interface. The relevant failure requires both reordering and real loss:
+The isolated relay has no published host ports. All `netem` changes apply to its Docker network interface. The original freeze-count failure was reproduced with reordering and real loss; later pixel/presentation probes also detected a separate presentation-only failure with reordering alone:
 
 | Experiment | Duration | Video freezes | Interpretation |
 | --- | ---: | ---: | --- |
@@ -38,10 +38,11 @@ A second matched test used a marked 720p30 MP4 through the real plugin and priva
 | Condition, 30 seconds | Decoded pixel markers | Browser presentation | OBS |
 | --- | --- | --- | --- |
 | No impairment | All valid, zero skips/duplicates | Pass, approximately 29.98 fps | Zero render/output skips |
+| 25 ± 8 ms delay, no loss | All valid, zero skips/duplicates | Fails: approximately 29.50 fps, 15 source frames omitted from composition | Zero render/output skips |
 | 25 ± 8 ms delay, 0.5% loss, protection off | Two skipped markers | Approximately 27.77 fps, stalls | Zero render/output skips |
 | Same impairment, High video protection and audio RED | Five skipped markers | Approximately 27.55 fps; one 215 ms reported freeze | Zero render/output skips |
 
-High protection is therefore not a validated workaround. The impaired viewer's jitter-buffer target stayed near 288 ms while actual residence was about 50–60 ms; that observation does not prove why presentation stalls persist. Further isolation must distinguish receiver playout, sender timing and lost recovery data. The strict network runner intentionally continues to fail on the remaining defect. No production defaults or frame-quality thresholds were relaxed to obtain a pass.
+The no-loss reordering control delivered every decoded pixel marker and passed the RTP video-continuity gate, but failed actual presentation cadence. This isolates a receiver-presentation symptom that cannot be explained solely by unrecovered packets or OBS encoder skips. High protection is therefore not a validated workaround. The impaired viewer's jitter-buffer target stayed near 288 ms while actual residence was about 50–60 ms; that observation does not prove why presentation stalls persist. Further isolation must distinguish receiver playout, sender timing and lost recovery data. The strict network runner intentionally continues to fail on the remaining defect. No production defaults or frame-quality thresholds were relaxed to obtain a pass.
 
 The browser probe also had a separate measurement defect. [The requestVideoFrameCallback specification](https://wicg.github.io/video-rvfc/) defines callbacks as best-effort and `presentedFrames` as frames submitted for composition. A counter jump can mean JavaScript missed callbacks. The analyzer now uses compositor submission timestamps, the actual compositor counter, and, when available, the 90 kHz RTP source timestamp to detect missing source frames. Receiver `mediaTime` adjustments alone are not classified as source-frame loss. Missed callbacks remain visible as diagnostics; long observation gaps still fail the coverage/stall limit. Averaging an interval across missed callbacks does not establish exact cadence inside that unobserved interval. Independent decoded-pixel validation remains strict. Regression tests cover callback lateness, missed callbacks, real missing frames, RTP rollover and playout-clock adjustment. Raw callback and decoded-frame records are now saved alongside the report.
 
@@ -107,3 +108,4 @@ The decoded-pixel gate is essential: an early fixture implementation rendered bl
 - 38 Node measurement/proxy tests passed, including the new presentation regressions.
 - Nine release-linked real-libdatachannel tests passed.
 - The strict impaired-network E2E remains failing as documented above; unit/build success does not supersede that result.
+- Real module initialization and clock-source creation passed with OBS 32.2.0, 32.2.1 and 32.2.2; 32.0.4 and 32.1.2 correctly rejected the binary.
