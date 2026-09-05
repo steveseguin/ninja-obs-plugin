@@ -258,6 +258,15 @@ jobs:
               --runtime-version "$version" --expect "$expect" "${initialization_args[@]}"
           done
 
+      - name: Test installer with a fully installed Ubuntu OBS
+        run: |
+          curl --fail --location --retry 3 \
+            https://github.com/obsproject/obs-studio/releases/download/32.2.2/OBS-Studio-32.2.2-Ubuntu-24.04-x86_64.deb \
+            --output obs-runtime.deb
+          docker run --rm -v "${{ github.workspace }}:/repo:ro" ubuntu:24.04 \
+            bash /repo/tests/test-ubuntu-package.sh \
+            /repo/${{ env.PLUGIN_NAME }}-linux-x86_64.tar.gz /repo/obs-runtime.deb
+
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:

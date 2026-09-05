@@ -132,7 +132,9 @@ sudo ./uninstall.sh --remove-data
 ```
 
 Use the same install scope when uninstalling: `sudo` for a system install, or
-run both scripts without `sudo` for a per-user install. If you installed in both
+run both scripts without `sudo` for a per-user install. Per-user installs follow
+`XDG_CONFIG_HOME` when set, otherwise `~/.config`. Use the same environment when
+uninstalling. If you installed in both
 scopes, uninstall in both. Updated uninstallers also remove system copies from
 Ubuntu's multiarch directory and the older `/usr/lib/obs-plugins` location.
 
@@ -239,3 +241,12 @@ Or:
 ```powershell
 Start-Process -FilePath "D:\OBS\obs-studio\bin\64bit\obs64.exe" -WorkingDirectory "D:\OBS\obs-studio\bin\64bit" -ArgumentList "--portable"
 ```
+
+## Arch Linux / AUR packaging
+
+Arch users should build the source package in
+[`packaging/arch`](packaging/arch/README.md), which links to Arch's installed
+OBS 32.2.x and media libraries. The Ubuntu binary archive is not an Arch package.
+The development recipe is available in this repository and is not yet published
+to the public AUR. Use `makepkg -si` to build/install and `pacman -R obs-vdoninja-git`
+to remove it. Rebuild after runtime ABI upgrades.

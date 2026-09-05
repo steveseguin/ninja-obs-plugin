@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- Resolve OBS headers installed below the include directory advertised by Arch pkg-config files.
+- Respect custom XDG configuration directories in Linux per-user installation and removal.
 - Keep unit-test RTC headers out of the native publisher build when libdatachannel is installed in a system include directory.
 - Prevent the synthetic VP9 alpha publisher from deadlocking when retiring viewer peers or shutting down.
 - Follow the selected native OBS runtime into `/usr` or `/usr/local` when installing on Linux, and clean both prefixes when uninstalling.
@@ -19,6 +21,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Repaired VP9 alpha publisher test headers, optional alpha-plane writes, and RTP SSRC signaling, and prevented duplicate OBS module loading in the source stress harness.
 
 ### Added
+- Add an Arch/AUR development source recipe with package build, real media, pacman install/reinstall/removal, and OBS initialization checks.
+- Test the native archive installer against a fully installed official Ubuntu OBS package in an isolated container.
 - Initialize the packaged Linux plugin with OBS 32.2.0–32.2.2 in CI, verify source registration and repeated native receiver creation/destruction, and enforce a shutdown timeout.
 - Require real native media and alpha-composition tests in Linux builds, and add an optional live alpha-site smoke test for dual-track decode, viewer reload, and clean shutdown.
 - Validate the same Linux release binary against official OBS 32.2.0, 32.2.1, and 32.2.2 runtimes, with 32.1.2 and 32.0.4 as incompatible-version controls.

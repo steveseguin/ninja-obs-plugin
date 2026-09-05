@@ -74,13 +74,15 @@ class LinuxPackageTests(unittest.TestCase):
                              'unsigned obs_module_ver(void) { return 0x20020000; }',
                        text=True, check=True)
 
-    def run_script(self, script, *args, user=False, success=True):
+    def run_script(self, script, *args, user=False, success=True, extra_env=None):
         command = ['chroot']
         if user:
             command += ['--userspec=1000:1000']
         command += [str(self.root), '/usr/bin/bash', '/package/' + script, *args]
-        result = subprocess.run(command, text=True, capture_output=True,
-                                env={**os.environ, 'LC_ALL': 'C'})
+        env = {**os.environ, 'LC_ALL': 'C'}
+        env.pop('XDG_CONFIG_HOME', None)
+        env.update(extra_env or {})
+        result = subprocess.run(command, text=True, capture_output=True, env=env)
         if success:
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         else:
@@ -177,6 +179,22 @@ class LinuxPackageTests(unittest.TestCase):
         self.run_script('uninstall.sh', '--remove-data', user=True)
         self.assertFalse((dst / 'bin/64bit/obs-vdoninja.so').exists())
         self.assertFalse((dst / 'bin/64bit/obs-vdoninja').exists())
+        self.assertFalse((dst / 'data').exists())
+
+    def test_per_user_xdg_config_round_trip(self):
+        self.fixture()
+        config = self.root / 'custom config'
+        config.mkdir()
+        os.chown(config, 1000, 1000)
+        env = {'XDG_CONFIG_HOME': '/custom config'}
+        self.run_script('install.sh', user=True, extra_env=env)
+        dst = config / 'obs-studio/plugins/obs-vdoninja'
+        self.assertTrue((dst / 'bin/64bit/obs-vdoninja.so').exists())
+        self.run_script('uninstall.sh', user=True, extra_env=env)
+        self.assertFalse((dst / 'bin/64bit/obs-vdoninja.so').exists())
+        self.assertFalse((dst / 'bin/64bit/obs-vdoninja').exists())
+        self.assertTrue((dst / 'data/sentinel.txt').exists())
+        self.run_script('uninstall.sh', '--remove-data', user=True, extra_env=env)
         self.assertFalse((dst / 'data').exists())
 
     def test_missing_dependency_fails_before_copying(self):

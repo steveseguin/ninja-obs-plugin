@@ -13,8 +13,8 @@ if [[ "${EUID}" -eq 0 ]]; then
                   /usr/local/lib/*/obs-plugins /usr/local/lib64/*/obs-plugins)
   DST_DATA_DIRS=(/usr/share/obs/obs-plugins/obs-vdoninja /usr/local/share/obs/obs-plugins/obs-vdoninja)
 else
-  DST_PLUGIN_DIRS=("$HOME/.config/obs-studio/plugins/obs-vdoninja/bin/64bit")
-  DST_DATA_DIRS=("$HOME/.config/obs-studio/plugins/obs-vdoninja/data")
+  DST_PLUGIN_DIRS=("${XDG_CONFIG_HOME:-$HOME/.config}/obs-studio/plugins/obs-vdoninja/bin/64bit")
+  DST_DATA_DIRS=("${XDG_CONFIG_HOME:-$HOME/.config}/obs-studio/plugins/obs-vdoninja/data")
 fi
 
 echo "Uninstalling OBS VDO.Ninja plugin..."

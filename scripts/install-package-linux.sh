@@ -116,8 +116,8 @@ if [[ "${EUID}" -eq 0 ]]; then
     DST_PLUGIN_DIR="${DST_PLUGIN_DIR:-/usr/lib/obs-plugins}"
   fi
 else
-  DST_PLUGIN_DIR="$HOME/.config/obs-studio/plugins/obs-vdoninja/bin/64bit"
-  DST_DATA_DIR="$HOME/.config/obs-studio/plugins/obs-vdoninja/data"
+  DST_PLUGIN_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/obs-studio/plugins/obs-vdoninja/bin/64bit"
+  DST_DATA_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/obs-studio/plugins/obs-vdoninja/data"
 fi
 
 echo "Installing OBS VDO.Ninja plugin from package..."

@@ -293,6 +293,20 @@ if(BUILD_PLUGIN)
 endif()
 
 if(BUILD_PLUGIN)
+    # Some distro pkg-config files expose /usr/include while the public OBS
+    # headers are installed below /usr/include/obs. Resolve that layout for
+    # both the plugin and linked tests instead of requiring an SDK override.
+    foreach(_include_dir IN LISTS LIBOBS_INCLUDE_DIRS)
+        if(EXISTS "${_include_dir}/obs/obs-module.h")
+            list(APPEND LIBOBS_INCLUDE_DIRS "${_include_dir}/obs")
+        endif()
+    endforeach()
+    foreach(_include_dir IN LISTS OBS_FRONTEND_INCLUDE_DIRS)
+        if(EXISTS "${_include_dir}/obs/obs-frontend-api.h")
+            list(APPEND OBS_FRONTEND_INCLUDE_DIRS "${_include_dir}/obs")
+        endif()
+    endforeach()
+
     # Find libdatachannel
     find_package(LibDataChannel QUIET CONFIG)
     if(NOT LibDataChannel_FOUND)

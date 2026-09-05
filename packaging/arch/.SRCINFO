@@ -1,0 +1,25 @@
+pkgbase = obs-vdoninja-git
+	pkgdesc = Native VDO.Ninja publishing and receiving plugin for OBS Studio
+	pkgver = 1.1.66.r285.gb284267
+	pkgrel = 1
+	url = https://github.com/steveseguin/ninja-obs-plugin
+	arch = x86_64
+	license = AGPL-3.0-only
+	makedepends = cmake
+	makedepends = ninja
+	makedepends = git
+	depends = obs-studio>=32.2
+	depends = obs-studio<32.3
+	depends = libdatachannel
+	depends = ffmpeg
+	depends = openssl
+	depends = qt6-base
+	depends = libgcc
+	depends = libstdc++
+	depends = glibc
+	provides = obs-vdoninja
+	conflicts = obs-vdoninja
+	source = ninja-obs-plugin::git+https://github.com/steveseguin/ninja-obs-plugin.git
+	sha256sums = SKIP
+
+pkgname = obs-vdoninja-git
