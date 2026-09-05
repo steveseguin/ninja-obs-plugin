@@ -45,6 +45,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - name: Validate macOS dependency deployment targets
+        run: bash tests/test-macos-deployment-target.sh
+
       - name: Validate E2E performance measurements
         run: node --test tests/test-obs-performance.cjs tests/test-video-continuity.cjs tests/test-audio-continuity.cjs tests/test-presentation-continuity.cjs tests/test-udp-loss-proxy.cjs
 

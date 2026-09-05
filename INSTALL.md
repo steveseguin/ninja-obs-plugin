@@ -147,6 +147,9 @@ An OBS scene collection can also retain references to a removed VDO.Ninja source
 
 ## macOS (`obs-vdoninja-macos-arm64.pkg` or `.zip`)
 
+Current Apple silicon packages target OBS 32.2.x on macOS 13 or later. Bundled
+dependencies are checked against that minimum.
+
 `obs-vdoninja-macos-arm64.pkg` is for native Apple Silicon OBS. Intel Macs, and Apple Silicon Macs running Intel OBS under Rosetta, need an `x86_64` or universal package.
 
 ### Install or update

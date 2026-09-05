@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- Build macOS OpenSSL dependencies for the OBS macOS 13 baseline and reject packages that silently require a newer OS.
+- Replace read-only bundled files during macOS upgrades and resolve bundled dylibs beside the plugin instead of through build-machine paths.
+- Release the Mach host-port reference acquired by every system CPU meter sample on macOS.
+- Prioritize repeated NACK requests without expanding repair budgets or deadlines, and expire repairs that outlast the shared pacing wait.
+- Correct RTX/RED packet parsing and native Opus timestamp wrapping during long-running reception.
+- Wait for requested source audio observations when screenshot capture is disabled in the validation harness.
 - Resolve OBS headers installed below the include directory advertised by Arch pkg-config files.
 - Respect custom XDG configuration directories in Linux per-user installation and removal.
 - Keep unit-test RTC headers out of the native publisher build when libdatachannel is installed in a system include directory.

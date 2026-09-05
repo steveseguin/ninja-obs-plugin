@@ -230,6 +230,20 @@ jobs:
           ls -la ${{ github.workspace }}/obs-sdk/include/simde/x86/ 2>/dev/null | head -10 || echo "No simde headers copied"
           ls -la ${{ github.workspace }}/obs-sdk/include/obs-frontend-api/ 2>/dev/null || echo "No frontend-api include dir"
 
+      - name: Build OpenSSL for the OBS macOS baseline
+        run: |
+          # Homebrew bottles on macos-26 require macOS 26 even when the plugin
+          # has a lower deployment target. Fetch the checksum-verified source.
+          brew fetch --build-from-source openssl@3
+          mkdir openssl-src
+          tar -xf "$(brew --cache --build-from-source openssl@3)" -C openssl-src --strip-components=1
+          cd openssl-src
+          perl Configure darwin64-${{ matrix.arch }}-cc shared no-tests \
+            -mmacosx-version-min=13.0 \
+            --prefix="${{ github.workspace }}/openssl-install" --libdir=lib
+          make -j"$(sysctl -n hw.logicalcpu)"
+          make install_sw
+
       - name: Build libdatachannel
         run: |
           git clone --depth 1 --branch ${{ env.LIBDATACHANNEL_VERSION }} https://github.com/paullouisageneau/libdatachannel.git libdatachannel-src
@@ -245,7 +259,7 @@ jobs:
             -DUSE_GNUTLS=OFF \
             -DUSE_NICE=OFF \
             -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
-            -DOPENSSL_ROOT_DIR=$(brew --prefix openssl@3)
+            -DOPENSSL_ROOT_DIR="${{ github.workspace }}/openssl-install"
           cmake --build "${{ github.workspace }}/libdatachannel-build"
           cmake --install "${{ github.workspace }}/libdatachannel-build"
 
@@ -280,7 +294,8 @@ jobs:
           cmake -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_OSX_ARCHITECTURES=${{ matrix.arch }} \
-            -DCMAKE_PREFIX_PATH="${{ github.workspace }}/libdatachannel-install;${{ github.workspace }}/obs-sdk;${ffmpeg_deps_root};${qt_deps_root};$(brew --prefix openssl@3)" \
+            -DCMAKE_PREFIX_PATH="${{ github.workspace }}/libdatachannel-install;${{ github.workspace }}/obs-sdk;${ffmpeg_deps_root};${qt_deps_root};${{ github.workspace }}/openssl-install" \
+            -DOPENSSL_ROOT_DIR="${{ github.workspace }}/openssl-install" \
             -DCMAKE_FRAMEWORK_PATH="${obs_sdk_frameworks};${qt_deps_root}/lib" \
             -DCMAKE_LIBRARY_PATH="${ffmpeg_lib_dir}" \
             -DCMAKE_INCLUDE_PATH="${ffmpeg_include_dir}" \
