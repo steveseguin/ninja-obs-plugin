@@ -8,16 +8,18 @@ fi
 
 if [[ "${EUID}" -eq 0 ]]; then
   # Remove every copy left by current or older system-wide installers.
-  DST_PLUGIN_DIRS=(/usr/lib/obs-plugins /usr/lib64/obs-plugins /usr/lib/*/obs-plugins /usr/lib64/*/obs-plugins)
-  DST_DATA_DIR="/usr/share/obs/obs-plugins/obs-vdoninja"
+  DST_PLUGIN_DIRS=(/usr/lib/obs-plugins /usr/lib64/obs-plugins /usr/lib/*/obs-plugins /usr/lib64/*/obs-plugins
+                  /usr/local/lib/obs-plugins /usr/local/lib64/obs-plugins
+                  /usr/local/lib/*/obs-plugins /usr/local/lib64/*/obs-plugins)
+  DST_DATA_DIRS=(/usr/share/obs/obs-plugins/obs-vdoninja /usr/local/share/obs/obs-plugins/obs-vdoninja)
 else
   DST_PLUGIN_DIRS=("$HOME/.config/obs-studio/plugins/obs-vdoninja/bin/64bit")
-  DST_DATA_DIR="$HOME/.config/obs-studio/plugins/obs-vdoninja/data"
+  DST_DATA_DIRS=("$HOME/.config/obs-studio/plugins/obs-vdoninja/data")
 fi
 
 echo "Uninstalling OBS VDO.Ninja plugin..."
 printf 'Plugin dir: %s\n' "${DST_PLUGIN_DIRS[@]}"
-echo "Data dir:   $DST_DATA_DIR"
+printf 'Data dir: %s\n' "${DST_DATA_DIRS[@]}"
 
 for DST_PLUGIN_DIR in "${DST_PLUGIN_DIRS[@]}"; do
   if [[ -f "$DST_PLUGIN_DIR/obs-vdoninja.so" ]]; then
@@ -35,9 +37,13 @@ for DST_PLUGIN_DIR in "${DST_PLUGIN_DIRS[@]}"; do
   fi
 done
 
-if [[ "$REMOVE_DATA" -eq 1 && -d "$DST_DATA_DIR" ]]; then
-  rm -rf "$DST_DATA_DIR"
-  echo "Removed data: $DST_DATA_DIR"
+if [[ "$REMOVE_DATA" -eq 1 ]]; then
+  for DST_DATA_DIR in "${DST_DATA_DIRS[@]}"; do
+    if [[ -d "$DST_DATA_DIR" ]]; then
+      rm -rf "$DST_DATA_DIR"
+      echo "Removed data: $DST_DATA_DIR"
+    fi
+  done
 fi
 
 echo

@@ -37,7 +37,9 @@ jobs:
             libssl-dev \
             libpthread-stubs0-dev \
             libcurl4-openssl-dev \
-            libjsoncpp-dev
+            libjsoncpp-dev \
+            xvfb \
+            xauth
 
       - name: Build OBS SDK
         run: |
@@ -218,9 +220,34 @@ jobs:
           test "${#plugins[@]}" -eq 1
           python3 scripts/validate-linux-package.py "${plugins[0]}" --obs-version "${{ env.OBS_VERSION }}"
 
+      - name: Test official OBS runtime compatibility
+        run: |
+          compatibility_dir="$(mktemp -d)"
+          trap 'rm -rf "$compatibility_dir"' EXIT
+          mkdir "$compatibility_dir/plugin"
+          tar -xzf "${{ env.PLUGIN_NAME }}-linux-x86_64.tar.gz" -C "$compatibility_dir/plugin"
+          mapfile -t plugins < <(find "$compatibility_dir/plugin" -name obs-vdoninja.so -type f)
+          test "${#plugins[@]}" -eq 1
+          # Test patch upgrades with the same 32.2.0-built binary. Keep older
+          # runtimes as negative controls; do not silently widen support.
+          for version in 32.2.0 32.2.1 32.2.2 32.1.2 32.0.4; do
+            runtime_dir="$compatibility_dir/$version"
+            mkdir "$runtime_dir"
+            curl --fail --location --retry 3 \
+              "https://github.com/obsproject/obs-studio/releases/download/$version/OBS-Studio-$version-Ubuntu-24.04-x86_64.deb" \
+              --output "$runtime_dir/obs.deb"
+            dpkg-deb --extract "$runtime_dir/obs.deb" "$runtime_dir"
+            expect=incompatible
+            if [[ "$version" == 32.2.* ]]; then expect=compatible; fi
+            LD_LIBRARY_PATH="$runtime_dir/usr/local/lib/x86_64-linux-gnu" \
+              xvfb-run -a --server-args='-screen 0 1280x720x24 -extension GLX' \
+              python3 scripts/validate-linux-obs-runtime.py "${plugins[0]}" \
+              "$compatibility_dir/plugin/share/obs/obs-plugins/obs-vdoninja" \
+              --runtime-version "$version" --expect "$expect"
+          done
+
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ env.PLUGIN_NAME }}-linux-x86_64
           path: ${{ env.PLUGIN_NAME }}-linux-x86_64.tar.gz
-

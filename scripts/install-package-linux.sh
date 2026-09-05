@@ -82,19 +82,39 @@ if ! DEPENDENCIES="$(ldd "$PLUGIN_FILE" 2>&1)" || [[ "$DEPENDENCIES" == *"not fo
 fi
 
 if [[ "${EUID}" -eq 0 ]]; then
-  # Install where this system's OBS actually scans. Debian/Ubuntu multiarch
-  # builds use /usr/lib/<arch-triplet>/obs-plugins, so prefer an obs-plugins
-  # directory that already exists over the plain /usr/lib default. Check
-  # multiarch first: an older installer may have created the plain directory.
+  # Official OBS Ubuntu packages use /usr/local; distro packages use /usr.
+  # Follow the libobs resolved by this executable when both installs exist.
   DST_PLUGIN_DIR=""
-  for dir in /usr/lib/*/obs-plugins /usr/lib64/*/obs-plugins /usr/lib64/obs-plugins /usr/lib/obs-plugins; do
-    if [[ -d "$dir" ]]; then
-      DST_PLUGIN_DIR="$dir"
-      break
-    fi
-  done
-  DST_PLUGIN_DIR="${DST_PLUGIN_DIR:-/usr/lib/obs-plugins}"
   DST_DATA_DIR="/usr/share/obs/obs-plugins/obs-vdoninja"
+  OBS_DEPENDENCIES="$(LC_ALL=C ldd "$OBS_PATH" 2>/dev/null || true)"
+  OBS_LIB_PATTERN='libobs\.so[^[:space:]]*[[:space:]]+=>[[:space:]]+(/[^[:space:]]+)'
+  if [[ "$OBS_DEPENDENCIES" =~ $OBS_LIB_PATTERN ]]; then
+    OBS_LIB_DIR="$(dirname "$(readlink -f "${BASH_REMATCH[1]}")")"
+    case "$OBS_LIB_DIR" in
+      /usr/local/lib|/usr/local/lib64|/usr/local/lib/*|/usr/local/lib64/*)
+        DST_PLUGIN_DIR="$OBS_LIB_DIR/obs-plugins"
+        DST_DATA_DIR="/usr/local/share/obs/obs-plugins/obs-vdoninja"
+        ;;
+      /usr/lib|/usr/lib64|/usr/lib/*|/usr/lib64/*)
+        DST_PLUGIN_DIR="$OBS_LIB_DIR/obs-plugins"
+        ;;
+    esac
+  fi
+  if [[ -z "$DST_PLUGIN_DIR" ]]; then
+    # Fallback for launch wrappers. Prefer multiarch over directories left by
+    # older installers, and retain the original /usr/lib fallback.
+    for prefix in /usr/local /usr; do
+      for dir in "$prefix"/lib/*/obs-plugins "$prefix"/lib64/*/obs-plugins \
+                 "$prefix"/lib64/obs-plugins "$prefix"/lib/obs-plugins; do
+        if [[ -d "$dir" ]]; then
+          DST_PLUGIN_DIR="$dir"
+          DST_DATA_DIR="$prefix/share/obs/obs-plugins/obs-vdoninja"
+          break 2
+        fi
+      done
+    done
+    DST_PLUGIN_DIR="${DST_PLUGIN_DIR:-/usr/lib/obs-plugins}"
+  fi
 else
   DST_PLUGIN_DIR="$HOME/.config/obs-studio/plugins/obs-vdoninja/bin/64bit"
   DST_DATA_DIR="$HOME/.config/obs-studio/plugins/obs-vdoninja/data"

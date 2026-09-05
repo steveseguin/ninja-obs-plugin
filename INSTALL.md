@@ -105,6 +105,11 @@ not make this native archive compatible with its runtime.
 The archive includes a private libdatachannel runtime beside the plugin. Keep
 the `obs-vdoninja/` directory with `obs-vdoninja.so` when copying files manually.
 The installer checks the OBS version and missing shared libraries before copying files.
+System installs follow the selected OBS executable's libobs location: `/usr/local`
+for official OBS Ubuntu packages or `/usr` for distro packages. Uninstall checks both.
+
+For OBS upgrade handling and the tested version matrix, see
+[OBS compatibility and release validation](docs/obs-compatibility-and-release-validation.md).
 
 ### Install or update
 

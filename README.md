@@ -35,6 +35,11 @@ Choose the package that matches the installed OBS version:
 
 OBS 32.2 changed its bundled FFmpeg runtime, so the Windows binaries for OBS 32.0-32.1 and OBS 32.2 are not interchangeable. This release does not provide prebuilt packages for OBS 31.x or older and does not claim compatibility with future OBS versions beyond 32.2.x.
 
+See [OBS compatibility and release validation](docs/obs-compatibility-and-release-validation.md)
+for upgrade policy and the tested Linux runtime versions. Release binaries stay on
+the oldest supported SDK in their compatibility band; testing a newer OBS does
+not require raising that build baseline.
+
 ## Why This Plugin Exists
 
 Using VDO.Ninja only through Browser Sources can be limiting for some production workflows. This plugin adds tighter OBS integration so users can:

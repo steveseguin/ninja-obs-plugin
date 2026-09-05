@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- Follow the selected native OBS runtime into `/usr` or `/usr/local` when installing on Linux, and clean both prefixes when uninstalling.
 - Bundle the Linux libdatachannel runtime privately and remove build-machine library search paths from release packages.
 - Remove Linux plugin copies from multiarch and legacy system directories during uninstall, including the private runtime.
 - Reject incompatible native OBS versions, Snap installs, and unresolved runtime dependencies before installing the Linux package.
@@ -16,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Repaired VP9 alpha publisher test headers, optional alpha-plane writes, and RTP SSRC signaling, and prevented duplicate OBS module loading in the source stress harness.
 
 ### Added
+- Validate the same Linux release binary against official OBS 32.2.0, 32.2.1, and 32.2.2 runtimes, with 32.1.2 and 32.0.4 as incompatible-version controls.
 - Run the Linux release build on main and pull requests, with isolated install/uninstall regression tests and an extracted-package ELF loading and OBS API compatibility gate.
 
 ## [1.1.66] - 2026-09-05

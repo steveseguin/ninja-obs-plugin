@@ -130,6 +130,31 @@ class LinuxPackageTests(unittest.TestCase):
         self.assertTrue((multiarch / 'obs-vdoninja.so').exists())
         self.assertFalse((plain / 'obs-vdoninja.so').exists())
 
+    def test_selected_obs_library_controls_system_prefix(self):
+        self.fixture()
+        for prefix in ('usr', 'usr/local'):
+            (self.root / prefix / 'lib/x86_64-linux-gnu/obs-plugins').mkdir(parents=True)
+        for prefix in ('usr/local', 'usr'):
+            with self.subTest(prefix=prefix):
+                libdir = self.root / prefix / 'lib/x86_64-linux-gnu'
+                subprocess.run(['cc', '-shared', '-fPIC', '-x', 'c', '-', '-o',
+                                str(libdir / 'libobs.so.30'), '-Wl,-soname,libobs.so.30'],
+                               input='int obs_fixture(void) { return 0; }', text=True, check=True)
+                subprocess.run(['cc', '-x', 'c', '-', '-o', str(self.root / 'usr/bin/obs'),
+                                '-L' + str(libdir), '-l:libobs.so.30',
+                                '-Wl,-rpath,/' + prefix + '/lib/x86_64-linux-gnu'],
+                               input='#include <stdio.h>\nextern int obs_fixture(void);\n'
+                                     'int main(void) { puts("OBS Studio - 32.2.2"); return obs_fixture(); }',
+                               text=True, check=True)
+                self.run_script('install.sh')
+                self.assertTrue((libdir / 'obs-plugins/obs-vdoninja.so').exists())
+                data = self.root / prefix / 'share/obs/obs-plugins/obs-vdoninja'
+                self.assertTrue((data / 'sentinel.txt').exists())
+                self.run_script('uninstall.sh', '--remove-data')
+                self.assertFalse((libdir / 'obs-plugins/obs-vdoninja.so').exists())
+                self.assertFalse((libdir / 'obs-plugins/obs-vdoninja').exists())
+                self.assertFalse(data.exists())
+
     def test_linux_and_release_obs_baselines_match(self):
         release = (REPO / '.github/workflows/build.yml').read_text()
         linux = (REPO / '.github/workflows/linux.yml').read_text()
