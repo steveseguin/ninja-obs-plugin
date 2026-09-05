@@ -319,3 +319,18 @@ against the OBS 32 compatibility baseline and loaded by OBS 32.1.0-rc1.
   Playwright-over-CDP iPhone automation can decode while autoplay remains
   paused, so that path is transport evidence unless the playback-clock gate
   also passes.
+
+## System CPU meter validation
+
+The dock's system CPU meter samples aggregate operating-system busy/idle counters,
+not OBS process CPU. On macOS, each `mach_host_self()` reference must be released
+after reading processor information. A regression reproduced 100 leaked port
+references in 100 samples; the corrected sampler retains a constant reference
+count, including over a separate 1,000-sample probe.
+
+In a controlled six-worker load test, mean sampler/system-`top` readings were
+28.14%/29.49% before load, 89.62%/87.24% under load and 14.10%/14.47% after load.
+Their independent one-second windows are not synchronized, so compare steady
+intervals rather than demanding identical individual samples. OBS's separate
+process CPU statistic has a different meaning and should not be used as the
+reference for this meter.

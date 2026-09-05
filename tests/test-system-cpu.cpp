@@ -8,6 +8,10 @@
 
 #include <gtest/gtest.h>
 
+#ifdef __APPLE__
+#include <mach/mach.h>
+#endif
+
 #include "vdoninja-system-cpu.h"
 
 using namespace vdoninja;
@@ -92,3 +96,19 @@ TEST(SystemCpuTest, SamplerWarmsUpThenReturnsBoundedUsage)
 	EXPECT_GE(*usage, 0.0);
 	EXPECT_LE(*usage, 100.0);
 }
+
+#ifdef __APPLE__
+TEST(SystemCpuTest, SamplingReleasesMachHostPortReferences)
+{
+	const mach_port_t host = mach_host_self();
+	mach_port_urefs_t before = 0;
+	mach_port_urefs_t after = 0;
+	EXPECT_EQ(mach_port_get_refs(mach_task_self(), host, MACH_PORT_RIGHT_SEND, &before), KERN_SUCCESS);
+	for (int i = 0; i < 100; ++i) {
+		EXPECT_TRUE(readSystemCpuTimes());
+	}
+	EXPECT_EQ(mach_port_get_refs(mach_task_self(), host, MACH_PORT_RIGHT_SEND, &after), KERN_SUCCESS);
+	EXPECT_EQ(after, before);
+	EXPECT_EQ(mach_port_deallocate(mach_task_self(), host), KERN_SUCCESS);
+}
+#endif
