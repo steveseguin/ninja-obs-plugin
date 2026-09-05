@@ -917,10 +917,14 @@ if(BUILD_PUBLISHER_TOOL)
     )
     set_target_properties(vp9-alpha-publisher PROPERTIES NO_SYSTEM_FROM_IMPORTED ON)
 
-    # Regular includes (no rtc/ collision)
+    # Expose only the OBS stub: tests/stubs also contains fake rtc/ headers.
+    # Include ordering cannot reliably override those when the real SDK lives
+    # in a compiler implicit include directory such as /usr/local/include.
+    set(_publisher_obs_stubs "${CMAKE_CURRENT_BINARY_DIR}/publisher-obs-stubs")
+    configure_file(tests/stubs/obs-module.h "${_publisher_obs_stubs}/obs-module.h" COPYONLY)
     target_include_directories(vp9-alpha-publisher PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/src
-        ${CMAKE_CURRENT_SOURCE_DIR}/tests/stubs
+        ${_publisher_obs_stubs}
     )
     # Same rtc/ header collision as the plugin target.
     target_include_directories(vp9-alpha-publisher SYSTEM PRIVATE ${FFMPEG_INCLUDE_DIR})
@@ -931,12 +935,6 @@ if(BUILD_PUBLISHER_TOOL)
             set(_publisher_ldc_target LibDataChannel::LibDataChannelStatic)
         else()
             set(_publisher_ldc_target LibDataChannel::LibDataChannel)
-        endif()
-        # The OBS stubs directory also contains rtc/ unit-test stubs. The
-        # publisher needs the real headers belonging to its linked library.
-        get_target_property(_publisher_ldc_includes ${_publisher_ldc_target} INTERFACE_INCLUDE_DIRECTORIES)
-        if(_publisher_ldc_includes)
-            target_include_directories(vp9-alpha-publisher BEFORE PRIVATE ${_publisher_ldc_includes})
         endif()
         target_link_libraries(vp9-alpha-publisher PRIVATE ${_publisher_ldc_target})
     endif()

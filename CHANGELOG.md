@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- Keep unit-test RTC headers out of the native publisher build when libdatachannel is installed in a system include directory.
 - Prevent the synthetic VP9 alpha publisher from deadlocking when retiring viewer peers or shutting down.
 - Follow the selected native OBS runtime into `/usr` or `/usr/local` when installing on Linux, and clean both prefixes when uninstalling.
 - Bundle the Linux libdatachannel runtime privately and remove build-machine library search paths from release packages.
