@@ -520,3 +520,33 @@ TEST(AlphaSyncTest, ZeroClockRateDoesNotInitializeTimestampMapper)
 	EXPECT_FALSE(mapper.map(100, 1000, 0));
 	EXPECT_EQ(mapper.map(100, 2000, 48000), 2000u);
 }
+
+TEST(AlphaSyncTest, CachedPrimeToLiveTimestampJumpDoesNotScheduleVideoSecondsAhead)
+{
+	RtpOutputTimestampMapper mapper;
+	constexpr uint64_t baseNs = 10000000000ULL;
+	EXPECT_EQ(mapper.map(0, baseNs), baseNs);
+	// A cached IDR followed immediately by the current live GOP.
+	EXPECT_EQ(mapper.map(180000, baseNs + 17000000), baseNs + 17000000);
+	EXPECT_EQ(mapper.map(181500, baseNs + 34000000), baseNs + 17000000 + 1000000000ULL / 60);
+	EXPECT_FALSE(mapper.map(180000, baseNs + 35000000));
+}
+
+TEST(AlphaSyncTest, TimestampMappingPreservesOrdinaryBurstsAndRealElapsedGaps)
+{
+	RtpOutputTimestampMapper mapper;
+	constexpr uint64_t baseNs = 10000000000ULL;
+	EXPECT_EQ(mapper.map(0, baseNs), baseNs);
+	EXPECT_EQ(mapper.map(9000, baseNs + 1000000), baseNs + 100000000);
+	EXPECT_EQ(mapper.map(189000, baseNs + 2100000000ULL), baseNs + 2100000000ULL);
+}
+
+TEST(AlphaSyncTest, FutureTimestampRebaseRemainsMonotonicAndDoesNotUnderflow)
+{
+	RtpOutputTimestampMapper mapper;
+	EXPECT_EQ(mapper.map(0, 1), 1u);
+	EXPECT_EQ(mapper.map(9000, 2), 100000001u);
+	// The tiny synthetic epoch also checks that rebasing cannot underflow it.
+	EXPECT_EQ(mapper.map(180000, 3), 100000002u);
+	EXPECT_EQ(mapper.map(181500, 200000000), 100000002u + 1000000000ULL / 60);
+}

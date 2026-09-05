@@ -371,3 +371,27 @@ certified by these synthetic tests.
 When requesting mixer-audio checks without screenshots, the source-check tool
 now waits for the requested observation period. Previously browser mode could
 fail with zero audio-meter samples immediately after creating the source.
+
+
+## Cached startup frames and native audio timing
+
+A longer four-viewer Mac test exposed a native receiver timing error missed by
+short checks. A cached keyframe with RTP timestamp 0 was followed about 17 ms
+later by the live GOP at timestamp 180000. Anchoring both to the cached frame's
+arrival scheduled live video almost two seconds into the future. OBS subsequently
+increased global audio buffering from 64 ms to 960 ms, with a corresponding
+roughly 0.9-second stream freeze and audio concealment.
+
+The receive timestamp mapper now rebases timestamps more than 250 ms ahead of
+arrival, retaining monotonic output. Ordinary burst spacing, real elapsed gaps,
+RTP wrapping, and exact primary/alpha pairing remain covered by tests. The
+correction changes the local output clock, not RTP values or paired-frame identity.
+
+Matched instrumented five-minute runs reduced p95 video timestamp lead from
+1982.30 ms to 2.49 ms. The corrected OBS session stayed at its 85 ms startup audio
+buffer, and all four complete minute PCM windows passed. Its strict overall media
+gate still failed during concurrent builds in the final minute; drops/freezes
+first appeared after 251 seconds. This establishes the timing correction, not a
+claim of frame-perfect playback under unlimited local load. A build-free sustained
+stress run is required separately. Private traces and before/after results are in
+`artifacts/obs-soak-20260905/`.

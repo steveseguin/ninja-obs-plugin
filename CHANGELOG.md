@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- Rebase native receive timestamps after cached-keyframe jumps so live video is not scheduled seconds ahead and does not inflate OBS audio buffering.
 - Build macOS OpenSSL dependencies for the OBS macOS 13 baseline and reject packages that silently require a newer OS.
 - Replace read-only bundled files during macOS upgrades and resolve bundled dylibs beside the plugin instead of through build-machine paths.
 - Release the Mach host-port reference acquired by every system CPU meter sample on macOS.
