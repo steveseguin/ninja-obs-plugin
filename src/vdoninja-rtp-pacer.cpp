@@ -69,9 +69,9 @@ size_t calculateTimedBudget(uint64_t bitrateBitsPerSecond, std::chrono::millisec
 
 uint64_t calculateRepairBitrate(uint64_t bitrateBitsPerSecond)
 {
-	// The publisher's main pacer normally runs at twice the encoder rate.
-	// Reserving one quarter of that rate caps NACK repair near half the encoded
-	// media rate while leaving most scheduler slots available to live video.
+	// Reserve most pacing capacity for live media while it is queued. Idle
+	// slots can service repairs through the overall pacer without this
+	// additional sub-budget; otherwise reordering creates an avoidable backlog.
 	return std::max<uint64_t>(1, bitrateBitsPerSecond / 4U);
 }
 
@@ -728,14 +728,20 @@ void RtpPacketPacer::run()
 			}
 		}
 		bool repairReady = false;
+		bool borrowRepairHeadroom = false;
 		if (!repairQueue_.empty()) {
 			const size_t repairBytes = repairQueue_[repairIndex].packet.size();
 			const long double requiredRepairTokens =
 			    static_cast<long double>(std::min(repairBytes, currentRepairBudget));
-			repairReady = repairTokens >= requiredRepairTokens;
+			borrowRepairHeadroom = queue_.empty() && repairTokens < requiredRepairTokens;
+			repairReady = borrowRepairHeadroom || repairTokens >= requiredRepairTokens;
 		}
-		const bool sendRepair =
-		    repairReady && (queue_.empty() || consecutiveRepairPackets < kMaxConsecutiveRepairPackets);
+		// A new keyframe supersedes the older prediction chain. Finish its
+		// original packets before spending pacing slots on the repair backlog;
+		// interleaving four repairs per packet can prolong decoder recovery.
+		const bool keyframePending = !queue_.empty() && queue_.front().info.keyframe;
+		const bool sendRepair = repairReady && !keyframePending &&
+		                        (queue_.empty() || consecutiveRepairPackets < kMaxConsecutiveRepairPackets);
 		bool duplicateReady = false;
 		if (!duplicateQueue_.empty() && now >= duplicateQueue_.front().notBefore) {
 			const size_t duplicateBytes = duplicateQueue_.front().packet.size();
@@ -849,6 +855,11 @@ void RtpPacketPacer::run()
 			stats_.queuedBytes = queuedBytes_;
 			stats_.maxPacketDelayMs = std::max(stats_.maxPacketDelayMs, elapsedMilliseconds(now, repair.queuedAt));
 			repairTokens -= static_cast<long double>(packetBytes);
+			if (borrowRepairHeadroom) {
+				// Borrowed idle capacity must not create artificial debt against
+				// future repair slots once live media returns.
+				repairTokens = std::max(0.0L, repairTokens);
+			}
 			++consecutiveRepairPackets;
 
 			lock.unlock();

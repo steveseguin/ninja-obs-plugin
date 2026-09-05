@@ -702,9 +702,9 @@ TEST(RtpPacketPacerTest, RepairBudgetExpiresStaleNackWorkInsteadOfStarvingLiveMe
 	size_t sent = 0;
 	size_t expired = 0;
 	RtpPacketPacer pacer(
-	    80000, 20ms, [](RtpPacketPacer::Packet &&) { return true; }, 4096);
+	    80000, 20ms, [](RtpPacketPacer::Packet &&) { return true; }, 16384);
 
-	for (uint8_t value = 1; value <= 20; ++value) {
+	for (uint8_t value = 1; value <= 80; ++value) {
 		ASSERT_TRUE(pacer.enqueueRepair(
 		    packetWithValue(100, value), [](RtpPacketPacer::Packet &&) { return true; },
 		    [&](RtpPacerRepairOutcome outcome) {
@@ -723,7 +723,7 @@ TEST(RtpPacketPacerTest, RepairBudgetExpiresStaleNackWorkInsteadOfStarvingLiveMe
 
 	{
 		std::unique_lock<std::mutex> lock(mutex);
-		ASSERT_TRUE(cv.wait_for(lock, 2s, [&completed]() { return completed == 20; }));
+		ASSERT_TRUE(cv.wait_for(lock, 2s, [&completed]() { return completed == 80; }));
 	}
 	pacer.stop();
 
@@ -1054,4 +1054,124 @@ TEST(RtpPacketPacerTest, RepeatedNackDoesNotRefreshRepairDeadline)
 	EXPECT_EQ(sent.load(), 0u);
 	EXPECT_EQ(outcome, RtpPacerRepairOutcome::Expired);
 	EXPECT_EQ(pacer.getStats().expiredRepairs, 1u);
+}
+
+TEST(RtpPacketPacerTest, CompletesRecoveryKeyframeBeforeServingOlderRepairBacklog)
+{
+	std::mutex mutex;
+	std::condition_variable cv;
+	bool started = false;
+	bool release = false;
+	std::vector<uint8_t> sent;
+	RtpPacketPacer pacer(8000000, 2ms, [&](RtpPacketPacer::Packet &&packet) {
+		std::unique_lock<std::mutex> lock(mutex);
+		sent.push_back(static_cast<uint8_t>(packet[0]));
+		if (!started) {
+			started = true;
+			cv.notify_all();
+			cv.wait(lock, [&]() { return release; });
+		}
+		cv.notify_all();
+		return true;
+	});
+	RtpPacerFrameInfo info;
+	info.keyframe = true;
+	ASSERT_TRUE(
+	    pacer.enqueueFrame({packetWithValue(100, 10), packetWithValue(100, 11), packetWithValue(100, 12)}, info));
+	{
+		std::unique_lock<std::mutex> lock(mutex);
+		EXPECT_TRUE(cv.wait_for(lock, 1s, [&]() { return started; }));
+	}
+	for (uint8_t value = 1; value <= 4; ++value) {
+		EXPECT_TRUE(pacer.enqueueRepair(packetWithValue(100, value), [&](RtpPacketPacer::Packet &&packet) {
+			std::lock_guard<std::mutex> lock(mutex);
+			sent.push_back(static_cast<uint8_t>(packet[0]));
+			cv.notify_all();
+			return true;
+		}));
+	}
+	{
+		std::lock_guard<std::mutex> lock(mutex);
+		release = true;
+	}
+	cv.notify_all();
+	{
+		std::unique_lock<std::mutex> lock(mutex);
+		EXPECT_TRUE(cv.wait_for(lock, 1s, [&]() { return sent.size() == 7; }));
+	}
+	pacer.stop();
+	EXPECT_EQ(sent, (std::vector<uint8_t>{10, 11, 12, 1, 2, 3, 4}));
+}
+
+TEST(RtpPacketPacerTest, ReorderingRepairBurstUsesHeadroomBeforePacketsExpire)
+{
+	// A 20 KB NACK burst fits comfortably alongside live media in this
+	// 100 KB/s pacer. An unnecessarily smaller repair sub-budget must not
+	// leave recoverable packets queued past their 500 ms deadline.
+	std::mutex mutex;
+	std::condition_variable cv;
+	size_t completed = 0;
+	size_t sent = 0;
+	std::atomic<size_t> livePackets{0};
+	RtpPacketPacer pacer(800000, 2ms, [&](RtpPacketPacer::Packet &&) {
+		++livePackets;
+		return true;
+	});
+	std::vector<RtpPacketPacer::Packet> frame;
+	for (unsigned i = 0; i < 10; ++i)
+		frame.push_back(packetWithValue(1000, 42));
+	EXPECT_TRUE(pacer.enqueueFrame(std::move(frame)));
+	for (uint8_t value = 0; value < 20; ++value) {
+		EXPECT_TRUE(pacer.enqueueRepair(
+		    packetWithValue(1000, value), [](RtpPacketPacer::Packet &&) { return true; },
+		    [&](RtpPacerRepairOutcome outcome) {
+			    std::lock_guard<std::mutex> lock(mutex);
+			    ++completed;
+			    if (outcome == RtpPacerRepairOutcome::Sent)
+				    ++sent;
+			    cv.notify_all();
+		    }));
+	}
+	{
+		std::unique_lock<std::mutex> lock(mutex);
+		EXPECT_TRUE(cv.wait_for(lock, 2s, [&]() { return completed == 20; }));
+	}
+	pacer.stop();
+	EXPECT_EQ(sent, 20u);
+	EXPECT_EQ(livePackets, 10u);
+	EXPECT_EQ(pacer.getStats().expiredRepairs, 0u);
+}
+
+TEST(RtpPacketPacerTest, IdleRepairsBorrowUnusedOverallCapacityWithoutChangingTheRateLimit)
+{
+	std::mutex mutex;
+	std::condition_variable cv;
+	size_t completed = 0, sent = 0;
+	std::chrono::steady_clock::time_point firstSent, lastSent;
+	RtpPacketPacer pacer(800000, 2ms, [](RtpPacketPacer::Packet &&) { return true; });
+	// 40 KB fits in the total 100 KB/s budget before the 500 ms deadline.
+	// No live media is waiting, so the repair-only sub-budget must not expire it.
+	for (unsigned i = 0; i < 10; ++i) {
+		EXPECT_TRUE(pacer.enqueueRepair(
+		    packetWithValue(4000, 1), [](RtpPacketPacer::Packet &&) { return true; },
+		    [&](RtpPacerRepairOutcome outcome) {
+			    std::lock_guard<std::mutex> lock(mutex);
+			    ++completed;
+			    if (outcome == RtpPacerRepairOutcome::Sent) {
+				    lastSent = std::chrono::steady_clock::now();
+				    if (sent++ == 0)
+					    firstSent = lastSent;
+			    }
+			    cv.notify_all();
+		    }));
+	}
+	{
+		std::unique_lock<std::mutex> lock(mutex);
+		EXPECT_TRUE(cv.wait_for(lock, 2s, [&]() { return completed == 10; }));
+	}
+	pacer.stop();
+	EXPECT_EQ(sent, 10u);
+	EXPECT_EQ(pacer.getStats().expiredRepairs, 0u);
+	EXPECT_EQ(pacer.bitrateBitsPerSecond(), 800000u);
+	EXPECT_GE(lastSent - firstSent, 300ms);
 }
