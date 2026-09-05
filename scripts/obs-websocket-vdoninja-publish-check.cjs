@@ -3,6 +3,7 @@ const path = require("path");
 const crypto = require("crypto");
 const childProcess = require("child_process");
 const { chromium } = require("playwright");
+const { analyzeObsPerformance } = require("../tests/tools/obs-performance-analysis.cjs");
 const {
   hasAudioConcealment,
   analyzePcm16Le,
@@ -1384,7 +1385,7 @@ async function main() {
   ) {
     throw new Error("Requested video settings must not be negative");
   }
-  const outputDir = path.resolve(process.cwd(), "artifacts");
+  const outputDir = path.resolve(process.env.VDONINJA_OUTPUT_DIR || path.join(process.cwd(), "artifacts"));
   const stamp = Date.now();
   const sceneName = `Codex OBS Publish ${stamp}`;
   const sourceLabel = useAudioContinuitySource
@@ -1454,7 +1455,7 @@ async function main() {
   }
   viewParams.set("debug", "");
   const viewUrl = ensureQuery(
-    `https://vdo.ninja/?${viewParams.toString()}`,
+    `${process.env.VDONINJA_BASE_URL || "https://vdo.ninja/"}?${viewParams.toString()}`,
     "cleanoutput",
     "1",
   );
@@ -2148,19 +2149,32 @@ async function main() {
       args: chromiumArgs,
     });
     const context = await browser.newContext();
-    await context.addInitScript(() => {
+    const viewerIceServers = process.env.VDONINJA_VIEWER_ICE_SERVERS_JSON
+      ? JSON.parse(process.env.VDONINJA_VIEWER_ICE_SERVERS_JSON) : null;
+    if (viewerIceServers && (!Array.isArray(viewerIceServers) || !viewerIceServers.length)) {
+      throw new Error("VDONINJA_VIEWER_ICE_SERVERS_JSON must be a nonempty RTCIceServer array");
+    }
+    await context.addInitScript(({ iceServers, forceRelay }) => {
       window.__pcList = [];
       const NativePC = window.RTCPeerConnection;
       if (!NativePC) {
         return;
       }
       window.RTCPeerConnection = function (...args) {
+        const configure = config => iceServers
+          ? { ...config, iceServers, ...(forceRelay ? { iceTransportPolicy: "relay" } : {}) }
+          : config;
+        if (iceServers) args[0] = configure(args[0]);
         const pc = new NativePC(...args);
+        if (iceServers) {
+          const setConfiguration = pc.setConfiguration.bind(pc);
+          pc.setConfiguration = config => setConfiguration(configure(config));
+        }
         window.__pcList.push(pc);
         return pc;
       };
       window.RTCPeerConnection.prototype = NativePC.prototype;
-    });
+    }, { iceServers: viewerIceServers, forceRelay: forceTurn });
 
     const page = await context.newPage();
     page.on("console", (message) => {
@@ -2274,12 +2288,22 @@ async function main() {
     }
     const continuityBaseline = await collectViewerSnapshot(page);
     const samples = [continuityBaseline];
+    const obsPerformanceSamples = [];
+    const sampleObsPerformance = async () => {
+      const [stats, stream] = await Promise.all([
+        client.request("GetStats"),
+        client.request("GetStreamStatus"),
+      ]);
+      obsPerformanceSamples.push({ timestampMs: Date.now(), stats, stream });
+    };
+    await sampleObsPerformance();
     const soakDeadline = Date.now() + soakMs;
     while (Date.now() < soakDeadline) {
       await sleep(
         Math.min(viewerSampleMs, Math.max(1, soakDeadline - Date.now())),
       );
       samples.push(await collectViewerSnapshot(page));
+      await sampleObsPerformance();
     }
     const secondPlayable = samples[samples.length - 1];
     let presentationCapture = null;
@@ -2515,6 +2539,14 @@ async function main() {
       }
     }
 
+    await sampleObsPerformance();
+    const obsPerformanceAnalysis = analyzeObsPerformance(obsPerformanceSamples, {
+      maximumRenderSkippedFrames: Number(process.env.VDONINJA_MAX_RENDER_SKIPPED_FRAMES || 0),
+      maximumOutputSkippedFrames: Number(process.env.VDONINJA_MAX_OUTPUT_SKIPPED_FRAMES || 0),
+    });
+    if (process.env.VDONINJA_REQUIRE_OBS_PERFORMANCE === "1" && !obsPerformanceAnalysis.ok && !videoContinuityFailure) {
+      videoContinuityFailure = obsPerformanceAnalysis.failures.join("; ");
+    }
     const streamStatusAfterViewer = await client
       .request("GetStreamStatus")
       .catch((error) => ({ error: String(error) }));
@@ -2570,6 +2602,8 @@ async function main() {
       obsWebSocketVersion: version.obsWebSocketVersion,
       activeStatus,
       streamStatusAfterViewer,
+      obsPerformanceSamples,
+      obsPerformanceAnalysis,
       firstPlayable,
       continuityBaseline,
       secondPlayable,

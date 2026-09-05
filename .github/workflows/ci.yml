@@ -42,6 +42,12 @@ jobs:
       - name: Run tests
         run: ctest --test-dir build --output-on-failure
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Validate E2E performance measurements
+        run: node --test tests/test-obs-performance.cjs tests/test-video-continuity.cjs tests/test-audio-continuity.cjs tests/test-presentation-continuity.cjs tests/test-udp-loss-proxy.cjs
+
   # Run the same suite under AddressSanitizer and UndefinedBehaviorSanitizer.
   # The suite includes byte-level fuzzers for VP9/H.264 payload parsing, RTCP
   # feedback/NACK parsing, audio RED construction, data-channel messages, and

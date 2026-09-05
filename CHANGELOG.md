@@ -21,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Repaired VP9 alpha publisher test headers, optional alpha-plane writes, and RTP SSRC signaling, and prevented duplicate OBS module loading in the source stress harness.
 
 ### Added
+- Record real Linux OBS/browser frame, render, encoder and network-stress measurements, with strict regression tests for performance counters and reproducible native receiver recording/recovery tools.
 - Add an Arch/AUR development source recipe with package build, real media, pacman install/reinstall/removal, and OBS initialization checks.
 - Test the native archive installer against a fully installed official Ubuntu OBS package in an isolated container.
 - Initialize the packaged Linux plugin with OBS 32.2.0–32.2.2 in CI, verify source registration and repeated native receiver creation/destruction, and enforce a shutdown timeout.

@@ -9,9 +9,9 @@ repo="$(cd "$(dirname "$0")/.." && pwd)"
 pacman -Syu --noconfirm --needed base-devel cmake ninja git obs-studio libdatachannel \
   openssl qt6-base ffmpeg namcap xorg-server-xvfb xorg-xauth python-pyqt6
 work="$(mktemp -d /tmp/vdoninja-arch.XXXXXX)"
-useradd -m package-test
+id -u package-test >/dev/null 2>&1 || useradd -m package-test
 chmod 755 "$work"
-git -c safe.directory="$repo" clone --no-hardlinks "$repo" "$work/source"
+git -c safe.directory="$repo" -c safe.directory="$repo/.git" clone --no-hardlinks "$repo" "$work/source"
 cp "$repo/packaging/arch/PKGBUILD" "$work/PKGBUILD"
 # Build the checked-out CI revision, including PR changes, rather than remote main.
 sed -i "s|^source=.*|source=('ninja-obs-plugin::git+file://$work/source')|" "$work/PKGBUILD"
