@@ -24,7 +24,11 @@ constexpr auto kRepairBudgetWindow = std::chrono::milliseconds(100);
 constexpr auto kRepairMaximumAge = std::chrono::milliseconds(500);
 constexpr size_t kMinimumDuplicateQueueBytes = 64U * 1024U;
 constexpr uint64_t kVideoPacerRateMultiplier = 2;
-constexpr uint64_t kMinimumVideoPacerBitrate = 2000000;
+// NVENC can retain ~180 KB IDRs even after adapting a 1080p stream below
+// 1 Mbps. At 2 Mbps those frames alone take >700 ms to send and repeatedly
+// exhaust a 500 ms viewer buffer. Keep enough packet-paced headroom to drain
+// them within that buffer; this does not change the encoded media bitrate.
+constexpr uint64_t kMinimumVideoPacerBitrate = 4000000;
 constexpr uint64_t kMaximumVideoPacerBitrate = 100000000;
 
 size_t calculateBurstBudget(uint64_t bitrateBitsPerSecond, std::chrono::milliseconds burstWindow)

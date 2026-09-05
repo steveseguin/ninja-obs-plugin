@@ -1060,6 +1060,11 @@ void VDONinjaSource::bindNativeMediaTestSignaling(VDONinjaSignaling &signaling, 
 	configureSignalingLifecycleCallbacks(signaling, manager);
 }
 
+void VDONinjaSource::setNativeMediaTestSignaling(std::unique_ptr<VDONinjaSignaling> signaling)
+{
+	signaling_ = std::move(signaling);
+}
+
 bool VDONinjaSource::advanceNativeMediaTestPeerIdentity(const PeerEventIdentity &identity)
 {
 	std::lock_guard<std::mutex> applyLock(trackEventApplyMutex_);
@@ -1847,12 +1852,17 @@ void VDONinjaSource::handlePeerDataChannelMessage(const PeerEventIdentity &ident
 	if (!targetUuid.empty()) {
 		if (manager) {
 			manager->bindViewerSignalingDataChannel(identity.uuid, targetUuid, targetSession);
-			stateIdentity = manager->claimPeerEventIdentity(targetUuid, targetSession);
+			stateIdentity = manager->claimPeerEventIdentity(targetUuid);
 		} else {
 			stateIdentity = std::nullopt;
 		}
-		if (!stateIdentity || (!targetSession.empty() && stateIdentity->session != targetSession) ||
-		    !acceptPeerEventIdentityLocked(*stateIdentity, false, PeerEventLane::DataMessage)) {
+		// A browser can use its established data channel to offer a separate
+		// media peer. That peer does not exist until signaling applies the offer.
+		// Controls still require an existing peer; existing peers retain their
+		// session/generation checks, and the transport was validated above.
+		if ((!stateIdentity && parsed.type != DataMessageType::Signaling) ||
+		    (stateIdentity && ((!targetSession.empty() && stateIdentity->session != targetSession) ||
+		                       !acceptPeerEventIdentityLocked(*stateIdentity, false, PeerEventLane::DataMessage)))) {
 			return;
 		}
 	}
@@ -1875,8 +1885,13 @@ void VDONinjaSource::handlePeerDataChannelMessage(const PeerEventIdentity &ident
 		if (signaling_) {
 			signaling_->processIncomingMessage(dataChannel_.prepareSignalingMessage(message, identity.uuid));
 		}
-		if (!targetUuid.empty()) {
-			sendViewerPreferencesToPeer(*stateIdentity, "resolved-media-peer");
+		if (manager && !targetUuid.empty()) {
+			// Processing the offer can create or replace the target peer. Never
+			// send preferences using an identity captured before that transition.
+			const auto resolvedIdentity = manager->claimPeerEventIdentity(targetUuid, targetSession);
+			if (resolvedIdentity) {
+				sendViewerPreferencesToPeer(*resolvedIdentity, "resolved-media-peer");
+			}
 		}
 		return;
 	}

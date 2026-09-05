@@ -279,6 +279,8 @@ static void generateTestFrame(uint8_t *yPlane, int yStride, uint8_t *uPlane, int
 	}
 
 	// Alpha plane: circle fully opaque (255), background half-transparent (128)
+	if (!aPlane)
+		return;
 	for (int ay = 0; ay < h; ++ay) {
 		for (int ax = 0; ax < w; ++ax) {
 			const float dx = static_cast<float>(ax) - cx;
@@ -548,6 +550,7 @@ private:
 			rtc::Description::Video vid("video", rtc::Description::Direction::SendOnly);
 			vid.addVP9Codec(96);
 			vid.setBitrate(500);
+			vid.addSSRC(peer->videoSsrc, "video-stream");
 			peer->videoTrack = peer->pc->addTrack(vid);
 		}
 
@@ -556,6 +559,7 @@ private:
 			rtc::Description::Video alpha("video-alpha", rtc::Description::Direction::SendOnly);
 			alpha.addVP9Codec(97);
 			alpha.setBitrate(200);
+			alpha.addSSRC(peer->alphaSsrc, "alpha-stream");
 			peer->alphaTrack = peer->pc->addTrack(alpha);
 		}
 

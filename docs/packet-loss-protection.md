@@ -108,6 +108,11 @@ plugin's packet-duplication modes, and they do not make the plugin generate ULPF
 
 ## Adaptive Bitrate from REMB
 
+The RTP pacer retains a 4 Mbps minimum drain rate per viewer, even when the encoder adapts below that rate. This
+lets large keyframes finish without repeatedly exhausting the playback buffer. It does not raise the configured
+encoder bitrate, but short packet trains can exceed that average rate. Packets remain spaced and all viewers share
+the existing 4 KB burst limit. A route still needs enough capacity for the actual encoded media and protection traffic.
+
 **Adaptive Bitrate from REMB (Experimental)** is congestion avoidance, not packet repair. When the active OBS encoder
 supports live bitrate changes, the plugin uses the lowest fresh REMB estimate across connected viewers, decreases in
 stages, increases conservatively, respects the configured minimum, and restores the original encoder bitrate when the

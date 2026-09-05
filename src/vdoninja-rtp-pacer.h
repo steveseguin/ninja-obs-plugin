@@ -28,8 +28,8 @@ namespace vdoninja
 uint16_t rewindRtpSequenceNumber(uint16_t nextSequenceNumber, size_t unsentPackets) noexcept;
 
 // The pacer is a burst smoother, not an encoder bitrate limiter. Some
-// VideoToolbox modes substantially overshoot very low configured bitrates, so
-// retain enough egress headroom to prevent that overshoot becoming latency.
+// Encoders can overshoot low rates or retain large keyframes after adaptation,
+// so retain enough egress headroom to prevent that overshoot becoming latency.
 uint64_t videoPacerBitrateForEncoderRate(int encoderBitrate) noexcept;
 uint64_t videoPacerBitrateForEncoderAndProtectionRate(int encoderBitrate, uint64_t protectionBitrate) noexcept;
 

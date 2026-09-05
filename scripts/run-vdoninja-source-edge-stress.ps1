@@ -43,6 +43,7 @@ param(
 $ErrorActionPreference = "Stop"
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
+. (Join-Path $PSScriptRoot "test-alpha-validation-common.ps1")
 $obsExePath = (Resolve-Path $ObsExe).Path
 $obsWorkingDirPath = (Resolve-Path $ObsWorkingDirectory).Path
 $installPrefixPath = (Resolve-Path $InstallPrefix).Path
@@ -295,7 +296,9 @@ if ($PublisherReloadIntervalMs -gt 0) {
 if ($PublisherReloadStartupWaitMs -gt 0) {
     $env:PUBLISHER_RELOAD_STARTUP_WAIT_MS = [string]$PublisherReloadStartupWaitMs
 }
-$env:OBS_PLUGINS_PATH = $pluginPath
+Sync-PortableObsPluginPayload -RepoRoot $repoRoot -InstallPrefixPath $installPrefixPath
+# An extra module search path can load the plugin (or all OBS plugins) twice.
+Remove-Item Env:OBS_PLUGINS_PATH -ErrorAction SilentlyContinue
 $env:OBS_PLUGINS_DATA_PATH = $dataPath
 $env:PATH = "$depsBin;$env:PATH"
 

@@ -49,22 +49,42 @@ TEST(RtpPacketPacerTest, ReclaimsUnsentTailSequenceNumbersAcrossWrapAround)
 
 TEST(RtpPacketPacerTest, RetainsHeadroomForLowBitrateEncoderOvershoot)
 {
-	EXPECT_EQ(videoPacerBitrateForEncoderRate(500000), 2000000u);
-	EXPECT_EQ(videoPacerBitrateForEncoderRate(1000000), 2000000u);
-	EXPECT_EQ(videoPacerBitrateForEncoderRate(1500000), 3000000u);
+	EXPECT_EQ(videoPacerBitrateForEncoderRate(500000), 4000000u);
+	EXPECT_EQ(videoPacerBitrateForEncoderRate(1000000), 4000000u);
+	EXPECT_EQ(videoPacerBitrateForEncoderRate(1500000), 4000000u);
 }
 
 TEST(RtpPacketPacerTest, IncludesProtectionTrafficInAggregatePacerRate)
 {
-	EXPECT_EQ(videoPacerBitrateForEncoderAndProtectionRate(500000, 100000), 2000000u);
+	EXPECT_EQ(videoPacerBitrateForEncoderAndProtectionRate(500000, 100000), 4000000u);
 	EXPECT_EQ(videoPacerBitrateForEncoderAndProtectionRate(8000000, 8400000), 16400000u);
 	EXPECT_EQ(videoPacerBitrateForEncoderAndProtectionRate(60000000, 60000000), 100000000u);
 }
 
+TEST(RtpPacketPacerTest, AdaptedNvencKeyframeBudgetsFitViewerBufferWithTwoViewers)
+{
+	// A measured NVENC 1080p IDR remains about 180 KB at a 750 kbps target.
+	// Check per-peer and shared delivery budgets deterministically. Wall-clock
+	// delivery is covered by OBS: standalone Windows tests do not inherit OBS's
+	// 1 ms timer resolution, and scheduler load must not change this assertion.
+	auto shared = std::make_shared<RtpSharedPacerBudget>(4096);
+	auto send = [](RtpPacketPacer::Packet &&) { return true; };
+	RtpPacketPacer first(videoPacerBitrateForEncoderRate(6000000), 2ms, send, 0, shared);
+	RtpPacketPacer second(videoPacerBitrateForEncoderRate(6000000), 2ms, send, 0, shared);
+	first.updateBitrate(videoPacerBitrateForEncoderRate(750000));
+	second.updateBitrate(videoPacerBitrateForEncoderRate(750000));
+	constexpr uint64_t keyframeBits = 180000U * 8U;
+	EXPECT_LT(keyframeBits * 1000U / first.bitrateBitsPerSecond(), 500u);
+	EXPECT_LT(keyframeBits * 1000U / second.bitrateBitsPerSecond(), 500u);
+	EXPECT_LT(2U * keyframeBits * 1000U / shared->bitrateBitsPerSecond(), 500u);
+	EXPECT_EQ(shared->participantCount(), 2u);
+	EXPECT_EQ(shared->burstBudgetBytes(), 4096u);
+}
+
 TEST(RtpPacketPacerTest, ClampsInvalidAndExtremeEncoderRates)
 {
-	EXPECT_EQ(videoPacerBitrateForEncoderRate(0), 2000000u);
-	EXPECT_EQ(videoPacerBitrateForEncoderRate(-1), 2000000u);
+	EXPECT_EQ(videoPacerBitrateForEncoderRate(0), 4000000u);
+	EXPECT_EQ(videoPacerBitrateForEncoderRate(-1), 4000000u);
 	EXPECT_EQ(videoPacerBitrateForEncoderRate(60000000), 100000000u);
 }
 

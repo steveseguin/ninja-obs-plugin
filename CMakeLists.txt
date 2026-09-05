@@ -928,10 +928,17 @@ if(BUILD_PUBLISHER_TOOL)
     # Re-use exactly the same libdatachannel link target resolved by the plugin section
     if(LibDataChannel_FOUND)
         if(TARGET LibDataChannel::LibDataChannelStatic)
-            target_link_libraries(vp9-alpha-publisher PRIVATE LibDataChannel::LibDataChannelStatic)
+            set(_publisher_ldc_target LibDataChannel::LibDataChannelStatic)
         else()
-            target_link_libraries(vp9-alpha-publisher PRIVATE LibDataChannel::LibDataChannel)
+            set(_publisher_ldc_target LibDataChannel::LibDataChannel)
         endif()
+        # The OBS stubs directory also contains rtc/ unit-test stubs. The
+        # publisher needs the real headers belonging to its linked library.
+        get_target_property(_publisher_ldc_includes ${_publisher_ldc_target} INTERFACE_INCLUDE_DIRECTORIES)
+        if(_publisher_ldc_includes)
+            target_include_directories(vp9-alpha-publisher BEFORE PRIVATE ${_publisher_ldc_includes})
+        endif()
+        target_link_libraries(vp9-alpha-publisher PRIVATE ${_publisher_ldc_target})
     endif()
 
     target_link_libraries(vp9-alpha-publisher PRIVATE

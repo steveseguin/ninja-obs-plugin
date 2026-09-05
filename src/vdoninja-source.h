@@ -174,6 +174,7 @@ public:
 	void setNativeMediaTestSignalingLifecycleHook(NativeMediaTestSignalingLifecycleHook hook);
 	void setNativeMediaTestStreamId(const std::string &streamId);
 	void bindNativeMediaTestSignaling(VDONinjaSignaling &signaling, VDONinjaPeerManager &manager);
+	void setNativeMediaTestSignaling(std::unique_ptr<VDONinjaSignaling> signaling);
 	bool advanceNativeMediaTestPeerIdentity(const PeerEventIdentity &identity);
 	void emitNativeMediaTestAudioFrame(uint64_t timestampNs);
 	void ageNativeMediaTestVideoOutput(int64_t ageMs);

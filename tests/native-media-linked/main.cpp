@@ -4258,6 +4258,46 @@ void testDataChannelInCallbackRetirementDrainsCallbackCleanup()
 	    "terminal DataChannel callback cleanup leaked or retired healthy media");
 }
 
+void testDataChannelOfferCreatesSeparateMediaPeer()
+{
+	VDONinjaSource source(NativeMediaTestTag{});
+	VDONinjaPeerManager manager;
+	source.bindNativeMediaTestPeerManager(manager);
+	auto transport = makeConnectedManagerDataChannelPair(manager, "dc-offer-transport", {"sendChannel"});
+	auto signaling = std::make_unique<VDONinjaSignaling>();
+	std::atomic<int> offers{0};
+	std::atomic<int> dispatched{0};
+	signaling->setOnOffer([&](const std::string &uuid, const std::string &, const std::string &session) {
+		manager.createNativeMediaTestViewerPeer(uuid, session);
+		offers.fetch_add(1, std::memory_order_release);
+	});
+	source.setNativeMediaTestSignaling(std::move(signaling));
+	manager.setNativeMediaTestPeerDataDispatchCompleteHook(
+	    [&](const std::shared_ptr<PeerInfo> &) { dispatched.fetch_add(1, std::memory_order_release); });
+	auto sendOffer = [&](const std::string &session, int count) {
+		JsonBuilder description;
+		description.add("type", "offer");
+		description.add("sdp", "v=0\r\n");
+		JsonBuilder message;
+		message.add("UUID", "dc-new-media-peer");
+		message.add("session", session);
+		message.addRaw("description", description.build());
+		require(transport.senderChannels.front()->send(message.build()),
+		        "failed to send media offer over real DataChannel");
+		requireEventually([&]() { return dispatched.load(std::memory_order_acquire) >= count; },
+		                  "media offer did not finish DataChannel dispatch");
+	};
+	require(!manager.getPeerIdentity("dc-new-media-peer"), "media target unexpectedly existed before its offer");
+	sendOffer("media-session", 1);
+	const auto mediaIdentity = manager.getPeerIdentity("dc-new-media-peer");
+	require(offers.load() == 1 && mediaIdentity && mediaIdentity->session == "media-session",
+	        "initial data-channel offer was discarded instead of creating its separate media peer");
+	sendOffer("stale-session", 2);
+	require(offers.load() == 1 && manager.getPeerIdentity("dc-new-media-peer")->generation == mediaIdentity->generation,
+	        "mismatched-session offer replaced the established media peer");
+	manager.setNativeMediaTestPeerDataDispatchCompleteHook(nullptr);
+}
+
 void testIdentityBearingByePreservesTransportPeerAndCleanupState()
 {
 	VDONinjaSource source(NativeMediaTestTag{});
@@ -5480,6 +5520,8 @@ int main(int argc, char **argv)
 		     testDataChannelInCallbackRetirementDrainsCallbackCleanup},
 		    {"identity-bearing DataChannel bye preserves transport peer and cleanup state",
 		     testIdentityBearingByePreservesTransportPeerAndCleanupState},
+		    {"DataChannel offer creates separate media peer while rejecting stale sessions",
+		     testDataChannelOfferCreatesSeparateMediaPeer},
 		    {"PeerConnection description and feedback functions share one owner session",
 		     testPeerConnectionDescriptionAndFeedbackFunctionsShareOwnerSession},
 		    {"admitted feedback completion drains before owner state",

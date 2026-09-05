@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Bundle the Linux libdatachannel runtime privately and remove build-machine library search paths from release packages.
 - Remove Linux plugin copies from multiarch and legacy system directories during uninstall, including the private runtime.
 - Reject incompatible native OBS versions, Snap installs, and unresolved runtime dependencies before installing the Linux package.
+- Restored native reception from browser publishers that negotiate a separate media peer over an existing data channel, while retaining stale-session checks.
+- Prevented recurring low-bitrate NVENC keyframe freezes by retaining a 4 Mbps minimum RTP pacing rate without changing the encoder bitrate or shared packet-burst limit.
+- Repaired VP9 alpha publisher test headers, optional alpha-plane writes, and RTP SSRC signaling, and prevented duplicate OBS module loading in the source stress harness.
 
 ### Added
 - Run the Linux release build on main and pull requests, with isolated install/uninstall regression tests and an extracted-package ELF loading and OBS API compatibility gate.
