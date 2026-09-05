@@ -45,8 +45,20 @@ API extracted from the official Ubuntu 24.04 packages:
 | 32.0.4 | `-4` | Rejected: newer plugin API |
 
 The runtime check starts a real libobs context under Xvfb and calls OBS's module
-loader. It does not initialize the plugin UI, start streaming, or validate live
-WebRTC. Windows and macOS runtime behavior must still be tested on those systems.
+loader. For compatible runtimes, CI also supplies a Qt application, initializes
+the plugin, checks all three source registrations, creates and destroys three
+native receiver instances, and shuts down OBS. Each runtime has a 60-second
+timeout so startup/destruction hangs fail CI. This harness has no OBS frontend
+callbacks or graphics context, so frontend/graphics diagnostics are expected;
+it does not test dock integration, rendering, or live streaming. Windows and
+macOS runtime behavior must still be tested on those systems.
+
+A separate manual check launched the official OBS 32.2.2 GUI under Xvfb with
+the packaged plugin. The Studio dock and tools action registered, startup
+completed, and closing OBS normally completed RTC cleanup and reported zero
+OBS memory leaks. This requires the full OBS runtime dependencies (including
+its FFmpeg/AAC module dependencies); extracting a `.deb` alone does not install
+them. This GUI check did not publish or receive live media.
 
 The extracted Linux archive also passed immediate ELF symbol resolution, private
 libdatachannel lookup, and embedded SDK-version checks. Install/uninstall tests
@@ -57,6 +69,9 @@ tests with the single-byte test locale available.
 
 ## Repeat the checks
 
+Initialization requires Ubuntu's `python3-pyqt6`; use `/usr/bin/python3` so the
+system Qt binding is available. Omit `--initialize` for incompatible runtimes.
+
 ```bash
 sudo python3 tests/test-linux-package.py
 
@@ -66,9 +81,9 @@ LD_LIBRARY_PATH=/path/to/obs/runtime/lib \
 
 LD_LIBRARY_PATH=/path/to/obs/runtime/lib \
   xvfb-run -a --server-args='-screen 0 1280x720x24 -extension GLX' \
-  python3 scripts/validate-linux-obs-runtime.py \
+  /usr/bin/python3 scripts/validate-linux-obs-runtime.py \
   /path/to/obs-vdoninja.so /path/to/plugin/data \
-  --runtime-version 32.2.2 --expect compatible
+  --runtime-version 32.2.2 --expect compatible --initialize
 ```
 
 `.github/workflows/linux.yml` runs the release build, extracted-archive checks,

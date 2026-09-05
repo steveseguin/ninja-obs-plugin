@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Exercise OBS's real module acceptance check under Xvfb (without starting media/UI)."""
+"""Check OBS module compatibility and optionally initialize the plugin under Xvfb."""
 import argparse
 import ctypes as c
 import os
@@ -11,7 +11,43 @@ def api_version(version):
     return (major << 24) | (minor << 16) | patch
 
 
-def validate(plugin, data, runtime_version, expect):
+def initialize_and_exercise(obs, module):
+    obs.obs_init_module.argtypes = [c.c_void_p]
+    obs.obs_init_module.restype = c.c_bool
+    if not obs.obs_init_module(module):
+        raise RuntimeError('OBS plugin initialization failed')
+    obs.obs_enum_source_types.argtypes = [c.c_size_t, c.POINTER(c.c_char_p)]
+    obs.obs_enum_source_types.restype = c.c_bool
+    registered = set()
+    source_id = c.c_char_p()
+    index = 0
+    while obs.obs_enum_source_types(index, c.byref(source_id)):
+        registered.add(source_id.value)
+        index += 1
+    required = {b'vdoninja_source', b'vdoninja_native_source_internal', b'vdoninja_control_center'}
+    if not required <= registered:
+        raise RuntimeError(f'Missing source registrations: {required - registered}')
+    obs.obs_source_create_private.argtypes = [c.c_char_p, c.c_char_p, c.c_void_p]
+    obs.obs_source_create_private.restype = c.c_void_p
+    obs.obs_source_release.argtypes = [c.c_void_p]
+    obs.obs_data_create.restype = c.c_void_p
+    obs.obs_data_set_bool.argtypes = [c.c_void_p, c.c_char_p, c.c_bool]
+    obs.obs_data_release.argtypes = [c.c_void_p]
+    settings = obs.obs_data_create()
+    try:
+        obs.obs_data_set_bool(settings, b'internal_native_receiver_source', True)
+        obs.obs_data_set_bool(settings, b'use_native_receiver', True)
+        for _ in range(3):
+            source = obs.obs_source_create_private(b'vdoninja_native_source_internal', b'Linux runtime smoke', settings)
+            if not source:
+                raise RuntimeError('Native receiver source creation failed')
+            obs.obs_source_release(source)
+            obs.obs_wait_for_destroy_queue()
+    finally:
+        obs.obs_data_release(settings)
+
+
+def validate(plugin, data, runtime_version, expect, initialize=False):
     plugin = Path(plugin).resolve(strict=True)
     data = Path(data).resolve(strict=True)
     obs = c.CDLL('libobs.so.30', mode=os.RTLD_GLOBAL | os.RTLD_NOW)
@@ -28,6 +64,11 @@ def validate(plugin, data, runtime_version, expect):
     display = x11.XOpenDisplay(None)
     if not display:
         raise RuntimeError('No X display; run this check with xvfb-run')
+    # Keep Qt alive through obs_shutdown, which destroys plugin widgets.
+    application = None
+    if initialize:
+        from PyQt6.QtWidgets import QApplication
+        application = QApplication([])
     started = False
     try:
         obs.obs_set_nix_platform(1)  # OBS_NIX_PLATFORM_X11_EGL
@@ -45,11 +86,13 @@ def validate(plugin, data, runtime_version, expect):
         expected = 0 if expect == 'compatible' else -4  # MODULE_SUCCESS / MODULE_INCOMPATIBLE_VER
         if result != expected:
             raise RuntimeError(f'OBS {runtime_version}: module result {result}, expected {expected}')
-        print(f'PASS: OBS {runtime_version}: {expect} (obs_open_module={result})')
+        if initialize:
+            initialize_and_exercise(obs, module)
     finally:
         if started:
             obs.obs_shutdown()
         x11.XCloseDisplay(display)
+    print(f'PASS: OBS {runtime_version}: {expect} (obs_open_module={result}, initialized={initialize}, shutdown complete)')
 
 
 if __name__ == '__main__':
@@ -58,5 +101,8 @@ if __name__ == '__main__':
     parser.add_argument('data')
     parser.add_argument('--runtime-version', required=True)
     parser.add_argument('--expect', choices=['compatible', 'incompatible'], required=True)
+    parser.add_argument('--initialize', action='store_true', help='Initialize Qt/plugin and exercise native sources')
     args = parser.parse_args()
-    validate(args.plugin, args.data, args.runtime_version, args.expect)
+    if args.initialize and args.expect != 'compatible':
+        parser.error('--initialize requires --expect compatible')
+    validate(args.plugin, args.data, args.runtime_version, args.expect, args.initialize)

@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Repaired VP9 alpha publisher test headers, optional alpha-plane writes, and RTP SSRC signaling, and prevented duplicate OBS module loading in the source stress harness.
 
 ### Added
+- Initialize the packaged Linux plugin with OBS 32.2.0–32.2.2 in CI, verify source registration and repeated native receiver creation/destruction, and enforce a shutdown timeout.
 - Require real native media and alpha-composition tests in Linux builds, and add an optional live alpha-site smoke test for dual-track decode, viewer reload, and clean shutdown.
 - Validate the same Linux release binary against official OBS 32.2.0, 32.2.1, and 32.2.2 runtimes, with 32.1.2 and 32.0.4 as incompatible-version controls.
 - Run the Linux release build on main and pull requests, with isolated install/uninstall regression tests and an extracted-package ELF loading and OBS API compatibility gate.
