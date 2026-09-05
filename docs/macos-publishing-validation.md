@@ -334,3 +334,40 @@ Their independent one-second windows are not synchronized, so compare steady
 intervals rather than demanding identical individual samples. OBS's separate
 process CPU statistic has a different meaning and should not be used as the
 reference for this meter.
+
+## Expanded encoder and audio matrix
+
+A subsequent 1080p60 / 8 Mbps matrix used native plugin reception, one OBS Browser
+Source viewer, and an instrumented Chromium viewer concurrently. Hardware VT CBR
+and x264 CBR each passed Off/Low/Medium/High protection with continuous decoded
+video and audio. Hardware VT ABR/CRF and x264 ABR/VBR/CRF also passed their tested
+30-second controls. x264 used the veryfast preset. These are representative
+rate-control tests, not every possible preset, tune or custom encoder string.
+
+Software VT ABR did not meet the same 1080p60 criteria: source-image repeats/skips
+and audio concealment appeared despite no reported receiver video drops/freezes.
+Its simultaneous local recording also contained 1,221 repeated markers and 1,216
+skipped markers over 2,446 comparisons. That places a cadence problem before
+network delivery. A 720p60 single-viewer control passed, with all 2,198 local
+recording comparisons in order; 720p30 also passed transport/audio checks. Keep
+hardware H.264 or the tested x264 settings for the heavier workload rather than
+silently changing the software encoder's quality or buffering.
+
+All four video-protection modes passed separate 30-second loss-only controls
+with every 200th proxy datagram dropped after warmup and Opus RED enabled. This
+does not remove the documented combined loss/reordering limitation. Higher
+protection consumes additional network bandwidth and CPU.
+
+A native macOS app playing a known tone was captured using application-only
+ScreenCaptureKit audio, with the OBS media-file audio muted. Publishing passed
+raw decoded-audio continuity and zero-concealment checks. Native H.264 and VP9
+reception passed source/audio activity checks. Native VP8 and AV1 offers were
+rejected as unsupported; browser-mode H.264, VP8, VP9 and AV1 passed their audio
+checks (and screenshot checks where requested). H.264 recordings from native
+and browser reception each passed an 11.25-second analyzed PCM window without
+dropouts, click candidates or clipping. Physical microphone quality was not
+certified by these synthetic tests.
+
+When requesting mixer-audio checks without screenshots, the source-check tool
+now waits for the requested observation period. Previously browser mode could
+fail with zero audio-meter samples immediately after creating the source.
