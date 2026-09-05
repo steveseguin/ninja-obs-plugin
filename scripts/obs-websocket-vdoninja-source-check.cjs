@@ -1995,6 +1995,9 @@ async function main() {
         }
       }
       screenshot = screenshots[0] || null;
+    } else if (checkAudioMeter) {
+      logStep(`waiting ${waitMs}ms for source audio`);
+      await sleep(waitMs);
     }
     perturbResult = await waitForPerturbCommand(perturb, perturbTimeoutMs);
     if (perturbResult && requirePerturbCommand &&
