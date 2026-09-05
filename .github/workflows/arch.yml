@@ -13,6 +13,10 @@ jobs:
     container: archlinux:base-devel
     timeout-minutes: 25
     steps:
+      # checkout otherwise falls back to an archive, which has no VCS history
+      # for makepkg's development version or exact-revision source clone.
+      - name: Install Git before checkout
+        run: pacman -Syu --noconfirm --needed git
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
