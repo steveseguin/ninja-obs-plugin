@@ -65,6 +65,7 @@ void parseCandidateBundle(const JsonParser &json, ParsedSignalMessage &parsed)
 
 bool parseSignalingMessage(const std::string &message, ParsedSignalMessage &parsed, std::string *error)
 {
+	parsed = {};
 	try {
 		JsonParser json(message);
 

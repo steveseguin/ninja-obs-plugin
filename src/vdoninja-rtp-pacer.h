@@ -52,6 +52,7 @@ public:
 	size_t participantCount() const;
 
 private:
+	void recalculateBitrateLocked();
 	void updateTokensLocked(std::chrono::steady_clock::time_point now);
 
 	const size_t burstBudgetBytes_;

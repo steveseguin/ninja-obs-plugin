@@ -1211,6 +1211,18 @@ TEST_F(DataChannelTest, KeepsExistingUuidWhenPreparingOfficialDataChannelSignali
 	EXPECT_EQ(parsed.session, "sess-1");
 }
 
+TEST_F(DataChannelTest, EscapedPingAndPongKeysPreserveRawTokens)
+{
+	const auto ping = dataChannel.parseMessage(R"({"other":{"ping":0},"p\u0069ng":"token\nvalue"})");
+	EXPECT_EQ(ping.type, DataMessageType::Ping);
+	EXPECT_EQ(ping.data, R"("token\nvalue")");
+	const auto reply = dataChannel.createPongMessage(ping.data);
+	EXPECT_EQ(JsonParser(reply).getString("pong"), "token\nvalue");
+	const auto pong = dataChannel.parseMessage(R"({"p\u006fng":174743})");
+	EXPECT_EQ(pong.type, DataMessageType::Pong);
+	EXPECT_EQ(pong.data, "174743");
+}
+
 TEST_F(DataChannelTest, ParsesOfficialPingMessage)
 {
 	std::string raw = R"({"ping":174743})";
@@ -1405,6 +1417,19 @@ TEST_F(DataChannelTest, ExtractsTopLevelPlaybackHint)
 	EXPECT_EQ(dataChannel.extractInboundPlaybackHint(raw), "https://example.com/live/whep");
 }
 
+TEST_F(DataChannelTest, PlaybackHintsAcceptSchemesSupportedByInboundUrlBuilder)
+{
+	for (const char *url : {"HTTPS://example.com/CaseSensitivePath", "Http://example.com/CaseSensitivePath",
+	                        "WHEP://example.com/CaseSensitivePath", "wheps://example.com/CaseSensitivePath"}) {
+		JsonBuilder message;
+		message.add("whepUrl", url);
+		const std::string hint = dataChannel.extractInboundPlaybackHint(message.build());
+		EXPECT_EQ(hint, url);
+		EXPECT_EQ(buildInboundViewUrl("https://vdo.ninja", hint, "", "", DEFAULT_SALT),
+		          buildInboundViewUrl("https://vdo.ninja", url, "", "", DEFAULT_SALT));
+	}
+}
+
 TEST_F(DataChannelTest, ExtractsPlaybackHintFromSettingsObject)
 {
 	std::string raw = "{\"whepSettings\":{\"type\":\"whep\",\"url\":\"https://example.com/stream/whep\"}}";
@@ -1421,6 +1446,26 @@ TEST_F(DataChannelTest, IgnoresNonUrlPlaybackHints)
 {
 	std::string raw = "{\"whep\":\"stream-id-not-url\"}";
 	EXPECT_TRUE(dataChannel.extractInboundPlaybackHint(raw).empty());
+}
+
+TEST_F(DataChannelTest, InvalidPlaybackAliasesDoNotHideAValidSiblingUrl)
+{
+	EXPECT_EQ(dataChannel.extractInboundPlaybackHint(R"({"whepUrl":null,"whep":"https://example.com/live/whep"})"),
+	          "https://example.com/live/whep");
+	EXPECT_EQ(
+	    dataChannel.extractInboundPlaybackHint(R"({"info":{"whep":true,"whepplay":"https://example.com/live/whep"}})"),
+	    "https://example.com/live/whep");
+	EXPECT_EQ(
+	    dataChannel.extractInboundPlaybackHint(R"({"url":"stream-id-not-url","URL":"https://example.com/live/whep"})"),
+	    "https://example.com/live/whep");
+}
+
+TEST_F(DataChannelTest, ValidPlaybackAliasesRetainTheirExistingPriority)
+{
+	EXPECT_EQ(
+	    dataChannel.extractInboundPlaybackHint(
+	        R"({"whepUrl":"https://example.com/first","whep":"https://example.com/second","url":"https://example.com/third"})"),
+	    "https://example.com/first");
 }
 
 TEST_F(DataChannelTest, SetsTimestampOnParse)

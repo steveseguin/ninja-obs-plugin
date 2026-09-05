@@ -41,6 +41,20 @@ PendingAlphaFrame makeAlpha(uint32_t rtpTimestamp, int width = 640, int height =
 
 } // namespace
 
+TEST(AlphaSyncTest, ScalingWideAndTallPlanesDoesNotOverflowCoordinates)
+{
+	constexpr int extent = 50000;
+	std::vector<uint8_t> source(extent);
+	for (size_t i = 0; i < source.size(); ++i) {
+		source[i] = static_cast<uint8_t>(i);
+	}
+	std::vector<uint8_t> output;
+	ASSERT_TRUE(scaleAlphaPlaneNearest(source, extent, 1, extent, extent, 1, output));
+	EXPECT_EQ(output, source);
+	ASSERT_TRUE(scaleAlphaPlaneNearest(source, 1, extent, 1, 1, extent, output));
+	EXPECT_EQ(output, source);
+}
+
 TEST(AlphaSyncTest, RtpTimestampOrderingHandlesWrapAround)
 {
 	EXPECT_TRUE(isRtpTimestampBefore(0xFFFFFFF0u, 0x00000010u));
@@ -220,6 +234,19 @@ TEST(AlphaSyncTest, ConcurrentOldAlphaRemovalCannotRetireNewReplacement)
 	installer.join();
 	EXPECT_FALSE(staleRemovalApplied);
 	EXPECT_EQ(sourceSlot, newAlpha);
+}
+
+TEST(AlphaSyncTest, OutputTimestampMappingPreservesTimingBeyondThreeDays)
+{
+	RtpOutputTimestampMapper mapper;
+	constexpr uint64_t baseNs = 123456789;
+	constexpr uint64_t stepTicks = 6ULL * 60 * 60 * 90000 + 1;
+	EXPECT_EQ(mapper.map(0, baseNs), baseNs);
+	for (uint64_t step = 1; step <= 12; ++step) {
+		const uint64_t ticks = step * stepTicks;
+		const uint64_t expectedNs = baseNs + step * 6ULL * 60 * 60 * 1000000000 + step * 1000000000 / 90000;
+		EXPECT_EQ(mapper.map(static_cast<uint32_t>(ticks), expectedNs), expectedNs) << "step=" << step;
+	}
 }
 
 TEST(AlphaSyncTest, FinalOutputTimestampMappingRejectsOutOfOrderAndHandlesWrap)

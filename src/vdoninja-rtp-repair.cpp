@@ -8,8 +8,10 @@
 
 #include <algorithm>
 #include <cstring>
+#include <iterator>
 #include <stdexcept>
 #include <unordered_set>
+#include <utility>
 
 namespace vdoninja
 {
@@ -86,13 +88,16 @@ std::vector<uint16_t> parseRtcpNackRequests(const uint8_t *data, size_t size, ui
 				return requested;
 			}
 			if (mediaSsrc == 0 || readU32(packet + 8) == mediaSsrc) {
-				for (size_t fieldOffset = kFeedbackHeaderBytes; fieldOffset + 4U <= contentBytes; fieldOffset += 4U) {
+				for (size_t fieldOffset = kFeedbackHeaderBytes;
+				     fieldOffset + 4U <= contentBytes && requested.size() < kMaximumNackRequestsPerCompoundPacket;
+				     fieldOffset += 4U) {
 					const uint16_t packetId = readU16(packet + fieldOffset);
 					const uint16_t bitmask = readU16(packet + fieldOffset + 2);
 					if (seen.insert(packetId).second) {
 						requested.push_back(packetId);
 					}
-					for (uint16_t bit = 0; bit < 16; ++bit) {
+					for (uint16_t bit = 0; bit < 16 && requested.size() < kMaximumNackRequestsPerCompoundPacket;
+					     ++bit) {
 						if ((bitmask & static_cast<uint16_t>(1U << bit)) == 0) {
 							continue;
 						}
@@ -100,9 +105,6 @@ std::vector<uint16_t> parseRtcpNackRequests(const uint8_t *data, size_t size, ui
 						if (seen.insert(sequenceNumber).second) {
 							requested.push_back(sequenceNumber);
 						}
-					}
-					if (requested.size() >= kMaximumNackRequestsPerCompoundPacket) {
-						return requested;
 					}
 				}
 			}
@@ -131,27 +133,33 @@ bool RtpRetransmissionCache::store(const uint8_t *data, size_t size, Clock::time
 		return false;
 	}
 
-	auto entry = std::make_shared<Entry>();
-	entry->sequenceNumber = readU16(data + 2);
-	entry->packet.resize(size);
-	std::memcpy(entry->packet.data(), data, size);
-	entry->storedAt = now;
+	Entry entry;
+	entry.sequenceNumber = readU16(data + 2);
+	entry.packet.resize(size);
+	std::memcpy(entry.packet.data(), data, size);
+	entry.storedAt = now;
 
 	std::lock_guard<std::mutex> lock(mutex_);
 	pruneLocked(now);
-	const auto existing = bySequence_.find(entry->sequenceNumber);
+	const auto existing = bySequence_.find(entry.sequenceNumber);
 	if (existing != bySequence_.end()) {
-		// Paced packet duplication intentionally sends the same RTP sequence
-		// number again. Replace the cached copy without letting duplicates
-		// consume the unique-packet history or byte budget twice.
+		// Replace and refresh in constant time. Keeping an empty old entry
+		// would retain its vector allocation outside the reported byte budget.
 		bytes_ -= existing->second->packet.size();
-		existing->second->packet.clear();
+		*existing->second = std::move(entry);
+		entries_.splice(entries_.end(), entries_, existing->second);
+	} else {
+		entries_.push_back(std::move(entry));
+		try {
+			bySequence_.emplace(entries_.back().sequenceNumber, std::prev(entries_.end()));
+		} catch (...) {
+			entries_.pop_back();
+			throw;
+		}
 	}
-	entries_.push_back(entry);
-	bySequence_[entry->sequenceNumber] = entry;
 	bytes_ += size;
 	pruneLocked(now);
-	return bySequence_.find(entry->sequenceNumber) != bySequence_.end() && bySequence_[entry->sequenceNumber] == entry;
+	return bySequence_.find(readU16(data + 2)) != bySequence_.end();
 }
 
 std::optional<RtpRetransmissionCache::Packet> RtpRetransmissionCache::find(uint16_t sequenceNumber,
@@ -161,6 +169,14 @@ std::optional<RtpRetransmissionCache::Packet> RtpRetransmissionCache::find(uint1
 	pruneLocked(now);
 	const auto found = bySequence_.find(sequenceNumber);
 	if (found == bySequence_.end()) {
+		return std::nullopt;
+	}
+	// Concurrent stores can acquire the lock in a different order from their
+	// timestamp samples. Front pruning alone cannot guarantee this entry is fresh.
+	if (now > found->second->storedAt && now - found->second->storedAt > maxAge_) {
+		bytes_ -= found->second->packet.size();
+		entries_.erase(found->second);
+		bySequence_.erase(found);
 		return std::nullopt;
 	}
 	return found->second->packet;
@@ -190,16 +206,13 @@ void RtpRetransmissionCache::pruneLocked(Clock::time_point now)
 {
 	while (!entries_.empty()) {
 		const auto &oldest = entries_.front();
-		const bool expired = now > oldest->storedAt && now - oldest->storedAt > maxAge_;
+		const bool expired = now > oldest.storedAt && now - oldest.storedAt > maxAge_;
 		if (!expired && bySequence_.size() <= maxPackets_ && bytes_ <= maxBytes_) {
 			break;
 		}
 
-		bytes_ -= oldest->packet.size();
-		const auto found = bySequence_.find(oldest->sequenceNumber);
-		if (found != bySequence_.end() && found->second == oldest) {
-			bySequence_.erase(found);
-		}
+		bytes_ -= oldest.packet.size();
+		bySequence_.erase(oldest.sequenceNumber);
 		entries_.pop_front();
 	}
 }

@@ -57,6 +57,7 @@ bool VDONinjaModuleLifecycle::load()
 
 	bool attachAttempted = false;
 	bool preloadAttempted = false;
+	bool failed = false;
 	std::string failure;
 	try {
 		attachAttempted = true;
@@ -68,12 +69,14 @@ bool VDONinjaModuleLifecycle::load()
 		preloadAttempted = true;
 		operations_.preloadRtc();
 	} catch (const std::exception &error) {
+		failed = true;
 		failure = error.what();
 	} catch (...) {
+		failed = true;
 		failure = "unknown exception";
 	}
 
-	if (!failure.empty()) {
+	if (failed) {
 		// An attach operation may throw after partially publishing its callback.
 		// Always attempt a synchronous detach once attach was entered.
 		if (attachAttempted) {
@@ -323,25 +326,28 @@ void VDONinjaModuleLifecycle::executeCleanup(const char *trigger) noexcept
 bool VDONinjaModuleLifecycle::completeCleanupFuture(const std::shared_future<void> &future,
                                                     const char *completionContext) noexcept
 {
+	bool failed = false;
 	std::string failure;
 	try {
 		future.get();
 	} catch (const std::exception &error) {
+		failed = true;
 		failure = error.what();
 	} catch (...) {
+		failed = true;
 		failure = "unknown exception";
 	}
 
 	{
 		std::lock_guard<std::mutex> lock(mutex_);
-		if (failure.empty()) {
+		if (!failed) {
 			cleanupFuture_ = {};
 			phase_ = ModuleLifecyclePhase::Unloaded;
 		} else {
 			phase_ = ModuleLifecyclePhase::CleanupFailed;
 		}
 	}
-	if (!failure.empty()) {
+	if (failed) {
 		emitLog(ModuleLifecycleLogLevel::Error, "Process-global libdatachannel cleanup failed: " + failure);
 		return false;
 	}

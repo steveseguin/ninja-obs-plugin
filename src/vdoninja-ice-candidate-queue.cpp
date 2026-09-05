@@ -189,11 +189,16 @@ void PendingRemoteIceCandidateQueue::pruneExpiredLocked(int64_t nowMs)
 	auto peerIt = candidatesByPeer_.begin();
 	while (peerIt != candidatesByPeer_.end()) {
 		auto &candidates = peerIt->second;
-		while (!candidates.empty() && nowMs >= candidates.front().queuedAtMs &&
-		       nowMs - candidates.front().queuedAtMs > ttlMs_) {
-			queuedBytes_ -= storedBytes(peerIt->first, candidates.front());
-			candidates.pop_front();
-		}
+		// Timestamps are captured before locking and may also reflect wall-clock
+		// adjustments. A fresh front entry does not prove later entries are fresh.
+		const auto retainedEnd = std::remove_if(candidates.begin(), candidates.end(), [&](const auto &candidate) {
+			if (nowMs < candidate.queuedAtMs || nowMs - candidate.queuedAtMs <= ttlMs_) {
+				return false;
+			}
+			queuedBytes_ -= storedBytes(peerIt->first, candidate);
+			return true;
+		});
+		candidates.erase(retainedEnd, candidates.end());
 		if (candidates.empty()) {
 			peerIt = candidatesByPeer_.erase(peerIt);
 		} else {

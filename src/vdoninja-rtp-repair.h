@@ -9,8 +9,7 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
-#include <deque>
-#include <memory>
+#include <list>
 #include <mutex>
 #include <optional>
 #include <unordered_map>
@@ -38,6 +37,8 @@ public:
 	void clear();
 
 private:
+	friend struct RtpRetransmissionCacheTestAccess;
+
 	struct Entry {
 		uint16_t sequenceNumber = 0;
 		Packet packet;
@@ -50,8 +51,8 @@ private:
 	const size_t maxBytes_;
 	const std::chrono::milliseconds maxAge_;
 	mutable std::mutex mutex_;
-	std::deque<std::shared_ptr<Entry>> entries_;
-	std::unordered_map<uint16_t, std::shared_ptr<Entry>> bySequence_;
+	std::list<Entry> entries_;
+	std::unordered_map<uint16_t, std::list<Entry>::iterator> bySequence_;
 	size_t bytes_ = 0;
 };
 

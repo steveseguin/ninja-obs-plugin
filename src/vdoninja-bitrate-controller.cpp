@@ -53,7 +53,11 @@ std::optional<uint64_t> BitrateController::observe(std::optional<uint64_t> estim
 		consecutiveDecreaseSamples_ = 0;
 		const uint64_t minimumStepTarget =
 		    scaled(currentBitrateBitsPerSecond_, static_cast<uint16_t>(100U - config_.maximumDecreaseStepPercent));
-		currentBitrateBitsPerSecond_ = std::max(desired, minimumStepTarget);
+		const uint64_t target = std::max(desired, minimumStepTarget);
+		if (target == currentBitrateBitsPerSecond_) {
+			return std::nullopt;
+		}
+		currentBitrateBitsPerSecond_ = target;
 		lastChangeAt_ = now;
 		return currentBitrateBitsPerSecond_;
 	}

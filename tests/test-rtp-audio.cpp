@@ -4,6 +4,7 @@
  */
 
 #include <cstdint>
+#include <limits>
 #include <stdexcept>
 #include <vector>
 
@@ -49,6 +50,23 @@ TEST(OpusRtpPacketTest, BuildsExpectedHeaderAndPreservesPayload)
 	EXPECT_EQ(packetTimestamp(packet), 0x89ABCDEFu);
 	EXPECT_EQ(packetSsrc(packet), 0x10203040u);
 	EXPECT_EQ(std::vector<uint8_t>(packet.begin() + 12, packet.end()), payload);
+}
+
+TEST(OpusRtpPacketTest, RejectsPayloadSizesThatCannotFitWithTheHeader)
+{
+	const uint8_t payload = 0xF8;
+	const size_t maxSize = std::vector<uint8_t>{}.max_size();
+	EXPECT_TRUE(buildOpusRtpPacket(&payload, maxSize - 11, 111, 1, 960, 123).empty());
+	EXPECT_TRUE(buildOpusRtpPacket(&payload, std::numeric_limits<size_t>::max(), 111, 1, 960, 123).empty());
+}
+
+TEST(OpusRtpPacketTest, PreservesEmptyPayloadAndRejectsNullNonemptyPayload)
+{
+	EXPECT_TRUE(buildOpusRtpPacket(nullptr, 1, 111, 1, 960, 123).empty());
+	const auto empty = buildOpusRtpPacket(nullptr, 0, 111, 1, 960, 123);
+	ASSERT_EQ(empty.size(), 12u);
+	EXPECT_EQ(packetSequence(empty), 1u);
+	EXPECT_EQ(packetTimestamp(empty), 960u);
 }
 
 TEST(OpusRtpPacketTest, GeneratesLongContinuousSequenceWithoutHeaderDrift)

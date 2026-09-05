@@ -110,6 +110,29 @@ TEST(AudioRedTest, SelectsRedOnlyWhenAnswerPrefersAValidMapping)
 	                                   "a=rtpmap:111 opus/48000/2\r\n"));
 }
 
+TEST(AudioRedTest, RejectedAudioDoesNotNegotiateRedFromRetainedCodecAttributes)
+{
+	const std::string codecs = "a=rtpmap:63 red/48000/2\r\n"
+	                           "a=fmtp:63 111/111\r\n"
+	                           "a=rtpmap:111 opus/48000/2\r\n";
+	EXPECT_FALSE(answerSelectsAudioRed("v=0\r\nm=audio 0 UDP/TLS/RTP/SAVPF 63 111\r\n" + codecs));
+	EXPECT_TRUE(answerSelectsAudioRed("v=0\r\nm=audio 9 UDP/TLS/RTP/SAVPF 63 111\r\n" + codecs));
+}
+
+TEST(AudioRedTest, RejectsEmptyEntriesAnywhereInRedFormatParameters)
+{
+	const std::string prefix = "v=0\r\n"
+	                           "m=audio 9 UDP/TLS/RTP/SAVPF 63 111\r\n"
+	                           "a=rtpmap:63 red/48000/2\r\n"
+	                           "a=rtpmap:111 opus/48000/2\r\n"
+	                           "a=fmtp:63 ";
+	for (const char *parameters : {"/111/111", "111//111", "111/111/", "111/111//"}) {
+		EXPECT_FALSE(answerSelectsAudioRed(prefix + parameters + "\r\n")) << parameters;
+	}
+	EXPECT_TRUE(answerSelectsAudioRed(prefix + "111/111\r\n"));
+	EXPECT_TRUE(answerSelectsAudioRed(prefix + "111/111/111\r\n"));
+}
+
 TEST(AudioRedFuzzTest, RandomPayloadsPreservePrimaryAndBoundRedundancy)
 {
 	std::mt19937 rng(0x2198F00D);

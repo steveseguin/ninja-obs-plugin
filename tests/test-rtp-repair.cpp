@@ -17,6 +17,17 @@
 using namespace std::chrono_literals;
 using namespace vdoninja;
 
+namespace vdoninja
+{
+struct RtpRetransmissionCacheTestAccess {
+	static size_t retainedEntries(const RtpRetransmissionCache &cache)
+	{
+		std::lock_guard<std::mutex> lock(cache.mutex_);
+		return cache.entries_.size();
+	}
+};
+} // namespace vdoninja
+
 namespace
 {
 
@@ -78,6 +89,69 @@ TEST(RtpRetransmissionCacheTest, StoresAndFindsPacketBySequenceNumber)
 	EXPECT_EQ(cache.size(), 1u);
 }
 
+TEST(RtpRetransmissionCacheTest, DuplicateFloodDoesNotRetainHiddenPacketAllocations)
+{
+	RtpRetransmissionCache cache(2, 2048, 2s);
+	const auto now = RtpRetransmissionCache::Clock::time_point{};
+	const auto first = rtpPacket(1, 1024);
+	auto duplicate = rtpPacket(2, 1024);
+	ASSERT_TRUE(cache.store(first.data(), first.size(), now));
+	for (int i = 0; i < 1000; ++i) {
+		duplicate.back() = static_cast<uint8_t>(i);
+		ASSERT_TRUE(cache.store(duplicate.data(), duplicate.size(), now));
+	}
+	EXPECT_EQ(cache.size(), 2u);
+	EXPECT_EQ(cache.bytes(), 2048u);
+	EXPECT_LE(RtpRetransmissionCacheTestAccess::retainedEntries(cache), 2u);
+	const auto found = cache.find(2, now);
+	ASSERT_TRUE(found.has_value());
+	EXPECT_EQ(static_cast<uint8_t>(found->back()), duplicate.back());
+}
+
+TEST(RtpRetransmissionCacheTest, ReplacementRefreshesAgeAndEvictionOrder)
+{
+	RtpRetransmissionCache cache(2, 2048, 200ms);
+	const auto now = RtpRetransmissionCache::Clock::time_point{};
+	const auto first = rtpPacket(1);
+	const auto second = rtpPacket(2);
+	const auto third = rtpPacket(3);
+	ASSERT_TRUE(cache.store(first.data(), first.size(), now));
+	ASSERT_TRUE(cache.store(second.data(), second.size(), now + 50ms));
+	ASSERT_TRUE(cache.store(first.data(), first.size(), now + 100ms));
+	ASSERT_TRUE(cache.store(third.data(), third.size(), now + 150ms));
+	EXPECT_FALSE(cache.find(2, now + 150ms).has_value());
+	EXPECT_TRUE(cache.find(1, now + 250ms).has_value());
+	EXPECT_FALSE(cache.find(1, now + 301ms).has_value());
+	EXPECT_TRUE(cache.find(3, now + 301ms).has_value());
+}
+
+TEST(RtpRetransmissionCacheTest, ResizedReplacementHonorsByteBudgetAndClearReleasesHistory)
+{
+	RtpRetransmissionCache cache(4, 96, 2s);
+	const auto first = rtpPacket(1, 32);
+	const auto second = rtpPacket(2, 32);
+	const auto larger = rtpPacket(1, 80);
+	const auto oversized = rtpPacket(1, 97);
+	ASSERT_TRUE(cache.store(first.data(), first.size()));
+	ASSERT_TRUE(cache.store(second.data(), second.size()));
+	ASSERT_TRUE(cache.store(larger.data(), larger.size()));
+	EXPECT_FALSE(cache.find(2).has_value());
+	EXPECT_EQ(cache.bytes(), 80u);
+	EXPECT_FALSE(cache.store(oversized.data(), oversized.size()));
+	ASSERT_TRUE(cache.find(1).has_value());
+	EXPECT_EQ(cache.find(1)->size(), 80u);
+	ASSERT_TRUE(cache.store(first.data(), first.size()));
+	ASSERT_TRUE(cache.store(second.data(), second.size()));
+	EXPECT_EQ(cache.bytes(), 64u);
+	cache.clear();
+	EXPECT_EQ(cache.size(), 0u);
+	EXPECT_EQ(cache.bytes(), 0u);
+	EXPECT_EQ(RtpRetransmissionCacheTestAccess::retainedEntries(cache), 0u);
+	EXPECT_FALSE(cache.find(1).has_value());
+	ASSERT_TRUE(cache.store(first.data(), first.size()));
+	EXPECT_TRUE(cache.find(1).has_value());
+}
+
 TEST(RtpRetransmissionCacheTest, EvictsOldestPacketAtCountLimit)
 {
 	RtpRetransmissionCache cache(2, 4096, 2s);
@@ -104,6 +178,23 @@ TEST(RtpRetransmissionCacheTest, ExpiresPacketAtAgeLimit)
 	ASSERT_TRUE(cache.store(packet.data(), packet.size(), start));
 	EXPECT_TRUE(cache.find(10, start + 199ms).has_value());
 	EXPECT_FALSE(cache.find(10, start + 201ms).has_value());
+}
+
+TEST(RtpRetransmissionCacheTest, LookupRejectsExpiredPacketStoredBehindANewerTimestamp)
+{
+	RtpRetransmissionCache cache(4, 4096, 100ms);
+	const auto start = RtpRetransmissionCache::Clock::time_point{};
+	const auto fresh = rtpPacket(1);
+	const auto stale = rtpPacket(2);
+	ASSERT_TRUE(cache.store(fresh.data(), fresh.size(), start + 200ms));
+	ASSERT_TRUE(cache.store(stale.data(), stale.size(), start + 100ms));
+	EXPECT_FALSE(cache.find(2, start + 250ms).has_value());
+	EXPECT_TRUE(cache.find(1, start + 250ms).has_value());
+	EXPECT_EQ(cache.bytes(), fresh.size());
+	EXPECT_EQ(cache.size(), 1u);
+	EXPECT_EQ(RtpRetransmissionCacheTestAccess::retainedEntries(cache), 1u);
+	ASSERT_TRUE(cache.store(stale.data(), stale.size(), start + 260ms));
+	EXPECT_TRUE(cache.find(2, start + 300ms).has_value());
 }
 
 TEST(RtpRetransmissionCacheTest, NewPacketWithWrappedSequenceReplacesLookup)
@@ -178,6 +269,31 @@ TEST(RtcpNackParserTest, FiltersMediaSsrcAndRejectsTruncation)
 	packet.pop_back();
 	bool malformed = false;
 	EXPECT_TRUE(parseRtcpNackRequests(packet.data(), packet.size(), 0, &malformed).empty());
+	EXPECT_TRUE(malformed);
+}
+
+TEST(RtcpNackParserTest, CapsRequestsWithinABitmaskAndStillValidatesTheCompoundPacket)
+{
+	constexpr uint32_t mediaSsrc = 0x22222222;
+	auto packet = nackPacket(mediaSsrc, 0, 0xFFFF);
+	for (uint16_t sequence = 17; sequence < 4200; sequence += 17) {
+		appendU16(packet, sequence);
+		appendU16(packet, 0xFFFF);
+	}
+	const uint16_t wordsMinusOne = static_cast<uint16_t>(packet.size() / 4 - 1);
+	packet[2] = static_cast<uint8_t>(wordsMinusOne >> 8);
+	packet[3] = static_cast<uint8_t>(wordsMinusOne);
+	bool malformed = false;
+
+	const auto requests = parseRtcpNackRequests(packet.data(), packet.size(), mediaSsrc, &malformed);
+	EXPECT_FALSE(malformed);
+	ASSERT_EQ(requests.size(), 4096u);
+	for (size_t i = 0; i < requests.size(); ++i) {
+		EXPECT_EQ(requests[i], i);
+	}
+
+	packet.push_back(0x80); // Truncated trailing RTCP header after the request limit.
+	EXPECT_EQ(parseRtcpNackRequests(packet.data(), packet.size(), mediaSsrc, &malformed).size(), 4096u);
 	EXPECT_TRUE(malformed);
 }
 

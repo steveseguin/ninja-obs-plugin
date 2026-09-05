@@ -71,6 +71,36 @@ TEST(PendingRemoteIceCandidateQueueTest, ExpiresStaleCandidates)
 	EXPECT_EQ(queue.size("peer-1"), 0u);
 }
 
+TEST(PendingRemoteIceCandidateQueueTest, ExpiresOlderCandidateQueuedBehindAFreshCandidate)
+{
+	PendingRemoteIceCandidateQueue queue(100, 100);
+	queue.push("peer-1", makeCandidate("candidate:fresh", "session-2", 200));
+	const size_t freshBytes = queue.queuedBytes();
+	queue.push("peer-1", makeCandidate("candidate:stale", "session-1", 100));
+
+	EXPECT_TRUE(queue.takeCompatible("peer-1", "session-1", 250).empty());
+	EXPECT_EQ(queue.size("peer-1"), 1u);
+	EXPECT_EQ(queue.queuedBytes(), freshBytes);
+	const auto fresh = queue.takeCompatible("peer-1", "session-2", 250);
+	ASSERT_EQ(fresh.size(), 1u);
+	EXPECT_EQ(fresh.front().candidate, "candidate:fresh");
+	EXPECT_EQ(queue.queuedBytes(), 0u);
+}
+
+TEST(PendingRemoteIceCandidateQueueTest, PushPrunesOutOfOrderExpiryBeforeApplyingCapacityLimit)
+{
+	PendingRemoteIceCandidateQueue queue(2, 100);
+	queue.push("peer-1", makeCandidate("candidate:fresh", "", 200));
+	queue.push("peer-1", makeCandidate("candidate:stale", "", 100));
+	const auto result = queue.push("peer-1", makeCandidate("candidate:new", "", 250));
+	EXPECT_TRUE(result.accepted);
+	EXPECT_FALSE(result.droppedQueuedData);
+	const auto candidates = queue.takeCompatible("peer-1", "", 250);
+	ASSERT_EQ(candidates.size(), 2u);
+	EXPECT_EQ(candidates[0].candidate, "candidate:fresh");
+	EXPECT_EQ(candidates[1].candidate, "candidate:new");
+}
+
 TEST(PendingRemoteIceCandidateQueueTest, SweepsExpiredCandidatesAcrossPeerIds)
 {
 	PendingRemoteIceCandidateQueue queue(100, 1000);

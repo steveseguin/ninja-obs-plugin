@@ -91,6 +91,36 @@ std::string fuzzSignalingMessage(std::mt19937 &rng)
 
 } // namespace
 
+TEST(SignalingProtocolTest, ReusingResultDoesNotCarryAnOfferIntoACandidate)
+{
+	ParsedSignalMessage parsed;
+	ASSERT_TRUE(parseSignalingMessage(R"({"description":{"type":"offer","sdp":"v=0"}})", parsed));
+	ASSERT_EQ(parsed.kind, ParsedSignalKind::Offer);
+	ASSERT_TRUE(parseSignalingMessage(R"({"candidate":"candidate:1","sdpMid":"0"})", parsed));
+	EXPECT_EQ(parsed.kind, ParsedSignalKind::Candidate);
+	EXPECT_EQ(parsed.candidate, "candidate:1");
+	EXPECT_TRUE(parsed.sdp.empty());
+	EXPECT_TRUE(parsed.type.empty());
+}
+
+TEST(SignalingProtocolTest, ReusingResultDoesNotAccumulateListingMembers)
+{
+	ParsedSignalMessage parsed;
+	ASSERT_TRUE(parseSignalingMessage(R"({"listing":["cam-a"]})", parsed));
+	ASSERT_TRUE(parseSignalingMessage(R"({"listing":["cam-b"]})", parsed));
+	EXPECT_EQ(parsed.listingMembers, (std::vector<std::string>{"cam-b"}));
+}
+
+TEST(SignalingProtocolTest, EmptyArrayStringsAreIgnoredByListingAndCandidateConsumers)
+{
+	ParsedSignalMessage parsed;
+	ASSERT_TRUE(parseSignalingMessage(R"({"listing":["","cam-a",""]})", parsed));
+	EXPECT_EQ(parsed.listingMembers, (std::vector<std::string>{"cam-a"}));
+	ASSERT_TRUE(parseSignalingMessage(R"({"candidates":["","candidate:1",""]})", parsed));
+	ASSERT_EQ(parsed.candidates.size(), 1u);
+	EXPECT_EQ(parsed.candidates[0].candidate, "candidate:1");
+}
+
 TEST(SignalingProtocolTest, ParsesOfferRequest)
 {
 	const std::string raw = R"({"request":"offerSDP","UUID":"viewer-1","session":"abc123"})";

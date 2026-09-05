@@ -14,6 +14,7 @@
 #include <cstdarg>
 #include <cstdint>
 #include <iomanip>
+#include <locale>
 #include <random>
 #include <regex>
 #include <sstream>
@@ -39,6 +40,11 @@ const std::array<uint32_t, 64> SHA256_K = {
     0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
     0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2};
 
+bool isAsciiAlphanumeric(char c)
+{
+	return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9');
+}
+
 std::string sanitizeIdentifier(const std::string &value, size_t maxLength)
 {
 	std::string result;
@@ -48,7 +54,7 @@ std::string sanitizeIdentifier(const std::string &value, size_t maxLength)
 	std::string trimmed = trim(value);
 	bool inInvalidRun = false;
 	for (char c : trimmed) {
-		if (std::isalnum(static_cast<unsigned char>(c)) || c == '_') {
+		if (isAsciiAlphanumeric(c) || c == '_') {
 			result += c;
 			inInvalidRun = false;
 		} else {
@@ -242,9 +248,16 @@ std::string normalizeInboundPlaybackTarget(const std::string &value)
 
 bool hasVdoBrowserPlaybackParam(const std::string &candidate)
 {
-	return containsInsensitive(candidate, "?view=") || containsInsensitive(candidate, "&view=") ||
-	       containsInsensitive(candidate, "?whep=") || containsInsensitive(candidate, "&whep=") ||
-	       containsInsensitive(candidate, "?whepplay=") || containsInsensitive(candidate, "&whepplay=");
+	// VDO.Ninja intentionally merges fragment parameters into its query parameters.
+	const std::string lowered = asciiLowerCopy(candidate);
+	for (const char *parameter : {"view=", "v=", "streamid=", "pull=", "whep=", "whepplay="}) {
+		for (const char delimiter : {'?', '&', '#'}) {
+			if (lowered.find(std::string(1, delimiter) + parameter) != std::string::npos) {
+				return true;
+			}
+		}
+	}
+	return false;
 }
 
 bool isBrowserSourceViewerUrl(const std::string &candidate, const std::string &baseUrl)
@@ -401,6 +414,7 @@ std::string sha256(const std::string &input)
 	}
 
 	std::stringstream ss;
+	ss.imbue(std::locale::classic()); // Hash text must not inherit localized digit grouping.
 	ss << std::hex << std::setfill('0') << std::nouppercase;
 	ss << std::setw(8) << h0 << std::setw(8) << h1 << std::setw(8) << h2 << std::setw(8) << h3 << std::setw(8) << h4
 	   << std::setw(8) << h5 << std::setw(8) << h6 << std::setw(8) << h7;
@@ -680,7 +694,7 @@ std::string sanitizeStreamId(const std::string &streamId)
 }
 
 // JSON Builder implementation
-JsonBuilder &JsonBuilder::add(const std::string &key, const std::string &value)
+static std::string quoteJsonString(const std::string &value)
 {
 	std::string escaped;
 	escaped.reserve(value.size() + 2);
@@ -709,12 +723,24 @@ JsonBuilder &JsonBuilder::add(const std::string &key, const std::string &value)
 			escaped += "\\t";
 			break;
 		default:
-			escaped += c;
+			if (static_cast<unsigned char>(c) < 0x20) {
+				static constexpr char hex[] = "0123456789abcdef";
+				escaped += "\\u00";
+				escaped += hex[static_cast<unsigned char>(c) >> 4];
+				escaped += hex[static_cast<unsigned char>(c) & 0x0F];
+			} else {
+				escaped += c;
+			}
 			break;
 		}
 	}
 	escaped += '"';
-	entries_.emplace_back(key, escaped);
+	return escaped;
+}
+
+JsonBuilder &JsonBuilder::add(const std::string &key, const std::string &value)
+{
+	entries_.emplace_back(key, quoteJsonString(value));
 	return *this;
 }
 
@@ -754,7 +780,7 @@ std::string JsonBuilder::build() const
 	for (size_t i = 0; i < entries_.size(); i++) {
 		if (i > 0)
 			ss << ",";
-		ss << "\"" << entries_[i].first << "\":" << entries_[i].second;
+		ss << quoteJsonString(entries_[i].first) << ":" << entries_[i].second;
 	}
 	ss << "}";
 	return ss.str();
@@ -764,6 +790,99 @@ std::string JsonBuilder::build() const
 JsonParser::JsonParser(const std::string &json) : json_(json)
 {
 	parse();
+}
+
+static bool appendJsonUnicodeEscape(const std::string &input, size_t &pos, std::string &value)
+{
+	auto readHex = [&](size_t start, uint32_t &code) {
+		if (start > input.size() || input.size() - start < 4)
+			return false;
+		code = 0;
+		for (size_t i = start; i < start + 4; ++i) {
+			const char c = input[i];
+			const int digit = c >= '0' && c <= '9'   ? c - '0'
+			                  : c >= 'a' && c <= 'f' ? c - 'a' + 10
+			                  : c >= 'A' && c <= 'F' ? c - 'A' + 10
+			                                         : -1;
+			if (digit < 0)
+				return false;
+			code = (code << 4) | static_cast<uint32_t>(digit);
+		}
+		return true;
+	};
+
+	uint32_t code = 0;
+	if (!readHex(pos + 1, code))
+		return false;
+	size_t last = pos + 4;
+	if (code >= 0xD800 && code <= 0xDBFF) {
+		uint32_t low = 0;
+		if (input.size() - last < 7 || input[last + 1] != '\\' || input[last + 2] != 'u' || !readHex(last + 3, low) ||
+		    low < 0xDC00 || low > 0xDFFF)
+			return false;
+		code = 0x10000 + ((code - 0xD800) << 10) + low - 0xDC00;
+		last += 6;
+	} else if (code >= 0xDC00 && code <= 0xDFFF) {
+		return false;
+	}
+
+	if (code < 0x80) {
+		value += static_cast<char>(code);
+	} else {
+		const int continuationBytes = code < 0x800 ? 1 : code < 0x10000 ? 2 : 3;
+		const uint32_t prefix = continuationBytes == 1 ? 0xC0 : continuationBytes == 2 ? 0xE0 : 0xF0;
+		value += static_cast<char>(prefix | (code >> (6 * continuationBytes)));
+		for (int shift = 6 * (continuationBytes - 1); shift >= 0; shift -= 6)
+			value += static_cast<char>(0x80 | ((code >> shift) & 0x3F));
+	}
+	pos = last;
+	return true;
+}
+
+static std::string extractJsonString(const std::string &input, size_t &pos)
+{
+	std::string value;
+	pos++; // Skip opening quote
+	while (pos < input.size() && input[pos] != '"') {
+		if (input[pos] == '\\' && pos + 1 < input.size()) {
+			pos++;
+			switch (input[pos]) {
+			case 'u':
+				if (!appendJsonUnicodeEscape(input, pos, value))
+					value += 'u'; // Preserve the existing tolerant handling of malformed escapes.
+				break;
+			case 'b':
+				value += '\b';
+				break;
+			case 'f':
+				value += '\f';
+				break;
+			case 'n':
+				value += '\n';
+				break;
+			case 'r':
+				value += '\r';
+				break;
+			case 't':
+				value += '\t';
+				break;
+			case '"':
+				value += '"';
+				break;
+			case '\\':
+				value += '\\';
+				break;
+			default:
+				value += input[pos];
+				break;
+			}
+		} else {
+			value += input[pos];
+		}
+		pos++;
+	}
+	pos++; // Skip closing quote
+	return value;
 }
 
 void JsonParser::parse()
@@ -786,14 +905,7 @@ void JsonParser::parse()
 
 		if (json_[pos] != '"')
 			break;
-		pos++; // Skip opening quote
-
-		// Extract key
-		std::string key;
-		while (pos < json_.size() && json_[pos] != '"') {
-			key += json_[pos++];
-		}
-		pos++; // Skip closing quote
+		const std::string key = extractJsonString(json_, pos);
 
 		// Skip to colon
 		while (pos < json_.size() && json_[pos] != ':')
@@ -828,37 +940,7 @@ std::string JsonParser::extractValue(size_t &pos) const
 	}
 
 	if (json_[pos] == '"') {
-		// String value
-		pos++; // Skip opening quote
-		while (pos < json_.size() && json_[pos] != '"') {
-			if (json_[pos] == '\\' && pos + 1 < json_.size()) {
-				pos++;
-				switch (json_[pos]) {
-				case 'n':
-					value += '\n';
-					break;
-				case 'r':
-					value += '\r';
-					break;
-				case 't':
-					value += '\t';
-					break;
-				case '"':
-					value += '"';
-					break;
-				case '\\':
-					value += '\\';
-					break;
-				default:
-					value += json_[pos];
-					break;
-				}
-			} else {
-				value += json_[pos];
-			}
-			pos++;
-		}
-		pos++; // Skip closing quote
+		value = extractJsonString(json_, pos);
 	} else if (json_[pos] == '{') {
 		// Object - capture the whole thing, skipping over string literals
 		int depth = 1;
@@ -988,12 +1070,9 @@ std::vector<std::string> JsonParser::getArray(const std::string &key) const
 
 		// This is a simplified extraction - real impl would need full parser
 		std::string value;
-		if (arr[pos] == '"') {
-			pos++;
-			while (pos < arr.size() && arr[pos] != '"') {
-				value += arr[pos++];
-			}
-			pos++;
+		const bool stringElement = arr[pos] == '"';
+		if (stringElement) {
+			value = extractJsonString(arr, pos);
 		} else if (arr[pos] == '{') {
 			int depth = 1;
 			value += arr[pos++];
@@ -1047,7 +1126,7 @@ std::vector<std::string> JsonParser::getArray(const std::string &key) const
 			}
 		}
 
-		if (!value.empty()) {
+		if (stringElement || !value.empty()) {
 			result.push_back(value);
 		}
 
@@ -1101,6 +1180,9 @@ std::vector<uint8_t> base64Decode(const std::string &encoded)
 	for (char c : encoded) {
 		if (c == '=')
 			break;
+		// Only the ASCII half of the lookup table is initialized explicitly.
+		if (static_cast<unsigned char>(c) >= 128)
+			continue;
 		uint8_t val = lookup[static_cast<unsigned char>(c)];
 		if (val == 64)
 			continue;
@@ -1124,7 +1206,7 @@ std::string urlEncode(const std::string &value)
 	escaped << std::hex;
 
 	for (char c : value) {
-		if (std::isalnum(static_cast<unsigned char>(c)) || c == '-' || c == '_' || c == '.' || c == '~') {
+		if (isAsciiAlphanumeric(c) || c == '-' || c == '_' || c == '.' || c == '~') {
 			escaped << c;
 		} else {
 			escaped << '%' << std::setw(2) << int(static_cast<unsigned char>(c));
@@ -1142,8 +1224,8 @@ std::string jsEncodeURIComponent(const std::string &value)
 
 	for (char c : value) {
 		// JS encodeURIComponent preserves: A-Z a-z 0-9 - _ . ! ~ * ' ( )
-		if (std::isalnum(static_cast<unsigned char>(c)) || c == '-' || c == '_' || c == '.' || c == '!' || c == '~' ||
-		    c == '*' || c == '\'' || c == '(' || c == ')') {
+		if (isAsciiAlphanumeric(c) || c == '-' || c == '_' || c == '.' || c == '!' || c == '~' || c == '*' ||
+		    c == '\'' || c == '(' || c == ')') {
 			escaped << c;
 		} else {
 			escaped << '%' << std::setw(2) << int(static_cast<unsigned char>(c));
@@ -1488,22 +1570,22 @@ std::string modifySdpBitrate(const std::string &sdp, int bitrate)
 
 std::string extractMid(const std::string &sdp, const std::string &mediaType)
 {
-	std::string searchStr = "m=" + mediaType;
-	size_t pos = sdp.find(searchStr);
-	if (pos == std::string::npos)
-		return "";
-
-	// Find a=mid: line after this
-	pos = sdp.find("a=mid:", pos);
-	if (pos == std::string::npos)
-		return "";
-
-	pos += 6; // Skip "a=mid:"
-	size_t end = sdp.find_first_of("\r\n", pos);
-	if (end == std::string::npos)
-		return "";
-
-	return sdp.substr(pos, end - pos);
+	std::istringstream input(sdp);
+	std::string line;
+	bool matchingMedia = false;
+	while (std::getline(input, line)) {
+		if (!line.empty() && line.back() == '\r')
+			line.pop_back();
+		if (line.rfind("m=", 0) == 0) {
+			if (matchingMedia)
+				break;
+			const auto tokens = splitWhitespace(line.substr(2));
+			matchingMedia = !tokens.empty() && tokens.front() == mediaType;
+		} else if (matchingMedia && line.rfind("a=mid:", 0) == 0) {
+			return line.substr(6);
+		}
+	}
+	return "";
 }
 
 std::string stripUnsupportedTransportCcFeedback(const std::string &sdp)
@@ -1535,6 +1617,8 @@ std::vector<SdpOfferedMediaSection> parseOfferedMediaSections(const std::string 
 {
 	std::vector<SdpOfferedMediaSection> sections;
 	SdpOfferedMediaSection *current = nullptr;
+	std::string sessionDirection = "sendrecv";
+	bool inMediaSection = false;
 
 	std::stringstream input(sdp);
 	std::string line;
@@ -1544,6 +1628,7 @@ std::vector<SdpOfferedMediaSection> parseOfferedMediaSections(const std::string 
 		}
 
 		if (line.rfind("m=", 0) == 0) {
+			inMediaSection = true;
 			const auto tokens = splitWhitespace(line.substr(2));
 			if (tokens.empty()) {
 				current = nullptr;
@@ -1559,6 +1644,7 @@ std::vector<SdpOfferedMediaSection> parseOfferedMediaSections(const std::string 
 			sections.push_back({});
 			current = &sections.back();
 			current->type = mediaType;
+			current->direction = sessionDirection;
 			if (tokens.size() > 1) {
 				current->port = parseIntOrDefault(tokens[1], -1);
 			}
@@ -1571,17 +1657,21 @@ std::vector<SdpOfferedMediaSection> parseOfferedMediaSections(const std::string 
 			continue;
 		}
 
+		if (line == "a=sendrecv" || line == "a=sendonly" || line == "a=recvonly" || line == "a=inactive") {
+			if (current) {
+				current->direction = line.substr(2);
+			} else if (!inMediaSection) {
+				sessionDirection = line.substr(2);
+			}
+			continue;
+		}
+
 		if (!current) {
 			continue;
 		}
 
 		if (line.rfind("a=mid:", 0) == 0) {
 			current->mid = trim(line.substr(6));
-			continue;
-		}
-
-		if (line == "a=sendrecv" || line == "a=sendonly" || line == "a=recvonly" || line == "a=inactive") {
-			current->direction = line.substr(2);
 			continue;
 		}
 
@@ -1636,16 +1726,18 @@ std::vector<SdpOfferedMediaSection> parseOfferedMediaSections(const std::string 
 
 			codec->formatParameters = trim(line.substr(separator + 1));
 			const std::string fmtpLower = asciiLowerCopy(codec->formatParameters);
-			const size_t aptPos = fmtpLower.find("apt=");
-			if (aptPos != std::string::npos) {
-				size_t valueStart = aptPos + 4;
-				size_t valueEnd = valueStart;
-				while (valueEnd < codec->formatParameters.size() &&
-				       std::isdigit(static_cast<unsigned char>(codec->formatParameters[valueEnd]))) {
-					++valueEnd;
+			codec->associatedPayloadType = -1;
+			for (const auto &parameter : split(fmtpLower, ';')) {
+				const std::string field = trim(parameter);
+				if (field.rfind("apt=", 0) != 0) {
+					continue;
 				}
-				codec->associatedPayloadType =
-				    parseIntOrDefault(codec->formatParameters.substr(valueStart, valueEnd - valueStart));
+				const std::string value = field.substr(4);
+				if (!value.empty() &&
+				    std::all_of(value.begin(), value.end(), [](char c) { return c >= '0' && c <= '9'; })) {
+					codec->associatedPayloadType = parseIntOrDefault(value);
+				}
+				break;
 			}
 		}
 	}

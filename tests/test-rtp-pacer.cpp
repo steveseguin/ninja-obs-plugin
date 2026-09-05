@@ -8,6 +8,7 @@
 #include <condition_variable>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <memory>
 #include <mutex>
 #include <vector>
@@ -200,6 +201,35 @@ TEST(RtpPacketPacerTest, RepaysPacketLargerThanBurstBudgetBeforeSendingNextPacke
 
 	const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(sendTimes[1] - sendTimes[0]);
 	EXPECT_GE(elapsed.count(), 8);
+}
+
+TEST(RtpPacketPacerTest, SaturatedSharedBudgetRetainsRemainingParticipantRate)
+{
+	RtpSharedPacerBudget budget(100);
+	const uint64_t maximum = std::numeric_limits<uint64_t>::max();
+	const auto large = budget.addParticipant(maximum);
+	const auto small = budget.addParticipant(100);
+	ASSERT_EQ(budget.bitrateBitsPerSecond(), maximum);
+	budget.removeParticipant(small);
+	EXPECT_EQ(budget.bitrateBitsPerSecond(), maximum);
+	budget.addParticipant(100);
+	budget.removeParticipant(large);
+	EXPECT_EQ(budget.bitrateBitsPerSecond(), 100u);
+	EXPECT_EQ(budget.participantCount(), 1u);
+}
+
+TEST(RtpPacketPacerTest, SaturatedSharedBudgetRecoversAccurateRateAfterUpdate)
+{
+	RtpSharedPacerBudget budget(100);
+	const uint64_t maximum = std::numeric_limits<uint64_t>::max();
+	const auto large = budget.addParticipant(maximum);
+	const auto small = budget.addParticipant(100);
+	budget.updateParticipant(large, 200);
+	EXPECT_EQ(budget.bitrateBitsPerSecond(), 300u);
+	budget.removeParticipant(large);
+	EXPECT_EQ(budget.bitrateBitsPerSecond(), 100u);
+	budget.removeParticipant(small);
+	EXPECT_EQ(budget.bitrateBitsPerSecond(), 0u);
 }
 
 TEST(RtpPacketPacerTest, SharedBudgetSpacesInitiallyAlignedViewerBursts)

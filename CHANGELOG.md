@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Fixed long-running RTP timestamp conversion and large alpha-plane scaling arithmetic.
+- Bounded retransmission-cache storage when sequence numbers are reused, preserved expiration with out-of-order timestamps, and capped NACK expansion.
+- Corrected ICE candidate expiration, bitrate recovery cooldowns, shared pacer accounting, and compound REMB telemetry.
+- Hardened JSON escaping and parsing, signaling-result reuse, malformed audio RED/VP9 handling, and module cleanup failure detection.
+- Made password hashing and URL encoding independent of locale settings, and preserved supported VDO.Ninja viewer aliases and fragment-based playback links.
+- Corrected SDP media-section parsing and RTX associations, and prevented invalid playback-hint aliases from hiding supported URLs.
+- Added focused regression coverage for the corrected behavior.
+
 ## [1.1.65] - 2026-08-09
 
 ### Added

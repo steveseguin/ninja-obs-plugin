@@ -4,6 +4,9 @@
  */
 
 #include <algorithm>
+#include <cctype>
+#include <clocale>
+#include <locale>
 #include <random>
 #include <regex>
 #include <set>
@@ -132,6 +135,26 @@ TEST_F(SHA256Test, HashesHelloWorld)
 	std::string hash = sha256("hello world");
 	// Known SHA256 of "hello world"
 	EXPECT_EQ(hash, "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9");
+}
+
+TEST_F(SHA256Test, HashAndPasswordProtectedIdsIgnoreGlobalDigitGrouping)
+{
+	class GroupedNumbers : public std::numpunct<char>
+	{
+	protected:
+		char do_thousands_sep() const override { return ','; }
+		std::string do_grouping() const override { return "\3"; }
+	};
+	struct RestoreLocale {
+		std::locale previous = std::locale();
+		~RestoreLocale() { std::locale::global(previous); }
+	} restoreLocale;
+	// A custom facet keeps this independent of installed OS language packs.
+	std::locale::global(std::locale(std::locale::classic(), new GroupedNumbers));
+
+	EXPECT_EQ(sha256("hello world"), "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9");
+	EXPECT_EQ(hashStreamId("mystream", "Test@Room#1!", "vdo.ninja"), "mystream932512");
+	EXPECT_EQ(hashRoomId("myroom", "Test@Room#1!", "vdo.ninja"), "97dd633996a146ff");
 }
 
 TEST_F(SHA256Test, DifferentInputsProduceDifferentHashes)
@@ -335,6 +358,40 @@ TEST_F(BuildInboundViewUrlTest, PreservesDirectVdoNinjaViewerPageUrl)
 	          "https://vdo.ninja/?view=cam_2&room=greenroom&solo");
 }
 
+TEST_F(BuildInboundViewUrlTest, PreservesSupportedFragmentPlaybackParameters)
+{
+	for (const char *target : {"https://vdo.ninja/endpoint#?view=cam", "https://vdo.ninja/endpoint?token=abc#&view=cam",
+	                           "https://vdo.ninja/endpoint#?whepplay=cam"}) {
+		EXPECT_EQ(buildInboundViewUrl("https://vdo.ninja", target, "", "", DEFAULT_SALT), target);
+	}
+	const std::string viewer = "https://vdo.ninja/?view=cam#settings";
+	EXPECT_EQ(buildInboundViewUrl("https://vdo.ninja", viewer, "", "", DEFAULT_SALT), viewer);
+}
+
+TEST_F(BuildInboundViewUrlTest, PreservesBareFragmentPlaybackParameters)
+{
+	for (const char *target :
+	     {"https://vdo.ninja/#view=cam", "https://vdo.ninja/#whep=https://example.com/live",
+	      "https://vdo.ninja/#whepplay=https://example.com/live", "https://vdo.ninja/?view=query#view=fragment"}) {
+		EXPECT_EQ(buildInboundViewUrl("https://vdo.ninja", target, "", "", DEFAULT_SALT), target);
+	}
+}
+
+TEST_F(BuildInboundViewUrlTest, PreservesUpstreamViewerParameterAliases)
+{
+	for (const char *parameter : {"v", "V", "streamid", "pull"}) {
+		for (const char *separator : {"?", "#", "?room=greenroom&"}) {
+			const std::string target = "https://vdo.ninja/" + std::string(separator) + parameter + "=cam";
+			EXPECT_EQ(buildInboundViewUrl("https://vdo.ninja", target, "", "", DEFAULT_SALT), target);
+		}
+	}
+	for (const char *parameter : {"preview", "push", "notpull"}) {
+		const std::string target = "https://vdo.ninja/?" + std::string(parameter) + "=cam";
+		EXPECT_EQ(buildInboundViewUrl("https://vdo.ninja", target, "", "", DEFAULT_SALT),
+		          "https://vdo.ninja/?whepplay=" + urlEncode(target));
+	}
+}
+
 TEST_F(BuildInboundViewUrlTest, PreservesDirectVdoNinjaWhepplayPageUrl)
 {
 	EXPECT_EQ(buildInboundViewUrl(
@@ -517,6 +574,17 @@ TEST_F(Base64Test, DecodesEmptyString)
 	EXPECT_TRUE(result.empty());
 }
 
+TEST_F(Base64Test, NonAsciiBytesAreIgnoredLikeOtherInvalidCharacters)
+{
+	std::string invalid;
+	for (unsigned int value = 128; value <= 255; ++value) {
+		invalid.push_back(static_cast<char>(value));
+	}
+	EXPECT_TRUE(base64Decode(invalid).empty());
+	EXPECT_EQ(base64Decode("T" + invalid + "WFu"), (std::vector<uint8_t>{'M', 'a', 'n'}));
+	EXPECT_EQ(base64Decode("T!W Fu"), (std::vector<uint8_t>{'M', 'a', 'n'}));
+}
+
 TEST_F(Base64Test, DecodesHelloWorld)
 {
 	auto result = base64Decode("SGVsbG8sIFdvcmxkIQ==");
@@ -602,6 +670,30 @@ TEST_F(JsEncodeURIComponentTest, PreservesExclamationMark)
 TEST_F(JsEncodeURIComponentTest, EncodesEmptyString)
 {
 	EXPECT_EQ(jsEncodeURIComponent(""), "");
+}
+
+TEST_F(JsEncodeURIComponentTest, NonAsciiBytesRemainEncodedInSingleByteLocales)
+{
+	struct RestoreLocale {
+		std::string previous = std::setlocale(LC_CTYPE, nullptr);
+		~RestoreLocale() { std::setlocale(LC_CTYPE, previous.c_str()); }
+	} restoreLocale;
+	bool selectedLocale = false;
+	for (const char *name : {".1252", "en_US.ISO8859-1", "en_US.iso88591", "de_DE.ISO8859-1"}) {
+		if (std::setlocale(LC_CTYPE, name) && std::isalnum(0xC3)) {
+			selectedLocale = true;
+			break;
+		}
+	}
+	if (!selectedLocale) {
+		GTEST_SKIP() << "No single-byte locale with non-ASCII letters is installed";
+	}
+
+	const std::string password = "caf\xC3\xA9"; // UTF-8 cafe with an acute accent.
+	EXPECT_EQ(jsEncodeURIComponent(password), "caf%C3%A9");
+	EXPECT_EQ(urlEncode(password), "caf%c3%a9");
+	EXPECT_EQ(hashStreamId("stream", password, "vdo.ninja"), "stream" + sha256("caf%C3%A9vdo.ninja").substr(0, 6));
+	EXPECT_EQ(sanitizeStreamId(password), "caf_");
 }
 
 TEST_F(JsEncodeURIComponentTest, DiffersFromUrlEncodeForJsUnreserved)
@@ -1295,6 +1387,24 @@ TEST_F(SDPTest, ExtractMidReturnsEmptyForMissing)
 	EXPECT_EQ(extractMid(sdp, "video"), "");
 }
 
+TEST_F(SDPTest, ExtractMidDoesNotBorrowTheFollowingMediaSectionsIdentifier)
+{
+	const std::string sdp = "v=0\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\n"
+	                        "m=audio 9 UDP/TLS/RTP/SAVPF 111\r\na=mid:audio\r\n";
+	EXPECT_EQ(extractMid(sdp, "video"), "");
+	EXPECT_EQ(extractMid(sdp, "audio"), "audio");
+}
+
+TEST_F(SDPTest, ExtractMidMatchesWholeMediaTokensAndAcceptsFinalLineWithoutNewline)
+{
+	const std::string sdp = "v=0\n"
+	                        "a=note:m=video\n"
+	                        "m=videotex 9 test 1\na=mid:wrong\n"
+	                        "m=video 9 UDP/TLS/RTP/SAVPF 96\na=mid:correct";
+	EXPECT_EQ(extractMid(sdp, "video"), "correct");
+	EXPECT_EQ(extractMid("m=application 9 UDP/DTLS/SCTP webrtc-datachannel\na=mid:data", "application"), "data");
+}
+
 TEST_F(SDPTest, StripUnsupportedTransportCcFeedbackRemovesTransportCcLines)
 {
 	std::string sdp = "v=0\r\n"
@@ -1433,6 +1543,49 @@ TEST_F(SDPTest, ParseOfferedMediaSectionsIgnoresUnsupportedMediaBlocks)
 	ASSERT_EQ(sections[0].codecs.size(), 1u);
 	EXPECT_EQ(sections[0].codecs[0].payloadType, 102);
 	EXPECT_EQ(sections[0].codecs[0].codec, "H264");
+}
+
+TEST(SdpParserTest, MediaSectionsInheritSessionDirection)
+{
+	for (const std::string direction : {"inactive", "recvonly", "sendonly", "sendrecv"}) {
+		const auto sections = parseOfferedMediaSections("v=0\r\na=" + direction +
+		                                                "\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\n"
+		                                                "m=video 9 UDP/TLS/RTP/SAVPF 96\r\n");
+		ASSERT_EQ(sections.size(), 2u);
+		for (const auto &section : sections) {
+			EXPECT_EQ(section.direction, direction);
+			EXPECT_EQ(offeredMediaSectionCanSend(section), direction == "sendonly" || direction == "sendrecv");
+		}
+	}
+}
+
+TEST(SdpParserTest, MediaDirectionOverridesStayLocalIncludingIgnoredMedia)
+{
+	const auto sections = parseOfferedMediaSections("v=0\r\na=recvonly\r\n"
+	                                                "m=audio 9 UDP/TLS/RTP/SAVPF 111\r\na=sendonly\r\n"
+	                                                "m=application 9 UDP/DTLS/SCTP webrtc-datachannel\r\na=inactive\r\n"
+	                                                "m=video 9 UDP/TLS/RTP/SAVPF 96\r\n");
+	ASSERT_EQ(sections.size(), 2u);
+	EXPECT_EQ(sections[0].direction, "sendonly");
+	EXPECT_EQ(sections[1].direction, "recvonly");
+}
+
+TEST_F(SDPTest, RtxAssociationRequiresACompleteAptParameter)
+{
+	const std::string prefix = "m=video 9 UDP/TLS/RTP/SAVPF 96 97\r\n"
+	                           "a=rtpmap:96 VP9/90000\r\n"
+	                           "a=rtpmap:97 rtx/90000\r\n"
+	                           "a=fmtp:97 ";
+	for (const auto &entry : std::vector<std::pair<std::string, int>>{{"xapt=98;apt=96", 96},
+	                                                                  {"xapt=96", -1},
+	                                                                  {"apt=96junk", -1},
+	                                                                  {"apt=96;rtx-time=3000", 96},
+	                                                                  {"rtx-time=3000; apt=96", 96}}) {
+		const auto sections = parseOfferedMediaSections(prefix + entry.first + "\r\n");
+		ASSERT_EQ(sections.size(), 1u);
+		ASSERT_EQ(sections[0].codecs.size(), 2u);
+		EXPECT_EQ(sections[0].codecs[1].associatedPayloadType, entry.second) << entry.first;
+	}
 }
 
 TEST(SdpParserFuzzTest, RandomAndStructuredLinesRemainBoundedAndDeterministic)

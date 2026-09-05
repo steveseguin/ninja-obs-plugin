@@ -27,6 +27,88 @@ TEST_F(JsonBuilderTest, BuildsStringValue)
 	EXPECT_EQ(builder.build(), "{\"key\":\"value\"}");
 }
 
+TEST_F(JsonBuilderTest, EscapesEveryControlByteInStringValues)
+{
+	std::string controls;
+	for (char c = 0; c < 32; ++c)
+		controls += c;
+	builder.add("text", controls);
+	const auto json = builder.build();
+	for (unsigned char c : json)
+		EXPECT_GE(c, 32u);
+	EXPECT_NE(json.find("\\u0000"), std::string::npos);
+	EXPECT_NE(json.find("\\u001f"), std::string::npos);
+	EXPECT_EQ(JsonParser(json).getString("text"), controls);
+}
+
+TEST_F(JsonBuilderTest, EscapesKeysForEveryValueType)
+{
+	builder.add("quote\"", "text").add("slash\\", 7).add("line\n", true).addRaw("tab\t", "[1]");
+	const std::string expected = R"({"quote\"":"text","slash\\":7,"line\n":true,"tab\t":[1]})";
+	EXPECT_EQ(builder.build(), expected);
+	const JsonParser parser(builder.build());
+	EXPECT_EQ(parser.getString("quote\""), "text");
+	EXPECT_EQ(parser.getInt("slash\\"), 7);
+	EXPECT_TRUE(parser.getBool("line\n"));
+	EXPECT_EQ(parser.getArray("tab\t"), (std::vector<std::string>{"1"}));
+}
+
+TEST_F(JsonBuilderTest, ParserRoundTripsEveryNamedControlEscape)
+{
+	const std::string original = "before\b\f\n\r\t\"\\after";
+	builder.add("text", original);
+	const JsonParser parser(builder.build());
+	EXPECT_EQ(parser.getString("text"), original);
+}
+
+TEST(JsonStringParsingTest, ArrayEscapesMatchObjectStringDecoding)
+{
+	const JsonParser parser(R"({"items":["say \"hi\", ok","C:\\path","line\nnext","after"]})");
+	EXPECT_EQ(parser.getArray("items"),
+	          (std::vector<std::string>{"say \"hi\", ok", "C:\\path", "line\nnext", "after"}));
+}
+
+TEST(JsonStringParsingTest, EscapedKeysDoNotConsumeFollowingMembers)
+{
+	const JsonParser parser(R"({"quoted\":key":"first","slash\\key":"second","after":"third"})");
+	EXPECT_EQ(parser.getString("quoted\":key"), "first");
+	EXPECT_EQ(parser.getString("slash\\key"), "second");
+	EXPECT_EQ(parser.getString("after"), "third");
+}
+
+TEST(JsonStringParsingTest, UnicodeEscapesMatchUtf8StringsAndKeys)
+{
+	const JsonParser parser(R"({"caf\u00e9":"\u0041\u00e9\u20ac","items":["\uD83D\uDE00","after"]})");
+	EXPECT_EQ(parser.getString("caf\xC3\xA9"), "A\xC3\xA9\xE2\x82\xAC");
+	EXPECT_EQ(parser.getArray("items"), (std::vector<std::string>{"\xF0\x9F\x98\x80", "after"}));
+}
+
+TEST(JsonStringParsingTest, UnicodeEscapesPreserveEmbeddedNullAndLiteralBackslash)
+{
+	const JsonParser parser(R"({"nul":"a\u0000b","literal":"\\u0041","after":"ok"})");
+	EXPECT_EQ(parser.getString("nul"), std::string("a\0b", 3));
+	EXPECT_EQ(parser.getString("literal"), "\\u0041");
+	EXPECT_EQ(parser.getString("after"), "ok");
+}
+
+TEST(JsonStringParsingTest, UnicodeEscapeBoundariesUseValidUtf8)
+{
+	const JsonParser parser(
+	    R"({"items":["\u007f","\u0080","\u07ff","\u0800","\uffff","\ud800\udc00","\udbff\udfff"]})");
+	EXPECT_EQ(parser.getArray("items"),
+	          (std::vector<std::string>{"\x7F", "\xC2\x80", "\xDF\xBF", "\xE0\xA0\x80", "\xEF\xBF\xBF",
+	                                    "\xF0\x90\x80\x80", "\xF4\x8F\xBF\xBF"}));
+}
+
+TEST(JsonStringParsingTest, MalformedUnicodeEscapesDoNotConsumeFollowingMembers)
+{
+	for (const std::string escape : {"u12", "u12xz", "uD800", "uDC00", "uD800\\u0041"}) {
+		const JsonParser parser("{\"text\":\"\\" + escape + "\",\"after\":\"ok\"}");
+		EXPECT_EQ(parser.getString("after"), "ok");
+		EXPECT_FALSE(parser.getString("text").empty());
+	}
+}
+
 TEST_F(JsonBuilderTest, BuildsIntValue)
 {
 	builder.add("count", 42);
@@ -238,6 +320,13 @@ TEST_F(JsonParserTest, ParsesArray)
 	EXPECT_EQ(items[0], "a");
 	EXPECT_EQ(items[1], "b");
 	EXPECT_EQ(items[2], "c");
+}
+
+TEST_F(JsonParserTest, PreservesEmptyStringArrayElementsAndTheirPositions)
+{
+	const JsonParser parser(R"({"items":["","middle","",null,""],"empty":[]})");
+	EXPECT_EQ(parser.getArray("items"), (std::vector<std::string>{"", "middle", "", "null", ""}));
+	EXPECT_TRUE(parser.getArray("empty").empty());
 }
 
 TEST_F(JsonParserTest, ParsesArrayWithScalarValues)

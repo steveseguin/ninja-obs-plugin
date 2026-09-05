@@ -74,6 +74,36 @@ struct ModuleLifecycleHarness {
 	}
 };
 
+TEST(ModuleLifecycleTest, EmptyPreloadExceptionStillRollsBackInitialization)
+{
+	ModuleLifecycleHarness harness;
+	auto operations = harness.operations();
+	operations.preloadRtc = []() { throw std::runtime_error(""); };
+	VDONinjaModuleLifecycle lifecycle(operations, std::chrono::milliseconds(10));
+
+	EXPECT_FALSE(lifecycle.load());
+	EXPECT_EQ(lifecycle.snapshot().phase, ModuleLifecyclePhase::Unloaded);
+	EXPECT_FALSE(harness.loggerActive);
+	EXPECT_EQ(harness.detachCalls, 1);
+	EXPECT_EQ(harness.cleanupCalls, 1);
+	EXPECT_FALSE(lifecycle.tryAcquireInstance(ModuleInstanceKind::Source));
+}
+
+TEST(ModuleLifecycleTest, EmptyCleanupExceptionStillBlocksReload)
+{
+	ModuleLifecycleHarness harness;
+	std::promise<void> cleanupPromise;
+	cleanupPromise.set_exception(std::make_exception_ptr(std::runtime_error("")));
+	harness.cleanupFutures.push_back(cleanupPromise.get_future().share());
+	VDONinjaModuleLifecycle lifecycle(harness.operations(), std::chrono::milliseconds(10));
+	ASSERT_TRUE(lifecycle.load());
+
+	lifecycle.unload();
+	EXPECT_EQ(lifecycle.snapshot().phase, ModuleLifecyclePhase::CleanupFailed);
+	EXPECT_FALSE(lifecycle.load());
+	EXPECT_EQ(harness.preloadCalls, 1);
+}
+
 TEST(ModuleLifecycleTest, UnloadDetachesLoggerAndDefersCleanupUntilEveryPluginInstanceIsDestroyed)
 {
 	ModuleLifecycleHarness harness;

@@ -271,6 +271,24 @@ TEST(Vp9DescriptorTest, FlexibleMode_PDiff_Truncated_Invalid)
 	EXPECT_FALSE(r.valid);
 }
 
+TEST(Vp9DescriptorTest, FlexibleModeRejectsContinuationAfterThirdReference)
+{
+	for (int scalability = 0; scalability <= 1; ++scalability) {
+		const uint8_t buf[] = {descByte(1, 1, 0, 1, 1, 1, scalability, 0), 10, 0x03, 0x05, 0x07, 0x02, 0xEE};
+		EXPECT_FALSE(parseVP9PayloadDescriptor(buf, sizeof(buf)).valid);
+		EXPECT_FALSE(parseVP9PayloadDescriptor(buf, 5).valid);
+	}
+}
+
+TEST(Vp9DescriptorTest, FlexibleModeRejectsZeroReferenceDistance)
+{
+	for (size_t reference = 0; reference < 3; ++reference) {
+		uint8_t buf[] = {descByte(1, 1, 0, 1, 1, 1, 0, 0), 10, 0x03, 0x05, 0x06, 0xEE};
+		buf[2 + reference] &= 0x01; // Preserve the continuation bit, but clear P_DIFF.
+		EXPECT_FALSE(parseVP9PayloadDescriptor(buf, sizeof(buf)).valid);
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Scalability structure — V bit
 // ---------------------------------------------------------------------------

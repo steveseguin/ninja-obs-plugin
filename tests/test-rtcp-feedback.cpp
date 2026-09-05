@@ -127,6 +127,27 @@ TEST(RtcpFeedbackTrackerTest, CountsRequestedPacketsFromNackBitmask)
 	EXPECT_EQ(stats.malformedPackets, 0u);
 }
 
+TEST(RtcpFeedbackTrackerTest, PreservesRembExtremaAcrossACompoundPacket)
+{
+	constexpr uint32_t mediaSsrc = 0x22222222;
+	RtcpFeedbackTracker tracker(mediaSsrc);
+	std::vector<uint8_t> compound;
+	for (const uint32_t bitrate : {100000u, 50000u, 75000u}) {
+		const auto packet = makeRemb(mediaSsrc, bitrate, 0);
+		compound.insert(compound.end(), packet.begin(), packet.end());
+	}
+
+	tracker.observe(compound.data(), compound.size());
+	const auto stats = tracker.snapshot();
+	EXPECT_EQ(stats.rembMessages, 3u);
+	EXPECT_EQ(stats.minRembBitrateBps, 50000u);
+	EXPECT_EQ(stats.maxRembBitrateBps, 100000u);
+	EXPECT_EQ(stats.malformedPackets, 0u);
+	const auto latest = tracker.latestRemb(std::chrono::seconds(10));
+	ASSERT_TRUE(latest.has_value());
+	EXPECT_EQ(latest->bitrateBitsPerSecond, 75000u);
+}
+
 TEST(RtcpFeedbackTrackerTest, ExcludesRtcpPaddingFromNackFields)
 {
 	constexpr uint32_t mediaSsrc = 0x22222222;

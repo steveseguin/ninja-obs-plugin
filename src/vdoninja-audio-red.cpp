@@ -39,7 +39,8 @@ const SdpOfferedCodec *findCodec(const SdpOfferedMediaSection &section, int payl
 
 bool validRedFormatParameters(const std::string &formatParameters, uint8_t opusPayloadType)
 {
-	if (formatParameters.empty()) {
+	// getline does not yield an empty final token after a trailing delimiter.
+	if (formatParameters.empty() || formatParameters.back() == '/') {
 		return false;
 	}
 
@@ -113,6 +114,9 @@ bool answerSelectsAudioRed(const std::string &sdp, uint8_t redPayloadType, uint8
 	for (const auto &section : parseOfferedMediaSections(sdp)) {
 		if (section.type != "audio") {
 			continue;
+		}
+		if (section.port == 0) {
+			return false; // Rejected media does not negotiate its retained format list.
 		}
 
 		const SdpOfferedCodec *red = findCodec(section, redPayloadType, "red");

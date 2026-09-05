@@ -92,6 +92,10 @@ Vp9DescriptorResult parseVP9PayloadDescriptor(const uint8_t *payload, size_t siz
 				return result;
 			}
 			const bool N = (payload[offset] & 0x01) != 0;
+			if ((payload[offset] >> 1) == 0 || (i == 2 && N)) {
+				// RFC 9628 forbids zero P_DIFF and more than three references.
+				return result;
+			}
 			offset++;
 			if (!N) {
 				break;
@@ -169,11 +173,12 @@ bool isRtcpSenderReportDue(uint32_t currentTimestamp, uint32_t lastReportedTimes
 std::vector<uint8_t> buildOpusRtpPacket(const uint8_t *payload, size_t payloadSize, uint8_t payloadType,
                                         uint16_t sequenceNumber, uint32_t timestamp, uint32_t ssrc)
 {
-	if (!payload && payloadSize != 0) {
+	std::vector<uint8_t> packet;
+	if ((!payload && payloadSize != 0) || payloadSize > packet.max_size() - 12) {
 		return {};
 	}
 
-	std::vector<uint8_t> packet(12 + payloadSize);
+	packet.resize(12 + payloadSize);
 	packet[0] = 0x80;               // V=2, P=0, X=0, CC=0
 	packet[1] = payloadType & 0x7F; // M=0
 	packet[2] = sequenceNumber >> 8;

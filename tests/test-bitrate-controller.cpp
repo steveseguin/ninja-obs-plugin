@@ -36,6 +36,33 @@ TEST(BitrateControllerTest, MissingFeedbackNeverChangesBitrate)
 	EXPECT_EQ(controller.currentBitrateBitsPerSecond(), 8000000u);
 }
 
+TEST(BitrateControllerTest, FloorSamplesDoNotReportChangesOrDelayRecovery)
+{
+	BitrateController controller(controllerConfig());
+	const auto start = BitrateController::Clock::time_point{};
+	ASSERT_FALSE(controller.observe(100000, start).has_value());
+	ASSERT_EQ(controller.observe(100000, start + 1s), 500000u);
+
+	EXPECT_FALSE(controller.observe(100000, start + 4s).has_value());
+	EXPECT_FALSE(controller.observe(100000, start + 5s).has_value());
+	EXPECT_EQ(controller.currentBitrateBitsPerSecond(), 500000u);
+	EXPECT_FALSE(controller.observe(8000000, start + 6s).has_value());
+	EXPECT_FALSE(controller.observe(8000000, start + 7s).has_value());
+	EXPECT_EQ(controller.observe(8000000, start + 8s), 575000u);
+}
+
+TEST(BitrateControllerTest, FixedBitrateRangeNeverReportsAChange)
+{
+	auto config = controllerConfig();
+	config.maximumBitrateBitsPerSecond = config.minimumBitrateBitsPerSecond;
+	BitrateController controller(config);
+	const auto start = BitrateController::Clock::time_point{};
+	for (int second = 0; second < 10; ++second) {
+		EXPECT_FALSE(controller.observe(100000, start + std::chrono::seconds(second)).has_value());
+	}
+	EXPECT_EQ(controller.currentBitrateBitsPerSecond(), config.minimumBitrateBitsPerSecond);
+}
+
 TEST(BitrateControllerTest, DropsQuicklyWithSafetyMarginAndFloor)
 {
 	BitrateController controller(controllerConfig());

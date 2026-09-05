@@ -140,11 +140,7 @@ uint64_t RtpSharedPacerBudget::addParticipant(uint64_t bitrateBitsPerSecond)
 	updateTokensLocked(std::chrono::steady_clock::now());
 	const uint64_t participantId = nextParticipantId_++;
 	participantRates_.emplace(participantId, bitrateBitsPerSecond);
-	if (bitrateBitsPerSecond > std::numeric_limits<uint64_t>::max() - aggregateBitrateBitsPerSecond_) {
-		aggregateBitrateBitsPerSecond_ = std::numeric_limits<uint64_t>::max();
-	} else {
-		aggregateBitrateBitsPerSecond_ += bitrateBitsPerSecond;
-	}
+	recalculateBitrateLocked();
 	cv_.notify_all();
 	return participantId;
 }
@@ -161,13 +157,8 @@ void RtpSharedPacerBudget::updateParticipant(uint64_t participantId, uint64_t bi
 		return;
 	}
 	updateTokensLocked(std::chrono::steady_clock::now());
-	aggregateBitrateBitsPerSecond_ -= found->second;
 	found->second = bitrateBitsPerSecond;
-	if (bitrateBitsPerSecond > std::numeric_limits<uint64_t>::max() - aggregateBitrateBitsPerSecond_) {
-		aggregateBitrateBitsPerSecond_ = std::numeric_limits<uint64_t>::max();
-	} else {
-		aggregateBitrateBitsPerSecond_ += bitrateBitsPerSecond;
-	}
+	recalculateBitrateLocked();
 	cv_.notify_all();
 }
 
@@ -183,12 +174,26 @@ void RtpSharedPacerBudget::removeParticipant(uint64_t participantId)
 	if (found == participantRates_.end()) {
 		return;
 	}
-	aggregateBitrateBitsPerSecond_ -= found->second;
 	participantRates_.erase(found);
+	recalculateBitrateLocked();
 	if (participantRates_.empty()) {
 		availableTokens_ = static_cast<long double>(burstBudgetBytes_);
 	}
 	cv_.notify_all();
+}
+
+void RtpSharedPacerBudget::recalculateBitrateLocked()
+{
+	// Saturation loses excess rate, so subtracting from a saturated total cannot
+	// recover the remaining participants' budget. Recompute only on membership/rate changes.
+	aggregateBitrateBitsPerSecond_ = 0;
+	for (const auto &participant : participantRates_) {
+		if (participant.second > std::numeric_limits<uint64_t>::max() - aggregateBitrateBitsPerSecond_) {
+			aggregateBitrateBitsPerSecond_ = std::numeric_limits<uint64_t>::max();
+			break;
+		}
+		aggregateBitrateBitsPerSecond_ += participant.second;
+	}
 }
 
 bool RtpSharedPacerBudget::acquire(size_t packetBytes, const std::function<bool()> &cancelled, bool *waited)

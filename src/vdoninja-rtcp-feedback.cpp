@@ -173,8 +173,10 @@ void RtcpFeedbackTracker::observe(const uint8_t *data, size_t size, uint32_t com
 							malformed = true;
 						} else {
 							++observed.rembMessages;
-							observed.minRembBitrateBps = bitrate;
-							observed.maxRembBitrateBps = bitrate;
+							observed.minRembBitrateBps = observed.minRembBitrateBps == 0
+							                                 ? bitrate
+							                                 : std::min(observed.minRembBitrateBps, bitrate);
+							observed.maxRembBitrateBps = std::max(observed.maxRembBitrateBps, bitrate);
 							observedRemb = RtcpRembEstimate{bitrate, std::chrono::steady_clock::now()};
 						}
 					}

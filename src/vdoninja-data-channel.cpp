@@ -15,24 +15,18 @@ namespace vdoninja
 namespace
 {
 
-std::string firstNonEmptyValue(const JsonParser &json, const std::initializer_list<const char *> &keys)
+std::string asciiLower(std::string value)
 {
-	for (const char *key : keys) {
-		if (!json.hasKey(key)) {
-			continue;
-		}
-		const std::string value = trim(json.getString(key));
-		if (!value.empty()) {
-			return value;
-		}
-	}
-	return "";
+	std::transform(value.begin(), value.end(), value.begin(),
+	               [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+	return value;
 }
 
 bool looksLikePlaybackHint(const std::string &candidate)
 {
-	return candidate.rfind("https://", 0) == 0 || candidate.rfind("http://", 0) == 0 ||
-	       candidate.rfind("whep:", 0) == 0;
+	const std::string prefix = asciiLower(candidate.substr(0, 8));
+	return prefix.rfind("https://", 0) == 0 || prefix.rfind("http://", 0) == 0 || prefix.rfind("whep:", 0) == 0 ||
+	       prefix.rfind("wheps://", 0) == 0;
 }
 
 std::string extractPlaybackHintRecursive(const JsonParser &json, int depth)
@@ -41,15 +35,11 @@ std::string extractPlaybackHintRecursive(const JsonParser &json, int depth)
 		return "";
 	}
 
-	std::string direct =
-	    firstNonEmptyValue(json, {"whepUrl", "whep", "whepplay", "whepPlay", "whepshare", "whepShare"});
-	if (looksLikePlaybackHint(direct)) {
-		return direct;
-	}
-
-	std::string urlValue = firstNonEmptyValue(json, {"url", "URL"});
-	if (looksLikePlaybackHint(urlValue)) {
-		return urlValue;
+	for (const char *key : {"whepUrl", "whep", "whepplay", "whepPlay", "whepshare", "whepShare", "url", "URL"}) {
+		const std::string candidate = trim(json.getString(key));
+		if (looksLikePlaybackHint(candidate)) {
+			return candidate;
+		}
 	}
 
 	for (const char *nestedKey : {"whepSettings", "whepScreenSettings", "info", "data"}) {
@@ -70,13 +60,6 @@ std::string extractPlaybackHintRecursive(const JsonParser &json, int depth)
 	}
 
 	return "";
-}
-
-std::string asciiLower(std::string value)
-{
-	std::transform(value.begin(), value.end(), value.begin(),
-	               [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-	return value;
 }
 
 bool isLegacyRemoteActionValue(const std::string &value)
@@ -194,20 +177,12 @@ std::string extractTopLevelRawJsonValue(const std::string &json, const std::stri
 			break;
 		}
 
-		pos++;
-		std::string key;
-		while (pos < json.size()) {
-			if (json[pos] == '\\' && pos + 1 < json.size()) {
-				pos++;
-				key += json[pos++];
-				continue;
-			}
-			if (json[pos] == '"') {
-				pos++;
-				break;
-			}
-			key += json[pos++];
-		}
+		const size_t keyStart = pos;
+		skipJsonString(json, pos);
+		const std::string rawKey = json.substr(keyStart, pos - keyStart);
+		const std::string key = rawKey.find('\\') == std::string::npos
+		                            ? rawKey.substr(1, rawKey.size() - 2)
+		                            : JsonParser("{\"key\":" + rawKey + "}").getString("key");
 
 		skipWhitespace(json, pos);
 		if (pos >= json.size() || json[pos] != ':') {

@@ -54,7 +54,10 @@ std::optional<uint64_t> RtpOutputTimestampMapper::map(uint32_t rtpTimestamp, uin
 	}
 
 	extendedRtpTicks_ += static_cast<uint32_t>(rtpTimestamp - lastRtpTimestamp_);
-	uint64_t mapped = baseTimestampNs_ + (extendedRtpTicks_ * 1000000000ULL) / 90000ULL;
+	// Convert whole seconds separately so the intermediate multiplication
+	// cannot wrap after roughly 57 hours of continuous video.
+	uint64_t mapped = baseTimestampNs_ + (extendedRtpTicks_ / 90000ULL) * 1000000000ULL +
+	                  ((extendedRtpTicks_ % 90000ULL) * 1000000000ULL) / 90000ULL;
 	if (mapped <= lastTimestampNs_) {
 		mapped = lastTimestampNs_ + 1;
 	}
@@ -96,11 +99,11 @@ bool scaleAlphaPlaneNearest(const std::vector<uint8_t> &src, int srcWidth, int s
 
 	dst.resize(static_cast<size_t>(dstWidth) * static_cast<size_t>(dstHeight));
 	for (int y = 0; y < dstHeight; ++y) {
-		const int srcY = std::min(srcHeight - 1, (y * srcHeight) / dstHeight);
+		const int srcY = static_cast<int>((static_cast<int64_t>(y) * srcHeight) / dstHeight);
 		const uint8_t *srcRow = src.data() + static_cast<size_t>(srcY) * static_cast<size_t>(srcLinesize);
 		uint8_t *dstRow = dst.data() + static_cast<size_t>(y) * static_cast<size_t>(dstWidth);
 		for (int x = 0; x < dstWidth; ++x) {
-			const int srcX = std::min(srcWidth - 1, (x * srcWidth) / dstWidth);
+			const int srcX = static_cast<int>((static_cast<int64_t>(x) * srcWidth) / dstWidth);
 			dstRow[x] = srcRow[srcX];
 		}
 	}
