@@ -172,11 +172,11 @@ if command -v install_name_tool &>/dev/null && command -v otool &>/dev/null; the
     esac
   done
 
-  # Rewrite any remaining non-system absolute paths to @loader_path if the
-  # dylib was bundled next to the binary.
+  # Resolve bundled dependencies beside the plugin, including @rpath imports.
+  # A build-directory rpath must not take precedence over the shipped dylib.
   otool -L "$PLUGIN" 2>/dev/null | awk '{print $1}' | while read -r dep; do
     case "$dep" in
-      @*|/usr/lib/*|/System/*) continue ;;  # already relocatable or system
+      @loader_path/*|@executable_path/*|/usr/lib/*|/System/*) continue ;;  # already relocatable or system
     esac
     libname="$(basename "$dep")"
     if [ -f "$DST_PLUGIN_DIR/$libname" ]; then
@@ -194,7 +194,7 @@ if command -v install_name_tool &>/dev/null && command -v otool &>/dev/null; the
     # Rewrite any absolute references to sibling dylibs
     otool -L "$dylib" 2>/dev/null | awk '{print $1}' | while read -r dep; do
       case "$dep" in
-        @*|/usr/lib/*|/System/*) continue ;;
+        @loader_path/*|@executable_path/*|/usr/lib/*|/System/*) continue ;;
       esac
       sibling="$(basename "$dep")"
       if [ -f "$DST_PLUGIN_DIR/$sibling" ]; then
