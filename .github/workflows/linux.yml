@@ -181,6 +181,8 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_INSTALL_PREFIX=/usr \
             -DBUNDLE_LINUX_RUNTIME=ON \
+            -DBUILD_NATIVE_MEDIA_LINKED_GATE=ON \
+            -DBUILD_PUBLISHER_TOOL=ON \
             -DCMAKE_PREFIX_PATH="/usr/local;${{ github.workspace }}/obs-sdk;${OBS_LIB_DIR}/cmake/libobs;${OBS_LIB_DIR}/cmake/obs-frontend-api" \
             -DCMAKE_LIBRARY_PATH="${OBS_LIB_DIR}" \
             -DOBS_SDK_PATH="${{ github.workspace }}/obs-sdk" \
@@ -189,6 +191,9 @@ jobs:
 
       - name: Build Plugin
         run: cmake --build build
+
+      - name: Test linked native media and alpha composition
+        run: ctest --test-dir build -L release-linked --no-tests=error --output-on-failure
 
       - name: Package
         run: |

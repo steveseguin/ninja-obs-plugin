@@ -99,3 +99,38 @@ Tag CI checks metadata before packaging. The release publication job runs only
 for `v*` tags. A manual run of `build.yml` on main builds and validates artifacts
 without creating a release. Policy tests also enforce that the Windows linked
 runtime checks remain required and that malformed workflow wiring is rejected.
+
+## Native media and live alpha interoperability
+
+Linux CI also builds the synthetic VP9 alpha publisher and runs all nine
+`release-linked` native media tests against real libdatachannel and FFmpeg.
+These exercise receiver behavior, owner lifetime, and decoded alpha composition;
+no live signaling service is needed for these required checks.
+
+For an optional live check against the current browser implementation:
+
+```bash
+# Add these options to the configured plugin build with OBS/FFmpeg/libdatachannel available.
+cmake -B build-linux -DBUILD_NATIVE_MEDIA_LINKED_GATE=ON -DBUILD_PUBLISHER_TOOL=ON
+cmake --build build-linux
+ctest --test-dir build-linux -L release-linked --no-tests=error --output-on-failure
+npm ci
+npx playwright install chromium
+node scripts/playwright-native-alpha-smoke.cjs build-linux/vp9-alpha-publisher
+```
+
+The POSIX smoke test publishes synthetic frames to a random stream ID, checks
+that the browser continuously decodes both `video` and `video-alpha` as VP9,
+reloads the viewer, and requires a clean publisher exit with an active viewer.
+It writes diagnostics to `artifacts/native-alpha-smoke/`. A forced termination
+fails the test. `VDO_BASE_URL` defaults to `https://vdo.ninja/alpha/`;
+`VDO_TEST_PASSWORD` overrides the test password. External signaling/network
+failures can fail this optional check, so it is not a required CI gate.
+
+Protocol comparisons use the root sources in the upstream
+[obsninja repository](https://github.com/obsninja/obsninja) (checked out as
+`~/code/vdoninja` on this machine). Preserve the native dual-track VP9 alpha
+extension used by the Windows game-capture application. Browser decoding of both
+tracks proves transport and codec interoperability; it does not prove browser
+transparency composition or execution of the Windows application. The linked
+receiver tests separately check BGRA alpha composition.

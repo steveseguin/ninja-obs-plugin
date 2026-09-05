@@ -488,8 +488,17 @@ public:
 		g_running = false;
 		if (signaling_)
 			signaling_->disconnect();
-		std::lock_guard<std::mutex> lock(peersMutex_);
-		peers_.clear();
+		std::map<std::string, std::shared_ptr<PeerSession>> retiredPeers;
+		{
+			std::lock_guard<std::mutex> lock(peersMutex_);
+			retiredPeers.swap(peers_);
+		}
+		// Closing a peer can synchronously invoke its state callback. Retire
+		// outside the map lock so the callback can finish during shutdown.
+		for (auto &entry : retiredPeers) {
+			entry.second->pc->resetCallbacks();
+			entry.second->pc->close();
+		}
 	}
 
 private:
@@ -530,8 +539,15 @@ private:
 				if (auto p = weakPeer.lock()) {
 					p->connected = false;
 				}
-				std::lock_guard<std::mutex> lock(peersMutex_);
-				peers_.erase(uuid);
+				std::shared_ptr<PeerSession> retiredPeer;
+				{
+					std::lock_guard<std::mutex> lock(peersMutex_);
+					auto it = peers_.find(uuid);
+					if (it != peers_.end() && it->second == weakPeer.lock()) {
+						retiredPeer = std::move(it->second);
+						peers_.erase(it);
+					}
+				}
 			}
 		});
 
@@ -563,13 +579,19 @@ private:
 			peer->alphaTrack = peer->pc->addTrack(alpha);
 		}
 
-		// Create offer (triggers onLocalDescription)
-		peer->pc->setLocalDescription();
-
+		std::shared_ptr<PeerSession> retiredPeer;
 		{
 			std::lock_guard<std::mutex> lock(peersMutex_);
+			retiredPeer = std::move(peers_[uuid]);
 			peers_[uuid] = peer;
 		}
+		if (retiredPeer) {
+			retiredPeer->pc->resetCallbacks();
+			retiredPeer->pc->close();
+		}
+
+		// Register before sending the offer so an immediate answer can find it.
+		peer->pc->setLocalDescription();
 	}
 
 	Config cfg_;
