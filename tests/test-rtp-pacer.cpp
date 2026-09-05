@@ -926,3 +926,132 @@ TEST(RtpPacketPacerTest, RecoveryPurgeInvalidatesAFrameSelectedDuringSharedBudge
 	EXPECT_EQ(secondSent, 0u);
 	EXPECT_EQ(second.getStats().droppedFrames, 1u);
 }
+
+TEST(RtpPacketPacerTest, RepairExpiresWhileWaitingForSharedBudget)
+{
+	std::mutex mutex;
+	std::condition_variable cv;
+	bool completed = false;
+	std::atomic<size_t> sent{0};
+	RtpPacerRepairOutcome outcome = RtpPacerRepairOutcome::Sent;
+	auto sharedBudget = std::make_shared<RtpSharedPacerBudget>(100);
+	RtpPacketPacer pacer(
+	    800, 1s, [](RtpPacketPacer::Packet &&) { return true; }, 4096, sharedBudget);
+	// Spend the initial aggregate burst. Refilling 100 bytes at 800 bps takes
+	// a second, longer than the repair's existing 500 ms deadline.
+	ASSERT_TRUE(sharedBudget->acquire(100, []() { return false; }));
+	ASSERT_TRUE(pacer.enqueueRepair(
+	    packetWithValue(100, 1),
+	    [&](RtpPacketPacer::Packet &&) {
+		    ++sent;
+		    return true;
+	    },
+	    [&](RtpPacerRepairOutcome result) {
+		    {
+			    std::lock_guard<std::mutex> lock(mutex);
+			    outcome = result;
+			    completed = true;
+		    }
+		    cv.notify_all();
+	    }));
+	{
+		std::unique_lock<std::mutex> lock(mutex);
+		ASSERT_TRUE(cv.wait_for(lock, 2s, [&]() { return completed; }));
+	}
+	pacer.stop();
+	EXPECT_EQ(sent.load(), 0u);
+	EXPECT_EQ(outcome, RtpPacerRepairOutcome::Expired);
+	EXPECT_EQ(pacer.getStats().expiredRepairs, 1u);
+	EXPECT_EQ(pacer.getStats().sentRepairs, 0u);
+}
+
+TEST(RtpPacketPacerTest, RepeatedNackPrioritizesExistingRepairWithoutDuplicatingWork)
+{
+	std::mutex mutex;
+	std::condition_variable cv;
+	bool blocked = false;
+	bool released = false;
+	std::vector<uint16_t> sent;
+	RtpPacketPacer pacer(8000000, 2ms, [&](RtpPacketPacer::Packet &&) {
+		std::unique_lock<std::mutex> lock(mutex);
+		blocked = true;
+		cv.notify_all();
+		cv.wait(lock, [&]() { return released; });
+		return true;
+	});
+	EXPECT_TRUE(pacer.enqueueFrame({rtpPacketWithSequence(100, 1, 0)}));
+	{
+		std::unique_lock<std::mutex> lock(mutex);
+		EXPECT_TRUE(cv.wait_for(lock, 1s, [&]() { return blocked; }));
+	}
+	for (uint16_t sequence : {10, 11, 12}) {
+		EXPECT_TRUE(pacer.enqueueRepair(rtpPacketWithSequence(100, sequence, 0), [&](RtpPacketPacer::Packet &&p) {
+			std::lock_guard<std::mutex> lock(mutex);
+			sent.push_back((static_cast<uint16_t>(p[2]) << 8) | static_cast<uint16_t>(p[3]));
+			cv.notify_all();
+			return true;
+		}));
+	}
+	EXPECT_TRUE(pacer.prioritizeRepair(12));
+	EXPECT_TRUE(pacer.prioritizeRepair(12));
+	EXPECT_FALSE(pacer.prioritizeRepair(99));
+	{
+		std::unique_lock<std::mutex> lock(mutex);
+		released = true;
+		cv.notify_all();
+		EXPECT_TRUE(cv.wait_for(lock, 1s, [&]() { return sent.size() == 3; }));
+	}
+	pacer.stop();
+	EXPECT_EQ(sent, (std::vector<uint16_t>{12, 10, 11}));
+	EXPECT_EQ(pacer.getStats().queuedRepairs, 3u);
+	EXPECT_EQ(pacer.getStats().sentRepairs, 3u);
+}
+
+TEST(RtpPacketPacerTest, RepeatedNackDoesNotRefreshRepairDeadline)
+{
+	std::mutex mutex;
+	std::condition_variable cv;
+	bool blocked = false;
+	bool released = false;
+	bool completed = false;
+	std::atomic<size_t> sent{0};
+	RtpPacerRepairOutcome outcome = RtpPacerRepairOutcome::Sent;
+	RtpPacketPacer pacer(8000000, 2ms, [&](RtpPacketPacer::Packet &&) {
+		std::unique_lock<std::mutex> lock(mutex);
+		blocked = true;
+		cv.notify_all();
+		cv.wait(lock, [&]() { return released; });
+		return true;
+	});
+	EXPECT_TRUE(pacer.enqueueFrame({rtpPacketWithSequence(100, 1, 0)}));
+	{
+		std::unique_lock<std::mutex> lock(mutex);
+		EXPECT_TRUE(cv.wait_for(lock, 1s, [&]() { return blocked; }));
+	}
+	EXPECT_TRUE(pacer.enqueueRepair(
+	    rtpPacketWithSequence(100, 12, 0),
+	    [&](RtpPacketPacer::Packet &&) {
+		    ++sent;
+		    return true;
+	    },
+	    [&](RtpPacerRepairOutcome result) {
+		    std::lock_guard<std::mutex> lock(mutex);
+		    outcome = result;
+		    completed = true;
+		    cv.notify_all();
+	    }));
+	std::this_thread::sleep_for(250ms);
+	EXPECT_TRUE(pacer.prioritizeRepair(12));
+	std::this_thread::sleep_for(350ms);
+	EXPECT_FALSE(pacer.prioritizeRepair(12));
+	{
+		std::unique_lock<std::mutex> lock(mutex);
+		released = true;
+		cv.notify_all();
+		EXPECT_TRUE(cv.wait_for(lock, 1s, [&]() { return completed; }));
+	}
+	pacer.stop();
+	EXPECT_EQ(sent.load(), 0u);
+	EXPECT_EQ(outcome, RtpPacerRepairOutcome::Expired);
+	EXPECT_EQ(pacer.getStats().expiredRepairs, 1u);
+}

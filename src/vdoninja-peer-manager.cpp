@@ -446,11 +446,14 @@ public:
 					continue;
 				}
 
+				bool alreadyPending;
 				{
 					std::lock_guard<std::mutex> lock(pendingMutex_);
-					if (!pendingRepairs_.insert(sequenceNumber).second) {
-						continue;
-					}
+					alreadyPending = !pendingRepairs_.insert(sequenceNumber).second;
+				}
+				if (alreadyPending) {
+					pacer->prioritizeRepair(sequenceNumber);
+					continue;
 				}
 
 				auto directSend = [send](RtpPacketPacer::Packet &&repairPacket) {
