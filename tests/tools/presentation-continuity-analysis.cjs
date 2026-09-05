@@ -115,6 +115,8 @@ function analyzePresentationContinuity(records, options = {}) {
         markerDuplicates += 1;
       } else if (markerDelta > 32768) {
         markerBackwards += 1;
+      } else if (markerDelta < presentedDelta) {
+        markerDuplicates += presentedDelta - markerDelta;
       } else if (markerDelta > presentedDelta) {
         markerSkipped += markerDelta - presentedDelta;
       }

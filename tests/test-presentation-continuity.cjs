@@ -124,3 +124,12 @@ test("RTP timestamp rollover is continuous", () => {
   records.forEach(record => { record.rtpTimestamp = (record.rtpTimestamp + 0xffff0000) >>> 0; });
   assert.equal(analyzePresentationContinuity(records, { expectedFps: 60 }).ok, true);
 });
+
+
+test("marker progress accounts for missed callbacks and still detects repeated content", () => {
+  const records = frames(300).filter((_, index) => index !== 150);
+  const options = { expectedFps: 60, requireMarker: true };
+  assert.equal(analyzePresentationContinuity(records, options).ok, true);
+  for (let index = 150; index < records.length; ++index) records[index].markerFrame -= 1;
+  assert.equal(analyzePresentationContinuity(records, options).ok, false);
+});
