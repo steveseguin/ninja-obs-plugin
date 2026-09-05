@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.66] - 2026-09-05
+
 ### Fixed
 - Fixed long-running RTP timestamp conversion and large alpha-plane scaling arithmetic.
 - Bounded retransmission-cache storage when sequence numbers are reused, preserved expiration with out-of-order timestamps, and capped NACK expansion.
