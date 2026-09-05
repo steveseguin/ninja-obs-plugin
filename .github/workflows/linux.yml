@@ -193,6 +193,8 @@ jobs:
         run: cmake --build build
 
       - name: Test linked native media and alpha composition
+        env:
+          LD_LIBRARY_PATH: ${{ github.workspace }}/obs-sdk/lib:${{ github.workspace }}/obs-sdk/lib/x86_64-linux-gnu:/usr/local/lib
         run: ctest --test-dir build -L release-linked --no-tests=error --output-on-failure
 
       - name: Package
