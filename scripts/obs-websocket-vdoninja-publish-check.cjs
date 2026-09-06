@@ -985,7 +985,13 @@ function inspectObsScreenshot(imageData) {
 }
 
 async function startDecodedAudioCapture(page) {
-  return page.evaluate(async () => {
+  const captureMode = process.env.VDONINJA_AUDIO_CAPTURE_MODE || "auto";
+  if (!["auto", "worklet", "script-processor"].includes(captureMode)) throw new Error("Invalid audio capture mode");
+  const rawCaptureMode = process.env.VDONINJA_RAW_AUDIO_CAPTURE_MODE || "worker";
+  if (!["worker", "main-thread"].includes(rawCaptureMode)) throw new Error("Invalid raw audio capture mode");
+  const { rawAudioWorkerSource } = require("../tests/tools/raw-audio-capture-worker.cjs");
+  const { pcmCaptureWorkletSource } = require("../tests/tools/audio-capture-worklet.cjs");
+  return page.evaluate(async ({ workletSource, captureMode, rawWorkerSource, rawCaptureMode }) => {
     const mediaElement = Array.from(document.querySelectorAll("video")).find(
       (candidate) => {
         const stream = candidate.srcObject;
@@ -1009,120 +1015,172 @@ async function startDecodedAudioCapture(page) {
     const audioContext = new AudioContext({ sampleRate: 48000 });
     const sourceStream = new MediaStream([audioTrack]);
     const source = audioContext.createMediaStreamSource(sourceStream);
-    const processor = audioContext.createScriptProcessor(4096, 1, 1);
-    const silentOutput = audioContext.createGain();
-    silentOutput.gain.value = 0;
-
     const capture = {
-      audioContext,
-      source,
-      processor,
-      silentOutput,
-      chunks: [],
-      sampleCount: 0,
-      rawTrack: null,
+      audioContext, source, processor:null, silentOutput:null,
+      chunks:[], sampleCount:0, rawTrack:null, captureMode:null,
     };
-    processor.onaudioprocess = (event) => {
-      const samples = event.inputBuffer.getChannelData(0);
-      capture.chunks.push(new Float32Array(samples));
+    const append = samples => {
+      capture.chunks.push(samples);
       capture.sampleCount += samples.length;
     };
-    source.connect(processor);
-    processor.connect(silentOutput);
-    silentOutput.connect(audioContext.destination);
+    if (captureMode !== "script-processor" && audioContext.audioWorklet && typeof AudioWorkletNode === "function") {
+      const moduleUrl = URL.createObjectURL(new Blob([workletSource], {type:"text/javascript"}));
+      try { await audioContext.audioWorklet.addModule(moduleUrl); }
+      finally { URL.revokeObjectURL(moduleUrl); }
+      capture.processor = new AudioWorkletNode(audioContext,"vdoninja-pcm-capture",{
+        numberOfInputs:1, numberOfOutputs:0, channelCount:1, channelCountMode:"explicit",
+      });
+      capture.captureMode = "audio-worklet";
+      capture.processor.onprocessorerror = () => {capture.error = "AudioWorklet capture processor failed";};
+      capture.processor.port.onmessage = ({data}) => {
+        if (data.samples) append(data.samples);
+        if (data.done && capture.flushDone) capture.flushDone();
+      };
+      source.connect(capture.processor);
+    } else {
+      if (captureMode === "worklet") throw new Error("AudioWorklet capture is unavailable");
+      capture.captureMode = "script-processor";
+      capture.processor = audioContext.createScriptProcessor(4096,1,1);
+      capture.silentOutput = audioContext.createGain();
+      capture.silentOutput.gain.value = 0;
+      capture.processor.onaudioprocess = event => append(new Float32Array(event.inputBuffer.getChannelData(0)));
+      source.connect(capture.processor);
+      capture.processor.connect(capture.silentOutput);
+      capture.silentOutput.connect(audioContext.destination);
+    }
 
     if (typeof MediaStreamTrackProcessor === "function") {
       const clonedTrack = audioTrack.clone();
       const trackProcessor = new MediaStreamTrackProcessor({
         track: clonedTrack,
       });
-      const reader = trackProcessor.readable.getReader();
-      const rawTrack = {
-        clonedTrack,
-        reader,
-        chunks: [],
-        sampleCount: 0,
-        sampleRate: 0,
-        firstTimestamp: null,
-        lastTimestamp: null,
-        lastDuration: null,
-        maxTimestampStep: 0,
-        nonForwardTimestamps: 0,
-        timestampGaps: [],
-        active: true,
-        error: null,
-        loop: null,
-      };
-      rawTrack.loop = (async () => {
-        try {
-          while (rawTrack.active) {
-            const { value, done } = await reader.read();
-            if (done || !value) {
-              break;
-            }
-            try {
-              const chunkStartSample = rawTrack.sampleCount;
-              const samples = new Float32Array(value.numberOfFrames);
-              value.copyTo(samples, { planeIndex: 0, format: "f32-planar" });
-              rawTrack.chunks.push(samples);
-              rawTrack.sampleCount += samples.length;
-              rawTrack.sampleRate = value.sampleRate;
-              if (rawTrack.firstTimestamp === null) {
-                rawTrack.firstTimestamp = value.timestamp;
-              } else {
-                const timestampStep = value.timestamp - rawTrack.lastTimestamp;
-                rawTrack.maxTimestampStep = Math.max(
-                  rawTrack.maxTimestampStep,
-                  timestampStep,
-                );
-                if (timestampStep <= 0) {
-                  rawTrack.nonForwardTimestamps += 1;
-                } else if (
-                  timestampStep >
-                    Math.max(
-                      12000,
-                      Number(rawTrack.lastDuration || value.duration || 0) +
-                        2000,
-                    ) &&
-                  rawTrack.timestampGaps.length < 50
-                ) {
-                  rawTrack.timestampGaps.push({
-                    chunkStartSample,
-                    captureTimeSeconds:
-                      rawTrack.sampleRate > 0
-                        ? chunkStartSample / rawTrack.sampleRate
-                        : null,
-                    previousTimestamp: rawTrack.lastTimestamp,
-                    timestamp: value.timestamp,
-                    timestampStep,
-                    previousDuration: rawTrack.lastDuration,
-                    receiveWallTimeMs: Date.now(),
-                  });
-                }
+      if (rawCaptureMode === "worker") {
+        const workerUrl = URL.createObjectURL(new Blob([rawWorkerSource],{type:"text/javascript"}));
+        const worker = new Worker(workerUrl);
+        const rawTrack = {active:true,captureMode:"worker",clonedTrack,worker,workerUrl,
+          chunks:[],sampleCount:0,error:null};
+        rawTrack.loop = new Promise((resolve,reject) => {
+          worker.onmessage = ({data}) => {if(data.result){Object.assign(rawTrack,data.result);resolve();}};
+          worker.onerror = event => reject(new Error(event.message || "Raw audio worker failed"));
+        });
+        rawTrack.loop.catch(()=>{}); // The freeze operation observes any failure.
+        worker.postMessage({readable:trackProcessor.readable},[trackProcessor.readable]);
+        capture.rawTrack = rawTrack;
+      } else {
+        const reader = trackProcessor.readable.getReader();
+        const rawTrack = {
+          clonedTrack,
+          reader,
+          chunks: [],
+          sampleCount: 0,
+          sampleRate: 0,
+          firstTimestamp: null,
+          lastTimestamp: null,
+          lastDuration: null,
+          maxTimestampStep: 0,
+          nonForwardTimestamps: 0,
+          timestampGaps: [],
+          active: true,
+          error: null,
+          loop: null,
+        };
+        rawTrack.loop = (async () => {
+          try {
+            while (rawTrack.active) {
+              const { value, done } = await reader.read();
+              if (done || !value) {
+                break;
               }
-              rawTrack.lastTimestamp = value.timestamp;
-              rawTrack.lastDuration = value.duration;
-            } finally {
-              value.close();
+              try {
+                const chunkStartSample = rawTrack.sampleCount;
+                const samples = new Float32Array(value.numberOfFrames);
+                value.copyTo(samples, { planeIndex: 0, format: "f32-planar" });
+                rawTrack.chunks.push(samples);
+                rawTrack.sampleCount += samples.length;
+                rawTrack.sampleRate = value.sampleRate;
+                if (rawTrack.firstTimestamp === null) {
+                  rawTrack.firstTimestamp = value.timestamp;
+                } else {
+                  const timestampStep = value.timestamp - rawTrack.lastTimestamp;
+                  rawTrack.maxTimestampStep = Math.max(
+                    rawTrack.maxTimestampStep,
+                    timestampStep,
+                  );
+                  if (timestampStep <= 0) {
+                    rawTrack.nonForwardTimestamps += 1;
+                  } else if (
+                    timestampStep >
+                      Math.max(
+                        12000,
+                        Number(rawTrack.lastDuration || value.duration || 0) +
+                          2000,
+                      ) &&
+                    rawTrack.timestampGaps.length < 50
+                  ) {
+                    rawTrack.timestampGaps.push({
+                      chunkStartSample,
+                      captureTimeSeconds:
+                        rawTrack.sampleRate > 0
+                          ? chunkStartSample / rawTrack.sampleRate
+                          : null,
+                      previousTimestamp: rawTrack.lastTimestamp,
+                      timestamp: value.timestamp,
+                      timestampStep,
+                      previousDuration: rawTrack.lastDuration,
+                      receiveWallTimeMs: Date.now(),
+                    });
+                  }
+                }
+                rawTrack.lastTimestamp = value.timestamp;
+                rawTrack.lastDuration = value.duration;
+              } finally {
+                value.close();
+              }
             }
+          } catch (error) {
+            rawTrack.error = String(error && error.stack ? error.stack : error);
           }
-        } catch (error) {
-          rawTrack.error = String(error && error.stack ? error.stack : error);
-        }
-      })();
-      capture.rawTrack = rawTrack;
+        })();
+        rawTrack.captureMode = "main-thread";
+        capture.rawTrack = rawTrack;
+      }
     }
+
+    capture.freeze = () => {
+      if (capture.freezePromise) return capture.freezePromise;
+      const pending = [];
+      capture.processor.onaudioprocess = null;
+      if (capture.captureMode === "audio-worklet") {
+        pending.push(new Promise((resolve,reject) => {
+          const timeout=setTimeout(()=>reject(new Error("AudioWorklet capture did not flush")),5000);
+          capture.flushDone=()=>{clearTimeout(timeout);resolve();};
+          capture.processor.port.postMessage("flush");
+        }));
+      }
+      if (capture.rawTrack) {
+        capture.rawTrack.active = false;
+        if (capture.rawTrack.worker) capture.rawTrack.worker.postMessage("stop");
+        else pending.push(capture.rawTrack.reader.cancel().catch(()=>{}));
+        pending.push(capture.rawTrack.loop);
+      }
+      capture.freezePromise = Promise.all(pending).then(()=>{
+        if(capture.error || capture.rawTrack?.error) throw new Error(capture.error || capture.rawTrack.error);
+      });
+      return capture.freezePromise;
+    };
 
     window.__vdoninjaDecodedAudioCapture = capture;
     await audioContext.resume();
 
     return {
+      captureMode: capture.captureMode,
       sampleRate: audioContext.sampleRate,
       contextState: audioContext.state,
       trackSettings: audioTrack.getSettings ? audioTrack.getSettings() : {},
       rawTrackCaptureAvailable: Boolean(capture.rawTrack),
+      rawCaptureMode: capture.rawTrack?.captureMode || null,
     };
-  });
+  }, {workletSource:pcmCaptureWorkletSource,captureMode,rawWorkerSource:rawAudioWorkerSource,rawCaptureMode});
 }
 
 async function stopDecodedAudioCapture(page) {
@@ -1132,16 +1190,17 @@ async function stopDecodedAudioCapture(page) {
       throw new Error("Decoded-audio capture was not started");
     }
 
-    capture.processor.onaudioprocess = null;
+    await capture.freeze();
     capture.source.disconnect();
     capture.processor.disconnect();
-    capture.silentOutput.disconnect();
-
+    if (capture.captureMode === "audio-worklet") capture.processor.port.close();
+    if (capture.silentOutput) capture.silentOutput.disconnect();
     if (capture.rawTrack) {
-      capture.rawTrack.active = false;
-      await capture.rawTrack.reader.cancel().catch(() => {});
-      await capture.rawTrack.loop;
       capture.rawTrack.clonedTrack.stop();
+      if (capture.rawTrack.worker) {
+        capture.rawTrack.worker.terminate();
+        URL.revokeObjectURL(capture.rawTrack.workerUrl);
+      }
     }
 
     function encodeChunks(chunks, sampleCount) {
@@ -1167,11 +1226,13 @@ async function stopDecodedAudioCapture(page) {
     }
 
     const result = {
+      captureMode: capture.captureMode,
       sampleRate: capture.audioContext.sampleRate,
       sampleCount: capture.sampleCount,
       pcmBase64: encodeChunks(capture.chunks, capture.sampleCount),
       rawTrack: capture.rawTrack
         ? {
+            captureMode: capture.rawTrack.captureMode,
             sampleRate: capture.rawTrack.sampleRate,
             sampleCount: capture.rawTrack.sampleCount,
             pcmBase64: encodeChunks(
@@ -2274,7 +2335,7 @@ async function main() {
       const { installProbes } = require("../tests/tools/rtc-timing-probes.cjs");
       await installProbes(context, viewerIceServers,
         process.env.VDONINJA_FIXED_VIEW_BUFFER === "1" ? viewBufferMs : null,
-        { preserveIceConfiguration:preserveViewerIceConfiguration });
+        { preserveIceConfiguration:preserveViewerIceConfiguration, traceBufferWrites:process.env.VDONINJA_TRACE_BUFFER_WRITES === "1", captureEncodedFrames:process.env.VDONINJA_CAPTURE_ENCODED_FRAMES !== "0" });
     }
 
     const page = await context.newPage();
@@ -2424,7 +2485,7 @@ async function main() {
       fs.writeFileSync(path.join(outputDir, `obs-presentation-records-${stamp}.json`), JSON.stringify(presentationCapture));
     }
     if (captureRtpTiming) {
-      const trace = await page.evaluate(() => ({records:window.__encodedTiming, overflow:window.__encodedOverflow, error:window.__encodedError || "", timeOrigin:performance.timeOrigin,capabilities:window.__timingCapabilities,negotiation:window.__negotiation}));
+      const trace = await page.evaluate(() => ({records:window.__encodedTiming, overflow:window.__encodedOverflow, error:window.__encodedError || "", timeOrigin:performance.timeOrigin,capabilities:window.__timingCapabilities,negotiation:window.__negotiation,bufferWrites:window.__bufferWrites}));
       fs.writeFileSync(path.join(outputDir, `obs-encoded-timing-${stamp}.json`), JSON.stringify(trace));
       if (trace.overflow) throw new Error("Encoded timing trace overflowed");
       if (trace.error) throw new Error(`Encoded timing probe failed: ${trace.error}`);

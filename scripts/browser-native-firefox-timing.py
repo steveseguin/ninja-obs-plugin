@@ -6,6 +6,7 @@ Playwright/Juggler patch. Measures a single viewer of an already running publish
 import argparse
 import json
 import os
+import re
 from pathlib import Path
 import subprocess
 import time
@@ -25,23 +26,28 @@ def main():
     p.add_argument('--fps', type=int, default=30)
     p.add_argument('--duration', type=float, default=30)
     p.add_argument('--reloads', type=int, default=0)
+    p.add_argument('--headed', action='store_true')
+    p.add_argument('--require-gpu', action='store_true')
     p.add_argument('--relay-protocol', choices=['udp', 'tcp', 'tls'])
     a = p.parse_args()
     if a.reloads < 0 or a.reloads > 5 or a.duration < 1 or a.duration > 300:
         p.error('Reloads must be 0–5 and duration 1–300 seconds')
+    if a.require_gpu and not a.headed:
+        p.error('--require-gpu requires --headed')
     a.output.mkdir(parents=True, exist_ok=True)
     helper = Path(__file__).with_name('receiver-browser-scripts.cjs')
     scripts = json.loads(subprocess.check_output(['node', str(helper)], text=True))
     options = Options()
     options.binary_location = a.browser
-    options.add_argument('-headless')
+    if not a.headed:
+        options.add_argument('-headless')
     options.set_capability('webSocketUrl', True)
     for key, value in {'media.autoplay.default': 0, 'media.autoplay.block-webaudio': False,
                        'media.gmp-gmpopenh264.enabled': True}.items():
         options.set_preference(key, value)
     env = os.environ.copy()
     env.update(MOZ_LOG='sync,webrtc_trace:2', MOZ_LOG_FILE=str((a.output / 'firefox-native.log').resolve()))
-    report = {'ok': False, 'expectedFps': a.fps, 'durationSeconds': a.duration,
+    report = {'ok': False, 'headed': a.headed, 'requireGpu': a.require_gpu, 'expectedFps': a.fps, 'durationSeconds': a.duration,
               'browserExecutable': a.browser, 'url': a.url,
               'timingTrace': env.get('VDONINJA_FIREFOX_TIMING_TRACE'),
               'timingSamples': env.get('VDONINJA_FIREFOX_TIMING_SAMPLES', 'default'),
@@ -64,10 +70,32 @@ def main():
             report['browserProcessExecutable'] = str((proc / 'exe').resolve())
             report['browserXulLibraries'] = sorted({line.split()[-1] for line in
                 (proc / 'maps').read_text().splitlines() if 'libxul.so' in line})
+        if a.headed:
+            driver.get('about:support')
+            deadline = time.monotonic() + 20
+            while True:
+                graphics = driver.execute_script("""return Object.fromEntries(
+                  ['graphics-features-tbody','graphics-gpu-1-tbody','graphics-decisions-tbody'].map(id=>
+                    [id,document.getElementById(id)?.innerText||'']));""")
+                if ('Compositing' in graphics['graphics-features-tbody']
+                        and 'Active' in graphics['graphics-gpu-1-tbody']):
+                    break
+                if time.monotonic() > deadline:
+                    raise RuntimeError('Firefox graphics diagnostics did not initialize')
+                time.sleep(.25)
+            report['graphics'] = graphics
+            features = graphics['graphics-features-tbody']
+            gpu = graphics['graphics-gpu-1-tbody']
+            report['gpuVerified'] = bool(re.search(r'Compositing\s+WebRender\s*(?:\n|$)', features)
+                and re.search(r'Active\s+Yes', gpu)
+                and not re.search(r'llvmpipe|lavapipe|swiftshader|software', gpu, re.I))
+            if a.require_gpu and not report['gpuVerified']:
+                raise RuntimeError('Firefox did not verify active hardware WebRender')
         bidi = websocket.create_connection(driver.capabilities['webSocketUrl'], timeout=30, suppress_origin=True)
         pre = scripts['preload']
+        diagnostic_preload = '(' + scripts['applicationDiagnostics'] + ')();'
         bidi.send(json.dumps({'id': 1, 'method': 'script.addPreloadScript', 'params': {
-            'functionDeclaration': f"() => {{ ({pre['source']})({json.dumps(pre['arg'])}); }}"}}))
+            'functionDeclaration': f"() => {{ {diagnostic_preload} ({pre['source']})({json.dumps(pre['arg'])}); }}"}}))
         while True:
             response = json.loads(bidi.recv())
             if response.get('id') == 1:
@@ -94,6 +122,8 @@ def main():
                 local:safe(()=>p.localDescription?.toJSON()),
                 remote:safe(()=>p.remoteDescription?.toJSON())})),
               negotiation:(window.__negotiation||[]).map(e=>safe(()=>JSON.parse(JSON.stringify(e)))),
+              applicationErrors:window.__applicationErrors,
+              applicationPeers:safe(()=>Object.entries(session.rpcs||{}).map(([id,p])=>({id,probeIndex:(window.__pcList||[]).indexOf(p),state:p.signalingState}))),
               capabilities:window.__timingCapabilities});"""))
 
         for round_index in range(a.reloads + 1):
@@ -128,6 +158,7 @@ def main():
                 time.sleep(min(1, max(0, deadline - time.monotonic())))
             phase['capture'] = evaluate(scripts['stop'])
             phase['audio'] = evaluate(scripts['stopAudio'])
+            phase['diagnostics'] = diagnostics()
             pairs = [p for s in phase['samples'][-1].get('pcStats', []) for p in s.get('selectedCandidatePairs', [])]
             phase['relayVerified'] = any(p.get('localCandidateType') == 'relay' or p.get('remoteCandidateType') == 'relay' for p in pairs)
             phase['selectedCandidatePairs'] = pairs

@@ -35,3 +35,21 @@ test("both probes stop before either reader cancellation can delay artifact expo
 test("disabled capture probes require no cleanup", async () => {
   await vm.runInNewContext(`(${freezeContinuityCapture})()`, { window: {} });
 });
+
+test("worker and worklet capture freeze before video export without a main-thread audio reader", async () => {
+  let finishPcm, finishRaw;
+  const video={active:true,processorDone:Promise.resolve()};
+  const raw={active:true,loop:new Promise(resolve=>{finishRaw=resolve;})};
+  let requested=false;
+  const audio={processor:{},rawTrack:raw,freeze(){
+    assert.equal(video.active,false);assert.equal(raw.active,false);requested=true;
+    return new Promise(resolve=>{finishPcm=resolve;});
+  }};
+  video.processorReader={cancel(){assert.equal(requested,true);return Promise.resolve();}};
+  let finished=false;
+  const pending=vm.runInNewContext(`(${freezeContinuityCapture})()`,{
+    window:{__vdoninjaPresentationCapture:video,__vdoninjaDecodedAudioCapture:audio},
+  }).then(()=>{finished=true;});
+  finishPcm();await Promise.resolve();assert.equal(finished,false);
+  finishRaw();await pending;assert.equal(finished,true);
+});

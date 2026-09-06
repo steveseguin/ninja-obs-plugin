@@ -188,3 +188,42 @@ separate files. The driver requires H.264 and relay evidence, preserves strict
 presentation/video/audio analyzers, and reports missing decoded-pixel/raw-audio
 coverage. Native logs close after explicit peer shutdown so trailing events can
 flush before WebDriver terminates the content processes.
+
+
+## Native A/V sync decisions
+
+After the existing diagnostic patches, apply `browser-sync-patch.py` to the pinned
+Chromium `third_party/webrtc` checkout and rebuild `headless_shell`. Enable
+`WebRTC-AvSyncTrace/Enabled/` to log input and proposed delays once per native sync
+calculation. Only `adjusted=1` decisions proceed to the minimum-delay setters.
+This trace changes no synchronization policy. For corresponding JavaScript buffer
+requests use `VDONINJA_TRACE_BUFFER_WRITES=1` in the OBS publish harness; retain
+`VDONINJA_FIXED_VIEW_BUFFER=1` runs separately from ordinary application feedback.
+See [the follow-up results](../../docs/linux-receiver-buffer-followup.md).
+
+`browser-silent-sink-patch.py "$CHROMIUM_SRC"` adds clock-transition logging under
+`WebRTC-AudioFifoTrace/Enabled/`. It traces the actual silent-sink transition without
+changing its policy. Apply once to the pinned source, then rebuild. The local
+`node scripts/browser-audio-fifo-repro.cjs OUTPUT SOURCE_PHASE_DELAY_MS` reproduction
+removes OBS and networking; its report retains strict PCM results and actual
+source timer jitter. See [the follow-up](../../docs/linux-receiver-buffer-followup.md)
+for Worklet/legacy and worker/main-thread controlled comparisons.
+
+The measurement harness defaults to a sink-only AudioWorklet and worker raw PCM
+capture, preserving native queue capacity. Explicit controls are
+`VDONINJA_AUDIO_CAPTURE_MODE=script-processor` and
+`VDONINJA_RAW_AUDIO_CAPTURE_MODE=main-thread`. Unsupported Worklet runtimes report
+the legacy fallback; raw-track capture remains unavailable in native Firefox.
+
+For buffer correlation, enable `VDONINJA_TRACE_BUFFER_WRITES=1` and the native
+receiver/compositor/sync traces, then run:
+
+```sh
+python3 scripts/analyze-receiver-buffer-sync.py CHROMIUM_LOG ENCODED_JSON PRESENTATION_JSON --fps 60
+```
+
+The analyzer verifies matching frame clock anchors and video SSRC before joining
+nearby synchronization decisions and buffer writes. It reports correlation, not
+causation. `VDONINJA_CAPTURE_ENCODED_FRAMES=0` disables the JavaScript encoded-frame
+transform while retaining negotiation and receiver-buffer controls for independent
+performance checks; those runs cannot supply this analyzer's clock anchors.

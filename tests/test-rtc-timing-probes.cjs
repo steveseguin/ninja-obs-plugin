@@ -131,3 +131,50 @@ test("passive ICE mode preserves application configuration and subsequent change
   assert.equal(pc.config.iceTransportPolicy, "all");
   assert.equal(page.__pcList[0], pc);
 });
+
+test("buffer tracing preserves native writes for audio and video", async () => {
+  const page = await fixture(null, { traceBufferWrites:true });
+  const pc = new page.RTCPeerConnection();
+  for (const kind of ["audio", "video"]) {
+    const receiver = new page.RTCRtpReceiver(); receiver.track.kind = kind;
+    pc.handlers.track({receiver}); receiver.jitterBufferTarget = 275;
+    assert.equal(receiver.jitterBufferTarget,275);
+  }
+  assert.deepEqual(Array.from(page.__bufferWrites, x=>x.kind),["audio","video"]);
+  assert.equal(page.__bufferWrites[0].applied,275);
+  assert.equal(page.__bufferWrites[0].fixed,false);
+});
+
+test("fixed audio and video targets retain attempted writes in diagnostics", async () => {
+  const page = await fixture(300, { traceBufferWrites:true });
+  const pc = new page.RTCPeerConnection();
+  for (const kind of ["audio", "video"]) {
+    const receiver = new page.RTCRtpReceiver(); receiver.track.kind = kind;
+    pc.handlers.track({receiver}); receiver.jitterBufferTarget = 275;
+    assert.equal(receiver.jitterBufferTarget,300);
+  }
+  assert.equal(page.__bufferWrites.length,2);
+  assert.equal(page.__bufferWrites[0].requested,275);
+  assert.equal(page.__bufferWrites[0].applied,300);
+  assert.equal(page.__bufferWrites[0].fixed,true);
+});
+
+test("repeated track events do not reinstall a nonconfigurable buffer observer", async () => {
+  const page = await fixture(300, { traceBufferWrites:true });
+  const pc = new page.RTCPeerConnection(); const receiver = new page.RTCRtpReceiver();
+  pc.handlers.track({receiver}); pc.handlers.track({receiver});
+  receiver.jitterBufferTarget = 200;
+  assert.equal(receiver.jitterBufferTarget,300);
+  assert.equal(page.__timingCapabilities.fixedBuffers.length,1);
+  assert.equal(page.__bufferWrites.length,1);
+});
+
+test("encoded-frame opt-out leaves the media path alone while retaining buffer controls", async () => {
+  const page=await fixture(300,{captureEncodedFrames:false});const pc=new page.RTCPeerConnection();
+  const receiver=new page.RTCRtpReceiver();receiver.createEncodedStreams=()=>{throw new Error("must not tap encoded media");};
+  pc.handlers.track({receiver});
+  assert.equal(pc.config.encodedInsertableStreams,undefined);
+  assert.equal(page.__encodedTiming.length,0);
+  assert.equal(page.__timingCapabilities.encodedCapture,false);
+  assert.equal(receiver.jitterBufferTarget,300);
+});

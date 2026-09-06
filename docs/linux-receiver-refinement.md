@@ -1,5 +1,8 @@
 # Linux receiver refinement
 
+Further reload, buffer-feedback and audio comparisons are in
+[the buffer follow-up](linux-receiver-buffer-followup.md).
+
 This continues [the receiver controller validation](linux-receiver-controller-validation.md).
 Configured quality, bitrate and pacing limits are unchanged. A separately isolated
 plugin ICE-restart deadlock is fixed below.

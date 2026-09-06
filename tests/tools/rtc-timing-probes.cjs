@@ -1,20 +1,24 @@
 // Passive encoded-frame timestamps and optional fixed receiver-buffer control.
-async function installProbes(context, iceServers, fixedBuffer, { preserveIceConfiguration = false } = {}) {
+async function installProbes(context, iceServers, fixedBuffer, { preserveIceConfiguration = false, traceBufferWrites = false, captureEncodedFrames = true } = {}) {
   await context.addInitScript(
-    ({ iceServers, fixedBuffer, preserveIceConfiguration }) => {
+    ({ iceServers, fixedBuffer, preserveIceConfiguration, traceBufferWrites, captureEncodedFrames }) => {
       window.__pcList = [];
       window.__encodedTiming = [];
       window.__encodedOverflow = 0;
       window.__negotiation = [];
+      window.__bufferWrites = [];
       window.__timingCapabilities = {
         encodedReceiver:
           typeof RTCRtpReceiver.prototype.createEncodedStreams === "function",
         fixedBuffers: [],
+        encodedCapture: captureEncodedFrames,
       };
       const observed = new WeakSet();
+      const observedBuffers = new WeakSet();
       const NativeTransformStream = window.TransformStream;
       function observe(endpoint, direction) {
         if (
+          !captureEncodedFrames ||
           !endpoint ||
           observed.has(endpoint) ||
           typeof endpoint.createEncodedStreams !== "function"
@@ -59,7 +63,7 @@ async function installProbes(context, iceServers, fixedBuffer, { preserveIceConf
           {
             ...config,
             ...(preserveIceConfiguration ? {} : { iceServers, iceTransportPolicy: "relay" }),
-            encodedInsertableStreams: true,
+            ...(captureEncodedFrames ? {encodedInsertableStreams:true} : {}),
           },
           ...rest,
         );
@@ -119,7 +123,7 @@ async function installProbes(context, iceServers, fixedBuffer, { preserveIceConf
         };
         pc.addEventListener("track", (event) => {
           observe(event.receiver, "receive");
-          if (fixedBuffer !== null) {
+          if (fixedBuffer !== null || traceBufferWrites) {
             const receiver = event.receiver;
             const key =
               "jitterBufferTarget" in receiver
@@ -129,20 +133,25 @@ async function installProbes(context, iceServers, fixedBuffer, { preserveIceConf
               RTCRtpReceiver.prototype,
               key,
             );
-            if (descriptor?.set && descriptor?.get) {
-              const value =
-                key === "jitterBufferTarget" ? fixedBuffer : fixedBuffer / 1000;
-              descriptor.set.call(receiver, value);
-              window.__timingCapabilities.fixedBuffers.push({
-                kind: receiver.track.kind,
-                key,
-                requested: value,
-                applied: descriptor.get.call(receiver),
-              });
-              // Isolate a fixed browser target from the application's adaptive writes.
+            if (descriptor?.set && descriptor?.get && !observedBuffers.has(receiver)) {
+              observedBuffers.add(receiver);
+              const fixedValue = key === "jitterBufferTarget" ? fixedBuffer : fixedBuffer / 1000;
+              if (fixedBuffer !== null) {
+                descriptor.set.call(receiver, fixedValue);
+                window.__timingCapabilities.fixedBuffers.push({
+                  kind: receiver.track.kind, key, requested: fixedValue,
+                  applied: descriptor.get.call(receiver),
+                });
+              }
               Object.defineProperty(receiver, key, {
                 get: () => descriptor.get.call(receiver),
-                set: () => {},
+                set: (requested) => {
+                  if (fixedBuffer === null) descriptor.set.call(receiver, requested);
+                  if (traceBufferWrites && window.__bufferWrites.length < 10000)
+                    window.__bufferWrites.push({now:performance.now(),kind:receiver.track.kind,
+                      trackId:receiver.track.id,key,requested,applied:descriptor.get.call(receiver),
+                      fixed:fixedBuffer !== null});
+                },
               });
             }
           }
@@ -153,7 +162,7 @@ async function installProbes(context, iceServers, fixedBuffer, { preserveIceConf
       window.RTCPeerConnection.prototype = NativePC.prototype;
       Object.setPrototypeOf(window.RTCPeerConnection, NativePC);
     },
-    { iceServers, fixedBuffer, preserveIceConfiguration },
+    { iceServers, fixedBuffer, preserveIceConfiguration, traceBufferWrites, captureEncodedFrames },
   );
 }
 async function stats(page) {

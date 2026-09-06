@@ -2,6 +2,7 @@
 // No Playwright protocol patches are required in the diagnostic Firefox build.
 const fs = require('node:fs');
 const helpers = require('./obs-websocket-vdoninja-publish-check.cjs');
+const { installApplicationDiagnostics } = require('../tests/tools/application-diagnostics.cjs');
 const { installProbes } = require('../tests/tools/rtc-timing-probes.cjs');
 const { analyzePresentationContinuity } = require('../tests/tools/presentation-continuity-analysis.cjs');
 const { analyzeVideoContinuity } = require('../tests/tools/video-continuity-analysis.cjs');
@@ -27,7 +28,7 @@ const { analyzePcm16Le, createPcm16Wav } = require('../tests/tools/audio-continu
   let preload;
   await installProbes({addInitScript:async(fn,arg) => {preload={source:fn.toString(),arg};}},iceServers,null,{preserveIceConfiguration:process.env.VDONINJA_PRESERVE_VIEWER_ICE_CONFIGURATION === "1"});
   const page = {evaluate:async(fn,arg) => ({source:fn.toString(),arg:arg ?? null})};
-  console.log(JSON.stringify({preload,
+  console.log(JSON.stringify({preload,applicationDiagnostics:installApplicationDiagnostics.toString(),
     start:await helpers.startPresentationCapture(page,false,'counter-complement'),
     stop:await helpers.stopPresentationCapture(page),
     snapshot:await helpers.collectViewerSnapshot(page),

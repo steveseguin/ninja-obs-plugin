@@ -9,8 +9,9 @@ async function freezeContinuityCapture() {
     if (audio.rawTrack) audio.rawTrack.active = false;
   }
   const pending = [];
+  if (audio?.freeze) pending.push(audio.freeze());
   if (video?.processorReader) pending.push(video.processorReader.cancel().catch(() => {}));
-  if (audio?.rawTrack) pending.push(audio.rawTrack.reader.cancel().catch(() => {}));
+  if (audio?.rawTrack && !audio.freeze) pending.push(audio.rawTrack.reader.cancel().catch(() => {}));
   await Promise.all(pending);
   await Promise.all([video?.processorDone, audio?.rawTrack?.loop]);
 }

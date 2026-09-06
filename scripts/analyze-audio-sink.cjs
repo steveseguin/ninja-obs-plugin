@@ -17,17 +17,25 @@ const rate = 48000;
 const { measured, durationSeconds, packetGapsMs, timestampCoverageOk } = selectMeasuredPcm(
   pcm,info.packets,rate,report.captureStartEpochMs,report.captureEndEpochMs);
 const nativeLog = path.join(root,'chromium-process.log');
-const events = fs.existsSync(nativeLog) ? fs.readFileSync(nativeLog,'utf8').split('\n').filter(l=>l.includes('VDONINJA_AUDIO ')).map(line=>{
-  const fields = Object.fromEntries([...line.matchAll(/(\w+)=([^\s]+)/g)].map(m=>[m[1],m[2]]));
-  for (const key of ['now_us','available','requested','sample_rate']) fields[key]=Number(fields[key]);
-  const first = report.audioTaps?.rawTrack?.firstTimestamp;
-  fields.relativeToRawCaptureMs = Number.isFinite(first) ? (fields.now_us-first)/1000 : null;
-  return fields;
-}) : null;
+const nativeText = fs.existsSync(nativeLog) ? fs.readFileSync(nativeLog,'utf8') : null;
+function nativeEvents(prefix) {
+  return nativeText === null ? null : nativeText.split('\n').filter(l=>l.includes(prefix)).map(line=>{
+    const fields = Object.fromEntries([...line.matchAll(/(\w+)=([^\s]+)/g)].map(m=>[m[1],m[2]]));
+    for (const key of ['now_us','available','requested','sample_rate','fake'])
+      if(key in fields) fields[key]=Number(fields[key]);
+    const first = report.audioTaps?.rawTrack?.firstTimestamp;
+    fields.relativeToRawCaptureMs = Number.isFinite(first) ? (fields.now_us-first)/1000 : null;
+    return fields;
+  });
+}
+const events = nativeEvents('VDONINJA_AUDIO ');
+const transitions = nativeEvents('VDONINJA_SILENT_SINK ');
 const result = {scope:'Constant 997 Hz tone at a dedicated virtual sink; no physical output validation.',
   sink:analyzePcm16Le(measured,{sampleRate:rate,toneHz:997}),
   webAudio:report.audioTaps.analysis,rawTrack:report.audioTaps.rawTrack?.analysis || null,
+  captureMode:report.audioTaps.captureMode || report.audioSetup?.captureMode || null,
   nativeFifoEvents:events,
+  nativeSinkTransitions:transitions,
   nativeTraceRequested:report.fieldTrials.includes('WebRTC-AudioFifoTrace/Enabled/'),
   measuredDurationSeconds:durationSeconds,
   timestampCoverageOk,

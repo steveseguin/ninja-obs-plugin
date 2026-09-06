@@ -71,7 +71,11 @@ async function main() {
     if (mode === 'url') {
       const ice = JSON.parse(process.env.VDONINJA_VIEWER_ICE_SERVERS_JSON || 'null');
       if (!Array.isArray(ice) || !ice.length) throw new Error('Explicit private relay is required');
-      await installProbes(context,ice,null);
+      const fixedBuffer = process.env.VDONINJA_FIXED_VIEW_BUFFER === '1'
+        ? Number(new URL(url).searchParams.get('buffer') ?? NaN) : null;
+      if (fixedBuffer !== null && (!Number.isFinite(fixedBuffer) || fixedBuffer < 0)) throw new Error('Invalid fixed receiver buffer');
+      report.fixedBufferMs = fixedBuffer;
+      await installProbes(context,ice,fixedBuffer,{traceBufferWrites:process.env.VDONINJA_TRACE_BUFFER_WRITES === '1'});
     }
     const page = await context.newPage(); await page.goto(url,{waitUntil:'domcontentloaded'});
     await page.mouse.click(320,180);
@@ -88,7 +92,16 @@ async function main() {
     report.captureStartEpochMs = Date.now();
     if (compareAudioTaps) report.audioSetup = await startDecodedAudioCapture(page);
     await startPresentationCapture(page,false,'counter-complement',{capturePresentedMarkers:true,allowFileVideo:mode==='file'});
-    await sleep(report.durationMs);
+    if (compareAudioTaps) {
+      report.audioStats = [];
+      const deadline = Date.now() + report.durationMs;
+      do {
+        report.audioStats.push({epochMs:Date.now(),snapshot:await collectViewerSnapshot(page)});
+        await sleep(Math.min(1000,Math.max(0,deadline-Date.now())));
+      } while (Date.now() < deadline);
+    } else {
+      await sleep(report.durationMs);
+    }
     report.captureEndEpochMs = Date.now();
     if (compareAudioTaps) {
       const audio = await stopDecodedAudioCapture(page);
@@ -103,6 +116,7 @@ async function main() {
     }
     report.capture = await stopPresentationCapture(page);
     if (mode === 'url') {
+      report.bufferDiagnostics = await page.evaluate(() => ({capabilities:window.__timingCapabilities,writes:window.__bufferWrites}));
       const snapshot = await collectViewerSnapshot(page);
       report.selectedCandidatePairs = (snapshot.pcStats || []).flatMap(s => s.selectedCandidatePairs || []);
       if (!report.selectedCandidatePairs.some(p => p.localCandidateType === 'relay' || p.remoteCandidateType === 'relay')) {
