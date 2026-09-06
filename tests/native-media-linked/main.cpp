@@ -15,6 +15,7 @@
 #include <map>
 #include <mutex>
 #include <set>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <thread>
@@ -847,6 +848,21 @@ public:
 		return firstToSecond_.candidatesQueuedBeforeDescription != 0;
 	}
 
+	std::string progressSummary() const
+	{
+		std::lock_guard<std::mutex> lock(mutex_);
+		std::ostringstream out;
+		const auto append = [&out](const char *name, const auto &signals) {
+			out << name << "{description-pending=" << signals.description.has_value()
+			    << ",applying=" << signals.applyingDescription << ",applied=" << signals.descriptionApplied
+			    << ",queued-candidates=" << signals.candidates.size()
+			    << ",early-candidates=" << signals.candidatesQueuedBeforeDescription << "} ";
+		};
+		append("sender-to-receiver", firstToSecond_);
+		append("receiver-to-sender", secondToFirst_);
+		return out.str();
+	}
+
 	bool waitForFirstCandidateBeforeDescription()
 	{
 		std::unique_lock<std::mutex> lock(mutex_);
@@ -1274,10 +1290,37 @@ ConnectedRtcDataChannelPair makeConnectedManagerDataChannelPair(VDONinjaPeerMana
 	pair.senderPeer->setLocalDescription(rtc::Description::Type::Offer);
 	{
 		std::unique_lock<std::mutex> lock(state->mutex);
-		require(
-		    state->condition.wait_for(
-		        lock, 30s, [&]() { return !state->error.empty() || state->openCount == pair.senderChannels.size(); }),
-		    "local RTC DataChannel pair did not open every sender channel");
+		const bool ready = state->condition.wait_for(
+		    lock, 30s, [&]() { return !state->error.empty() || state->openCount == pair.senderChannels.size(); });
+		if (!ready) {
+			const auto openCount = state->openCount;
+			// Do not hold callback state while querying transport or relay locks.
+			lock.unlock();
+			std::ostringstream details;
+			details << "local RTC DataChannel pair did not open every sender channel: uuid=" << uuid
+			        << " open-callbacks=" << openCount << '/' << pair.senderChannels.size() << ' ';
+			const auto describePeer = [&details](const char *name, const std::shared_ptr<rtc::PeerConnection> &pc) {
+				details << name << "{state=" << pc->state() << ",ice=" << pc->iceState()
+				        << ",gathering=" << pc->gatheringState() << ",signaling=" << pc->signalingState()
+				        << ",local-description=" << pc->localDescription().has_value()
+				        << ",remote-description=" << pc->remoteDescription().has_value();
+				rtc::Candidate local, remote;
+				if (pc->getSelectedCandidatePair(&local, &remote)) {
+					details << ",selected-local=" << std::string(local) << ",selected-remote=" << std::string(remote);
+				} else {
+					details << ",selected-pair=none";
+				}
+				details << "} ";
+			};
+			describePeer("sender", pair.senderPeer);
+			describePeer("receiver", pair.receiver->pc);
+			for (const auto &channel : pair.senderChannels) {
+				details << "channel{label=" << channel->label() << ",open=" << channel->isOpen()
+				        << ",closed=" << channel->isClosed() << "} ";
+			}
+			details << pair.signalingRelay->progressSummary();
+			require(false, details.str());
+		}
 		require(state->error.empty(), state->error);
 	}
 	if (senderOpenReadyProbe) {
