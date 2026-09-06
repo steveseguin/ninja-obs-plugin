@@ -1399,6 +1399,7 @@ async function main() {
     throw new Error("Requested video settings must not be negative");
   }
   const outputDir = path.resolve(process.env.VDONINJA_OUTPUT_DIR || path.join(process.cwd(), "artifacts"));
+  fs.mkdirSync(outputDir, { recursive: true });
   const stamp = Date.now();
   const sceneName = `Codex OBS Publish ${stamp}`;
   const sourceLabel = useAudioContinuitySource
@@ -2161,11 +2162,16 @@ async function main() {
     }
 
     const chromiumArgs = ["--autoplay-policy=no-user-gesture-required"];
+    const chromiumFieldTrials = process.env.VDONINJA_CHROMIUM_FIELD_TRIALS || "";
+    if (chromiumFieldTrials) chromiumArgs.push(`--force-fieldtrials=${chromiumFieldTrials}`);
     if (process.env.VDONINJA_DISABLE_MDNS === "1") {
       chromiumArgs.push("--disable-features=WebRtcHideLocalIpsWithMdns");
     }
     const viewerBrowser = process.env.VDONINJA_VIEWER_BROWSER || "chromium";
     if (!["chromium", "firefox"].includes(viewerBrowser)) throw new Error("Unknown VDONINJA_VIEWER_BROWSER");
+    if (chromiumFieldTrials && viewerBrowser !== "chromium") {
+      throw new Error("Chromium field trials cannot be applied to Firefox");
+    }
     browser = await ({ chromium, firefox }[viewerBrowser]).launch({
       headless: process.env.HEADLESS === "0" ? false : true,
       ...(viewerBrowser === "chromium" ? { args: chromiumArgs } : { firefoxUserPrefs: { "media.autoplay.default": 0 } }),
@@ -2283,10 +2289,13 @@ async function main() {
     const warmupFrames = Math.ceil(
       appliedVideoSettings.fpsNumerator / appliedVideoSettings.fpsDenominator,
     );
+    // Source screenshots and deliberate stabilization may consume the initial
+    // connection deadline. Give this separate progress check its own budget.
+    const warmupDeadline = Date.now() + waitMs;
     let warmupEnd = warmupStart;
     while (
       !hasDecodedVideoProgress(warmupStart, warmupEnd, warmupFrames) &&
-      Date.now() < deadline
+      Date.now() < warmupDeadline
     ) {
       await sleep(200);
       warmupEnd = await collectViewerSnapshot(page);
@@ -2337,6 +2346,8 @@ async function main() {
       await sampleObsPerformance();
     }
     const secondPlayable = samples[samples.length - 1];
+    const { freezeContinuityCapture } = require("../tests/tools/capture-boundary.cjs");
+    await page.evaluate(freezeContinuityCapture);
     let presentationCapture = null;
     let presentationContinuityAnalysis = null;
     let visualSequenceAnalysis = null;
@@ -2608,6 +2619,28 @@ async function main() {
     );
     const reportPath = path.join(outputDir, `obs-publish-report-${stamp}.json`);
     await page.screenshot({ path: screenshotPath, fullPage: true });
+    const negotiatedVideoCodecs = await page.evaluate(async () => {
+      const codecs = [];
+      for (const pc of window.__pcList || []) {
+        const stats = await pc.getStats();
+        for (const inbound of stats.values()) {
+          if (inbound.type !== "inbound-rtp" || inbound.isRemote ||
+              (inbound.kind || inbound.mediaType) !== "video") continue;
+          const codec = stats.get(inbound.codecId);
+          if (codec) codecs.push({ mimeType: codec.mimeType,
+            sdpFmtpLine: codec.sdpFmtpLine || "", clockRate: codec.clockRate,
+            decoderImplementation: inbound.decoderImplementation || null,
+            powerEfficientDecoder: inbound.powerEfficientDecoder ?? null });
+        }
+      }
+      return codecs;
+    });
+    const expectedVideoCodec = process.env.VDONINJA_EXPECT_VIDEO_CODEC;
+    if (expectedVideoCodec && (!negotiatedVideoCodecs.length ||
+        negotiatedVideoCodecs.some(codec => codec.mimeType.toLowerCase() !== expectedVideoCodec.toLowerCase()))) {
+      videoContinuityFailure = [videoContinuityFailure,
+        `Expected ${expectedVideoCodec}; negotiated ${JSON.stringify(negotiatedVideoCodecs)}`].filter(Boolean).join("; ");
+    }
 
     const report = {
       ok: !audioContinuityFailure && !videoContinuityFailure,
@@ -2617,6 +2650,10 @@ async function main() {
       viewUrl,
       sourceMode,
       soakMs,
+      viewerBrowser,
+      viewerBrowserVersion: browser.version(),
+      chromiumFieldTrials,
+      negotiatedVideoCodecs,
       obsBrowserViewerCount: obsBrowserViewers.length,
       obsBrowserViewerBitratesKbps,
       nativeViewer,
@@ -2783,6 +2820,13 @@ async function main() {
         if (status && status.outputActive) {
           logStep("stopping OBS stream");
           await client.request("StopStream").catch(() => {});
+          const stopDeadline = Date.now() + 10000;
+          while ((await client.request("GetStreamStatus")).outputActive) {
+            if (Date.now() >= stopDeadline) {
+              throw new Error("OBS stream did not stop within ten seconds");
+            }
+            await sleep(100);
+          }
           await sleep(3000);
         }
         if (recordingStarted) {

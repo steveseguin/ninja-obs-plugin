@@ -113,3 +113,12 @@ The hardware-backed high-detail 1080p60 test could not run: this host exposes ne
 This change adds Linux CI coverage for the opt-in real-libdatachannel trace wrapper, packet/feedback analysis, and browser-probe regressions. The release module is rebuilt separately with tracing OFF. The upstream ARM fixture include fix and native cached-keyframe timestamp rebase were reviewed and integrated; the latter affects native viewing, not the Chromium presentation path investigated here.
 
 Final combined-tree validation passed 728 C++ tests normally and under ASan/UBSan, 44 JavaScript checks, nine Python packet/timing checks, three real-libdatachannel diagnostic cases, nine release-linked cases, and 13 installer/package regressions. `scripts/release.ps1 -Action verify` passed. A final 30-second clean live run loaded the tracing-OFF release module into OBS 32.2.2, connected browser and native viewers, and passed decoded-marker, presentation, and OBS performance gates. Native audio/video decoding was observed in OBS logs; this run does not independently certify native-viewer pixel continuity. The impaired cold-start failure above remains open.
+
+## GPU-host continuation
+
+The [Intel GPU follow-up](linux-gpu-receiver-followup.md) reproduces the cold-start
+failure, instruments the pinned upstream timing component, tests a bootstrap
+candidate and a receiver NACK-delay control, and adds real hardware-backed
+1080p60, multiple-viewer and reload measurements. It also documents measurement
+fixes and the remaining sustained presentation/audio limits. The production
+cold-start failure remains open.

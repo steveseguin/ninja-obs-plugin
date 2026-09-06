@@ -52,6 +52,7 @@ jobs:
         run: |
           node --test tests/test-obs-performance.cjs tests/test-video-continuity.cjs tests/test-audio-continuity.cjs tests/test-presentation-continuity.cjs tests/test-udp-loss-proxy.cjs tests/test-rtc-timing-probes.cjs
           node --test tests/test-recorded-sequence.cjs
+          node --test tests/test-capture-boundary.cjs
           python3 tests/test-rtp-pcap.py
           python3 tests/test-rtp-timing-analysis.py
 
