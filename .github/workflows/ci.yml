@@ -27,7 +27,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake build-essential libssl-dev locales
+          sudo apt-get install -y cmake build-essential libssl-dev locales ffmpeg
           sudo localedef -i en_US -f ISO-8859-1 en_US.ISO8859-1
 
       - name: Configure CMake (tests only)
@@ -51,6 +51,7 @@ jobs:
       - name: Validate E2E performance measurements
         run: |
           node --test tests/test-obs-performance.cjs tests/test-video-continuity.cjs tests/test-audio-continuity.cjs tests/test-presentation-continuity.cjs tests/test-udp-loss-proxy.cjs tests/test-rtc-timing-probes.cjs
+          node --test tests/test-recorded-sequence.cjs
           python3 tests/test-rtp-pcap.py
           python3 tests/test-rtp-timing-analysis.py
 

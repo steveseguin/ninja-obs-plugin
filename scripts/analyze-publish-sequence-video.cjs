@@ -73,6 +73,10 @@ async function main() {
       "0:v:0",
       "-vf",
       "crop=iw*0.8:ih*(96/1080):iw*0.1:ih*(920/1080),scale=32:1:flags=area,format=gray",
+      // Inspect decoded frames exactly once; default CFR output can insert
+      // duplicates when the video starts later than the audio in a recording.
+      "-fps_mode",
+      "passthrough",
       "-f",
       "rawvideo",
       "-",

@@ -46,13 +46,19 @@ async function main() {
       outputHeight: height, fpsNumerator: fps, fpsDenominator: 1 });
     await client.request('CreateScene', { sceneName: scene });
     created = true;
-    await client.request('CreateInput', { sceneName: scene, inputName: name,
+    const createdInput = await client.request('CreateInput', { sceneName: scene, inputName: name,
       inputKind: mode === 'file' ? 'ffmpeg_source' : mode === 'clock' ? 'vdoninja_clock_fixture' : 'vdoninja_source',
       inputSettings: mode === 'clock' ? {} : mode === 'file'
         ? { is_local_file: true, local_file: path.resolve(input), looping: false, restart_on_activate: true }
         : { stream_id: input, password: process.env.VDONINJA_PASSWORD || 'false', use_native_receiver: true,
           auto_reconnect: true, width, height }, sceneItemEnabled: true });
     inputCreated = true;
+    await client.request('SetSceneItemTransform', { sceneName: scene,
+      sceneItemId: createdInput.sceneItemId, sceneItemTransform: {
+        positionX: 0, positionY: 0, alignment: 5,
+        boundsType: 'OBS_BOUNDS_STRETCH', boundsAlignment: 0,
+        boundsWidth: width, boundsHeight: height,
+      } });
     await client.request('SetCurrentProgramScene', { sceneName: scene });
     await sleep(10000);
     await client.request('StartRecord');
