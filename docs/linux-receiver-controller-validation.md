@@ -600,3 +600,10 @@ had no remaining impairment and was removed. The temporary 12 GB build swap file
 was disabled and removed; the host's original 4 GB swap remains. All dedicated
 A/V sinks were unloaded. OBS, drivers, the diagnostic browser checkout and ignored
 test artifacts remain installed/available for continued investigation.
+
+The first CI run exposed a unit-test dependency issue: importing the publisher's
+measurement helpers also imported Playwright, which that dependency-free job does
+not install. Playwright now loads inside the executable harness entrypoint. All
+54 JavaScript tests passed again in a temporary source copy with no npm dependencies,
+including the new relay-selection regression. This changes helper loading only,
+not the already measured browser/receiver behavior.

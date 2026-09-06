@@ -2,7 +2,6 @@ const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
 const childProcess = require("child_process");
-const { chromium, firefox } = require("playwright");
 const { verifyExpectedEncoderMode } = require("../tests/tools/obs-encoder-validation.cjs");
 const { analyzeObsPerformance } = require("../tests/tools/obs-performance-analysis.cjs");
 const {
@@ -1213,6 +1212,8 @@ async function waitForStreamActive(client, timeoutMs) {
 }
 
 async function main() {
+  // Exported measurement helpers also run in dependency-free unit tests.
+  const { chromium, firefox } = require("playwright");
   const streamId =
     process.env.VDONINJA_STREAM_ID ||
     process.argv[2] ||
