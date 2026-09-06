@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.67] - 2026-09-05
+
 ### Fixed
 - Stop media measurements before exporting captures so probe teardown does not create false audio continuity failures.
 - Rebase native receive timestamps after cached-keyframe jumps so live video is not scheduled seconds ahead and does not inflate OBS audio buffering.
