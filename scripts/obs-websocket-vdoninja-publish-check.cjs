@@ -3,6 +3,7 @@ const path = require("path");
 const crypto = require("crypto");
 const childProcess = require("child_process");
 const { chromium, firefox } = require("playwright");
+const { verifyExpectedEncoderMode } = require("../tests/tools/obs-encoder-validation.cjs");
 const { analyzeObsPerformance } = require("../tests/tools/obs-performance-analysis.cjs");
 const {
   hasAudioConcealment,
@@ -1635,7 +1636,7 @@ async function main() {
         },
       );
       logStep(
-        `temporarily applying OBS video bitrate ${requestedVideoBitrateKbps} kbps`,
+        `temporarily applying OBS Simple Output bitrate ${requestedVideoBitrateKbps} kbps; Advanced Output encoder settings are unchanged`,
       );
       await client.request("SetProfileParameter", {
         parameterCategory: "SimpleOutput",
@@ -1654,11 +1655,13 @@ async function main() {
         requestedVideoBitrateKbps
       ) {
         throw new Error(
-          `OBS did not apply VBitrate=${requestedVideoBitrateKbps}; observed ` +
+          `OBS did not apply SimpleOutput/VBitrate=${requestedVideoBitrateKbps}; observed ` +
             `${appliedVideoBitrateParameter.parameterValue}`,
         );
       }
     }
+
+    await verifyExpectedEncoderMode(client, expectedStreamEncoder, expectedAdvancedStreamEncoder);
 
     if (expectedStreamEncoder) {
       appliedStreamEncoderParameter = await client.request(
@@ -2883,7 +2886,7 @@ async function main() {
           originalVideoSettings = null;
         }
         if (originalVideoBitrateParameter) {
-          logStep("restoring OBS video bitrate");
+          logStep("restoring OBS Simple Output bitrate");
           await client
             .request("SetProfileParameter", {
               parameterCategory: "SimpleOutput",
