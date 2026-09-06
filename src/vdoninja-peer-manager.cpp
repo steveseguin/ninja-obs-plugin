@@ -1359,11 +1359,17 @@ bool VDONinjaPeerManager::requestIceRestart(const std::string &uuid, const std::
 	std::unique_lock<std::mutex> audioSendLock(peer->audioSendMutex, std::defer_lock);
 	std::unique_lock<std::mutex> videoSendLock(peer->videoSendMutex, std::defer_lock);
 	std::lock(audioSendLock, videoSendLock);
+	// Registry readers take mediaMutex under peersMutex_; preserve that order
+	// while refreshing and atomically replacing the outgoing generation.
+	std::unique_lock<std::mutex> registryLock(peersMutex_);
 	std::unique_lock<std::mutex> oldMediaLock(peer->mediaMutex);
+	const auto current = peers_.find(uuid);
 
-	if (peer->cleanupRetired.load() || isTerminalPeerState(peer->state.load()) || !peer->pc ||
+	if (current == peers_.end() || current->second != peer || peer->cleanupRetired.load() ||
+	    isTerminalPeerState(peer->state.load()) || !peer->pc ||
 	    peer->pc->signalingState() != rtc::PeerConnection::SignalingState::Stable) {
 		oldMediaLock.unlock();
+		registryLock.unlock();
 		audioSendLock.unlock();
 		videoSendLock.unlock();
 		retirePeerForDeferredCleanup(uuid, replacement);
@@ -1401,7 +1407,6 @@ bool VDONinjaPeerManager::requestIceRestart(const std::string &uuid, const std::
 
 	bool swapped = false;
 	{
-		std::lock_guard<std::mutex> lock(peersMutex_);
 		auto it = peers_.find(uuid);
 		if (it != peers_.end() && it->second == peer) {
 			std::lock_guard<std::mutex> candidateLock(candidateMutex_);
@@ -1412,8 +1417,9 @@ bool VDONinjaPeerManager::requestIceRestart(const std::string &uuid, const std::
 			swapped = true;
 		}
 	}
+	oldMediaLock.unlock();
+	registryLock.unlock();
 	if (!swapped) {
-		oldMediaLock.unlock();
 		audioSendLock.unlock();
 		videoSendLock.unlock();
 		retirePeerForDeferredCleanup(uuid, replacement);
@@ -1469,6 +1475,8 @@ bool VDONinjaPeerManager::requestIceRestart(const std::string &uuid, const std::
 					restoredOldPeer = true;
 				}
 			}
+			audioSendLock.unlock();
+			videoSendLock.unlock();
 			retirePeerForDeferredCleanup(uuid, replacement);
 			if (restoredOldPeer) {
 				bundleAndSendCandidates(peer);
@@ -1483,6 +1491,10 @@ bool VDONinjaPeerManager::requestIceRestart(const std::string &uuid, const std::
 		           offerError.c_str());
 	}
 
+	// Retirement reacquires mediaMutex and may invoke callback cleanup. No
+	// outgoing-send or registry lock may remain held across that operation.
+	audioSendLock.unlock();
+	videoSendLock.unlock();
 	retirePeerForDeferredCleanup(uuid, peer);
 	bundleAndSendCandidates(replacement);
 	logInfo("Rebuilt publisher peer %s for ICE restart (session %s)", uuid.c_str(), session.c_str());

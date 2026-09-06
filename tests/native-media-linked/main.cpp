@@ -2156,6 +2156,41 @@ void testTrackInFlightCallbackIsSafeDuringManagerDestruction()
 	    "Track owner-session events did not order permit, wait, drain, then exact callback detachment");
 }
 
+void testIceRestartRetiresOldPeerWithoutHoldingItsMediaLock()
+{
+	VDONinjaSignaling signaling;
+	VDONinjaPeerManager manager;
+	manager.initialize(&signaling);
+	manager.setIceServers({});
+	require(manager.startPublishing(), "restart gate did not start publishing");
+	auto peer = manager.createNativeMediaTestPublisherPeer("restart-lock-order", "session-a");
+	requireEventually([&]() { return peer->pc->localDescription().has_value(); }, "publisher did not create an offer");
+	rtc::Configuration config;
+	config.disableAutoNegotiation = false;
+	auto receiver = std::make_shared<rtc::PeerConnection>(config);
+	receiver->setRemoteDescription(*peer->pc->localDescription());
+	requireEventually([&]() { return receiver->localDescription().has_value(); }, "receiver did not create an answer");
+	peer->pc->setRemoteDescription(*receiver->localDescription());
+	require(peer->pc->signalingState() == rtc::PeerConnection::SignalingState::Stable,
+	        "restart gate did not reach stable signaling");
+	const auto oldIdentity = manager.getPeerIdentity(peer->uuid);
+	require(oldIdentity.has_value(), "restart gate did not register the original peer");
+	require(manager.setPeerMediaSendEnabled(peer->uuid, true, true, true, false),
+	        "restart gate did not set the requested media state");
+	// The CTest timeout catches the production self-deadlock: retirement tries
+	// to acquire mediaMutex while requestIceRestart still owns that same mutex.
+	require(manager.requestIceRestart(peer->uuid, peer->session), "stable publisher ICE restart was rejected");
+	const auto replacement = manager.getPeerIdentity(peer->uuid);
+	require(replacement && replacement->generation != oldIdentity->generation &&
+	            replacement->session == oldIdentity->session && peer->cleanupRetired.load(),
+	        "restart did not retire the old generation and preserve the viewer session");
+	const auto snapshots = manager.getPeerSnapshots();
+	require(snapshots.size() == 1 && snapshots[0].videoSendEnabled && !snapshots[0].audioSendEnabled,
+	        "restart did not preserve the viewer media-enable state");
+	receiver->close();
+	manager.stopPublishing();
+}
+
 void testCompletionDelayedUntilAfterOwnerShutdownIsRejected()
 {
 	auto manager = std::make_unique<VDONinjaPeerManager>();
@@ -5413,6 +5448,7 @@ int main(int argc, char **argv)
 		const auto primaryGop = encodeVp9Gop(80, 48);
 		const auto alphaGop = encodeVp9Gop(48, 48);
 		const std::vector<GateCase> cases = {
+		    {"ICE restart retirement releases media locks", testIceRestartRetiresOldPeerWithoutHoldingItsMediaLock},
 		    {"RTC manager-to-source stale alpha add rejection",
 		     testRtcManagerSourceRejectsLateAlphaAfterInactiveRemoval},
 		    {"RTC manager-to-source primary/alpha replacement ordering", testRtcManagerSourceReplacementOrdering},
