@@ -49,7 +49,10 @@ jobs:
         run: bash tests/test-macos-deployment-target.sh
 
       - name: Validate E2E performance measurements
-        run: node --test tests/test-obs-performance.cjs tests/test-video-continuity.cjs tests/test-audio-continuity.cjs tests/test-presentation-continuity.cjs tests/test-udp-loss-proxy.cjs
+        run: |
+          node --test tests/test-obs-performance.cjs tests/test-video-continuity.cjs tests/test-audio-continuity.cjs tests/test-presentation-continuity.cjs tests/test-udp-loss-proxy.cjs tests/test-rtc-timing-probes.cjs
+          python3 tests/test-rtp-pcap.py
+          python3 tests/test-rtp-timing-analysis.py
 
   # Run the same suite under AddressSanitizer and UndefinedBehaviorSanitizer.
   # The suite includes byte-level fuzzers for VP9/H.264 payload parsing, RTCP

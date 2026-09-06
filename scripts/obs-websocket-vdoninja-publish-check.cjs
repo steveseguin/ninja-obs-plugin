@@ -2,7 +2,7 @@ const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
 const childProcess = require("child_process");
-const { chromium } = require("playwright");
+const { chromium, firefox } = require("playwright");
 const { analyzeObsPerformance } = require("../tests/tools/obs-performance-analysis.cjs");
 const {
   hasAudioConcealment,
@@ -793,6 +793,8 @@ async function startPresentationCapture(page, requireMarker, markerFormat) {
             presentationTime: metadata.presentationTime,
             mediaTime: metadata.mediaTime,
             rtpTimestamp: metadata.rtpTimestamp,
+            receiveTime: metadata.receiveTime,
+            captureTime: metadata.captureTime,
             presentedFrames: metadata.presentedFrames,
             processingDuration: metadata.processingDuration,
             width: metadata.width,
@@ -1480,6 +1482,7 @@ async function main() {
   const obsBrowserViewers = [];
   let nativeViewer = null;
   let browser = null;
+  let viewerPage = null;
   let recordingStarted = false;
   let localRecording = null;
   let originalVideoSettings = null;
@@ -2161,9 +2164,11 @@ async function main() {
     if (process.env.VDONINJA_DISABLE_MDNS === "1") {
       chromiumArgs.push("--disable-features=WebRtcHideLocalIpsWithMdns");
     }
-    browser = await chromium.launch({
+    const viewerBrowser = process.env.VDONINJA_VIEWER_BROWSER || "chromium";
+    if (!["chromium", "firefox"].includes(viewerBrowser)) throw new Error("Unknown VDONINJA_VIEWER_BROWSER");
+    browser = await ({ chromium, firefox }[viewerBrowser]).launch({
       headless: process.env.HEADLESS === "0" ? false : true,
-      args: chromiumArgs,
+      ...(viewerBrowser === "chromium" ? { args: chromiumArgs } : { firefoxUserPrefs: { "media.autoplay.default": 0 } }),
     });
     const context = await browser.newContext();
     const viewerIceServers = process.env.VDONINJA_VIEWER_ICE_SERVERS_JSON
@@ -2192,8 +2197,16 @@ async function main() {
       };
       window.RTCPeerConnection.prototype = NativePC.prototype;
     }, { iceServers: viewerIceServers, forceRelay: forceTurn });
+    const captureRtpTiming = process.env.VDONINJA_CAPTURE_RTP_TIMING === "1";
+    if (captureRtpTiming) {
+      if (!viewerIceServers) throw new Error("Timing isolation requires explicit private viewer ICE servers");
+      const { installProbes } = require("../tests/tools/rtc-timing-probes.cjs");
+      await installProbes(context, viewerIceServers,
+        process.env.VDONINJA_FIXED_VIEW_BUFFER === "1" ? viewBufferMs : null);
+    }
 
     const page = await context.newPage();
+    viewerPage = page;
     page.on("console", (message) => {
       const text = message.text();
       consoleMessages.push({ type: message.type(), text });
@@ -2332,6 +2345,12 @@ async function main() {
     }
     if (presentationCapture) {
       fs.writeFileSync(path.join(outputDir, `obs-presentation-records-${stamp}.json`), JSON.stringify(presentationCapture));
+    }
+    if (captureRtpTiming) {
+      const trace = await page.evaluate(() => ({records:window.__encodedTiming, overflow:window.__encodedOverflow, error:window.__encodedError || "", timeOrigin:performance.timeOrigin,capabilities:window.__timingCapabilities,negotiation:window.__negotiation}));
+      fs.writeFileSync(path.join(outputDir, `obs-encoded-timing-${stamp}.json`), JSON.stringify(trace));
+      if (trace.overflow) throw new Error("Encoded timing trace overflowed");
+      if (trace.error) throw new Error(`Encoded timing probe failed: ${trace.error}`);
     }
     let decodedAudioCapture = null;
     if (captureDecodedAudio) {
@@ -2738,7 +2757,14 @@ async function main() {
     );
 
     await context.close();
+  } catch (error) {
+    fs.writeFileSync(path.join(outputDir, `obs-publish-failure-${stamp}.json`), JSON.stringify({error:String(error.stack || error),consoleMessages,pageErrors},null,2));
+    throw error;
   } finally {
+    if (viewerPage && !viewerPage.isClosed() && process.env.VDONINJA_CAPTURE_RTP_TIMING === "1") {
+      const negotiation = await viewerPage.evaluate(() => window.__negotiation || []).catch(() => []);
+      fs.writeFileSync(path.join(outputDir, `obs-negotiation-${stamp}.json`), JSON.stringify(negotiation,null,2));
+    }
     if (
       browserStackViewerCheck &&
       !browserStackViewerCheck.finished &&
@@ -2833,7 +2859,10 @@ async function main() {
   }
 }
 
-main().catch((error) => {
-  console.error(error.stack || String(error));
-  process.exit(1);
-});
+module.exports = { startPresentationCapture, stopPresentationCapture, collectViewerSnapshot };
+if (require.main === module) {
+  main().catch((error) => {
+    console.error(error.stack || String(error));
+    process.exitCode = 1;
+  });
+}

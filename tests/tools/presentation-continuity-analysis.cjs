@@ -49,6 +49,10 @@ function analyzePresentationContinuity(records, options = {}) {
   let rtpComparedIntervals = 0;
   let missingMediaFrames = 0;
   let excessPresentedFrames = 0;
+  const completeRtpClock = valid.every(record => Number.isInteger(record.rtpTimestamp));
+  const mediaProgressBasis = completeRtpClock ? "RTP source clock" : "mediaTime";
+  const mediaTimelineAvailable = !valid.every(record => Number(record.mediaTime) === 0);
+  let nonForwardRtpTimestamps = 0;
   const callbackIntervalsMs = [];
   const callbackDeviationsMs = [];
   const mediaIntervalsMs = [];
@@ -77,6 +81,7 @@ function analyzePresentationContinuity(records, options = {}) {
     const hasRtp = Number.isInteger(before.rtpTimestamp) && Number.isInteger(after.rtpTimestamp);
     const rtpTicks = hasRtp ? (after.rtpTimestamp - before.rtpTimestamp) >>> 0 : 0;
     const mediaFrames = Math.round(rtpTicks / (90000 / expectedFps));
+    if (hasRtp && (rtpTicks === 0 || rtpTicks >= 0x80000000)) nonForwardRtpTimestamps += 1;
     if (hasRtp && counterDelta > 0 && rtpTicks < 0x80000000) {
       rtpComparedIntervals += 1;
       missingMediaFrames += Math.max(0, mediaFrames - counterDelta);
@@ -174,7 +179,10 @@ function analyzePresentationContinuity(records, options = {}) {
   if (missingMediaFrames > 0 || excessPresentedFrames > 0) {
     failures.push(`${missingMediaFrames} missing media frame(s), ${excessPresentedFrames} excess presented frame(s)`);
   }
-  if (nonForwardMediaTimes > 0) {
+  if (nonForwardRtpTimestamps > 0) {
+    failures.push(`${nonForwardRtpTimestamps} RTP timestamp(s) did not advance`);
+  }
+  if (!completeRtpClock && nonForwardMediaTimes > 0) {
     failures.push(`${nonForwardMediaTimes} media timestamp(s) did not advance`);
   }
   if (requireMarker && markerCompared === 0) {
@@ -192,6 +200,9 @@ function analyzePresentationContinuity(records, options = {}) {
     failures,
     expectedFps,
     timingBasis,
+    mediaProgressBasis,
+    mediaTimelineAvailable,
+    nonForwardRtpTimestamps,
     rtpComparedIntervals,
     missingMediaFrames,
     excessPresentedFrames,
@@ -206,7 +217,7 @@ function analyzePresentationContinuity(records, options = {}) {
     p99CallbackIntervalMs: percentile(callbackIntervalsMs, 0.99),
     p99CallbackDeviationMs,
     maximumCallbackDeviationMs: observedMaximumCallbackDeviationMs,
-    maximumWallMediaDriftMs: Math.max(0, ...driftMs),
+    maximumWallMediaDriftMs: mediaTimelineAvailable ? Math.max(0, ...driftMs) : null,
     minimumMediaIntervalMs: Math.min(...mediaIntervalsMs),
     maximumMediaIntervalMs: Math.max(...mediaIntervalsMs),
     duplicatePresentedFrames,

@@ -133,3 +133,18 @@ test("marker progress accounts for missed callbacks and still detects repeated c
   for (let index = 150; index < records.length; ++index) records[index].markerFrame -= 1;
   assert.equal(analyzePresentationContinuity(records, options).ok, false);
 });
+
+test("live WebRTC can report zero mediaTime while RTP and presentation advance", () => {
+  const records = frames(300);
+  records.forEach(record => { record.mediaTime = 0; });
+  const result = analyzePresentationContinuity(records, {expectedFps:60});
+  assert.equal(result.ok, true);
+  assert.equal(result.mediaProgressBasis, 'RTP source clock');
+});
+
+test("a stalled RTP source clock fails even if mediaTime advances", () => {
+  const records = frames(300);
+  records[150].rtpTimestamp = records[149].rtpTimestamp;
+  const result = analyzePresentationContinuity(records, {expectedFps:60});
+  assert.equal(result.ok, false);
+});

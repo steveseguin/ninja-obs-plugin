@@ -109,3 +109,7 @@ The decoded-pixel gate is essential: an early fixture implementation rendered bl
 - Nine release-linked real-libdatachannel tests passed.
 - The strict impaired-network E2E remains failing as documented above; unit/build success does not supersede that result.
 - Real module initialization and clock-source creation passed with OBS 32.2.0, 32.2.1 and 32.2.2; 32.0.4 and 32.1.2 correctly rejected the binary.
+
+## Receiver cold-start follow-up
+
+See [the receiver timing investigation](linux-receiver-timing-isolation.md) for matched browser controls, NACK/SR traces, fixed-buffer trials, Firefox coverage, and the remaining cold-start failure.

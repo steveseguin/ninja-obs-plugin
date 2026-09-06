@@ -23,6 +23,9 @@
 #include "vdoninja-rtp-repair.h"
 #include "vdoninja-rtp-utils.h"
 #include "vdoninja-utils.h"
+#if defined(VDONINJA_ENABLE_TIMING_TRACE)
+#include "../tests/rtp-timing-trace.h"
+#endif
 
 namespace vdoninja
 {
@@ -3334,7 +3337,11 @@ void VDONinjaPeerManager::setupPublisherTracks(std::shared_ptr<PeerInfo> peer)
 	peer->videoSrReporter->addToChain(
 	    std::make_shared<PacedNackResponder>(videoSsrc_, peer->videoPacer, peer->videoFeedbackTracker));
 	peer->videoSrReporter->addToChain(videoPliHandler);
+#if defined(VDONINJA_ENABLE_TIMING_TRACE)
+	videoTrack->setMediaHandler(wrapRtpTimingTrace(peer->videoSrReporter, videoSsrc_));
+#else
 	videoTrack->setMediaHandler(peer->videoSrReporter);
+#endif
 	const std::weak_ptr<rtc::Track> weakVideoTrack = videoTrack;
 	registerInstalledFunction(ownerSession, PeerManagerCompletionKind::VideoFeedback, videoFeedbackHandle,
 	                          [weakVideoTrack]() {
@@ -3375,7 +3382,11 @@ void VDONinjaPeerManager::setupPublisherTracks(std::shared_ptr<PeerInfo> peer)
 	peer->audioRtpConfig->timestamp = peer->audioTimestamp;
 	peer->audioSrReporter = std::make_shared<rtc::RtcpSrReporter>(peer->audioRtpConfig);
 	peer->audioSrReporter->addToChain(std::make_shared<rtc::RtcpNackResponder>());
+#if defined(VDONINJA_ENABLE_TIMING_TRACE)
+	audioTrack->setMediaHandler(wrapRtpTimingTrace(peer->audioSrReporter, audioSsrc_));
+#else
 	audioTrack->setMediaHandler(peer->audioSrReporter);
+#endif
 	const std::weak_ptr<rtc::Track> weakAudioTrack = audioTrack;
 	registerInstalledFunction(ownerSession, PeerManagerCompletionKind::AudioFeedback, audioTrack.get(),
 	                          [weakAudioTrack]() {

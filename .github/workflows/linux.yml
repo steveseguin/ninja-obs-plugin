@@ -199,6 +199,19 @@ jobs:
           LD_LIBRARY_PATH: ${{ github.workspace }}/obs-sdk/lib:${{ github.workspace }}/obs-sdk/lib/x86_64-linux-gnu:/usr/local/lib
         run: ctest --test-dir build -L release-linked --no-tests=error --output-on-failure
 
+      - name: Test isolated RTP timing diagnostics
+        env:
+          LD_LIBRARY_PATH: ${{ github.workspace }}/obs-sdk/lib:${{ github.workspace }}/obs-sdk/lib/x86_64-linux-gnu:/usr/local/lib
+        run: |
+          # Keep diagnostic code in a separate build tree, out of release artifacts.
+          cmake -B build-timing-trace -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=ON -DBUILD_PLUGIN=ON \
+            -DBUILD_RTP_TIMING_TRACE=ON \
+            -DOBS_SDK_PATH="${{ github.workspace }}/obs-sdk" \
+            -DCMAKE_PREFIX_PATH="/usr/local;${{ github.workspace }}/obs-sdk"
+          cmake --build build-timing-trace --target obs-vdoninja vdoninja-rtp-timing-trace-tests
+          ctest --test-dir build-timing-trace -L diagnostics --no-tests=error --output-on-failure
+
       - name: Package
         run: |
           cmake --install build --prefix install
