@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Prevent publisher ICE restarts from deadlocking while retiring the old peer, preserving the viewer session and media-enable state.
+- Correct active-output encoder checks and audio/video measurement clocks so validation reports reflect the selected OBS mode and capture interval.
+
+### Added
+- Publish an illustrated Linux installation and troubleshooting guide covering native OBS, Snap/Flatpak limitations, current-log collection, and matching install/uninstall scope.
+- Add a real-libdatachannel regression for ICE restart retirement and receiver timing, audio, decode-scheduling, and compositor diagnostic tools.
+
+### Validation limits
+- Cold-start reordering and browser presentation/synchronization failures remain under investigation. Experimental Chromium and Firefox changes are diagnostic tools, not fixes shipped in this plugin.
+- The Linux archive continues to target native x86-64 OBS 32.2.x on Ubuntu 24.04. Snap and Flatpak installation are not supported by its scripts; this release does not claim to resolve a load failure in those environments.
+
 ## [1.1.67] - 2026-09-05
 
 ### Fixed
