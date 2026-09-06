@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.68] - 2026-09-06
+
 ### Fixed
 - Prevent publisher ICE restarts from deadlocking while retiring the old peer, preserving the viewer session and media-enable state.
 - Correct active-output encoder checks and audio/video measurement clocks so validation reports reflect the selected OBS mode and capture interval.
