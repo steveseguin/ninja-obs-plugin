@@ -1,5 +1,10 @@
 # Pinned upstream receiver timing experiment
 
+The latest [synchronization investigation](../../docs/linux-receiver-sync-baseline.md)
+includes direct native A/V decisions, configured-floor and decode-scheduling
+experiments, and Firefox compositor tracing. These remain diagnostic comparisons;
+the configured-floor experiment regressed playback under application feedback.
+
 This opt-in standalone target compiles **actual WebRTC timing and controller sources** from the
 revision used by Playwright Chromium 145.0.7632.6. It does not build Chromium,
 modify an installed browser, or ship code in the OBS plugin.
@@ -227,3 +232,74 @@ nearby synchronization decisions and buffer writes. It reports correlation, not
 causation. `VDONINJA_CAPTURE_ENCODED_FRAMES=0` disables the JavaScript encoded-frame
 transform while retaining negotiation and receiver-buffer controls for independent
 performance checks; those runs cannot supply this analyzer's clock anchors.
+
+
+## Synchronization, decode lead and native Firefox composition
+
+See [runtime outcomes and rejected candidates](../../docs/linux-receiver-sync-baseline.md)
+before using these controls. The standalone build now includes:
+
+```sh
+build-webrtc-timing/sync-base-probe baseline
+build-webrtc-timing/sync-base-probe configured
+build-webrtc-timing/sync-base-probe replay tests/webrtc-timing-probe/sync-floor-feedback.csv
+```
+
+The replay fixture contains 146 numeric native synchronization decisions from
+`sync-base-feedback-cold-0`. It must reproduce all targets, including the abrupt
+video-delay reduction that rejects the candidate. A passing characterization is
+not a passing media test.
+
+In the existing pinned Chromium build, rebuild `renderer_probe` after copying the
+updated source. Additional modes are:
+
+```sh
+out/ReceiverTiming/renderer_probe rtp step 15
+out/ReceiverTiming/renderer_probe rtp step 31
+out/ReceiverTiming/renderer_probe rtp decode-step 0
+out/ReceiverTiming/renderer_probe rtp decode-step 16
+```
+
+`step` changes render references after 30 seconds; its argument is enqueue lead
+in ms. `decode-step` leaves references steady, changes lead from 28 to 8 ms, and
+adds the specified headroom. Baseline modes explicitly characterize failures.
+
+After the existing Chromium receiver, cadence and synchronization trace patches:
+
+```sh
+python3 tests/webrtc-timing-probe/browser-sync-base-patch.py "$CHROMIUM_SRC/third_party/webrtc"
+python3 tests/webrtc-timing-probe/browser-decode-headroom-patch.py "$CHROMIUM_SRC/third_party/webrtc"
+```
+
+Rebuild before running. `WebRTC-SyncConfiguredBase/Enabled/` enables the rejected
+common-floor candidate; `WebRTC-DecodeSchedulingHeadroom/Enabled/` enables the
+incomplete 16 ms decode experiment. Both default off. Keep the earlier timing
+sampling trials explicit when comparing results.
+
+For pinned Firefox 146.0.1, after the existing timing patch:
+
+```sh
+python3 tests/webrtc-timing-probe/firefox-compositor-patch.py "$FIREFOX_SRC"
+```
+
+Rebuild Firefox, then set `VDONINJA_FIREFOX_COMPOSITOR_TRACE=1` when running
+`scripts/browser-native-firefox-timing.py`. Use `--headed --require-gpu` and
+optionally `--require-window-protocol x11` (or `wayland`). The driver checks
+about:support, analyzes flushed native logs, and adds the native verdict to each
+round. Trace coverage, native omissions and cadence can fail a round whose
+callback/stats checks pass. Existing thresholds are retained. This instrumentation
+covers Linux first-composition notifications, not physical scanout.
+
+Standalone analysis accepts one child-process log and one driver round JSON:
+
+```sh
+python3 scripts/analyze-firefox-compositor.py /path/to/child.moz_log /path/to/round-0.json --fps 60
+python3 tests/test-firefox-compositor.py
+```
+
+The minimal loopback harness accepts `VDONINJA_MINIMAL_AUDIO=1`,
+`VDONINJA_MINIMAL_FPS=60` and `VDONINJA_MINIMAL_AUDIO_DELAY_MS=70`. Audio mode
+requires a working `pactl` server and uses its own null sink. With
+`WebRTC-AvSyncTrace/Enabled/`, absent native sync decisions fail the report even
+when media arrives. The tested generated-track controls still hit this coverage
+failure; they do not yet reproduce native A/V synchronization.

@@ -108,3 +108,12 @@ foreach(variant all-arrivals first-packet)
  target_link_libraries(controller-${variant} PRIVATE controller-support)
  add_test(NAME controller-${variant} COMMAND controller-${variant})
 endforeach()
+
+# Characterize configured receiver floors using the actual upstream synchronizer.
+add_executable(sync-base-probe sync-base-probe.cpp ${W}/video/stream_synchronization.cc)
+target_compile_options(sync-base-probe PRIVATE -ffunction-sections -fdata-sections)
+target_link_libraries(sync-base-probe PRIVATE timing-support)
+add_test(NAME sync-unconfigured-floor COMMAND sync-base-probe baseline)
+add_test(NAME sync-configured-floor COMMAND sync-base-probe configured)
+add_test(NAME sync-configured-feedback-regression COMMAND sync-base-probe replay
+    ${CMAKE_CURRENT_SOURCE_DIR}/sync-floor-feedback.csv)

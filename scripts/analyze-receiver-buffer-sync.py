@@ -24,7 +24,8 @@ def analyze(text, encoded, capture, fps=60):
         fields = dict(re.findall(r'(\w+)=([^\s]+)', line))
         for key in ['rtp', 'receive_ms', 'now_ms', 'render_ms', 'min_ms', 'audio_ssrc', 'video_ssrc',
                     'relative_ms', 'current_audio_ms', 'current_video_ms', 'target_audio_ms',
-                    'target_video_ms', 'adjusted']:
+                    'target_video_ms', 'adjusted', 'audio_base_ms', 'video_base_ms',
+                    'common_base_ms', 'decode_ms', 'render_delay_ms', 'current_delay_ms', 'headroom_ms']:
             if key in fields:
                 fields[key] = float(fields[key])
         if 'VDONINJA_SYNC ' in line:

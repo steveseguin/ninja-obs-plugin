@@ -60,6 +60,7 @@ jobs:
           python3 tests/test-receiver-buffer-sync.py
           python3 tests/test-av-playout.py
           python3 tests/test-compositor-timing.py
+          python3 tests/test-firefox-compositor.py
 
   # Run the same suite under AddressSanitizer and UndefinedBehaviorSanitizer.
   # The suite includes byte-level fuzzers for VP9/H.264 payload parsing, RTCP

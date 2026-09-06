@@ -1,5 +1,9 @@
 # Linux receiver buffer and reload follow-up
 
+Continued in [the native synchronization investigation](linux-receiver-sync-baseline.md),
+which directly captured A/V decisions preceding cadence jumps and tested targeted
+browser experiments.
+
 This continues [the receiver refinement](linux-receiver-refinement.md) on the same
 Intel ARL Linux host. OBS 32.2.2 loads the fixed v1.1.67 plugin from
 `/home/steve/obs-testing/config/obs-studio/plugins/obs-vdoninja/bin/64bit/obs-vdoninja.so`;
