@@ -543,7 +543,7 @@ An exploratory batch exposed a harness error: video capture was serialized befor
 audio collection stopped. Three runs reported a single raw PCM click around the
 120-second endpoint. Freezing both collections before either export removed those
 endpoint clicks in the four primary runs while still detecting the in-window
-10 ms dropout. Regression tests verify that export cannot add post-measurement
-samples, optional captures are supported, live tracks remain untouched, and the
-freeze function works when serialized into the browser. This correction changes
+10 ms dropout. The shared regression tests verify that collection stops before either reader
+cancellation, both readers drain before export, disabled probes are supported,
+and the freeze function works when serialized into the browser. This correction changes
 measurement teardown only; earlier raw observations remain retained.
