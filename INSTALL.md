@@ -95,6 +95,8 @@ Remove plugin + data:
 
 ## Linux (`obs-vdoninja-linux-x86_64.tar.gz`)
 
+New to Linux? See the [illustrated installation and troubleshooting guide](https://steveseguin.github.io/ninja-obs-plugin/linux-installation.html).
+
 This package is for **native x86-64 OBS Studio 32.2.x** on Ubuntu 24.04.
 Ubuntu 24.04's stock OBS 30.0.2 package is too old. Check `obs --version` before
 installing; see the [OBS Linux installation guide](https://obsproject.com/kb/linux-installation)
