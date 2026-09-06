@@ -117,3 +117,13 @@ add_test(NAME sync-unconfigured-floor COMMAND sync-base-probe baseline)
 add_test(NAME sync-configured-floor COMMAND sync-base-probe configured)
 add_test(NAME sync-configured-feedback-regression COMMAND sync-base-probe replay
     ${CMAKE_CURRENT_SOURCE_DIR}/sync-floor-feedback.csv)
+
+# Remove only optional Perfetto calls; scheduler logic remains upstream.
+file(READ "${W}/video/decode_synchronizer.cc" scheduler_source)
+string(REPLACE "#include \"rtc_base/trace_event.h\"" "" scheduler_source "${scheduler_source}")
+string(REPLACE "  TRACE_EVENT0(\"webrtc\", __func__);" "" scheduler_source "${scheduler_source}")
+file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/decode-synchronizer.cc" "${scheduler_source}")
+add_executable(scheduler-probe scheduler-probe.cpp "${CMAKE_CURRENT_BINARY_DIR}/decode-synchronizer.cc")
+target_link_libraries(scheduler-probe PRIVATE controller-support)
+add_test(NAME decode-metronome-characterization COMMAND scheduler-probe metronome)
+add_test(NAME decode-precise-cadence COMMAND scheduler-probe precise)

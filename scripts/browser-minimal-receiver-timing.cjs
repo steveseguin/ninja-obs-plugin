@@ -15,6 +15,8 @@ async function main() {
   const output = path.resolve(process.argv[2] || 'artifacts/minimal-receiver');
   fs.mkdirSync(output, { recursive: true });
   const includeAudio = process.env.VDONINJA_MINIMAL_AUDIO === '1';
+  const audioSource = process.env.VDONINJA_MINIMAL_AUDIO_SOURCE || 'webaudio';
+  if (!['webaudio','generator'].includes(audioSource)) throw new Error('Audio source must be webaudio or generator');
   const fps = Number(process.env.VDONINJA_MINIMAL_FPS || 30);
   if (![30,60].includes(fps)) throw new Error('Minimal source FPS must be 30 or 60');
   const audioDelayMs = Number(process.env.VDONINJA_MINIMAL_AUDIO_DELAY_MS || 0);
@@ -28,7 +30,7 @@ async function main() {
   const fieldTrials = process.env.VDONINJA_CHROMIUM_FIELD_TRIALS || '';
   const executable = process.env.VDONINJA_BROWSER_EXECUTABLE;
   const logFile = path.join(output, 'chromium.log');
-  const report = { ok: false, fieldTrials, includeAudio, fps, audioDelayMs, executable: executable || null, logFile,
+  const report = { ok: false, fieldTrials, includeAudio, audioSource, fps, audioDelayMs, executable: executable || null, logFile,
     syntheticTimingExclusionRequested: fieldTrials.includes('WebRTC-ForceTimingSampleExclusion/Enabled/'),
     note: 'Loopback with synthetic encoded-frame delay; does not simulate network NACK feedback.' };
   const pactl = (...args) => execFileSync('pactl',args,{encoding:'utf8'}).trim();
@@ -52,13 +54,15 @@ async function main() {
     report.browserVersion = browser.version();
     const page = await browser.newPage();
     await page.goto(`http://127.0.0.1:${server.address().port}`);
-    report.setup = await page.evaluate(async ({includeAudio,fps,audioDelayMs}) => {
+    report.setup = await page.evaluate(async ({includeAudio,audioSource,fps,audioDelayMs}) => {
       const canvas = document.querySelector('canvas'), ctx = canvas.getContext('2d');
       if (typeof MediaStreamTrackGenerator !== 'function') throw new Error('Video track generator is required');
       const track = new MediaStreamTrackGenerator({ kind:'video' });
       const writer = track.writable.getWriter(), media = new MediaStream([track]);
       let audioTrack;
-      if (includeAudio) {
+      if (includeAudio && audioSource === 'generator') {
+        // Retained negative control: zero-origin AudioData timestamps are not
+        // native capture-clock timestamps in the pinned Chromium build.
         audioTrack = new MediaStreamTrackGenerator({kind:'audio'});
         media.addTrack(audioTrack);
         const workerSource = `onmessage = async ({data}) => {
@@ -78,6 +82,20 @@ async function main() {
         worker.postMessage(audioTrack.writable,[audioTrack.writable]);
         window.__minimalAudioWorker = worker;
         window.__minimalAudioWorkerUrl = workerUrl;
+      }
+      if (includeAudio && audioSource === 'webaudio') {
+        // Let the browser stamp audio on its native capture clock. AudioData
+        // timestamps starting at zero map to boot time in pinned Chromium and
+        // prevent the receiver from computing a valid A/V relative delay.
+        const context = new AudioContext({sampleRate:48000});
+        const destination = context.createMediaStreamDestination();
+        const oscillator = context.createOscillator(), gain = context.createGain();
+        oscillator.frequency.value = 997; gain.gain.value = 0.125;
+        oscillator.connect(gain).connect(destination);
+        oscillator.start(); await context.resume();
+        audioTrack = destination.stream.getAudioTracks()[0];
+        media.addTrack(audioTrack);
+        window.__minimalAudioContext = context;
       }
       const send = new RTCPeerConnection({ encodedInsertableStreams: true });
       const receive = new RTCPeerConnection();
@@ -136,8 +154,8 @@ async function main() {
       }
       draw().catch(console.error);
       return { codec: codecs[0].mimeType, requestedBufferMs: 300, encodedDelayMs: 24,
-        includeAudio, audioDelayMs, sourceClock:`explicit ${fps} FPS VideoFrame timestamps` };
-    },{includeAudio,fps,audioDelayMs});
+        includeAudio, audioSource, audioDelayMs, sourceClock:`explicit ${fps} FPS VideoFrame timestamps` };
+    },{includeAudio,audioSource,fps,audioDelayMs});
     const ready = Date.now()+30000;
     while (!(await collectViewerSnapshot(page)).videos.some(v => v.videoWidth > 0 || v.width > 0)) {
       if (Date.now()>ready) throw new Error('Minimal receiver did not start');

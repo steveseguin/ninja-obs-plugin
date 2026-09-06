@@ -1,5 +1,7 @@
 # Native synchronization baseline investigation
 
+Continued in [decode scheduling and the repaired minimal A/V control](linux-decode-scheduler-isolation.md).
+
 This continues [the buffer follow-up](linux-receiver-buffer-followup.md). The
 shipping plugin and its encoder/pacing settings are unchanged. Browser changes
 below are opt-in experiments in the pinned Chromium/WebRTC checkout, not fixes

@@ -1,6 +1,8 @@
 # Pinned upstream receiver timing experiment
 
-The latest [synchronization investigation](../../docs/linux-receiver-sync-baseline.md)
+The latest [decode scheduler investigation](../../docs/linux-decode-scheduler-isolation.md)
+repairs the minimal A/V clock and compares precise scheduling. The earlier
+[synchronization investigation](../../docs/linux-receiver-sync-baseline.md)
 includes direct native A/V decisions, configured-floor and decode-scheduling
 experiments, and Firefox compositor tracing. These remain diagnostic comparisons;
 the configured-floor experiment regressed playback under application feedback.
@@ -301,5 +303,71 @@ The minimal loopback harness accepts `VDONINJA_MINIMAL_AUDIO=1`,
 `VDONINJA_MINIMAL_FPS=60` and `VDONINJA_MINIMAL_AUDIO_DELAY_MS=70`. Audio mode
 requires a working `pactl` server and uses its own null sink. With
 `WebRTC-AvSyncTrace/Enabled/`, absent native sync decisions fail the report even
-when media arrives. The tested generated-track controls still hit this coverage
-failure; they do not yet reproduce native A/V synchronization.
+when media arrives. The original zero-origin generated-track controls hit this coverage
+failure. The browser-clocked Web Audio repair below now exercises native A/V synchronization.
+
+
+## Decode scheduler isolation
+
+After the existing receiver, cadence, synchronization and common-floor trace
+patches, apply the new tracing patches to the pinned checkouts:
+
+```sh
+python3 tests/webrtc-timing-probe/browser-scheduler-trace-patch.py "$CHROMIUM_SRC/third_party/webrtc"
+python3 tests/webrtc-timing-probe/browser-compositor-clock-patch.py "$CHROMIUM_SRC"
+```
+
+Set `VDONINJA_DECODE_SCHEDULER_TRACE=1` in the browser environment, plus the
+existing `WebRTC-ReceiverTimingTrace/Enabled/`, `WebRTC-AvSyncTrace/Enabled/` and
+`WebRTC-CompositorTimingTrace/Enabled/` trials. Traces distinguish scheduler
+selection, schedule/decode/render deadlines, actual releases, tick decisions,
+actual compositor selection-call time, and A/V synchronization early returns.
+They leave scheduling unchanged. Use one browser log per analysis:
+
+```sh
+python3 scripts/analyze-decode-scheduler.py /path/to/chromium.log /path/to/presentation.json --fps 60
+```
+
+The capture argument also accepts a minimal-harness `report.json`. Clock/RTP joins
+are diagnostic; original presentation/pixel/audio gates still determine playback
+results. Read native selection-call time separately from its presentation deadline.
+
+The standalone native build adds two targets:
+
+```sh
+build-webrtc-timing/scheduler-probe metronome
+build-webrtc-timing/scheduler-probe precise
+```
+
+Both use real upstream schedulers with a synthetic queue/metronome. Metronome
+success characterizes coalesced releases; it is not a playback pass. Optional
+Perfetto calls are removed from a generated source copy, with scheduler logic
+intact. No decoder or physical display is modeled.
+
+For the opt-in browser comparison, after the scheduler trace patch:
+
+```sh
+python3 tests/webrtc-timing-probe/browser-precise-decode-patch.py "$CHROMIUM_SRC/third_party/webrtc"
+```
+
+Rebuild with runtime captures stopped. `WebRTC-PreciseDecodeScheduling/Enabled/`
+selects the existing high-precision task-queue scheduler. Compare with and without
+`WebRTC-DecodeSchedulingHeadroom/Enabled/`; keep the rejected common-floor
+experiment off. These candidates do not fix abrupt A/V target changes.
+
+The minimal audio source now defaults to browser-clocked Web Audio. Preserve the
+old invalid-clock control with `VDONINJA_MINIMAL_AUDIO_SOURCE=generator`. For a
+working delayed-A/V reproduction:
+
+```sh
+VDONINJA_BROWSER_EXECUTABLE="$CHROMIUM_SRC/out/ReceiverTiming/headless_shell" \
+VDONINJA_MINIMAL_AUDIO=1 VDONINJA_MINIMAL_FPS=60 \
+VDONINJA_MINIMAL_AUDIO_DELAY_MS=70 VDONINJA_SOAK_MS=45000 \
+VDONINJA_DECODE_SCHEDULER_TRACE=1 \
+VDONINJA_CHROMIUM_FIELD_TRIALS='WebRTC-RetransmittedTimingSamples/Enabled/WebRTC-RtpCadenceSamples/Enabled/WebRTC-ReceiverTimingTrace/Enabled/WebRTC-AvSyncTrace/Enabled/WebRTC-CompositorTimingTrace/Enabled/' \
+node scripts/browser-minimal-receiver-timing.cjs artifacts/minimal-av-delay
+```
+
+This is synthetic encoded delay, not NACK simulation. The repaired control now
+requires actual native sync decisions, and the delayed case retains its cadence
+failure. Private audio sinks are unloaded after the capture.
