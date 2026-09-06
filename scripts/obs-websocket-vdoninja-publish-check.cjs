@@ -533,7 +533,13 @@ async function collectViewerSnapshot(page) {
           let packetsDiscarded = 0;
           const selectedCandidatePairs = [];
           const byId = new Map();
-          stats.forEach((stat) => byId.set(stat.id, stat));
+          const transportSelectedPairs = new Set();
+          stats.forEach((stat) => {
+            byId.set(stat.id, stat);
+            if (stat.type === "transport" && stat.selectedCandidatePairId) {
+              transportSelectedPairs.add(stat.selectedCandidatePairId);
+            }
+          });
           stats.forEach((s) => {
             if (s.type === "inbound-rtp" && !s.isRemote) {
               packetsLost += s.packetsLost || 0;
@@ -574,7 +580,7 @@ async function collectViewerSnapshot(page) {
             }
             if (
               s.type === "candidate-pair" &&
-              (s.selected || s.nominated) &&
+              (s.selected || s.nominated || transportSelectedPairs.has(s.id)) &&
               s.state === "succeeded"
             ) {
               const local = byId.get(s.localCandidateId);
@@ -642,12 +648,12 @@ async function collectViewerSnapshot(page) {
   });
 }
 
-async function startPresentationCapture(page, requireMarker, markerFormat) {
+async function startPresentationCapture(page, requireMarker, markerFormat, options = {}) {
   return page.evaluate(
-    ({ markerRequired, markerFormat }) => {
+    ({ markerRequired, markerFormat, presentedMarkerRequired, allowFileVideo }) => {
       const video = Array.from(document.querySelectorAll("video")).find(
         (candidate) =>
-          candidate.srcObject &&
+          (candidate.srcObject || allowFileVideo) &&
           candidate.videoWidth > 0 &&
           candidate.videoHeight > 0,
       );
@@ -703,7 +709,7 @@ async function startPresentationCapture(page, requireMarker, markerFormat) {
       }
 
       function decodeMarker(source, sourceWidth, sourceHeight) {
-        if (!capture.requireMarker) {
+        if (!capture.requireMarker && !presentedMarkerRequired) {
           return { markerFrame: null, markerError: "" };
         }
         try {
@@ -800,6 +806,7 @@ async function startPresentationCapture(page, requireMarker, markerFormat) {
             processingDuration: metadata.processingDuration,
             width: metadata.width,
             height: metadata.height,
+            ...(presentedMarkerRequired ? decodeMarker(video, metadata.width, metadata.height) : {}),
           });
         }
         video.requestVideoFrameCallback(onFrame);
@@ -861,7 +868,8 @@ async function startPresentationCapture(page, requireMarker, markerFormat) {
         videoHeight: video.videoHeight,
       };
     },
-    { markerRequired: requireMarker, markerFormat },
+    { markerRequired: requireMarker, markerFormat, presentedMarkerRequired: Boolean(options.capturePresentedMarkers),
+      allowFileVideo: Boolean(options.allowFileVideo) },
   );
 }
 
@@ -887,6 +895,7 @@ async function stopPresentationCapture(page) {
       markerDiagnostics[key] = (markerDiagnostics[key] || 0) + 1;
     }
     const result = {
+      timeOrigin: performance.timeOrigin,
       records: capture.records,
       decodedRecords: capture.decodedRecords,
       markerError: capture.markerError,
@@ -2164,21 +2173,67 @@ async function main() {
       return;
     }
 
+    const viewerBrowser = process.env.VDONINJA_VIEWER_BROWSER || "chromium";
     const chromiumArgs = ["--autoplay-policy=no-user-gesture-required"];
+    const extraChromiumArgs = JSON.parse(process.env.VDONINJA_CHROMIUM_ARGS_JSON || "[]");
+    if (!Array.isArray(extraChromiumArgs) || extraChromiumArgs.some(arg => typeof arg !== "string")) {
+      throw new Error("VDONINJA_CHROMIUM_ARGS_JSON must be an array of argument strings");
+    }
+    if (extraChromiumArgs.length && viewerBrowser !== "chromium") {
+      throw new Error("Chromium arguments require Chromium");
+    }
+    chromiumArgs.push(...extraChromiumArgs);
     const chromiumFieldTrials = process.env.VDONINJA_CHROMIUM_FIELD_TRIALS || "";
     if (chromiumFieldTrials) chromiumArgs.push(`--force-fieldtrials=${chromiumFieldTrials}`);
     if (process.env.VDONINJA_DISABLE_MDNS === "1") {
       chromiumArgs.push("--disable-features=WebRtcHideLocalIpsWithMdns");
     }
-    const viewerBrowser = process.env.VDONINJA_VIEWER_BROWSER || "chromium";
     if (!["chromium", "firefox"].includes(viewerBrowser)) throw new Error("Unknown VDONINJA_VIEWER_BROWSER");
     if (chromiumFieldTrials && viewerBrowser !== "chromium") {
       throw new Error("Chromium field trials cannot be applied to Firefox");
     }
+    const browserExecutable = process.env.VDONINJA_BROWSER_EXECUTABLE || null;
+    const chromiumLogFile = process.env.VDONINJA_CHROMIUM_LOG_FILE || null;
+    const chromiumProcessLogFile = chromiumLogFile ||
+      (browserExecutable && viewerBrowser === "chromium" ? path.join(outputDir, `chromium-process-${stamp}.log`) : null);
+    if (chromiumLogFile) {
+      if (viewerBrowser !== "chromium" || !path.isAbsolute(chromiumLogFile)) {
+        throw new Error("Chromium logging requires Chromium and an absolute log path");
+      }
+      chromiumArgs.push("--enable-logging", `--log-file=${chromiumLogFile}`,
+        "--vmodule=stream_synchronization=3,rtp_streams_synchronizer2=3");
+    } else if (chromiumProcessLogFile) {
+      chromiumArgs.push("--enable-logging", `--log-file=${chromiumProcessLogFile}`);
+    }
     browser = await ({ chromium, firefox }[viewerBrowser]).launch({
+      ...(browserExecutable ? { executablePath: browserExecutable } : {}),
+      ...(chromiumProcessLogFile ? { env: { ...process.env, CHROME_LOG_FILE: chromiumProcessLogFile } } : {}),
       headless: process.env.HEADLESS === "0" ? false : true,
       ...(viewerBrowser === "chromium" ? { args: chromiumArgs } : { firefoxUserPrefs: { "media.autoplay.default": 0 } }),
     });
+    let browserGpuDiagnostics = { available: false };
+    if (viewerBrowser === "chromium") {
+      let gpuSession;
+      try {
+        gpuSession = await browser.newBrowserCDPSession();
+        const { gpu } = await gpuSession.send("SystemInfo.getInfo");
+        browserGpuDiagnostics = { available: true, devices: gpu.devices,
+          auxiliary: gpu.auxAttributes, features: gpu.featureStatus };
+      } catch (error) {
+        browserGpuDiagnostics.error = String(error);
+      } finally {
+        if (gpuSession) await gpuSession.detach().catch(() => {});
+      }
+    }
+    const requireBrowserGpu = process.env.VDONINJA_REQUIRE_BROWSER_GPU === "1";
+    if (requireBrowserGpu) {
+      const renderer = browserGpuDiagnostics.auxiliary?.glRenderer || "";
+      const hardwareDevice = (browserGpuDiagnostics.devices || []).some(device =>
+        device.vendorId > 0 && device.vendorId !== 0xffff);
+      if (!hardwareDevice || !renderer || /swiftshader|llvmpipe|softpipe|software/i.test(renderer)) {
+        throw new Error(`Hardware browser renderer was required; observed ${renderer || "unavailable"}`);
+      }
+    }
     const context = await browser.newContext();
     const viewerIceServers = process.env.VDONINJA_VIEWER_ICE_SERVERS_JSON
       ? JSON.parse(process.env.VDONINJA_VIEWER_ICE_SERVERS_JSON) : null;
@@ -2496,7 +2551,7 @@ async function main() {
     ) {
       videoContinuityFailure = visualSequenceAnalysis.failures.join("; ");
     } else if (requireZeroFreezes && newFreezes !== 0) {
-      videoContinuityFailure = `Chrome recorded ${newFreezes} new video freeze(s) during the ${soakMs} ms soak`;
+      videoContinuityFailure = `browser recorded ${newFreezes} new video freeze(s) during the ${soakMs} ms soak`;
     } else if (requireRelayCandidate && !relayCandidateVerified) {
       videoContinuityFailure = `forced TURN did not select a relay candidate; pairs=${JSON.stringify(
         selectedCandidatePairs(secondPlayable),
@@ -2564,7 +2619,7 @@ async function main() {
         })
       ) {
         audioContinuityFailure =
-          `Chrome recorded ${newAudioPacketsLost} newly lost audio packet(s), ` +
+          `browser recorded ${newAudioPacketsLost} newly lost audio packet(s), ` +
           `${newPacketsDiscarded} discarded packet(s), ${newConcealedSamples} ` +
           `concealed sample(s), and ${newConcealmentEvents} concealment event(s)`;
       }
@@ -2656,6 +2711,12 @@ async function main() {
       viewerBrowser,
       viewerBrowserVersion: browser.version(),
       chromiumFieldTrials,
+      browserExecutable,
+      chromiumLogFile,
+      chromiumProcessLogFile,
+      browserGpuDiagnostics,
+      extraChromiumArgs,
+      requireBrowserGpu,
       negotiatedVideoCodecs,
       obsBrowserViewerCount: obsBrowserViewers.length,
       obsBrowserViewerBitratesKbps,

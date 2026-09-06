@@ -184,7 +184,7 @@ function analyzeVideoContinuity(samples, options = {}) {
   }
   if (freezeCount > 0 || totalFreezesDuration > 0) {
     failures.push(
-      `Chrome reported ${freezeCount} freeze(s) lasting ` +
+      `browser reported ${freezeCount} freeze(s) lasting ` +
         `${totalFreezesDuration.toFixed(3)} seconds`,
     );
   }

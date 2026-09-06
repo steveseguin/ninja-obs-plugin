@@ -196,3 +196,10 @@ behavior was changed.
 Generated recordings, raw reports and packet captures live under the ignored
 `artifacts/gpu-linux/` directory; setup/runtime logs live under
 `/home/steve/obs-testing/logs/`. No new release was published.
+
+## Subsequent controller and browser validation
+
+See [the receiver controller follow-up](linux-receiver-controller-validation.md)
+for the one-time bootstrap candidate's rejected cached-keyframe/drift behavior,
+repeated Chromium/Firefox impairment and reload trials, native Firefox timing
+logs, and a reproduction in installed Chrome 151.

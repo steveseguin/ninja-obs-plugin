@@ -53,8 +53,11 @@ jobs:
           node --test tests/test-obs-performance.cjs tests/test-video-continuity.cjs tests/test-audio-continuity.cjs tests/test-presentation-continuity.cjs tests/test-udp-loss-proxy.cjs tests/test-rtc-timing-probes.cjs
           node --test tests/test-recorded-sequence.cjs
           node --test tests/test-capture-boundary.cjs tests/test-publish-encoder-mode.cjs
+          node --test tests/test-viewer-stats.cjs
           python3 tests/test-rtp-pcap.py
           python3 tests/test-rtp-timing-analysis.py
+          python3 tests/test-receiver-timing-log.py
+          python3 tests/test-av-playout.py
 
   # Run the same suite under AddressSanitizer and UndefinedBehaviorSanitizer.
   # The suite includes byte-level fuzzers for VP9/H.264 payload parsing, RTCP
