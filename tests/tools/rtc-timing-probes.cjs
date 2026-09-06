@@ -1,7 +1,7 @@
 // Passive encoded-frame timestamps and optional fixed receiver-buffer control.
-async function installProbes(context, iceServers, fixedBuffer) {
+async function installProbes(context, iceServers, fixedBuffer, { preserveIceConfiguration = false } = {}) {
   await context.addInitScript(
-    ({ iceServers, fixedBuffer }) => {
+    ({ iceServers, fixedBuffer, preserveIceConfiguration }) => {
       window.__pcList = [];
       window.__encodedTiming = [];
       window.__encodedOverflow = 0;
@@ -58,19 +58,23 @@ async function installProbes(context, iceServers, fixedBuffer) {
         const pc = new NativePC(
           {
             ...config,
-            iceServers,
-            iceTransportPolicy: "relay",
+            ...(preserveIceConfiguration ? {} : { iceServers, iceTransportPolicy: "relay" }),
             encodedInsertableStreams: true,
           },
           ...rest,
         );
         for (const method of [
+          "createAnswer",
+          "createOffer",
           "setLocalDescription",
           "setRemoteDescription",
           "addIceCandidate",
         ]) {
+          if (typeof pc[method] !== "function") continue;
           const original = pc[method].bind(pc);
           pc[method] = async (...args) => {
+            if ((method === "createAnswer" || method === "createOffer") && window.__negotiation.length < 2000)
+              window.__negotiation.push({ method, stage: "begin", now: performance.now() });
             try {
               const result = await original(...args);
               if (window.__negotiation.length < 2000)
@@ -89,6 +93,7 @@ async function installProbes(context, iceServers, fixedBuffer) {
                   args,
                   now: performance.now(),
                   error: String(error),
+                  stack: error.stack || null,
                 });
               throw error;
             }
@@ -98,8 +103,7 @@ async function installProbes(context, iceServers, fixedBuffer) {
         pc.setConfiguration = (config) =>
           setConfiguration({
             ...config,
-            iceServers,
-            iceTransportPolicy: "relay",
+            ...(preserveIceConfiguration ? {} : { iceServers, iceTransportPolicy: "relay" }),
           });
         const addTrack = pc.addTrack.bind(pc);
         pc.addTrack = (...args) => {
@@ -149,7 +153,7 @@ async function installProbes(context, iceServers, fixedBuffer) {
       window.RTCPeerConnection.prototype = NativePC.prototype;
       Object.setPrototypeOf(window.RTCPeerConnection, NativePC);
     },
-    { iceServers, fixedBuffer },
+    { iceServers, fixedBuffer, preserveIceConfiguration },
   );
 }
 async function stats(page) {

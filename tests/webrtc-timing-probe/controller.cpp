@@ -5,8 +5,12 @@
 #include <map>
 #include <vector>
 
+#include "api/rtp_packet_info.h"
 #include "api/task_queue/task_queue_base.h"
 #include "rtc_base/time_utils.h"
+#ifndef PROBE_FIRST_PACKET
+#define PROBE_FIRST_PACKET 0
+#endif
 #ifndef PROBE_ALL_ARRIVALS
 #define PROBE_ALL_ARRIVALS 0
 #endif
@@ -112,7 +116,8 @@ int main()
 	std::cout << "variant,case,released,dropped,incoming,bootstraps,max_render_step_ms,max_release_step_ms,last_render_"
 	             "lead_ms,nonforward_render_times\n";
 	for (const std::string scenario : {"cold", "warm", "cached-idr-2s", "cached-idr-12s", "outage-2s", "drift-1000ppm",
-	                                   "drift-minus1000ppm", "clean-after-60", "cold-wrap"}) {
+	                                   "drift-minus1000ppm", "clean-after-60", "cold-wrap", "completion-jitter-60",
+	                                   "first-packet-missing-60", "first-packet-delayed-60"}) {
 		SimulatedClock clock(Timestamp::Millis(1000));
 		GlobalClock global(clock);
 		Queue queue(clock);
@@ -126,9 +131,13 @@ int main()
 		sink.controller = &controller;
 		incoming = bootstraps = 0;
 		controller.StartNextDecode(true);
-		const int frames = scenario.find("drift-") == 0 ? 18000 : 300;
+		const int fps = (scenario == "completion-jitter-60" || scenario == "first-packet-missing-60" ||
+		                 scenario == "first-packet-delayed-60")
+		                    ? 60
+		                    : 30;
+		const int frames = scenario.find("drift-") == 0 ? 18000 : (fps == 60 ? 1200 : 300);
 		for (int i = 0; i < frames; ++i) {
-			int64_t elapsed = i * 1000 / 30 + (i % 2 ? 8 : 0);
+			int64_t elapsed = i * 1000 / fps + (i % 2 ? (fps == 60 ? 12 : 8) : 0);
 			if (scenario == "outage-2s" && i >= 150)
 				elapsed += 2000;
 			queue.Until(Timestamp::Millis(1000 + elapsed));
@@ -136,7 +145,7 @@ int main()
 			f->SetId(i);
 			f->received = clock.CurrentTime().ms();
 			f->nack = !((scenario == "warm" && i == 0) || (scenario == "clean-after-60" && i >= 60));
-			uint32_t rtp = (scenario == "cold-wrap" ? 0xffff0000u : 90000u) + i * 3000;
+			uint32_t rtp = (scenario == "cold-wrap" ? 0xffff0000u : 90000u) + i * (90000 / fps);
 			if (scenario == "cached-idr-2s" && i > 0)
 				rtp += 180000;
 			if (scenario == "cached-idr-12s" && i > 0)
@@ -148,6 +157,11 @@ int main()
 			if (scenario == "drift-minus1000ppm")
 				rtp -= i * 3;
 			f->SetRtpTimestamp(rtp);
+			if (scenario != "first-packet-missing-60") {
+				const auto first =
+				    scenario == "completion-jitter-60" ? Timestamp::Millis(1000 + i * 1000 / fps) : clock.CurrentTime();
+				f->SetPacketInfos(RtpPacketInfos({RtpPacketInfo(1, {}, rtp, first)}));
+			}
 			f->SetEncodedData(EncodedImageBuffer::Create(1000));
 			if (i > 0 && !(i == 1 && scenario.find("cached-idr-") == 0)) {
 				f->num_references = 1;
@@ -167,9 +181,10 @@ int main()
 			render_step = std::max(render_step, sink.renders[i] - sink.renders[i - 1]);
 			release_step = std::max(release_step, sink.releases[i] - sink.releases[i - 1]);
 		}
-		std::cout << (PROBE_ALL_ARRIVALS ? "all-arrivals"
-		              : PROBE_BOOTSTRAP  ? "bootstrap"
-		                                 : "baseline")
+		std::cout << (PROBE_FIRST_PACKET   ? "first-packet"
+		              : PROBE_ALL_ARRIVALS ? "all-arrivals"
+		              : PROBE_BOOTSTRAP    ? "bootstrap"
+		                                   : "baseline")
 		          << ',' << scenario << ',' << sink.renders.size() << ',' << sink.dropped << ',' << incoming << ','
 		          << bootstraps << ',' << render_step << ',' << release_step << ',' << sink.leads.back() << ','
 		          << nonforward << '\n';
@@ -187,6 +202,10 @@ int main()
 			return 8;
 		if (PROBE_ALL_ARRIVALS && scenario.find("drift-") == 0 && (sink.leads.back() < 270 || sink.leads.back() > 320))
 			return 9;
+		if (fps == 60 && PROBE_ALL_ARRIVALS && incoming != frames)
+			return 11;
+		if (PROBE_FIRST_PACKET && scenario == "completion-jitter-60" && (render_step > 18 || nonforward != 0))
+			return 12;
 		if (scenario == "cold-wrap" && incoming != (PROBE_ALL_ARRIVALS ? frames : 0))
 			return 10;
 		// Keep the unsafe candidate's observed regression explicit. Passing this

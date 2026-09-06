@@ -3,7 +3,7 @@ const assert = require("node:assert/strict");
 const vm = require("node:vm");
 const { installProbes } = require("./tools/rtc-timing-probes.cjs");
 
-async function fixture(fixedBuffer = null) {
+async function fixture(fixedBuffer = null, options = {}) {
   class Receiver {
     constructor() {
       this.track = { kind: "video" };
@@ -55,6 +55,7 @@ async function fixture(fixedBuffer = null) {
     },
     [{ urls: "turn:127.0.0.1:3478" }],
     fixedBuffer,
+    options,
   );
   return sandbox;
 }
@@ -117,4 +118,16 @@ test("unsupported encoded probe stays explicit and relay isolation survives reco
   assert.equal(pc.config.iceServers[0].urls, "turn:127.0.0.1:3478");
   assert.equal(page.__timingCapabilities.encodedReceiver, false);
   assert.equal(page.__pcList.length, 1);
+});
+
+
+test("passive ICE mode preserves application configuration and subsequent changes", async () => {
+  const page = await fixture(null, { preserveIceConfiguration:true });
+  const configured = { iceServers:[{urls:"turn:example.invalid?transport=tcp"}], iceTransportPolicy:"relay" };
+  const pc = new page.RTCPeerConnection(configured);
+  assert.equal(pc.config.iceServers[0].urls, configured.iceServers[0].urls);
+  pc.setConfiguration({ iceServers:[{urls:"stun:example.invalid"}], iceTransportPolicy:"all" });
+  assert.equal(pc.config.iceServers[0].urls, "stun:example.invalid");
+  assert.equal(pc.config.iceTransportPolicy, "all");
+  assert.equal(page.__pcList[0], pc);
 });

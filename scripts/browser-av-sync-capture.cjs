@@ -6,7 +6,8 @@ const http = require('node:http');
 const { spawn, execFileSync } = require('node:child_process');
 const { chromium, firefox } = require('playwright');
 const { installProbes } = require('../tests/tools/rtc-timing-probes.cjs');
-const { startPresentationCapture, stopPresentationCapture, collectViewerSnapshot } = require('./obs-websocket-vdoninja-publish-check.cjs');
+const { startPresentationCapture, stopPresentationCapture, collectViewerSnapshot, startDecodedAudioCapture, stopDecodedAudioCapture } = require('./obs-websocket-vdoninja-publish-check.cjs');
+const { analyzePcm16Le, createPcm16Wav } = require('../tests/tools/audio-continuity-analysis.cjs');
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 const pactl = (...args) => execFileSync('pactl', args, { encoding:'utf8' }).trim();
 async function main() {
@@ -47,6 +48,13 @@ async function main() {
     const type = process.env.VDONINJA_VIEWER_BROWSER || 'chromium';
     if (!['chromium','firefox'].includes(type)) throw new Error('Unknown browser');
     const trials = process.env.VDONINJA_CHROMIUM_FIELD_TRIALS || '';
+    const extraArgs = JSON.parse(process.env.VDONINJA_CHROMIUM_ARGS_JSON || '[]');
+    if (!Array.isArray(extraArgs) || extraArgs.some(a => typeof a !== 'string')) throw new Error('Invalid Chromium arguments');
+    const compareAudioTaps = process.env.VDONINJA_COMPARE_AUDIO_TAPS === '1';
+    if (compareAudioTaps && mode !== 'url') throw new Error('Audio tap comparison requires a network MediaStream');
+    report.compareAudioTaps = compareAudioTaps;
+    report.durationMs = Number(process.env.VDONINJA_SOAK_MS || 30000);
+    if (!Number.isFinite(report.durationMs) || report.durationMs < 1000 || report.durationMs > 300000) throw new Error('Invalid capture duration');
     if (trials && type !== 'chromium') throw new Error('Chromium field trials require Chromium');
     const executable = process.env.VDONINJA_BROWSER_EXECUTABLE;
     browser = await ({chromium,firefox}[type]).launch({
@@ -54,7 +62,7 @@ async function main() {
       env:{...process.env,PULSE_SINK:sink,
         ...(executable && type==='chromium' ? {CHROME_LOG_FILE:path.join(output,'chromium-process.log')} : {})},
       ignoreDefaultArgs:['--mute-audio'],
-      ...(type === 'chromium' ? { args:['--autoplay-policy=no-user-gesture-required',
+      ...(type === 'chromium' ? { args:['--autoplay-policy=no-user-gesture-required', ...extraArgs,
         ...(executable ? ['--enable-logging'] : []),
         ...(trials ? [`--force-fieldtrials=${trials}`] : [])] } : { firefoxUserPrefs:{'media.autoplay.default':0} }),
     });
@@ -77,8 +85,22 @@ async function main() {
       .map(s => ({ index:s.index,sink:s.sink,binary:s.properties?.['application.process.binary'],
         processId:s.properties?.['application.process.id'],mute:s.mute }));
     if (!report.sinkInputs.length) throw new Error('Browser did not route audio to its dedicated sink');
+    report.captureStartEpochMs = Date.now();
+    if (compareAudioTaps) report.audioSetup = await startDecodedAudioCapture(page);
     await startPresentationCapture(page,false,'counter-complement',{capturePresentedMarkers:true,allowFileVideo:mode==='file'});
-    await sleep(30000);
+    await sleep(report.durationMs);
+    report.captureEndEpochMs = Date.now();
+    if (compareAudioTaps) {
+      const audio = await stopDecodedAudioCapture(page);
+      for (const [name, tap] of [['web-audio', audio], ['raw-track', audio.rawTrack]]) {
+        if (!tap) continue;
+        const pcm = Buffer.from(tap.pcmBase64, 'base64');
+        tap.analysis = analyzePcm16Le(pcm, { sampleRate:tap.sampleRate,toneHz:997 });
+        fs.writeFileSync(path.join(output,`${name}.wav`),createPcm16Wav(pcm,tap.sampleRate));
+        delete tap.pcmBase64;
+      }
+      report.audioTaps = audio;
+    }
     report.capture = await stopPresentationCapture(page);
     if (mode === 'url') {
       const snapshot = await collectViewerSnapshot(page);

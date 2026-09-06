@@ -1,5 +1,8 @@
 # Receiver controller and browser follow-up
 
+Latest results: [Linux receiver refinement](linux-receiver-refinement.md), including
+direct Firefox instrumentation, GPU compositor tests and the ICE-restart deadlock fix.
+
 Continuation of [the GPU receiver investigation](linux-gpu-receiver-followup.md),
 starting from `d58afb6`. Production quality, the 3 Mbps 720p30 encoder setting,
 the 6 Mbps pacer and the 4 KB aggregate burst budget remain unchanged. No receiver

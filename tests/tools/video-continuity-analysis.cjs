@@ -68,6 +68,17 @@ function analyzeVideoContinuity(samples, options = {}) {
   const packetsLost =
     totalPcMetric(last, "videoPacketsLost") -
     totalPcMetric(first, "videoPacketsLost");
+  // RFC-style loss counters can decrease and become negative under duplicates
+  // and reordering. Keep the strict delta gate, but do not describe its delta as
+  // proven permanently missing packets.
+  const lossCounters = samples.map(sample => totalPcMetric(sample, "videoPacketsLost"));
+  const packetLossCounter = {
+    first: lossCounters[0], last: lossCounters[lossCounters.length - 1],
+    minimum: Math.min(...lossCounters), maximum: Math.max(...lossCounters),
+    negativeSamples: lossCounters.filter(value => value < 0).length,
+    decreasingIntervals: lossCounters.slice(1).filter((value, index) => value < lossCounters[index]).length,
+    interpretation: "Reported cumulative counter delta; not proof of permanent packet loss.",
+  };
   const freezeCount =
     totalPcMetric(last, "freezeCount") - totalPcMetric(first, "freezeCount");
   const totalFreezesDuration =
@@ -179,7 +190,7 @@ function analyzeVideoContinuity(samples, options = {}) {
   }
   if (packetsLost > maximumLostPackets) {
     failures.push(
-      `${packetsLost} packet(s) were lost; maximum is ${maximumLostPackets}`,
+      `${packetsLost} increase in the reported lost-packet counter; maximum is ${maximumLostPackets}`,
     );
   }
   if (freezeCount > 0 || totalFreezesDuration > 0) {
@@ -200,6 +211,7 @@ function analyzeVideoContinuity(samples, options = {}) {
     framesDecoded,
     framesDropped,
     packetsLost,
+    packetLossCounter,
     freezeCount,
     totalFreezesDuration,
     averageReceivedFps,

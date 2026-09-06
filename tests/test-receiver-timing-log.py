@@ -27,6 +27,19 @@ class ReceiverLogTests(unittest.TestCase):
         ])
         self.assertEqual([o['medianRenderLeadMs'] for o in result['objects']], [300, -100])
 
+    def test_firefox_process_and_release_are_distinct_from_render_query(self):
+        result = module.analyze([
+            '[Child 42, WebRTC] E/webrtc_trace VDONINJA_TIMING timing=0xab event=release now_ms=1000 render_ms=1020',
+            '[Child 43: WebRTC] E/webrtc_trace VDONINJA_TIMING timing=0xab event=render now_ms=1000 render_ms=1050 min_ms=300',
+        ])
+        first, second = result['objects']
+        self.assertEqual(first['pid'], '42')
+        self.assertEqual(first['releasedFrames'], 1)
+        self.assertEqual(first['medianReleaseLeadMs'], 20)
+        self.assertIsNone(first['medianRenderLeadMs'])
+        self.assertEqual(second['pid'], '43')
+        self.assertEqual(second['medianRenderLeadMs'], 50)
+
     def test_malformed_trace_is_not_silently_accepted(self):
         result = module.analyze(['VDONINJA_TIMING timing=0xcd event=render now_ms=missing'])
         self.assertEqual(result['malformedRecords'], 1)

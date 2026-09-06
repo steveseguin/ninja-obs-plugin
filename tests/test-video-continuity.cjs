@@ -146,3 +146,19 @@ test("packet loss, dropped frames, freezes, and excessive jitter fail", () => {
   assert.match(result.failures.join(" "), /freeze/);
   assert.match(result.failures.join(" "), /RTP jitter/);
 });
+
+
+test("negative loss counters retain the strict delta failure and their diagnostic range", () => {
+  const result = analyzeVideoContinuity([
+    snapshot(0, 0, { packetsLost: -8 }),
+    snapshot(1000, 30, { packetsLost: 2 }),
+    snapshot(2000, 60, { packetsLost: -7 }),
+  ]);
+  assert.equal(result.ok, false);
+  assert.equal(result.packetsLost, 1);
+  assert.equal(result.packetLossCounter.minimum, -8);
+  assert.equal(result.packetLossCounter.maximum, 2);
+  assert.equal(result.packetLossCounter.negativeSamples, 2);
+  assert.equal(result.packetLossCounter.decreasingIntervals, 1);
+  assert.match(result.failures.join(" "), /reported lost-packet counter/);
+});

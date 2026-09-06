@@ -1,5 +1,8 @@
 # Linux receiver timing isolation
 
+Latest results: [Linux receiver refinement](linux-receiver-refinement.md), including
+direct Firefox instrumentation, GPU compositor tests and the ICE-restart deadlock fix.
+
 Follow-up to [the sender and rendering investigation](linux-streaming-isolation.md). These are synthetic, real OBS/WebRTC runs, not simulated unit-test results. The remaining cold-start network failure is **not fixed** by this change.
 
 ## Conditions and results

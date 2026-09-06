@@ -93,17 +93,18 @@ foreach(variant baseline bootstrap)
  add_test(NAME controller-${variant} COMMAND controller-${variant})
 endforeach()
 
-# Diagnostic comparison: feed all received frame timestamps to the unmodified
-# estimator. This intentionally changes sample selection, not sender behavior.
-file(READ "${W}/video/video_stream_buffer_controller.cc" controller_source)
-string(REPLACE "!metadata.delayed_by_retransmission && metadata.receive_time" "metadata.receive_time"
-    controller_all_arrivals "${controller_source}")
-if(controller_all_arrivals STREQUAL controller_source)
- message(FATAL_ERROR "Expected retransmission filter was not found")
-endif()
-file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/controller-all-arrivals.cc" "${controller_all_arrivals}")
-add_executable(controller-all-arrivals controller.cpp "${CMAKE_CURRENT_BINARY_DIR}/controller-all-arrivals.cc"
- "${CMAKE_CURRENT_BINARY_DIR}/timing-baseline.cc")
-target_compile_definitions(controller-all-arrivals PRIVATE PROBE_BOOTSTRAP=0 PROBE_ALL_ARRIVALS=1)
-target_link_libraries(controller-all-arrivals PRIVATE controller-support)
-add_test(NAME controller-all-arrivals COMMAND controller-all-arrivals)
+# Diagnostic sample-selection comparisons; upstream source is never modified.
+target_sources(controller-support PRIVATE ${W}/api/rtp_packet_info.cc)
+foreach(variant all-arrivals first-packet)
+ execute_process(COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/controller-variant.py"
+  "${W}/video/video_stream_buffer_controller.cc" "${CMAKE_CURRENT_BINARY_DIR}/controller-${variant}.cc" "${variant}"
+  COMMAND_ERROR_IS_FATAL ANY)
+ add_executable(controller-${variant} controller.cpp "${CMAKE_CURRENT_BINARY_DIR}/controller-${variant}.cc"
+  "${CMAKE_CURRENT_BINARY_DIR}/timing-baseline.cc")
+ target_compile_definitions(controller-${variant} PRIVATE PROBE_BOOTSTRAP=0 PROBE_ALL_ARRIVALS=1)
+ if(variant STREQUAL "first-packet")
+  target_compile_definitions(controller-${variant} PRIVATE PROBE_FIRST_PACKET=1)
+ endif()
+ target_link_libraries(controller-${variant} PRIVATE controller-support)
+ add_test(NAME controller-${variant} COMMAND controller-${variant})
+endforeach()

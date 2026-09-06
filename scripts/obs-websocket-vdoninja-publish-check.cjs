@@ -1455,7 +1455,13 @@ async function main() {
   const sourceTonePath = useAudioContinuitySource
     ? path.join(outputDir, `obs-publish-source-tone-${stamp}.wav`)
     : null;
+  const preserveViewerIceConfiguration = process.env.VDONINJA_PRESERVE_VIEWER_ICE_CONFIGURATION === "1";
+  const expectedViewerRelayProtocol = process.env.VDONINJA_EXPECT_VIEWER_RELAY_PROTOCOL || "";
+  if (expectedViewerRelayProtocol && !["udp", "tcp", "tls"].includes(expectedViewerRelayProtocol)) {
+    throw new Error("Expected viewer relay protocol must be udp, tcp or tls");
+  }
   const viewParams = new URLSearchParams();
+  if (process.env.VDONINJA_VIEW_TURN) viewParams.set("turn", process.env.VDONINJA_VIEW_TURN);
   viewParams.set("view", streamId);
   if (roomId) {
     viewParams.set("room", roomId);
@@ -2261,13 +2267,14 @@ async function main() {
         return pc;
       };
       window.RTCPeerConnection.prototype = NativePC.prototype;
-    }, { iceServers: viewerIceServers, forceRelay: forceTurn });
+    }, { iceServers: preserveViewerIceConfiguration ? null : viewerIceServers, forceRelay: forceTurn });
     const captureRtpTiming = process.env.VDONINJA_CAPTURE_RTP_TIMING === "1";
     if (captureRtpTiming) {
       if (!viewerIceServers) throw new Error("Timing isolation requires explicit private viewer ICE servers");
       const { installProbes } = require("../tests/tools/rtc-timing-probes.cjs");
       await installProbes(context, viewerIceServers,
-        process.env.VDONINJA_FIXED_VIEW_BUFFER === "1" ? viewBufferMs : null);
+        process.env.VDONINJA_FIXED_VIEW_BUFFER === "1" ? viewBufferMs : null,
+        { preserveIceConfiguration:preserveViewerIceConfiguration });
     }
 
     const page = await context.newPage();
@@ -2558,6 +2565,11 @@ async function main() {
         selectedCandidatePairs(secondPlayable),
       )}`;
     }
+    if (expectedViewerRelayProtocol && !selectedCandidatePairs(secondPlayable).some(pair =>
+      pair.localCandidateType === "relay" && pair.localRelayProtocol === expectedViewerRelayProtocol)) {
+      videoContinuityFailure = [videoContinuityFailure,
+        `selected viewer relay protocol was not ${expectedViewerRelayProtocol}`].filter(Boolean).join("; ");
+    }
     const newConcealedSamples =
       totalPcMetric(secondPlayable, "concealedSamples") -
       totalPcMetric(continuityBaseline, "concealedSamples");
@@ -2713,6 +2725,8 @@ async function main() {
       viewerBrowserVersion: browser.version(),
       chromiumFieldTrials,
       browserExecutable,
+      preserveViewerIceConfiguration,
+      expectedViewerRelayProtocol,
       chromiumLogFile,
       chromiumProcessLogFile,
       browserGpuDiagnostics,
@@ -2968,7 +2982,8 @@ async function main() {
   }
 }
 
-module.exports = { startPresentationCapture, stopPresentationCapture, collectViewerSnapshot };
+module.exports = { startPresentationCapture, stopPresentationCapture, collectViewerSnapshot,
+  startDecodedAudioCapture, stopDecodedAudioCapture };
 if (require.main === module) {
   main().catch((error) => {
     console.error(error.stack || String(error));

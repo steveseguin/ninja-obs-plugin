@@ -1,0 +1,4 @@
+executable("renderer_probe") {
+  sources = [ "renderer-probe.cpp" ]
+  deps = [ "//base", "//media", "//ui/gfx/geometry" ]
+}

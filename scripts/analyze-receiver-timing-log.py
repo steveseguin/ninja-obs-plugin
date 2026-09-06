@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Summarize opt-in Chromium receiver timing logs without inferring missing state."""
+"""Summarize opt-in browser receiver timing logs without inferring missing state."""
 import argparse
 import json
 import re
@@ -12,6 +12,7 @@ def analyze(lines):
         'insertions': 0, 'nackedInsertions': 0, 'incomingSamples': 0,
         'uninitializedQueries': 0, 'bufferedUninitializedQueries': 0,
         'renderQueries': 0, 'renderLeadsMs': [], 'requestedMinimumsMs': set(),
+        'releasedFrames': 0, 'releaseLeadsMs': [],
     })
     malformed = 0
     for line in lines:
@@ -19,15 +20,15 @@ def analyze(lines):
             continue
         fields = dict(re.findall(r'(\w+)=([^\s]+)', line.split('VDONINJA_TIMING ', 1)[1]))
         event = fields.get('event')
-        pid = re.match(r'\[(\d+):', line)
+        pid = re.match(r'\[(\d+):', line) or re.search(r'\[(?:Child|Parent) (\d+)[,:]', line)
         try:
             timing = fields['timing']
-            if event not in ('insert', 'incoming', 'uninitialized', 'render'):
+            if event not in ('insert', 'incoming', 'uninitialized', 'render', 'release'):
                 raise ValueError('Unknown event')
             # Parse before accumulating so malformed records cannot partly count.
             nack = int(fields['nack']) if event == 'insert' else None
             minimum = int(fields['min_ms']) if event in ('uninitialized', 'render') else None
-            lead = int(fields['render_ms']) - int(fields['now_ms']) if event == 'render' else None
+            lead = int(fields['render_ms']) - int(fields['now_ms']) if event in ('render', 'release') else None
         except (KeyError, ValueError):
             malformed += 1
             continue
@@ -45,11 +46,17 @@ def analyze(lines):
         elif event == 'render':
             obj['renderQueries'] += 1
             obj['renderLeadsMs'].append(lead)
+        elif event == 'release':
+            obj['releasedFrames'] += 1
+            obj['releaseLeadsMs'].append(lead)
     result = []
     for (pid, timing), obj in objects.items():
         leads = obj.pop('renderLeadsMs')
+        releases = obj.pop('releaseLeadsMs')
         obj['requestedMinimumsMs'] = sorted(obj['requestedMinimumsMs'])
         result.append({'pid': pid, 'timing': timing, **obj,
+                       'minimumReleaseLeadMs': min(releases) if releases else None,
+                       'medianReleaseLeadMs': statistics.median(releases) if releases else None,
                        'minimumRenderLeadMs': min(leads) if leads else None,
                        'medianRenderLeadMs': statistics.median(leads) if leads else None,
                        'maximumRenderLeadMs': max(leads) if leads else None})

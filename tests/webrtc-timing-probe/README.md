@@ -97,3 +97,94 @@ assertion** log-only, preserving the otherwise unchanged official-release code
 path. Rebuild afterward with all test browsers stopped. See the validation report
 for the original failures and the separately identified control runs; this is not
 part of the receiver fix and must not be silently applied to an installed browser.
+
+## Receiver/compositor refinement
+
+See [the refinement report](../../docs/linux-receiver-refinement.md) for measured
+results and remaining failures. These patches apply only to the pinned diagnostic
+source trees. They do not modify the installed plugin or system browsers.
+
+After the original Chromium timing and explicit data-channel assertion patches:
+
+```sh
+python3 tests/webrtc-timing-probe/browser-refinement-patch.py /path/to/chromium/src
+python3 tests/webrtc-timing-probe/browser-audio-patch.py /path/to/chromium/src
+```
+
+`WebRTC-ReceiverTimingTrace/Enabled/` now includes decode-release events.
+`WebRTC-CompositorTimingTrace/Enabled/` records decoded enqueue and actual frame
+selection. `WebRTC-AudioFifoTrace/Enabled/` records Web Audio FIFO underruns and
+overruns without changing its buffer or output. First-packet timing samples are
+an optional experiment, enabled with both
+`WebRTC-RetransmittedTimingSamples/Enabled/` and
+`WebRTC-FirstPacketTimingSamples/Enabled/`.
+
+Analyze a single browser's trace and measured presentation capture:
+
+```sh
+python3 scripts/analyze-compositor-timing.py chromium.log presentation-records.json --fps 60
+python3 scripts/analyze-receiver-timing-log.py chromium.log
+```
+
+The compositor analyzer reports full-run and measured-window omissions separately.
+It requires one timing object and compositor in the input log rather than joining
+unrelated processes. The timing analyzer also recognizes native Firefox process
+prefixes; malformed/truncated records remain failures.
+
+The source-clock cadence experiment and actual Chromium renderer probe are opt-in:
+
+```sh
+python3 tests/webrtc-timing-probe/browser-cadence-patch.py /path/to/chromium/src
+python3 tests/webrtc-timing-probe/prepare-renderer-probe.py /path/to/chromium/src
+# In the Chromium source root, using the existing diagnostic GN arguments:
+buildtools/linux64/gn gen out/ReceiverTiming
+autoninja -C out/ReceiverTiming -j4 headless_shell renderer_probe
+out/ReceiverTiming/renderer_probe reference
+out/ReceiverTiming/renderer_probe rtp
+out/ReceiverTiming/renderer_probe rtp wrap
+```
+
+`WebRTC-RtpCadenceSamples/Enabled/` changes the duration estimator's samples for
+frames carrying forward RTP timestamps; renderer drift limits and cadence-switch
+thresholds are unchanged. The probe links Chromium's real renderer algorithm and
+simulates precise source clocks with small reference-time corrections. Its result
+must be distinguished from codec, network and GPU integration validation.
+
+## Native Firefox build
+
+Use the official Firefox **146.0.1** source archive and verify its SHA512 against
+Mozilla's release checksums before extracting. `firefox-patch.py` additionally
+checks the source version and `sourcestamp.txt` revision before applying the shared
+timing instrumentation and Firefox-specific diagnostic trial adapter.
+
+```sh
+python3 tests/webrtc-timing-probe/firefox-patch.py /path/to/firefox-146.0.1
+# In the Firefox source root:
+MOZBUILD_STATE_PATH=/path/to/isolated-mozbuild ./mach --no-interactive bootstrap --application-choice browser
+```
+
+The tested `.mozconfig` uses `--enable-application=browser`, `--disable-debug`,
+`--enable-optimize`, `--disable-debug-symbols`, `--disable-tests`,
+`--disable-updater`, and `MOZ_MAKE_FLAGS=-j4`. Rust 1.83.0 matches the source tree's
+Linux toolchain configuration. Do not compile browsers during performance runs.
+
+Native automation uses Selenium 4.35.0 and geckodriver 0.36.0, without a Juggler
+patch. Install its optional Python dependencies in an isolated virtual environment:
+
+```sh
+python3 -m venv /path/to/firefox-driver-venv
+/path/to/firefox-driver-venv/bin/pip install -r tests/webrtc-timing-probe/firefox-requirements.txt
+export VDONINJA_VIEWER_ICE_SERVERS_JSON='[{"urls":"turn:PRIVATE_RELAY:3478","username":"TEST_USER","credential":"TEST_PASSWORD"}]'
+export MOZ_GMP_PATH=/path/to/gmp-gmpopenh264/2.6.0
+export VDONINJA_FIREFOX_TIMING_TRACE=1
+/path/to/firefox-driver-venv/bin/python scripts/browser-native-firefox-timing.py \
+  'VIEWER_URL_FOR_RUNNING_TEST_PUBLISHER' artifacts/native-firefox \
+  --browser /path/to/obj-receiver-timing/dist/bin/firefox --driver /path/to/geckodriver
+```
+
+Set `VDONINJA_FIREFOX_TIMING_SAMPLES=all` for continuous-sample comparisons;
+leave it unset for the default receiver. `--reloads 1` records both rounds in
+separate files. The driver requires H.264 and relay evidence, preserves strict
+presentation/video/audio analyzers, and reports missing decoded-pixel/raw-audio
+coverage. Native logs close after explicit peer shutdown so trailing events can
+flush before WebDriver terminates the content processes.
