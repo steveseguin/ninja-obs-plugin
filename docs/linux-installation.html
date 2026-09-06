@@ -1,0 +1,309 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="description" content="Install the VDO.Ninja OBS plugin on Ubuntu Linux. Check native, Snap and Flatpak installations, diagnose plugin load errors, and uninstall safely."><title>Linux installation and troubleshooting | OBS Plugin for VDO.Ninja</title><style>
+      :root {
+        --ink-strong: #10131a;
+        --ink: #1c2431;
+        --muted: #5f7289;
+        --card: #ffffff;
+        --line: #d9e3ef;
+        --accent: #00a596;
+        --accent-strong: #00786d;
+        --accent-soft: #e7faf8;
+        --warning-soft: #fff7e6;
+        --warning-line: #f0c36c;
+        --radius: 16px;
+        --shadow: 0 12px 40px rgba(5, 24, 43, 0.09);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html {
+        scroll-behavior: smooth;
+      }
+
+      body {
+        margin: 0;
+        font-family: "Outfit", "Segoe UI", sans-serif;
+        color: var(--ink);
+        background:
+          radial-gradient(circle at 5% 0%, #d5f4ef 0%, transparent 40%),
+          radial-gradient(circle at 95% 10%, #d9e9ff 0%, transparent 45%),
+          linear-gradient(180deg, #f5f8fd 0%, #eff4fb 100%);
+      }
+
+      a {
+        color: #0d6a9e;
+      }
+
+      .wrap {
+        width: min(920px, 92vw);
+        margin: 0 auto;
+      }
+
+      header {
+        padding: 20px 0;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+      }
+
+      .brand {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        color: var(--ink-strong);
+        font-weight: 700;
+        text-decoration: none;
+      }
+
+      .brand img {
+        width: 28px;
+        height: 28px;
+        object-fit: contain;
+        border-radius: 7px;
+        box-shadow: 0 0 0 5px rgba(0, 165, 150, 0.14);
+      }
+
+      .nav {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+      }
+
+      .nav a {
+        color: var(--ink);
+        text-decoration: none;
+        border: 1px solid var(--line);
+        background: rgba(255, 255, 255, 0.7);
+        padding: 8px 12px;
+        border-radius: 999px;
+      }
+
+      main {
+        display: grid;
+        gap: 14px;
+        padding-bottom: 34px;
+      }
+
+      .hero,
+      .section {
+        background: var(--card);
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        padding: clamp(18px, 4vw, 30px);
+        box-shadow: var(--shadow);
+      }
+
+      .eyebrow {
+        margin: 0;
+        color: var(--accent-strong);
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        font-size: 0.76rem;
+        font-weight: 700;
+      }
+
+      h1 {
+        margin: 10px 0 10px;
+        color: var(--ink-strong);
+        font-size: clamp(2rem, 6vw, 3.2rem);
+        line-height: 1.06;
+      }
+
+      h2 {
+        margin: 0 0 12px;
+        color: var(--ink-strong);
+        font-size: 1.3rem;
+      }
+
+      h3 {
+        margin: 18px 0 8px;
+        color: var(--ink-strong);
+        font-size: 1.05rem;
+      }
+
+      p {
+        line-height: 1.55;
+      }
+
+      .lede {
+        margin: 0;
+        color: var(--muted);
+        max-width: 68ch;
+        font-size: 1.08rem;
+      }
+
+      .answer {
+        margin-top: 20px;
+        padding: 14px 16px;
+        border: 1px solid #bdebe5;
+        border-radius: 12px;
+        background: var(--accent-soft);
+      }
+
+      .warning {
+        padding: 14px 16px;
+        border: 1px solid var(--warning-line);
+        border-radius: 12px;
+        background: var(--warning-soft);
+      }
+
+      .flow {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 10px;
+        margin-top: 16px;
+      }
+
+      .card {
+        padding: 14px;
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        background: #fbfdff;
+      }
+
+      .card strong {
+        display: block;
+        margin-bottom: 6px;
+      }
+
+      ol,
+      ul {
+        margin: 0;
+        padding-left: 1.3rem;
+        color: var(--muted);
+      }
+
+      li {
+        line-height: 1.5;
+      }
+
+      li + li {
+        margin-top: 8px;
+      }
+
+      code {
+        font-family: "JetBrains Mono", monospace;
+        font-size: 0.86em;
+        color: #133a36;
+        background: #eaf6f3;
+        border: 1px solid #c8e7e2;
+        border-radius: 6px;
+        padding: 2px 6px;
+      }
+
+      pre {
+        margin: 10px 0 0;
+        padding: 12px;
+        overflow-x: auto;
+        color: #d8ebff;
+        background: #0f1724;
+        border-radius: 12px;
+      }
+
+      pre code {
+        color: inherit;
+        background: transparent;
+        border: 0;
+        padding: 0;
+      }
+
+      footer {
+        padding: 2px 0 34px;
+        color: #6f8298;
+        font-size: 0.92rem;
+      }
+
+      @media (max-width: 760px) {
+        header {
+          align-items: flex-start;
+          flex-direction: column;
+        }
+
+        .nav {
+          justify-content: flex-start;
+        }
+
+        .flow {
+          grid-template-columns: 1fr;
+        }
+      }
+    figure{margin:24px 0}figure img{display:block;width:100%;height:auto;border-radius:8px;border:1px solid var(--line)}figcaption{font-size:.9rem;color:var(--muted);line-height:1.5;margin-top:8px}.table-wrap{overflow-x:auto}table{width:100%;border-collapse:collapse}th,td{text-align:left;vertical-align:top;padding:12px;border-bottom:1px solid var(--line);line-height:1.5}th{background:var(--accent-soft)}details{margin-top:18px;padding:14px;border:1px solid var(--line);border-radius:10px}summary{cursor:pointer;font-weight:700}section{scroll-margin-top:18px}a:focus-visible,summary:focus-visible{outline:3px solid var(--accent-strong);outline-offset:4px}p,li,td{overflow-wrap:anywhere}pre code{overflow-wrap:normal}</style></head><body><div class="wrap"><header><a class="brand" href="index.html">OBS Plugin for VDO.Ninja</a><nav class="nav" aria-label="Main"><a href="index.html">Home</a><a href="https://github.com/steveseguin/ninja-obs-plugin/releases/latest">Downloads</a></nav></header>
+<main>
+<section class="hero">
+<p class="eyebrow">Linux help · Updated September 6, 2026</p>
+<h1>Install VDO.Ninja in OBS on Linux</h1>
+<p class="lede">A step-by-step guide for Ubuntu users, including what to do when OBS says the plugin failed to load.</p>
+<div class="answer"><strong>Supported package:</strong> the current Linux download targets <strong>native x86-64 OBS 32.2.x on Ubuntu 24.04</strong>. Snap and Flatpak installations use different environments; our archive’s installer does not support them.</div>
+<p>Already seeing an error? Start with <a href="#load-error">“Plugin failed to load”</a>. You do not need to reinstall OBS or upgrade Ubuntu to collect the information we need.</p>
+<nav aria-label="On this page"><ul><li><a href="#identify">1. Identify your OBS installation</a></li><li><a href="#install">2. Install the plugin</a></li><li><a href="#verify">3. Check that it loaded</a></li><li><a href="#load-error">Troubleshoot a load error</a></li><li><a href="#uninstall">Uninstall safely</a></li><li><a href="#support">Send a useful support report</a></li></ul></nav>
+</section>
+<section class="section" id="identify"><h2>1. Identify your OBS installation</h2>
+<p>Open OBS and choose <strong>Help → About</strong> to see its version. The version number alone does not tell you whether it is native, Snap or Flatpak.</p>
+<div class="table-wrap"><table><thead><tr><th>Installation</th><th>What to do</th></tr></thead><tbody><tr><td>Native Ubuntu package / OBS PPA</td><td>Continue if OBS is 32.2.x and your computer is x86-64.</td></tr><tr><td>Snap from Ubuntu App Center</td><td>Do not use this archive as a Snap plugin installer. See <a href="#snap">Snap and duplicate shortcuts</a>.</td></tr><tr><td>Flatpak / Flathub</td><td>This archive is not a Flatpak package. Switching to Flatpak alone does not make it compatible.</td></tr><tr><td>Another distribution or ARM computer</td><td>Do not assume this Ubuntu x86-64 binary will work. Consult the <a href="https://github.com/steveseguin/ninja-obs-plugin/blob/main/INSTALL.md">installation reference</a> for other packaging/build options.</td></tr></tbody></table></div>
+<h3>Check from Terminal</h3>
+<p>Press <strong>Ctrl+Alt+T</strong> on Ubuntu. Copy only the lines inside the box, without a terminal prompt such as <code>$</code>. These commands only display information. “Not found” or “not installed” is useful information too.</p>
+<pre><code>uname -m
+type -a obs obs-studio
+obs --version
+snap list obs-studio
+flatpak info com.obsproject.Studio</code></pre>
+<p>For this download, look for <code>x86_64</code> and OBS <code>32.2.x</code>. A path under <code>/snap/</code> indicates Snap. If several installations appear, use the <a href="#running">running-process check below</a> to identify the one you actually opened.</p>
+<details><summary>I need to install native OBS on Ubuntu</summary>
+<p>The <a href="https://obsproject.com/kb/linux-installation">OBS Project provides an Ubuntu PPA</a>. These commands add that software source and install OBS; they change your system and require your Ubuntu password.</p>
+<pre><code>sudo add-apt-repository ppa:obsproject/obs-studio
+sudo apt update
+sudo apt install obs-studio
+obs --version</code></pre>
+<p>Verify the resulting version before installing the plugin: a PPA may offer a newer version over time. Ubuntu 24.04’s stock OBS 30.0.2 is too old for this archive. If OBS itself will not launch, run <code>obs</code> in Terminal and share the error before adding the plugin. Do not repeatedly remove your OBS configuration.</p>
+</details></section>
+<section class="section" id="install"><h2>2. Download and install</h2>
+<ol><li>Close OBS.</li><li>Open the <a href="https://github.com/steveseguin/ninja-obs-plugin/releases/latest">latest release</a>. Under Assets, download <strong>obs-vdoninja-linux-x86_64.tar.gz</strong>. This is the Linux archive.</li><li>In Files, right-click the download and choose <strong>Extract</strong> or <strong>Extract Here</strong>. Open the extracted folder containing <code>install.sh</code> and <code>uninstall.sh</code>.</li><li>Right-click an empty area in that folder and choose <strong>Open in Terminal</strong>. Run the commands below.</li></ol>
+<pre><code>chmod +x install.sh
+sudo ./install.sh</code></pre>
+<p><code>sudo</code> asks for your Ubuntu login password. Terminal normally shows no dots or characters as you type it; press Enter when finished. This installs for the system. Keep the extracted folder so you can run its uninstaller later.</p>
+<p>The installer checks OBS compatibility and missing libraries before copying files. If it stops with an error, save that message and resolve it first. Keep the archive’s files together: the private <code>obs-vdoninja/</code> runtime directory is required alongside <code>obs-vdoninja.so</code>.</p>
+<details><summary>Optional: install only for my Linux user account</summary><p>Run <code>./install.sh</code> without <code>sudo</code> instead. This normally installs in <code>~/.config/obs-studio/plugins/obs-vdoninja/</code>. If you use a custom <code>XDG_CONFIG_HOME</code>, the installer uses that configuration directory. Use the same account and environment when uninstalling. Choose one scope to avoid duplicate copies.</p></details>
+</section>
+<section class="section" id="verify"><h2>3. Check that the plugin loaded</h2>
+<ol><li>Start the native OBS installation you checked above.</li><li>Open <strong>Settings → Stream</strong> and look for <strong>VDO.Ninja</strong> in the Service list (use <strong>Show All</strong> if needed).</li><li>Look for <strong>Tools → VDO.Ninja Studio</strong>. Continue with the <a href="index.html#quick-start">streaming quick start</a>.</li></ol>
+<p>If the plugin is absent or OBS displays a load warning, collect the current log below. An empty plugin-manager list alone does not prove that no plugin files remain on disk.</p></section>
+<section class="section" id="load-error"><h2>“The following OBS plug-ins failed to load: obs-vdoninja”</h2>
+<p>This message means OBS encountered a plugin it could not load. It does not tell us whether the cause is an incompatible OBS version, a missing library, or a leftover copy in another installation location.</p>
+<h3>Get the log from the OBS instance showing the warning</h3>
+<ol><li>Dismiss the warning and keep that OBS window open.</li><li>Choose <strong>Help → Log Files → View Current Log</strong>. Look for <code>obs-vdoninja</code> and nearby errors.</li><li>For support, choose <strong>Help → Log Files → Upload Current Log File</strong> and copy the resulting link. Review the log before sharing; it may include your username, file paths and device details. You can instead share the relevant error lines with personal details removed.</li></ol>
+<figure><a href="assets/linux/obs-log-menu.png"><img src="assets/linux/obs-log-menu.png" width="900" height="300" loading="lazy" alt="OBS Help menu with Log Files expanded, showing View Current Log and Upload Current Log File." /></a><figcaption>Actual native OBS 32.2.2 on Linux, using a clean profile. Open Help → Log Files; menu appearance can vary with your theme. Select the image to enlarge it.</figcaption></figure>
+<h3 id="running">Confirm which OBS executable is running</h3>
+<p>While the affected OBS window is open, paste this entire block into Terminal. It only reads process information; it does not stop or change OBS.</p>
+<pre><code>for p in $(pgrep -x obs); do
+  printf 'OBS process %s: ' "$p"
+  readlink -f "/proc/$p/exe"
+done</code></pre>
+<p>Share every line if several processes appear. If it prints nothing, say so. The running path is more useful than guessing from an icon.</p>
+<h3 id="snap">Snap and duplicate shortcuts</h3>
+<p>A launcher containing <code>Exec=obs</code> and another containing <code>Exec=/snap/bin/obs-studio</code> can open different installations. They are shortcuts, however: their existence alone does not establish that two OBS binaries are installed or that Snap is broken. Our plugin installer does not use or create these desktop shortcuts.</p>
+<p>Snap keeps application files and settings in its own environment. Its plugin locations can differ from native OBS and between packaging revisions. The <a href="https://snapcraft.io/obs-studio">Snap package documents third-party plugin support</a>, but that does not establish compatibility with our native binary. We have not validated this archive inside Snap. Do not manually copy it into Snap as a presumed fix.</p>
+<p>If you installed using one OBS environment and launched another, an install or uninstall may affect the wrong copy. Send the log and running path before deleting launchers or configuration folders.</p>
+<h3>Common clues in the log</h3><ul><li><strong>Incompatible module / OBS version:</strong> compare the actual running OBS version with the release’s supported version.</li><li><strong>Library “not found”:</strong> include the exact library name. Re-extract the complete archive if files were moved separately; do not download random shared libraries.</li><li><strong>Warning after uninstall:</strong> check the installation scope and remaining plugin path. A different copy may still be discovered. This is distinct from a scene referencing a removed VDO.Ninja source.</li></ul>
+</section>
+<section class="section" id="uninstall"><h2>Uninstall from the same location</h2>
+<p>Close OBS. Open Terminal in the extracted Linux archive folder containing <code>uninstall.sh</code>. Use the command matching how you installed.</p>
+<h3>Installed with sudo (system-wide)</h3><pre><code>chmod +x uninstall.sh
+sudo ./uninstall.sh</code></pre>
+<h3>Installed without sudo (your account only)</h3><pre><code>chmod +x uninstall.sh
+./uninstall.sh</code></pre>
+<p>If you previously installed both ways, run both uninstall commands. A per-user uninstall must use the same Linux account and any custom <code>XDG_CONFIG_HOME</code> as the installation. The system uninstaller checks both <code>/usr</code> and <code>/usr/local</code> plugin locations. Neither mode cleans Snap’s private plugin directories.</p>
+<p>The default uninstall preserves plugin resources. The optional <code>--remove-data</code> flag also removes the plugin’s installed resource files; it is not a solution for another binary left elsewhere. Do not delete your complete OBS settings, scenes or profiles to address a plugin-load warning.</p>
+<p><strong>Warning still there?</strong> Stop reinstalling and send a <a href="#support">support report</a>. An “Uninstall complete” message does not prove that every copy in every OBS environment was removed.</p>
+</section>
+<section class="section" id="support"><h2>Send a useful support report</h2>
+<p>Post in your existing support conversation or open a <a href="https://github.com/steveseguin/ninja-obs-plugin/issues">GitHub issue</a>. Please include:</p>
+<ul><li>The current OBS log link, or the plugin’s error lines and nearby context.</li><li>Your Ubuntu/Linux version and OBS version.</li><li>The output of the read-only commands in this guide, including the running executable path.</li><li>The plugin release number and downloaded filename.</li><li>Whether you ran the installer and uninstaller with <code>sudo</code>, without it, or both.</li></ul>
+<p>You do not need to reproduce streaming or packet-loss problems to diagnose a plugin that fails to load. If a leftover file is identified, we can help move that specific copy aside reversibly while preserving your OBS setup.</p>
+<p class="warning">These instructions describe the Linux archive reviewed at <strong>v1.1.67</strong>. Check the release notes for changes to supported OBS versions. Native installation checks do not constitute Snap or Flatpak runtime validation.</p>
+<p>More detail: <a href="https://github.com/steveseguin/ninja-obs-plugin/blob/main/INSTALL.md#install-linux">installation reference</a> · <a href="https://github.com/steveseguin/ninja-obs-plugin/blob/main/docs/obs-compatibility-and-release-validation.md">compatibility and validation</a>.</p>
+</section></main><footer>OBS Plugin for VDO.Ninja · <a href="index.html">Back to the plugin site</a></footer></div></body></html>

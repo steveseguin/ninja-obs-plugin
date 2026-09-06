@@ -150,6 +150,32 @@ find_plugin_bundle_in_payload() {
   find "$expanded/Payload" -maxdepth 8 -path "*/obs-vdoninja.plugin" -type d 2>/dev/null | head -1
 }
 
+# OBS 32.2 requires macOS 13. Bundled dependencies must not silently raise it.
+check_macos_deployment_target() {
+  local binary="$1"
+  local versions version
+  versions="$(otool -l "$binary" | awk '
+    /cmd LC_VERSION_MIN_MACOSX/ { legacy = 1 }
+    $1 == "minos" || (legacy && $1 == "version") { print $2; legacy = 0 }
+  ')"
+  if [[ -z "$versions" ]]; then
+    fail "Missing macOS deployment target: $binary"
+    return
+  fi
+  while IFS= read -r version; do
+    if awk -v version="$version" 'BEGIN {
+      split(version, v, "."); split("13.0", baseline, ".")
+      for (i = 1; i <= 3; i++) {
+        if (v[i] + 0 > baseline[i] + 0) exit 0
+        if (v[i] + 0 < baseline[i] + 0) exit 1
+      }
+      exit 1
+    }'; then
+      fail "$(basename "$binary") requires macOS $version; OBS 32.2 supports macOS 13.0"
+    fi
+  done <<< "$versions"
+}
+
 inspect_plugin_bundle() {
   local bundle="$1"
   local label="$2"
@@ -247,6 +273,11 @@ inspect_plugin_bundle() {
         ;;
     esac
   done < <(otool -L "$binary" | awk 'NR > 1 {print $1}')
+
+  local code_file
+  while IFS= read -r code_file; do
+    check_macos_deployment_target "$code_file"
+  done < <(find "$bundle/Contents/MacOS" -maxdepth 1 -type f \( -name 'obs-vdoninja' -o -name '*.dylib' \))
 
   for dep in libdatachannel.0.dylib libssl.3.dylib libcrypto.3.dylib; do
     if [[ -f "$bundle/Contents/MacOS/$dep" ]]; then

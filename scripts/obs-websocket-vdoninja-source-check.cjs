@@ -374,13 +374,19 @@ class ObsWebSocketClient {
         try {
           const message = JSON.parse(event.data.toString());
           if (message.op === 0) {
+            const identify = { rpcVersion: 1, eventSubscriptions: this.eventSubscriptions };
+            if (message.d && message.d.authentication) {
+              const password = process.env.OBS_WEBSOCKET_PASSWORD;
+              if (!password) throw new Error("Set OBS_WEBSOCKET_PASSWORD for this OBS server");
+              const secret = crypto.createHash("sha256")
+                .update(password + message.d.authentication.salt, "utf8").digest("base64");
+              identify.authentication = crypto.createHash("sha256")
+                .update(secret + message.d.authentication.challenge, "utf8").digest("base64");
+            }
             socket.send(
               JSON.stringify({
                 op: 1,
-                d: {
-                  rpcVersion: 1,
-                  eventSubscriptions: this.eventSubscriptions,
-                },
+                d: identify,
               })
             );
             return;
@@ -2024,6 +2030,9 @@ async function main() {
         }
       }
       screenshot = screenshots[0] || null;
+    } else if (checkAudioMeter) {
+      logStep(`waiting ${waitMs}ms for source audio`);
+      await sleep(waitMs);
     }
     perturbResult = await waitForPerturbCommand(perturb, perturbTimeoutMs);
     if (perturbResult && requirePerturbCommand &&
@@ -2273,6 +2282,7 @@ if (require.main === module) {
 }
 
 module.exports = {
+  ObsWebSocketClient,
   analyzeAlphaComposite,
   analyzeAlphaCompositeImages,
   analyzeAlphaCompositeSequence,

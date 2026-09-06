@@ -2,7 +2,22 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const {
   analyzeVideoContinuity,
+  hasDecodedVideoProgress,
 } = require("./tools/video-continuity-analysis.cjs");
+
+test("a cached first picture cannot satisfy decoded-video warmup", () => {
+  assert.equal(hasDecodedVideoProgress(snapshot(0, 1), snapshot(2000, 1), 30), false);
+  assert.equal(hasDecodedVideoProgress(snapshot(0, 1), snapshot(2000, 2), 30), false);
+  assert.equal(hasDecodedVideoProgress(snapshot(0, 1), snapshot(2000, 31), 30), true);
+});
+
+test("received packets and a decoder counter reset cannot satisfy warmup", () => {
+  assert.equal(
+    hasDecodedVideoProgress(snapshot(0, 10), snapshot(2000, 100, { framesDecoded: 10 }), 30),
+    false,
+  );
+  assert.equal(hasDecodedVideoProgress(snapshot(0, 100), snapshot(2000, 1), 30), false);
+});
 
 function snapshot(timestamp, frames, options = {}) {
   return {
@@ -130,4 +145,20 @@ test("packet loss, dropped frames, freezes, and excessive jitter fail", () => {
   assert.match(result.failures.join(" "), /lost/);
   assert.match(result.failures.join(" "), /freeze/);
   assert.match(result.failures.join(" "), /RTP jitter/);
+});
+
+
+test("negative loss counters retain the strict delta failure and their diagnostic range", () => {
+  const result = analyzeVideoContinuity([
+    snapshot(0, 0, { packetsLost: -8 }),
+    snapshot(1000, 30, { packetsLost: 2 }),
+    snapshot(2000, 60, { packetsLost: -7 }),
+  ]);
+  assert.equal(result.ok, false);
+  assert.equal(result.packetsLost, 1);
+  assert.equal(result.packetLossCounter.minimum, -8);
+  assert.equal(result.packetLossCounter.maximum, 2);
+  assert.equal(result.packetLossCounter.negativeSamples, 2);
+  assert.equal(result.packetLossCounter.decreasingIntervals, 1);
+  assert.match(result.failures.join(" "), /reported lost-packet counter/);
 });

@@ -74,13 +74,15 @@ class LinuxPackageTests(unittest.TestCase):
                              'unsigned obs_module_ver(void) { return 0x20020000; }',
                        text=True, check=True)
 
-    def run_script(self, script, *args, user=False, success=True):
+    def run_script(self, script, *args, user=False, success=True, extra_env=None):
         command = ['chroot']
         if user:
             command += ['--userspec=1000:1000']
         command += [str(self.root), '/usr/bin/bash', '/package/' + script, *args]
-        result = subprocess.run(command, text=True, capture_output=True,
-                                env={**os.environ, 'LC_ALL': 'C'})
+        env = {**os.environ, 'LC_ALL': 'C'}
+        env.pop('XDG_CONFIG_HOME', None)
+        env.update(extra_env or {})
+        result = subprocess.run(command, text=True, capture_output=True, env=env)
         if success:
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         else:
@@ -130,6 +132,31 @@ class LinuxPackageTests(unittest.TestCase):
         self.assertTrue((multiarch / 'obs-vdoninja.so').exists())
         self.assertFalse((plain / 'obs-vdoninja.so').exists())
 
+    def test_selected_obs_library_controls_system_prefix(self):
+        self.fixture()
+        for prefix in ('usr', 'usr/local'):
+            (self.root / prefix / 'lib/x86_64-linux-gnu/obs-plugins').mkdir(parents=True)
+        for prefix in ('usr/local', 'usr'):
+            with self.subTest(prefix=prefix):
+                libdir = self.root / prefix / 'lib/x86_64-linux-gnu'
+                subprocess.run(['cc', '-shared', '-fPIC', '-x', 'c', '-', '-o',
+                                str(libdir / 'libobs.so.30'), '-Wl,-soname,libobs.so.30'],
+                               input='int obs_fixture(void) { return 0; }', text=True, check=True)
+                subprocess.run(['cc', '-x', 'c', '-', '-o', str(self.root / 'usr/bin/obs'),
+                                '-L' + str(libdir), '-l:libobs.so.30',
+                                '-Wl,-rpath,/' + prefix + '/lib/x86_64-linux-gnu'],
+                               input='#include <stdio.h>\nextern int obs_fixture(void);\n'
+                                     'int main(void) { puts("OBS Studio - 32.2.2"); return obs_fixture(); }',
+                               text=True, check=True)
+                self.run_script('install.sh')
+                self.assertTrue((libdir / 'obs-plugins/obs-vdoninja.so').exists())
+                data = self.root / prefix / 'share/obs/obs-plugins/obs-vdoninja'
+                self.assertTrue((data / 'sentinel.txt').exists())
+                self.run_script('uninstall.sh', '--remove-data')
+                self.assertFalse((libdir / 'obs-plugins/obs-vdoninja.so').exists())
+                self.assertFalse((libdir / 'obs-plugins/obs-vdoninja').exists())
+                self.assertFalse(data.exists())
+
     def test_linux_and_release_obs_baselines_match(self):
         release = (REPO / '.github/workflows/build.yml').read_text()
         linux = (REPO / '.github/workflows/linux.yml').read_text()
@@ -152,6 +179,22 @@ class LinuxPackageTests(unittest.TestCase):
         self.run_script('uninstall.sh', '--remove-data', user=True)
         self.assertFalse((dst / 'bin/64bit/obs-vdoninja.so').exists())
         self.assertFalse((dst / 'bin/64bit/obs-vdoninja').exists())
+        self.assertFalse((dst / 'data').exists())
+
+    def test_per_user_xdg_config_round_trip(self):
+        self.fixture()
+        config = self.root / 'custom config'
+        config.mkdir()
+        os.chown(config, 1000, 1000)
+        env = {'XDG_CONFIG_HOME': '/custom config'}
+        self.run_script('install.sh', user=True, extra_env=env)
+        dst = config / 'obs-studio/plugins/obs-vdoninja'
+        self.assertTrue((dst / 'bin/64bit/obs-vdoninja.so').exists())
+        self.run_script('uninstall.sh', user=True, extra_env=env)
+        self.assertFalse((dst / 'bin/64bit/obs-vdoninja.so').exists())
+        self.assertFalse((dst / 'bin/64bit/obs-vdoninja').exists())
+        self.assertTrue((dst / 'data/sentinel.txt').exists())
+        self.run_script('uninstall.sh', '--remove-data', user=True, extra_env=env)
         self.assertFalse((dst / 'data').exists())
 
     def test_missing_dependency_fails_before_copying(self):

@@ -27,7 +27,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake build-essential libssl-dev locales
+          sudo apt-get install -y cmake build-essential libssl-dev locales ffmpeg
           sudo localedef -i en_US -f ISO-8859-1 en_US.ISO8859-1
 
       - name: Configure CMake (tests only)
@@ -41,6 +41,27 @@ jobs:
 
       - name: Run tests
         run: ctest --test-dir build --output-on-failure
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Validate macOS dependency deployment targets
+        run: bash tests/test-macos-deployment-target.sh
+
+      - name: Validate E2E performance measurements
+        run: |
+          node --test tests/test-obs-performance.cjs tests/test-video-continuity.cjs tests/test-audio-continuity.cjs tests/test-presentation-continuity.cjs tests/test-udp-loss-proxy.cjs tests/test-rtc-timing-probes.cjs tests/test-application-diagnostics.cjs
+          node --test tests/test-recorded-sequence.cjs
+          node --test tests/test-capture-boundary.cjs tests/test-publish-encoder-mode.cjs
+          node --test tests/test-viewer-stats.cjs tests/test-audio-sink-coverage.cjs tests/test-audio-capture-worklet.cjs tests/test-raw-audio-capture-worker.cjs
+          python3 tests/test-rtp-pcap.py
+          python3 tests/test-rtp-timing-analysis.py
+          python3 tests/test-receiver-timing-log.py
+          python3 tests/test-receiver-buffer-sync.py
+          python3 tests/test-av-playout.py
+          python3 tests/test-compositor-timing.py
+          python3 tests/test-firefox-compositor.py
+          python3 tests/test-decode-scheduler.py
 
   # Run the same suite under AddressSanitizer and UndefinedBehaviorSanitizer.
   # The suite includes byte-level fuzzers for VP9/H.264 payload parsing, RTCP

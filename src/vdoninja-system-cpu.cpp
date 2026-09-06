@@ -52,8 +52,10 @@ std::optional<SystemCpuTimes> readSystemCpuTimes()
 	natural_t cpuCount = 0;
 	processor_info_array_t cpuInfo = nullptr;
 	mach_msg_type_number_t cpuInfoCount = 0;
-	const kern_return_t result =
-	    host_processor_info(mach_host_self(), PROCESSOR_CPU_LOAD_INFO, &cpuCount, &cpuInfo, &cpuInfoCount);
+	const mach_port_t host = mach_host_self();
+	const kern_return_t result = host_processor_info(host, PROCESSOR_CPU_LOAD_INFO, &cpuCount, &cpuInfo, &cpuInfoCount);
+	// mach_host_self acquires a send-right reference on every sample.
+	mach_port_deallocate(mach_task_self(), host);
 	if (result != KERN_SUCCESS || !cpuInfo) {
 		return std::nullopt;
 	}

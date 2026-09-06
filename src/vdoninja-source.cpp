@@ -286,97 +286,6 @@ bool configureVideoHardwareDecoder(AVCodecContext *decoderContext, const AVCodec
 	return false;
 }
 
-struct RtpPayloadView {
-	size_t offset = 0;
-	size_t size = 0;
-	uint8_t payloadType = 0;
-};
-
-std::optional<RtpPayloadView> parseRtpPayloadView(const uint8_t *packetData, size_t packetSize)
-{
-	if (!packetData || packetSize < 12) {
-		return std::nullopt;
-	}
-
-	const uint8_t version = static_cast<uint8_t>((packetData[0] >> 6) & 0x03);
-	if (version != 2) {
-		return std::nullopt;
-	}
-
-	// With RTP/RTCP mux enabled, track callbacks can surface RTCP control packets
-	// alongside media packets. RTCP packet types occupy the raw second-octet range
-	// 192-223, while our RTP payload types are dynamic values outside that band.
-	const uint8_t rawPacketType = packetData[1];
-	if (rawPacketType >= 192 && rawPacketType <= 223) {
-		return std::nullopt;
-	}
-
-	const bool hasPadding = (packetData[0] & 0x20) != 0;
-	const bool hasExtension = (packetData[0] & 0x10) != 0;
-	const size_t csrcCount = static_cast<size_t>(packetData[0] & 0x0F);
-	const uint8_t payloadType = static_cast<uint8_t>(packetData[1] & 0x7F);
-
-	size_t headerSize = 12 + (csrcCount * 4);
-	if (headerSize > packetSize) {
-		return std::nullopt;
-	}
-
-	if (hasExtension) {
-		if (headerSize + 4 > packetSize) {
-			return std::nullopt;
-		}
-		const size_t extensionWords = static_cast<size_t>((static_cast<uint16_t>(packetData[headerSize + 2]) << 8) |
-		                                                  static_cast<uint16_t>(packetData[headerSize + 3]));
-		headerSize += 4 + (extensionWords * 4);
-		if (headerSize > packetSize) {
-			return std::nullopt;
-		}
-	}
-
-	size_t payloadSize = packetSize - headerSize;
-	if (hasPadding) {
-		const uint8_t paddingSize = packetData[packetSize - 1];
-		if (paddingSize == 0 || paddingSize > payloadSize) {
-			return std::nullopt;
-		}
-		payloadSize -= paddingSize;
-	}
-
-	if (payloadSize == 0) {
-		return std::nullopt;
-	}
-
-	return RtpPayloadView{headerSize, payloadSize, payloadType};
-}
-
-std::optional<std::vector<uint8_t>> extractRedPrimaryPayload(const uint8_t *payload, size_t payloadSize)
-{
-	if (!payload || payloadSize < 2) {
-		return std::nullopt;
-	}
-
-	size_t index = 0;
-	while (index < payloadSize) {
-		const uint8_t blockHeader = payload[index];
-		if ((blockHeader & 0x80) == 0) {
-			++index;
-			if (index >= payloadSize) {
-				return std::nullopt;
-			}
-			std::vector<uint8_t> primary(payloadSize - index);
-			std::memcpy(primary.data(), payload + index, primary.size());
-			return primary;
-		}
-
-		if (index + 4 > payloadSize) {
-			return std::nullopt;
-		}
-		index += 4;
-	}
-
-	return std::nullopt;
-}
-
 bool mediaDescriptionHasCodec(const rtc::Description::Media &description, const std::string &codecName,
                               int *clockRate = nullptr, int *channels = nullptr)
 {
@@ -579,15 +488,15 @@ public:
 				continue;
 			}
 
-			const size_t headerSize = rtpHeader->getSize() + rtpHeader->getExtensionHeaderSize();
-			if (message->size() < headerSize + sizeof(uint16_t)) {
+			const auto normalizedSize =
+			    normalizeRtxPacket(reinterpret_cast<uint8_t *>(message->data()), message->size(), rtxIt->second);
+			if (!normalizedSize) {
+				message.reset();
 				continue;
 			}
-
-			auto *rtxPacket = reinterpret_cast<rtc::RtpRtx *>(message->data());
-			const size_t normalizedSize = rtxPacket->normalizePacket(message->size(), rtpHeader->ssrc(), rtxIt->second);
-			message->resize(normalizedSize);
+			message->resize(*normalizedSize);
 		}
+		messages.erase(std::remove(messages.begin(), messages.end(), nullptr), messages.end());
 		rtc::MediaHandler::incoming(messages, send);
 	}
 
@@ -4181,9 +4090,7 @@ void VDONinjaSource::resetAudioDecoder()
 	audioResampleInputFormat_ = -1;
 	audioResampleInputRate_ = 0;
 	audioResampleInputChannels_ = 0;
-	audioTimingInitialized_ = false;
-	audioBaseRtpTimestamp_ = 0;
-	audioBaseTimestampNs_ = 0;
+	audioTimestampMapper_.reset();
 	lastAudioTimestampNs_ = 0;
 }
 
@@ -4763,16 +4670,9 @@ uint64_t VDONinjaSource::mapAudioTimestamp(uint32_t rtpTimestamp)
 {
 	const uint64_t now = os_gettime_ns();
 	const uint32_t clockRate = audioSampleRate_ > 0 ? static_cast<uint32_t>(audioSampleRate_) : 48000U;
-	if (!audioTimingInitialized_) {
-		audioTimingInitialized_ = true;
-		audioBaseRtpTimestamp_ = rtpTimestamp;
-		audioBaseTimestampNs_ = now;
-		lastAudioTimestampNs_ = now;
-		return now;
-	}
-
-	const uint64_t delta = static_cast<uint32_t>(rtpTimestamp - audioBaseRtpTimestamp_);
-	uint64_t mapped = audioBaseTimestampNs_ + (delta * 1000000000ULL) / clockRate;
+	// Extend successive RTP deltas so audio keeps advancing beyond a full
+	// 32-bit clock cycle. Late/duplicate packets retain the existing monotonic clamp.
+	uint64_t mapped = audioTimestampMapper_.map(rtpTimestamp, now, clockRate).value_or(lastAudioTimestampNs_ + 1);
 	if (mapped <= lastAudioTimestampNs_) {
 		mapped = lastAudioTimestampNs_ + 1;
 	}

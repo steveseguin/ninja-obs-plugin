@@ -37,7 +37,10 @@ jobs:
             libssl-dev \
             libpthread-stubs0-dev \
             libcurl4-openssl-dev \
-            libjsoncpp-dev
+            libjsoncpp-dev \
+            python3-pyqt6 \
+            xvfb \
+            xauth
 
       - name: Build OBS SDK
         run: |
@@ -179,6 +182,9 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_INSTALL_PREFIX=/usr \
             -DBUNDLE_LINUX_RUNTIME=ON \
+            -DBUILD_OBS_CLOCK_FIXTURE=ON \
+            -DBUILD_NATIVE_MEDIA_LINKED_GATE=ON \
+            -DBUILD_PUBLISHER_TOOL=ON \
             -DCMAKE_PREFIX_PATH="/usr/local;${{ github.workspace }}/obs-sdk;${OBS_LIB_DIR}/cmake/libobs;${OBS_LIB_DIR}/cmake/obs-frontend-api" \
             -DCMAKE_LIBRARY_PATH="${OBS_LIB_DIR}" \
             -DOBS_SDK_PATH="${{ github.workspace }}/obs-sdk" \
@@ -187,6 +193,24 @@ jobs:
 
       - name: Build Plugin
         run: cmake --build build
+
+      - name: Test linked native media and alpha composition
+        env:
+          LD_LIBRARY_PATH: ${{ github.workspace }}/obs-sdk/lib:${{ github.workspace }}/obs-sdk/lib/x86_64-linux-gnu:/usr/local/lib
+        run: ctest --test-dir build -L release-linked --no-tests=error --output-on-failure
+
+      - name: Test isolated RTP timing diagnostics
+        env:
+          LD_LIBRARY_PATH: ${{ github.workspace }}/obs-sdk/lib:${{ github.workspace }}/obs-sdk/lib/x86_64-linux-gnu:/usr/local/lib
+        run: |
+          # Keep diagnostic code in a separate build tree, out of release artifacts.
+          cmake -B build-timing-trace -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=ON -DBUILD_PLUGIN=ON \
+            -DBUILD_RTP_TIMING_TRACE=ON \
+            -DOBS_SDK_PATH="${{ github.workspace }}/obs-sdk" \
+            -DCMAKE_PREFIX_PATH="/usr/local;${{ github.workspace }}/obs-sdk"
+          cmake --build build-timing-trace --target obs-vdoninja vdoninja-rtp-timing-trace-tests
+          ctest --test-dir build-timing-trace -L diagnostics --no-tests=error --output-on-failure
 
       - name: Package
         run: |
@@ -218,9 +242,47 @@ jobs:
           test "${#plugins[@]}" -eq 1
           python3 scripts/validate-linux-package.py "${plugins[0]}" --obs-version "${{ env.OBS_VERSION }}"
 
+      - name: Test official OBS runtime compatibility
+        run: |
+          compatibility_dir="$(mktemp -d)"
+          trap 'rm -rf "$compatibility_dir"' EXIT
+          mkdir "$compatibility_dir/plugin"
+          tar -xzf "${{ env.PLUGIN_NAME }}-linux-x86_64.tar.gz" -C "$compatibility_dir/plugin"
+          mapfile -t plugins < <(find "$compatibility_dir/plugin" -name obs-vdoninja.so -type f)
+          test "${#plugins[@]}" -eq 1
+          # Test patch upgrades with the same 32.2.0-built binary. Keep older
+          # runtimes as negative controls; do not silently widen support.
+          for version in 32.2.0 32.2.1 32.2.2 32.1.2 32.0.4; do
+            runtime_dir="$compatibility_dir/$version"
+            mkdir "$runtime_dir"
+            curl --fail --location --retry 3 \
+              "https://github.com/obsproject/obs-studio/releases/download/$version/OBS-Studio-$version-Ubuntu-24.04-x86_64.deb" \
+              --output "$runtime_dir/obs.deb"
+            dpkg-deb --extract "$runtime_dir/obs.deb" "$runtime_dir"
+            expect=incompatible
+            initialization_args=()
+            if [[ "$version" == 32.2.* ]]; then
+              expect=compatible
+              initialization_args=(--initialize --clock-fixture "$GITHUB_WORKSPACE/build/vdoninja-clock-fixture.so")
+            fi
+            LD_LIBRARY_PATH="$runtime_dir/usr/local/lib/x86_64-linux-gnu" \
+              timeout 60s xvfb-run -a --server-args='-screen 0 1280x720x24 -extension GLX' \
+              /usr/bin/python3 scripts/validate-linux-obs-runtime.py "${plugins[0]}" \
+              "$compatibility_dir/plugin/share/obs/obs-plugins/obs-vdoninja" \
+              --runtime-version "$version" --expect "$expect" "${initialization_args[@]}"
+          done
+
+      - name: Test installer with a fully installed Ubuntu OBS
+        run: |
+          curl --fail --location --retry 3 \
+            https://github.com/obsproject/obs-studio/releases/download/32.2.2/OBS-Studio-32.2.2-Ubuntu-24.04-x86_64.deb \
+            --output obs-runtime.deb
+          docker run --rm -v "${{ github.workspace }}:/repo:ro" ubuntu:24.04 \
+            bash /repo/tests/test-ubuntu-package.sh \
+            /repo/${{ env.PLUGIN_NAME }}-linux-x86_64.tar.gz /repo/obs-runtime.deb
+
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ env.PLUGIN_NAME }}-linux-x86_64
           path: ${{ env.PLUGIN_NAME }}-linux-x86_64.tar.gz
-

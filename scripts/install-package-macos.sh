@@ -130,16 +130,18 @@ if [[ "$FOUND_OBS" -eq 0 ]]; then
   echo "The plugin will still be installed to OBS's user plugin directory."
 fi
 
-cp -a "$PLUGIN_BIN" "$DST_PLUGIN_DIR/obs-vdoninja"
+# Bundled libraries can retain read-only modes from their build. Replace an
+# existing read-only file on upgrade instead of failing partway through.
+cp -af "$PLUGIN_BIN" "$DST_PLUGIN_DIR/obs-vdoninja"
 
 # Copy any bundled dylibs shipped alongside the plugin binary (e.g. OpenSSL,
 # libdatachannel) so they live next to it inside Contents/MacOS/.
 for dylib in "$SRC_PLUGIN_DIR"/*.dylib; do
-  [ -f "$dylib" ] && cp -a "$dylib" "$DST_PLUGIN_DIR/"
+  [ -f "$dylib" ] && cp -af "$dylib" "$DST_PLUGIN_DIR/"
 done
 
 # Copy data files
-cp -a "$SRC_DATA_DIR"/. "$DST_DATA_DIR"/
+cp -af "$SRC_DATA_DIR"/. "$DST_DATA_DIR"/
 
 # OBS resolves module locale files relative to Contents/Resources/locale/.
 # Our data is at Contents/Resources/data/locale/, so add a symlink.
@@ -170,11 +172,11 @@ if command -v install_name_tool &>/dev/null && command -v otool &>/dev/null; the
     esac
   done
 
-  # Rewrite any remaining non-system absolute paths to @loader_path if the
-  # dylib was bundled next to the binary.
+  # Resolve bundled dependencies beside the plugin, including @rpath imports.
+  # A build-directory rpath must not take precedence over the shipped dylib.
   otool -L "$PLUGIN" 2>/dev/null | awk '{print $1}' | while read -r dep; do
     case "$dep" in
-      @*|/usr/lib/*|/System/*) continue ;;  # already relocatable or system
+      @loader_path/*|@executable_path/*|/usr/lib/*|/System/*) continue ;;  # already relocatable or system
     esac
     libname="$(basename "$dep")"
     if [ -f "$DST_PLUGIN_DIR/$libname" ]; then
@@ -192,7 +194,7 @@ if command -v install_name_tool &>/dev/null && command -v otool &>/dev/null; the
     # Rewrite any absolute references to sibling dylibs
     otool -L "$dylib" 2>/dev/null | awk '{print $1}' | while read -r dep; do
       case "$dep" in
-        @*|/usr/lib/*|/System/*) continue ;;
+        @loader_path/*|@executable_path/*|/usr/lib/*|/System/*) continue ;;
       esac
       sibling="$(basename "$dep")"
       if [ -f "$DST_PLUGIN_DIR/$sibling" ]; then

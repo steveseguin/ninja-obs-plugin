@@ -191,3 +191,31 @@ Loading module: obs-vdoninja
 [VDO.Ninja] Loading VDO.Ninja plugin v<version>
 [VDO.Ninja] VDO.Ninja plugin loaded successfully
 ```
+
+## September 5, 2026 local package cycle
+
+The command-line package installer was exercised on macOS 26.4.1 with OBS
+32.2.2 through install, upgrade, uninstall with data preserved, reinstall, full
+removal, and final install. Every installed bundle passed strict code-signature
+verification. The first upgrade exposed read-only bundled dylibs that `cp -a`
+could not overwrite. Copying with replacement enabled fixes that failure while
+preserving the package file modes; the complete cycle then passed.
+
+An ad-hoc-signed local `.pkg` also passed payload, architecture, dependency and
+script validation. This does not certify Developer ID signing, notarization,
+Gatekeeper acceptance, or execution of the privileged Installer.app path.
+
+The ZIP installer also resolves bundled `@rpath` dylib imports to `@loader_path`.
+A real process-map check first found the development libdatachannel taking
+precedence over its packaged copy. Reinstallation with the corrected paths
+loaded the bundled library and passed a fresh multi-viewer publishing smoke test.
+
+Release dependencies must retain the OBS 32.2 macOS 13 minimum. Inspection of a
+CI-built package found Homebrew OpenSSL dylibs requiring macOS 26 even though the
+plugin itself declared 11.0. The release build now compiles Homebrew's verified
+OpenSSL source for macOS 13 and uses that prefix for libdatachannel and the plugin.
+Package validation rejects any bundled Mach-O slice requiring a newer OS. Ten
+regression cases cover modern/legacy load commands, version ordering, universal
+slices and missing metadata. The bad CI package is rejected; a rebuilt local
+package passes the deployment-target gate. Running on an actual macOS 13 machine
+is still a separate compatibility check.

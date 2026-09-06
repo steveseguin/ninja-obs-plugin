@@ -7,7 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.68] - 2026-09-06
+
 ### Fixed
+- Prevent publisher ICE restarts from deadlocking while retiring the old peer, preserving the viewer session and media-enable state.
+- Correct active-output encoder checks and audio/video measurement clocks so validation reports reflect the selected OBS mode and capture interval.
+
+### Added
+- Publish an illustrated Linux installation and troubleshooting guide covering native OBS, Snap/Flatpak limitations, current-log collection, and matching install/uninstall scope.
+- Add a real-libdatachannel regression for ICE restart retirement and receiver timing, audio, decode-scheduling, and compositor diagnostic tools.
+
+### Validation limits
+- Cold-start reordering and browser presentation/synchronization failures remain under investigation. Experimental Chromium and Firefox changes are diagnostic tools, not fixes shipped in this plugin.
+- The Linux archive continues to target native x86-64 OBS 32.2.x on Ubuntu 24.04. Snap and Flatpak installation are not supported by its scripts; this release does not claim to resolve a load failure in those environments.
+
+## [1.1.67] - 2026-09-05
+
+### Fixed
+- Stop media measurements before exporting captures so probe teardown does not create false audio continuity failures.
+- Rebase native receive timestamps after cached-keyframe jumps so live video is not scheduled seconds ahead and does not inflate OBS audio buffering.
+- Build macOS OpenSSL dependencies for the OBS macOS 13 baseline and reject packages that silently require a newer OS.
+- Replace read-only bundled files during macOS upgrades and resolve bundled dylibs beside the plugin instead of through build-machine paths.
+- Release the Mach host-port reference acquired by every system CPU meter sample on macOS.
+- Prioritize repeated NACK requests without expanding repair budgets or deadlines, and expire repairs that outlast the shared pacing wait.
+- Correct RTX/RED packet parsing and native Opus timestamp wrapping during long-running reception.
+- Wait for requested source audio observations when screenshot capture is disabled in the validation harness.
+- Prevent repair backlogs from interrupting keyframe delivery and expiring recoverable packets while the RTP pacer has spare capacity.
+- Resolve OBS headers installed below the include directory advertised by Arch pkg-config files.
+- Respect custom XDG configuration directories in Linux per-user installation and removal.
+- Keep unit-test RTC headers out of the native publisher build when libdatachannel is installed in a system include directory.
+- Prevent the synthetic VP9 alpha publisher from deadlocking when retiring viewer peers or shutting down.
+- Follow the selected native OBS runtime into `/usr` or `/usr/local` when installing on Linux, and clean both prefixes when uninstalling.
 - Bundle the Linux libdatachannel runtime privately and remove build-machine library search paths from release packages.
 - Remove Linux plugin copies from multiarch and legacy system directories during uninstall, including the private runtime.
 - Reject incompatible native OBS versions, Snap installs, and unresolved runtime dependencies before installing the Linux package.
@@ -16,7 +46,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Repaired VP9 alpha publisher test headers, optional alpha-plane writes, and RTP SSRC signaling, and prevented duplicate OBS module loading in the source stress harness.
 
 ### Added
+- Add packet-reordering regression tests, an opt-in impaired-network runner, and an OBS-clocked pixel-counter fixture to isolate rendering from source-decoder timing.
+- Record real Linux OBS/browser frame, render, encoder and network-stress measurements, with strict regression tests for performance counters and reproducible native receiver recording/recovery tools.
+- Add an Arch/AUR development source recipe with package build, real media, pacman install/reinstall/removal, and OBS initialization checks.
+- Test the native archive installer against a fully installed official Ubuntu OBS package in an isolated container.
+- Initialize the packaged Linux plugin with OBS 32.2.0–32.2.2 in CI, verify source registration and repeated native receiver creation/destruction, and enforce a shutdown timeout.
+- Require real native media and alpha-composition tests in Linux builds, and add an optional live alpha-site smoke test for dual-track decode, viewer reload, and clean shutdown.
+- Validate the same Linux release binary against official OBS 32.2.0, 32.2.1, and 32.2.2 runtimes, with 32.1.2 and 32.0.4 as incompatible-version controls.
 - Run the Linux release build on main and pull requests, with isolated install/uninstall regression tests and an extracted-package ELF loading and OBS API compatibility gate.
+
+### Validation limits
+- Two-hour Mac screen-capture testing remained connected but failed smooth-playback criteria under heavy local load; combined packet loss/reordering also remains a measured limitation despite improved repair scheduling.
+- Software VideoToolbox 1080p60 performance is content-dependent. Windows GameCapture hardware features and actual macOS 13 execution were not verified on the Mac test host; encoder quality, adaptive-bitrate, and protection defaults remain unchanged.
+- See `docs/macos-publishing-validation.md` and `docs/linux-receiver-timing-isolation.md` for measured results, audio/presentation limitations, and reproducible checks.
 
 ## [1.1.66] - 2026-09-05
 

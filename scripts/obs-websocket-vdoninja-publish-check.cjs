@@ -2,13 +2,16 @@ const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
 const childProcess = require("child_process");
-const { chromium } = require("playwright");
+const { verifyExpectedEncoderMode } = require("../tests/tools/obs-encoder-validation.cjs");
+const { analyzeObsPerformance } = require("../tests/tools/obs-performance-analysis.cjs");
 const {
+  hasAudioConcealment,
   analyzePcm16Le,
   createPcm16Wav,
 } = require("../tests/tools/audio-continuity-analysis.cjs");
 const {
   analyzeVideoContinuity,
+  hasDecodedVideoProgress,
 } = require("../tests/tools/video-continuity-analysis.cjs");
 const {
   analyzePresentationContinuity,
@@ -512,6 +515,9 @@ async function collectViewerSnapshot(page) {
           let pliCount = 0;
           let keyFramesDecoded = 0;
           let videoJitter = 0;
+          let videoJitterBufferDelay = 0;
+          let videoJitterBufferEmittedCount = 0;
+          let videoJitterBufferTargetDelay = 0;
           let totalInterFrameDelay = 0;
           let totalSquaredInterFrameDelay = 0;
           let framesPerSecond = 0;
@@ -526,12 +532,21 @@ async function collectViewerSnapshot(page) {
           let packetsDiscarded = 0;
           const selectedCandidatePairs = [];
           const byId = new Map();
-          stats.forEach((stat) => byId.set(stat.id, stat));
+          const transportSelectedPairs = new Set();
+          stats.forEach((stat) => {
+            byId.set(stat.id, stat);
+            if (stat.type === "transport" && stat.selectedCandidatePairId) {
+              transportSelectedPairs.add(stat.selectedCandidatePairId);
+            }
+          });
           stats.forEach((s) => {
             if (s.type === "inbound-rtp" && !s.isRemote) {
               packetsLost += s.packetsLost || 0;
               if (s.kind === "video") {
                 videoPacketsLost += s.packetsLost || 0;
+                videoJitterBufferDelay += s.jitterBufferDelay || 0;
+                videoJitterBufferEmittedCount += s.jitterBufferEmittedCount || 0;
+                videoJitterBufferTargetDelay += s.jitterBufferTargetDelay || 0;
                 inboundVideoBytes += s.bytesReceived || 0;
                 framesDecoded += s.framesDecoded || 0;
                 framesReceived += s.framesReceived || 0;
@@ -564,7 +579,7 @@ async function collectViewerSnapshot(page) {
             }
             if (
               s.type === "candidate-pair" &&
-              (s.selected || s.nominated) &&
+              (s.selected || s.nominated || transportSelectedPairs.has(s.id)) &&
               s.state === "succeeded"
             ) {
               const local = byId.get(s.localCandidateId);
@@ -595,6 +610,9 @@ async function collectViewerSnapshot(page) {
             pliCount,
             keyFramesDecoded,
             videoJitter,
+            videoJitterBufferDelay,
+            videoJitterBufferEmittedCount,
+            videoJitterBufferTargetDelay,
             totalInterFrameDelay,
             totalSquaredInterFrameDelay,
             framesPerSecond,
@@ -629,12 +647,12 @@ async function collectViewerSnapshot(page) {
   });
 }
 
-async function startPresentationCapture(page, requireMarker, markerFormat) {
+async function startPresentationCapture(page, requireMarker, markerFormat, options = {}) {
   return page.evaluate(
-    ({ markerRequired, markerFormat }) => {
+    ({ markerRequired, markerFormat, presentedMarkerRequired, allowFileVideo }) => {
       const video = Array.from(document.querySelectorAll("video")).find(
         (candidate) =>
-          candidate.srcObject &&
+          (candidate.srcObject || allowFileVideo) &&
           candidate.videoWidth > 0 &&
           candidate.videoHeight > 0,
       );
@@ -690,7 +708,7 @@ async function startPresentationCapture(page, requireMarker, markerFormat) {
       }
 
       function decodeMarker(source, sourceWidth, sourceHeight) {
-        if (!capture.requireMarker) {
+        if (!capture.requireMarker && !presentedMarkerRequired) {
           return { markerFrame: null, markerError: "" };
         }
         try {
@@ -780,10 +798,14 @@ async function startPresentationCapture(page, requireMarker, markerFormat) {
             expectedDisplayTime: metadata.expectedDisplayTime,
             presentationTime: metadata.presentationTime,
             mediaTime: metadata.mediaTime,
+            rtpTimestamp: metadata.rtpTimestamp,
+            receiveTime: metadata.receiveTime,
+            captureTime: metadata.captureTime,
             presentedFrames: metadata.presentedFrames,
             processingDuration: metadata.processingDuration,
             width: metadata.width,
             height: metadata.height,
+            ...(presentedMarkerRequired ? decodeMarker(video, metadata.width, metadata.height) : {}),
           });
         }
         video.requestVideoFrameCallback(onFrame);
@@ -798,7 +820,12 @@ async function startPresentationCapture(page, requireMarker, markerFormat) {
         }
         const sourceTrack = video.srcObject.getVideoTracks()[0].clone();
         capture.processorTrack = sourceTrack;
-        const processor = new MediaStreamTrackProcessor({ track: sourceTrack });
+        // The default one-frame queue can discard already-decoded pictures
+        // during a short delivery burst before JavaScript can inspect them.
+        const processor = new MediaStreamTrackProcessor({
+          track: sourceTrack,
+          maxBufferSize: 8,
+        });
         capture.processorReader = processor.readable.getReader();
         capture.processorDone = (async () => {
           try {
@@ -840,7 +867,8 @@ async function startPresentationCapture(page, requireMarker, markerFormat) {
         videoHeight: video.videoHeight,
       };
     },
-    { markerRequired: requireMarker, markerFormat },
+    { markerRequired: requireMarker, markerFormat, presentedMarkerRequired: Boolean(options.capturePresentedMarkers),
+      allowFileVideo: Boolean(options.allowFileVideo) },
   );
 }
 
@@ -866,6 +894,7 @@ async function stopPresentationCapture(page) {
       markerDiagnostics[key] = (markerDiagnostics[key] || 0) + 1;
     }
     const result = {
+      timeOrigin: performance.timeOrigin,
       records: capture.records,
       decodedRecords: capture.decodedRecords,
       markerError: capture.markerError,
@@ -956,7 +985,13 @@ function inspectObsScreenshot(imageData) {
 }
 
 async function startDecodedAudioCapture(page) {
-  return page.evaluate(async () => {
+  const captureMode = process.env.VDONINJA_AUDIO_CAPTURE_MODE || "auto";
+  if (!["auto", "worklet", "script-processor"].includes(captureMode)) throw new Error("Invalid audio capture mode");
+  const rawCaptureMode = process.env.VDONINJA_RAW_AUDIO_CAPTURE_MODE || "worker";
+  if (!["worker", "main-thread"].includes(rawCaptureMode)) throw new Error("Invalid raw audio capture mode");
+  const { rawAudioWorkerSource } = require("../tests/tools/raw-audio-capture-worker.cjs");
+  const { pcmCaptureWorkletSource } = require("../tests/tools/audio-capture-worklet.cjs");
+  return page.evaluate(async ({ workletSource, captureMode, rawWorkerSource, rawCaptureMode }) => {
     const mediaElement = Array.from(document.querySelectorAll("video")).find(
       (candidate) => {
         const stream = candidate.srcObject;
@@ -980,120 +1015,172 @@ async function startDecodedAudioCapture(page) {
     const audioContext = new AudioContext({ sampleRate: 48000 });
     const sourceStream = new MediaStream([audioTrack]);
     const source = audioContext.createMediaStreamSource(sourceStream);
-    const processor = audioContext.createScriptProcessor(4096, 1, 1);
-    const silentOutput = audioContext.createGain();
-    silentOutput.gain.value = 0;
-
     const capture = {
-      audioContext,
-      source,
-      processor,
-      silentOutput,
-      chunks: [],
-      sampleCount: 0,
-      rawTrack: null,
+      audioContext, source, processor:null, silentOutput:null,
+      chunks:[], sampleCount:0, rawTrack:null, captureMode:null,
     };
-    processor.onaudioprocess = (event) => {
-      const samples = event.inputBuffer.getChannelData(0);
-      capture.chunks.push(new Float32Array(samples));
+    const append = samples => {
+      capture.chunks.push(samples);
       capture.sampleCount += samples.length;
     };
-    source.connect(processor);
-    processor.connect(silentOutput);
-    silentOutput.connect(audioContext.destination);
+    if (captureMode !== "script-processor" && audioContext.audioWorklet && typeof AudioWorkletNode === "function") {
+      const moduleUrl = URL.createObjectURL(new Blob([workletSource], {type:"text/javascript"}));
+      try { await audioContext.audioWorklet.addModule(moduleUrl); }
+      finally { URL.revokeObjectURL(moduleUrl); }
+      capture.processor = new AudioWorkletNode(audioContext,"vdoninja-pcm-capture",{
+        numberOfInputs:1, numberOfOutputs:0, channelCount:1, channelCountMode:"explicit",
+      });
+      capture.captureMode = "audio-worklet";
+      capture.processor.onprocessorerror = () => {capture.error = "AudioWorklet capture processor failed";};
+      capture.processor.port.onmessage = ({data}) => {
+        if (data.samples) append(data.samples);
+        if (data.done && capture.flushDone) capture.flushDone();
+      };
+      source.connect(capture.processor);
+    } else {
+      if (captureMode === "worklet") throw new Error("AudioWorklet capture is unavailable");
+      capture.captureMode = "script-processor";
+      capture.processor = audioContext.createScriptProcessor(4096,1,1);
+      capture.silentOutput = audioContext.createGain();
+      capture.silentOutput.gain.value = 0;
+      capture.processor.onaudioprocess = event => append(new Float32Array(event.inputBuffer.getChannelData(0)));
+      source.connect(capture.processor);
+      capture.processor.connect(capture.silentOutput);
+      capture.silentOutput.connect(audioContext.destination);
+    }
 
     if (typeof MediaStreamTrackProcessor === "function") {
       const clonedTrack = audioTrack.clone();
       const trackProcessor = new MediaStreamTrackProcessor({
         track: clonedTrack,
       });
-      const reader = trackProcessor.readable.getReader();
-      const rawTrack = {
-        clonedTrack,
-        reader,
-        chunks: [],
-        sampleCount: 0,
-        sampleRate: 0,
-        firstTimestamp: null,
-        lastTimestamp: null,
-        lastDuration: null,
-        maxTimestampStep: 0,
-        nonForwardTimestamps: 0,
-        timestampGaps: [],
-        active: true,
-        error: null,
-        loop: null,
-      };
-      rawTrack.loop = (async () => {
-        try {
-          while (rawTrack.active) {
-            const { value, done } = await reader.read();
-            if (done || !value) {
-              break;
-            }
-            try {
-              const chunkStartSample = rawTrack.sampleCount;
-              const samples = new Float32Array(value.numberOfFrames);
-              value.copyTo(samples, { planeIndex: 0, format: "f32-planar" });
-              rawTrack.chunks.push(samples);
-              rawTrack.sampleCount += samples.length;
-              rawTrack.sampleRate = value.sampleRate;
-              if (rawTrack.firstTimestamp === null) {
-                rawTrack.firstTimestamp = value.timestamp;
-              } else {
-                const timestampStep = value.timestamp - rawTrack.lastTimestamp;
-                rawTrack.maxTimestampStep = Math.max(
-                  rawTrack.maxTimestampStep,
-                  timestampStep,
-                );
-                if (timestampStep <= 0) {
-                  rawTrack.nonForwardTimestamps += 1;
-                } else if (
-                  timestampStep >
-                    Math.max(
-                      12000,
-                      Number(rawTrack.lastDuration || value.duration || 0) +
-                        2000,
-                    ) &&
-                  rawTrack.timestampGaps.length < 50
-                ) {
-                  rawTrack.timestampGaps.push({
-                    chunkStartSample,
-                    captureTimeSeconds:
-                      rawTrack.sampleRate > 0
-                        ? chunkStartSample / rawTrack.sampleRate
-                        : null,
-                    previousTimestamp: rawTrack.lastTimestamp,
-                    timestamp: value.timestamp,
-                    timestampStep,
-                    previousDuration: rawTrack.lastDuration,
-                    receiveWallTimeMs: Date.now(),
-                  });
-                }
+      if (rawCaptureMode === "worker") {
+        const workerUrl = URL.createObjectURL(new Blob([rawWorkerSource],{type:"text/javascript"}));
+        const worker = new Worker(workerUrl);
+        const rawTrack = {active:true,captureMode:"worker",clonedTrack,worker,workerUrl,
+          chunks:[],sampleCount:0,error:null};
+        rawTrack.loop = new Promise((resolve,reject) => {
+          worker.onmessage = ({data}) => {if(data.result){Object.assign(rawTrack,data.result);resolve();}};
+          worker.onerror = event => reject(new Error(event.message || "Raw audio worker failed"));
+        });
+        rawTrack.loop.catch(()=>{}); // The freeze operation observes any failure.
+        worker.postMessage({readable:trackProcessor.readable},[trackProcessor.readable]);
+        capture.rawTrack = rawTrack;
+      } else {
+        const reader = trackProcessor.readable.getReader();
+        const rawTrack = {
+          clonedTrack,
+          reader,
+          chunks: [],
+          sampleCount: 0,
+          sampleRate: 0,
+          firstTimestamp: null,
+          lastTimestamp: null,
+          lastDuration: null,
+          maxTimestampStep: 0,
+          nonForwardTimestamps: 0,
+          timestampGaps: [],
+          active: true,
+          error: null,
+          loop: null,
+        };
+        rawTrack.loop = (async () => {
+          try {
+            while (rawTrack.active) {
+              const { value, done } = await reader.read();
+              if (done || !value) {
+                break;
               }
-              rawTrack.lastTimestamp = value.timestamp;
-              rawTrack.lastDuration = value.duration;
-            } finally {
-              value.close();
+              try {
+                const chunkStartSample = rawTrack.sampleCount;
+                const samples = new Float32Array(value.numberOfFrames);
+                value.copyTo(samples, { planeIndex: 0, format: "f32-planar" });
+                rawTrack.chunks.push(samples);
+                rawTrack.sampleCount += samples.length;
+                rawTrack.sampleRate = value.sampleRate;
+                if (rawTrack.firstTimestamp === null) {
+                  rawTrack.firstTimestamp = value.timestamp;
+                } else {
+                  const timestampStep = value.timestamp - rawTrack.lastTimestamp;
+                  rawTrack.maxTimestampStep = Math.max(
+                    rawTrack.maxTimestampStep,
+                    timestampStep,
+                  );
+                  if (timestampStep <= 0) {
+                    rawTrack.nonForwardTimestamps += 1;
+                  } else if (
+                    timestampStep >
+                      Math.max(
+                        12000,
+                        Number(rawTrack.lastDuration || value.duration || 0) +
+                          2000,
+                      ) &&
+                    rawTrack.timestampGaps.length < 50
+                  ) {
+                    rawTrack.timestampGaps.push({
+                      chunkStartSample,
+                      captureTimeSeconds:
+                        rawTrack.sampleRate > 0
+                          ? chunkStartSample / rawTrack.sampleRate
+                          : null,
+                      previousTimestamp: rawTrack.lastTimestamp,
+                      timestamp: value.timestamp,
+                      timestampStep,
+                      previousDuration: rawTrack.lastDuration,
+                      receiveWallTimeMs: Date.now(),
+                    });
+                  }
+                }
+                rawTrack.lastTimestamp = value.timestamp;
+                rawTrack.lastDuration = value.duration;
+              } finally {
+                value.close();
+              }
             }
+          } catch (error) {
+            rawTrack.error = String(error && error.stack ? error.stack : error);
           }
-        } catch (error) {
-          rawTrack.error = String(error && error.stack ? error.stack : error);
-        }
-      })();
-      capture.rawTrack = rawTrack;
+        })();
+        rawTrack.captureMode = "main-thread";
+        capture.rawTrack = rawTrack;
+      }
     }
+
+    capture.freeze = () => {
+      if (capture.freezePromise) return capture.freezePromise;
+      const pending = [];
+      capture.processor.onaudioprocess = null;
+      if (capture.captureMode === "audio-worklet") {
+        pending.push(new Promise((resolve,reject) => {
+          const timeout=setTimeout(()=>reject(new Error("AudioWorklet capture did not flush")),5000);
+          capture.flushDone=()=>{clearTimeout(timeout);resolve();};
+          capture.processor.port.postMessage("flush");
+        }));
+      }
+      if (capture.rawTrack) {
+        capture.rawTrack.active = false;
+        if (capture.rawTrack.worker) capture.rawTrack.worker.postMessage("stop");
+        else pending.push(capture.rawTrack.reader.cancel().catch(()=>{}));
+        pending.push(capture.rawTrack.loop);
+      }
+      capture.freezePromise = Promise.all(pending).then(()=>{
+        if(capture.error || capture.rawTrack?.error) throw new Error(capture.error || capture.rawTrack.error);
+      });
+      return capture.freezePromise;
+    };
 
     window.__vdoninjaDecodedAudioCapture = capture;
     await audioContext.resume();
 
     return {
+      captureMode: capture.captureMode,
       sampleRate: audioContext.sampleRate,
       contextState: audioContext.state,
       trackSettings: audioTrack.getSettings ? audioTrack.getSettings() : {},
       rawTrackCaptureAvailable: Boolean(capture.rawTrack),
+      rawCaptureMode: capture.rawTrack?.captureMode || null,
     };
-  });
+  }, {workletSource:pcmCaptureWorkletSource,captureMode,rawWorkerSource:rawAudioWorkerSource,rawCaptureMode});
 }
 
 async function stopDecodedAudioCapture(page) {
@@ -1103,16 +1190,17 @@ async function stopDecodedAudioCapture(page) {
       throw new Error("Decoded-audio capture was not started");
     }
 
-    capture.processor.onaudioprocess = null;
+    await capture.freeze();
     capture.source.disconnect();
     capture.processor.disconnect();
-    capture.silentOutput.disconnect();
-
+    if (capture.captureMode === "audio-worklet") capture.processor.port.close();
+    if (capture.silentOutput) capture.silentOutput.disconnect();
     if (capture.rawTrack) {
-      capture.rawTrack.active = false;
-      await capture.rawTrack.reader.cancel().catch(() => {});
-      await capture.rawTrack.loop;
       capture.rawTrack.clonedTrack.stop();
+      if (capture.rawTrack.worker) {
+        capture.rawTrack.worker.terminate();
+        URL.revokeObjectURL(capture.rawTrack.workerUrl);
+      }
     }
 
     function encodeChunks(chunks, sampleCount) {
@@ -1138,11 +1226,13 @@ async function stopDecodedAudioCapture(page) {
     }
 
     const result = {
+      captureMode: capture.captureMode,
       sampleRate: capture.audioContext.sampleRate,
       sampleCount: capture.sampleCount,
       pcmBase64: encodeChunks(capture.chunks, capture.sampleCount),
       rawTrack: capture.rawTrack
         ? {
+            captureMode: capture.rawTrack.captureMode,
             sampleRate: capture.rawTrack.sampleRate,
             sampleCount: capture.rawTrack.sampleCount,
             pcmBase64: encodeChunks(
@@ -1183,6 +1273,8 @@ async function waitForStreamActive(client, timeoutMs) {
 }
 
 async function main() {
+  // Exported measurement helpers also run in dependency-free unit tests.
+  const { chromium, firefox } = require("playwright");
   const streamId =
     process.env.VDONINJA_STREAM_ID ||
     process.argv[2] ||
@@ -1195,13 +1287,14 @@ async function main() {
   const sourceMode = String(
     process.env.VDONINJA_SOURCE_MODE || "static",
   ).toLowerCase();
+  const useClockSource = sourceMode === "obs-clock";
   const useMotionSource = sourceMode === "motion";
   const useAudioContinuitySource = sourceMode === "audio-continuity";
   const useMediaSequenceSource = sourceMode === "media-sequence";
   const loopMediaSequence = process.env.VDONINJA_MEDIA_SEQUENCE_LOOP === "1";
   const useGeneratedBrowserSource = useMotionSource || useAudioContinuitySource;
   const useGeneratedVisualSource =
-    useGeneratedBrowserSource || useMediaSequenceSource;
+    useGeneratedBrowserSource || useMediaSequenceSource || useClockSource;
   const requireAudioContinuity =
     useAudioContinuitySource ||
     process.env.VDONINJA_REQUIRE_AUDIO_CONTINUITY === "1";
@@ -1377,7 +1470,8 @@ async function main() {
   ) {
     throw new Error("Requested video settings must not be negative");
   }
-  const outputDir = path.resolve(process.cwd(), "artifacts");
+  const outputDir = path.resolve(process.env.VDONINJA_OUTPUT_DIR || path.join(process.cwd(), "artifacts"));
+  fs.mkdirSync(outputDir, { recursive: true });
   const stamp = Date.now();
   const sceneName = `Codex OBS Publish ${stamp}`;
   const sourceLabel = useAudioContinuitySource
@@ -1422,7 +1516,13 @@ async function main() {
   const sourceTonePath = useAudioContinuitySource
     ? path.join(outputDir, `obs-publish-source-tone-${stamp}.wav`)
     : null;
+  const preserveViewerIceConfiguration = process.env.VDONINJA_PRESERVE_VIEWER_ICE_CONFIGURATION === "1";
+  const expectedViewerRelayProtocol = process.env.VDONINJA_EXPECT_VIEWER_RELAY_PROTOCOL || "";
+  if (expectedViewerRelayProtocol && !["udp", "tcp", "tls"].includes(expectedViewerRelayProtocol)) {
+    throw new Error("Expected viewer relay protocol must be udp, tcp or tls");
+  }
   const viewParams = new URLSearchParams();
+  if (process.env.VDONINJA_VIEW_TURN) viewParams.set("turn", process.env.VDONINJA_VIEW_TURN);
   viewParams.set("view", streamId);
   if (roomId) {
     viewParams.set("room", roomId);
@@ -1447,7 +1547,7 @@ async function main() {
   }
   viewParams.set("debug", "");
   const viewUrl = ensureQuery(
-    `https://vdo.ninja/?${viewParams.toString()}`,
+    `${process.env.VDONINJA_BASE_URL || "https://vdo.ninja/"}?${viewParams.toString()}`,
     "cleanoutput",
     "1",
   );
@@ -1461,6 +1561,7 @@ async function main() {
   const obsBrowserViewers = [];
   let nativeViewer = null;
   let browser = null;
+  let viewerPage = null;
   let recordingStarted = false;
   let localRecording = null;
   let originalVideoSettings = null;
@@ -1612,7 +1713,7 @@ async function main() {
         },
       );
       logStep(
-        `temporarily applying OBS video bitrate ${requestedVideoBitrateKbps} kbps`,
+        `temporarily applying OBS Simple Output bitrate ${requestedVideoBitrateKbps} kbps; Advanced Output encoder settings are unchanged`,
       );
       await client.request("SetProfileParameter", {
         parameterCategory: "SimpleOutput",
@@ -1631,11 +1732,13 @@ async function main() {
         requestedVideoBitrateKbps
       ) {
         throw new Error(
-          `OBS did not apply VBitrate=${requestedVideoBitrateKbps}; observed ` +
+          `OBS did not apply SimpleOutput/VBitrate=${requestedVideoBitrateKbps}; observed ` +
             `${appliedVideoBitrateParameter.parameterValue}`,
         );
       }
     }
+
+    await verifyExpectedEncoderMode(client, expectedStreamEncoder, expectedAdvancedStreamEncoder);
 
     if (expectedStreamEncoder) {
       appliedStreamEncoderParameter = await client.request(
@@ -1707,6 +1810,12 @@ async function main() {
       generatedSourceInputSettings = await client.request("GetInputSettings", {
         inputName,
       });
+    } else if (useClockSource) {
+      const created = await client.request("CreateInput", {
+        sceneName, inputName, inputKind: "vdoninja_clock_fixture", inputSettings: {}, sceneItemEnabled: true,
+      });
+      programSceneItemId = created.sceneItemId;
+      generatedSourceInputSettings = await client.request("GetInputSettings", { inputName });
     } else if (useMediaSequenceSource) {
       const createdProgramInput = await client.request("CreateInput", {
         sceneName,
@@ -2132,30 +2241,105 @@ async function main() {
       return;
     }
 
+    const viewerBrowser = process.env.VDONINJA_VIEWER_BROWSER || "chromium";
     const chromiumArgs = ["--autoplay-policy=no-user-gesture-required"];
+    const extraChromiumArgs = JSON.parse(process.env.VDONINJA_CHROMIUM_ARGS_JSON || "[]");
+    if (!Array.isArray(extraChromiumArgs) || extraChromiumArgs.some(arg => typeof arg !== "string")) {
+      throw new Error("VDONINJA_CHROMIUM_ARGS_JSON must be an array of argument strings");
+    }
+    if (extraChromiumArgs.length && viewerBrowser !== "chromium") {
+      throw new Error("Chromium arguments require Chromium");
+    }
+    chromiumArgs.push(...extraChromiumArgs);
+    const chromiumFieldTrials = process.env.VDONINJA_CHROMIUM_FIELD_TRIALS || "";
+    if (chromiumFieldTrials) chromiumArgs.push(`--force-fieldtrials=${chromiumFieldTrials}`);
     if (process.env.VDONINJA_DISABLE_MDNS === "1") {
       chromiumArgs.push("--disable-features=WebRtcHideLocalIpsWithMdns");
     }
-    browser = await chromium.launch({
+    if (!["chromium", "firefox"].includes(viewerBrowser)) throw new Error("Unknown VDONINJA_VIEWER_BROWSER");
+    if (chromiumFieldTrials && viewerBrowser !== "chromium") {
+      throw new Error("Chromium field trials cannot be applied to Firefox");
+    }
+    const browserExecutable = process.env.VDONINJA_BROWSER_EXECUTABLE || null;
+    const chromiumLogFile = process.env.VDONINJA_CHROMIUM_LOG_FILE || null;
+    const chromiumProcessLogFile = chromiumLogFile ||
+      (browserExecutable && viewerBrowser === "chromium" ? path.join(outputDir, `chromium-process-${stamp}.log`) : null);
+    if (chromiumLogFile) {
+      if (viewerBrowser !== "chromium" || !path.isAbsolute(chromiumLogFile)) {
+        throw new Error("Chromium logging requires Chromium and an absolute log path");
+      }
+      chromiumArgs.push("--enable-logging", `--log-file=${chromiumLogFile}`,
+        "--vmodule=stream_synchronization=3,rtp_streams_synchronizer2=3");
+    } else if (chromiumProcessLogFile) {
+      chromiumArgs.push("--enable-logging", `--log-file=${chromiumProcessLogFile}`);
+    }
+    browser = await ({ chromium, firefox }[viewerBrowser]).launch({
+      ...(browserExecutable ? { executablePath: browserExecutable } : {}),
+      ...(chromiumProcessLogFile ? { env: { ...process.env, CHROME_LOG_FILE: chromiumProcessLogFile } } : {}),
       headless: process.env.HEADLESS === "0" ? false : true,
-      args: chromiumArgs,
+      ...(viewerBrowser === "chromium" ? { args: chromiumArgs } : { firefoxUserPrefs: { "media.autoplay.default": 0 } }),
     });
+    let browserGpuDiagnostics = { available: false };
+    if (viewerBrowser === "chromium") {
+      let gpuSession;
+      try {
+        gpuSession = await browser.newBrowserCDPSession();
+        const { gpu } = await gpuSession.send("SystemInfo.getInfo");
+        browserGpuDiagnostics = { available: true, devices: gpu.devices,
+          auxiliary: gpu.auxAttributes, features: gpu.featureStatus };
+      } catch (error) {
+        browserGpuDiagnostics.error = String(error);
+      } finally {
+        if (gpuSession) await gpuSession.detach().catch(() => {});
+      }
+    }
+    const requireBrowserGpu = process.env.VDONINJA_REQUIRE_BROWSER_GPU === "1";
+    if (requireBrowserGpu) {
+      const renderer = browserGpuDiagnostics.auxiliary?.glRenderer || "";
+      const hardwareDevice = (browserGpuDiagnostics.devices || []).some(device =>
+        device.vendorId > 0 && device.vendorId !== 0xffff);
+      if (!hardwareDevice || !renderer || /swiftshader|llvmpipe|softpipe|software/i.test(renderer)) {
+        throw new Error(`Hardware browser renderer was required; observed ${renderer || "unavailable"}`);
+      }
+    }
     const context = await browser.newContext();
-    await context.addInitScript(() => {
+    const viewerIceServers = process.env.VDONINJA_VIEWER_ICE_SERVERS_JSON
+      ? JSON.parse(process.env.VDONINJA_VIEWER_ICE_SERVERS_JSON) : null;
+    if (viewerIceServers && (!Array.isArray(viewerIceServers) || !viewerIceServers.length)) {
+      throw new Error("VDONINJA_VIEWER_ICE_SERVERS_JSON must be a nonempty RTCIceServer array");
+    }
+    await context.addInitScript(({ iceServers, forceRelay }) => {
       window.__pcList = [];
       const NativePC = window.RTCPeerConnection;
       if (!NativePC) {
         return;
       }
       window.RTCPeerConnection = function (...args) {
+        const configure = config => iceServers
+          ? { ...config, iceServers, ...(forceRelay ? { iceTransportPolicy: "relay" } : {}) }
+          : config;
+        if (iceServers) args[0] = configure(args[0]);
         const pc = new NativePC(...args);
+        if (iceServers) {
+          const setConfiguration = pc.setConfiguration.bind(pc);
+          pc.setConfiguration = config => setConfiguration(configure(config));
+        }
         window.__pcList.push(pc);
         return pc;
       };
       window.RTCPeerConnection.prototype = NativePC.prototype;
-    });
+    }, { iceServers: preserveViewerIceConfiguration ? null : viewerIceServers, forceRelay: forceTurn });
+    const captureRtpTiming = process.env.VDONINJA_CAPTURE_RTP_TIMING === "1";
+    if (captureRtpTiming) {
+      if (!viewerIceServers) throw new Error("Timing isolation requires explicit private viewer ICE servers");
+      const { installProbes } = require("../tests/tools/rtc-timing-probes.cjs");
+      await installProbes(context, viewerIceServers,
+        process.env.VDONINJA_FIXED_VIEW_BUFFER === "1" ? viewBufferMs : null,
+        { preserveIceConfiguration:preserveViewerIceConfiguration, traceBufferWrites:process.env.VDONINJA_TRACE_BUFFER_WRITES === "1", captureEncodedFrames:process.env.VDONINJA_CAPTURE_ENCODED_FRAMES !== "0" });
+    }
 
     const page = await context.newPage();
+    viewerPage = page;
     page.on("console", (message) => {
       const text = message.text();
       consoleMessages.push({ type: message.type(), text });
@@ -2201,10 +2385,6 @@ async function main() {
 
     fs.mkdirSync(outputDir, { recursive: true });
     let decodedAudioCaptureStart = null;
-    if (captureDecodedAudio) {
-      logStep("capturing decoded viewer audio as PCM");
-      decodedAudioCaptureStart = await startDecodedAudioCapture(page);
-    }
     let firstObsBrowserScreenshot = null;
     if (createdObsBrowserViewer) {
       await sleep(3000);
@@ -2229,39 +2409,86 @@ async function main() {
     if (viewerStabilizeMs > 0) {
       await sleep(viewerStabilizeMs);
     }
+    // A cached IDR can make the element playable before live decoding starts.
+    // Require another second of decoded frames, otherwise the first inter-frame
+    // interval can straddle startup and falsely fail the steady-state gate.
+    const warmupStart = await collectViewerSnapshot(page);
+    const warmupFrames = Math.ceil(
+      appliedVideoSettings.fpsNumerator / appliedVideoSettings.fpsDenominator,
+    );
+    // Source screenshots and deliberate stabilization may consume the initial
+    // connection deadline. Give this separate progress check its own budget.
+    const warmupDeadline = Date.now() + waitMs;
+    let warmupEnd = warmupStart;
+    while (
+      !hasDecodedVideoProgress(warmupStart, warmupEnd, warmupFrames) &&
+      Date.now() < warmupDeadline
+    ) {
+      await sleep(200);
+      warmupEnd = await collectViewerSnapshot(page);
+    }
+    if (!hasDecodedVideoProgress(warmupStart, warmupEnd, warmupFrames)) {
+      throw new Error("Viewer never progressed from its initial frame to live video");
+    }
+    if (captureDecodedAudio) {
+      logStep("capturing decoded viewer audio as PCM");
+      decodedAudioCaptureStart = await startDecodedAudioCapture(page);
+    }
     let presentationCaptureStart = null;
     if (requirePresentationContinuity || requireVisualSequence) {
       if (
         requireVisualSequence &&
         !useMotionSource &&
-        !useMediaSequenceSource
+        !useMediaSequenceSource &&
+        !useClockSource
       ) {
         throw new Error(
-          "VDONINJA_REQUIRE_VISUAL_SEQUENCE requires motion or media-sequence source mode",
+          "VDONINJA_REQUIRE_VISUAL_SEQUENCE requires motion, media-sequence or obs-clock source mode",
         );
       }
       logStep("capturing every browser-presented video frame");
       presentationCaptureStart = await startPresentationCapture(
         page,
         requireVisualSequence,
-        useMediaSequenceSource ? "counter-complement" : "gray-crc",
+        (useMediaSequenceSource || useClockSource) ? "counter-complement" : "gray-crc",
       );
     }
     const continuityBaseline = await collectViewerSnapshot(page);
     const samples = [continuityBaseline];
+    const obsPerformanceSamples = [];
+    const sampleObsPerformance = async () => {
+      const [stats, stream] = await Promise.all([
+        client.request("GetStats"),
+        client.request("GetStreamStatus"),
+      ]);
+      obsPerformanceSamples.push({ timestampMs: Date.now(), stats, stream });
+    };
+    await sampleObsPerformance();
     const soakDeadline = Date.now() + soakMs;
     while (Date.now() < soakDeadline) {
       await sleep(
         Math.min(viewerSampleMs, Math.max(1, soakDeadline - Date.now())),
       );
       samples.push(await collectViewerSnapshot(page));
+      await sampleObsPerformance();
     }
     const secondPlayable = samples[samples.length - 1];
+    const { freezeContinuityCapture } = require("../tests/tools/capture-boundary.cjs");
+    await page.evaluate(freezeContinuityCapture);
     let presentationCapture = null;
     let presentationContinuityAnalysis = null;
     let visualSequenceAnalysis = null;
     if (presentationCaptureStart) {
       presentationCapture = await stopPresentationCapture(page);
+    }
+    if (presentationCapture) {
+      fs.writeFileSync(path.join(outputDir, `obs-presentation-records-${stamp}.json`), JSON.stringify(presentationCapture));
+    }
+    if (captureRtpTiming) {
+      const trace = await page.evaluate(() => ({records:window.__encodedTiming, overflow:window.__encodedOverflow, error:window.__encodedError || "", timeOrigin:performance.timeOrigin,capabilities:window.__timingCapabilities,negotiation:window.__negotiation,bufferWrites:window.__bufferWrites}));
+      fs.writeFileSync(path.join(outputDir, `obs-encoded-timing-${stamp}.json`), JSON.stringify(trace));
+      if (trace.overflow) throw new Error("Encoded timing trace overflowed");
+      if (trace.error) throw new Error(`Encoded timing probe failed: ${trace.error}`);
     }
     let decodedAudioCapture = null;
     if (captureDecodedAudio) {
@@ -2393,11 +2620,16 @@ async function main() {
     ) {
       videoContinuityFailure = visualSequenceAnalysis.failures.join("; ");
     } else if (requireZeroFreezes && newFreezes !== 0) {
-      videoContinuityFailure = `Chrome recorded ${newFreezes} new video freeze(s) during the ${soakMs} ms soak`;
+      videoContinuityFailure = `browser recorded ${newFreezes} new video freeze(s) during the ${soakMs} ms soak`;
     } else if (requireRelayCandidate && !relayCandidateVerified) {
       videoContinuityFailure = `forced TURN did not select a relay candidate; pairs=${JSON.stringify(
         selectedCandidatePairs(secondPlayable),
       )}`;
+    }
+    if (expectedViewerRelayProtocol && !selectedCandidatePairs(secondPlayable).some(pair =>
+      pair.localCandidateType === "relay" && pair.localRelayProtocol === expectedViewerRelayProtocol)) {
+      videoContinuityFailure = [videoContinuityFailure,
+        `selected viewer relay protocol was not ${expectedViewerRelayProtocol}`].filter(Boolean).join("; ");
     }
     const newConcealedSamples =
       totalPcMetric(secondPlayable, "concealedSamples") -
@@ -2453,13 +2685,15 @@ async function main() {
       if (
         !audioContinuityFailure &&
         requireZeroAudioConcealment &&
-        (newAudioPacketsLost > 0 ||
-          newPacketsDiscarded > 0 ||
-          newConcealedSamples > 0 ||
-          newConcealmentEvents > 0)
+        hasAudioConcealment({
+          packetsLost: newAudioPacketsLost,
+          packetsDiscarded: newPacketsDiscarded,
+          concealedSamples: newConcealedSamples,
+          concealmentEvents: newConcealmentEvents,
+        })
       ) {
         audioContinuityFailure =
-          `Chrome recorded ${newAudioPacketsLost} newly lost audio packet(s), ` +
+          `browser recorded ${newAudioPacketsLost} newly lost audio packet(s), ` +
           `${newPacketsDiscarded} discarded packet(s), ${newConcealedSamples} ` +
           `concealed sample(s), and ${newConcealmentEvents} concealment event(s)`;
       }
@@ -2488,6 +2722,14 @@ async function main() {
       }
     }
 
+    await sampleObsPerformance();
+    const obsPerformanceAnalysis = analyzeObsPerformance(obsPerformanceSamples, {
+      maximumRenderSkippedFrames: Number(process.env.VDONINJA_MAX_RENDER_SKIPPED_FRAMES || 0),
+      maximumOutputSkippedFrames: Number(process.env.VDONINJA_MAX_OUTPUT_SKIPPED_FRAMES || 0),
+    });
+    if (process.env.VDONINJA_REQUIRE_OBS_PERFORMANCE === "1" && !obsPerformanceAnalysis.ok && !videoContinuityFailure) {
+      videoContinuityFailure = obsPerformanceAnalysis.failures.join("; ");
+    }
     const streamStatusAfterViewer = await client
       .request("GetStreamStatus")
       .catch((error) => ({ error: String(error) }));
@@ -2509,6 +2751,28 @@ async function main() {
     );
     const reportPath = path.join(outputDir, `obs-publish-report-${stamp}.json`);
     await page.screenshot({ path: screenshotPath, fullPage: true });
+    const negotiatedVideoCodecs = await page.evaluate(async () => {
+      const codecs = [];
+      for (const pc of window.__pcList || []) {
+        const stats = await pc.getStats();
+        for (const inbound of stats.values()) {
+          if (inbound.type !== "inbound-rtp" || inbound.isRemote ||
+              (inbound.kind || inbound.mediaType) !== "video") continue;
+          const codec = stats.get(inbound.codecId);
+          if (codec) codecs.push({ mimeType: codec.mimeType,
+            sdpFmtpLine: codec.sdpFmtpLine || "", clockRate: codec.clockRate,
+            decoderImplementation: inbound.decoderImplementation || null,
+            powerEfficientDecoder: inbound.powerEfficientDecoder ?? null });
+        }
+      }
+      return codecs;
+    });
+    const expectedVideoCodec = process.env.VDONINJA_EXPECT_VIDEO_CODEC;
+    if (expectedVideoCodec && (!negotiatedVideoCodecs.length ||
+        negotiatedVideoCodecs.some(codec => codec.mimeType.toLowerCase() !== expectedVideoCodec.toLowerCase()))) {
+      videoContinuityFailure = [videoContinuityFailure,
+        `Expected ${expectedVideoCodec}; negotiated ${JSON.stringify(negotiatedVideoCodecs)}`].filter(Boolean).join("; ");
+    }
 
     const report = {
       ok: !audioContinuityFailure && !videoContinuityFailure,
@@ -2518,6 +2782,18 @@ async function main() {
       viewUrl,
       sourceMode,
       soakMs,
+      viewerBrowser,
+      viewerBrowserVersion: browser.version(),
+      chromiumFieldTrials,
+      browserExecutable,
+      preserveViewerIceConfiguration,
+      expectedViewerRelayProtocol,
+      chromiumLogFile,
+      chromiumProcessLogFile,
+      browserGpuDiagnostics,
+      extraChromiumArgs,
+      requireBrowserGpu,
+      negotiatedVideoCodecs,
       obsBrowserViewerCount: obsBrowserViewers.length,
       obsBrowserViewerBitratesKbps,
       nativeViewer,
@@ -2543,6 +2819,8 @@ async function main() {
       obsWebSocketVersion: version.obsWebSocketVersion,
       activeStatus,
       streamStatusAfterViewer,
+      obsPerformanceSamples,
+      obsPerformanceAnalysis,
       firstPlayable,
       continuityBaseline,
       secondPlayable,
@@ -2656,7 +2934,14 @@ async function main() {
     );
 
     await context.close();
+  } catch (error) {
+    fs.writeFileSync(path.join(outputDir, `obs-publish-failure-${stamp}.json`), JSON.stringify({error:String(error.stack || error),consoleMessages,pageErrors},null,2));
+    throw error;
   } finally {
+    if (viewerPage && !viewerPage.isClosed() && process.env.VDONINJA_CAPTURE_RTP_TIMING === "1") {
+      const negotiation = await viewerPage.evaluate(() => window.__negotiation || []).catch(() => []);
+      fs.writeFileSync(path.join(outputDir, `obs-negotiation-${stamp}.json`), JSON.stringify(negotiation,null,2));
+    }
     if (
       browserStackViewerCheck &&
       !browserStackViewerCheck.finished &&
@@ -2675,6 +2960,13 @@ async function main() {
         if (status && status.outputActive) {
           logStep("stopping OBS stream");
           await client.request("StopStream").catch(() => {});
+          const stopDeadline = Date.now() + 10000;
+          while ((await client.request("GetStreamStatus")).outputActive) {
+            if (Date.now() >= stopDeadline) {
+              throw new Error("OBS stream did not stop within ten seconds");
+            }
+            await sleep(100);
+          }
           await sleep(3000);
         }
         if (recordingStarted) {
@@ -2731,7 +3023,7 @@ async function main() {
           originalVideoSettings = null;
         }
         if (originalVideoBitrateParameter) {
-          logStep("restoring OBS video bitrate");
+          logStep("restoring OBS Simple Output bitrate");
           await client
             .request("SetProfileParameter", {
               parameterCategory: "SimpleOutput",
@@ -2751,7 +3043,11 @@ async function main() {
   }
 }
 
-main().catch((error) => {
-  console.error(error.stack || String(error));
-  process.exit(1);
-});
+module.exports = { startPresentationCapture, stopPresentationCapture, collectViewerSnapshot,
+  startDecodedAudioCapture, stopDecodedAudioCapture };
+if (require.main === module) {
+  main().catch((error) => {
+    console.error(error.stack || String(error));
+    process.exitCode = 1;
+  });
+}

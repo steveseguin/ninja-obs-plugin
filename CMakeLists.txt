@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.16)
 
-project(obs-vdoninja VERSION 1.1.66 LANGUAGES C CXX)
+project(obs-vdoninja VERSION 1.1.68 LANGUAGES C CXX)
 
 # Plugin configuration
 set(PLUGIN_AUTHOR "VDO.Ninja Community")
@@ -293,6 +293,20 @@ if(BUILD_PLUGIN)
 endif()
 
 if(BUILD_PLUGIN)
+    # Some distro pkg-config files expose /usr/include while the public OBS
+    # headers are installed below /usr/include/obs. Resolve that layout for
+    # both the plugin and linked tests instead of requiring an SDK override.
+    foreach(_include_dir IN LISTS LIBOBS_INCLUDE_DIRS)
+        if(EXISTS "${_include_dir}/obs/obs-module.h")
+            list(APPEND LIBOBS_INCLUDE_DIRS "${_include_dir}/obs")
+        endif()
+    endforeach()
+    foreach(_include_dir IN LISTS OBS_FRONTEND_INCLUDE_DIRS)
+        if(EXISTS "${_include_dir}/obs/obs-frontend-api.h")
+            list(APPEND OBS_FRONTEND_INCLUDE_DIRS "${_include_dir}/obs")
+        endif()
+    endforeach()
+
     # Find libdatachannel
     find_package(LibDataChannel QUIET CONFIG)
     if(NOT LibDataChannel_FOUND)
@@ -594,6 +608,7 @@ if(BUILD_TESTS)
 
     # Unit tests
     add_executable(vdoninja-tests
+        tests/test-obs-clock.cpp
         tests/test-alpha-sync.cpp
         tests/test-audio-red.cpp
         tests/test-auto-inbound.cpp
@@ -917,10 +932,14 @@ if(BUILD_PUBLISHER_TOOL)
     )
     set_target_properties(vp9-alpha-publisher PROPERTIES NO_SYSTEM_FROM_IMPORTED ON)
 
-    # Regular includes (no rtc/ collision)
+    # Expose only the OBS stub: tests/stubs also contains fake rtc/ headers.
+    # Include ordering cannot reliably override those when the real SDK lives
+    # in a compiler implicit include directory such as /usr/local/include.
+    set(_publisher_obs_stubs "${CMAKE_CURRENT_BINARY_DIR}/publisher-obs-stubs")
+    configure_file(tests/stubs/obs-module.h "${_publisher_obs_stubs}/obs-module.h" COPYONLY)
     target_include_directories(vp9-alpha-publisher PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/src
-        ${CMAKE_CURRENT_SOURCE_DIR}/tests/stubs
+        ${_publisher_obs_stubs}
     )
     # Same rtc/ header collision as the plugin target.
     target_include_directories(vp9-alpha-publisher SYSTEM PRIVATE ${FFMPEG_INCLUDE_DIR})
@@ -931,12 +950,6 @@ if(BUILD_PUBLISHER_TOOL)
             set(_publisher_ldc_target LibDataChannel::LibDataChannelStatic)
         else()
             set(_publisher_ldc_target LibDataChannel::LibDataChannel)
-        endif()
-        # The OBS stubs directory also contains rtc/ unit-test stubs. The
-        # publisher needs the real headers belonging to its linked library.
-        get_target_property(_publisher_ldc_includes ${_publisher_ldc_target} INTERFACE_INCLUDE_DIRECTORIES)
-        if(_publisher_ldc_includes)
-            target_include_directories(vp9-alpha-publisher BEFORE PRIVATE ${_publisher_ldc_includes})
         endif()
         target_link_libraries(vp9-alpha-publisher PRIVATE ${_publisher_ldc_target})
     endif()
@@ -963,4 +976,45 @@ if(BUILD_PUBLISHER_TOOL)
     endif()
 
     message(STATUS "VP9 alpha publisher tool enabled")
+endif()
+
+# Opt-in real OBS rendering fixture; never installed in release packages.
+option(BUILD_OBS_CLOCK_FIXTURE "Build the OBS-clocked frame-counter source for E2E isolation" OFF)
+if(BUILD_OBS_CLOCK_FIXTURE)
+    if(NOT BUILD_PLUGIN)
+        message(FATAL_ERROR "BUILD_OBS_CLOCK_FIXTURE requires BUILD_PLUGIN=ON")
+    endif()
+    add_library(vdoninja-clock-fixture MODULE tests/obs-clock-source/main.cpp)
+    set_target_properties(vdoninja-clock-fixture PROPERTIES PREFIX "")
+    target_include_directories(vdoninja-clock-fixture PRIVATE ${LIBOBS_INCLUDE_DIRS})
+    # ARM OBS graphics headers use SIMDe from the OBS dependency prefix.
+    find_path(VDONINJA_OBS_SIMDE_INCLUDE_DIR simde/x86/sse2.h)
+    if(VDONINJA_OBS_SIMDE_INCLUDE_DIR)
+        target_include_directories(vdoninja-clock-fixture SYSTEM PRIVATE ${VDONINJA_OBS_SIMDE_INCLUDE_DIR})
+    endif()
+    if(TARGET OBS::libobs)
+        target_link_libraries(vdoninja-clock-fixture PRIVATE OBS::libobs)
+    else()
+        target_link_libraries(vdoninja-clock-fixture PRIVATE ${LIBOBS_LIBRARIES})
+    endif()
+endif()
+
+option(BUILD_RTP_TIMING_TRACE "Build bounded in-memory RTP/SR tracing for synthetic E2E isolation" OFF)
+if(BUILD_RTP_TIMING_TRACE)
+    if(NOT BUILD_PLUGIN)
+        message(FATAL_ERROR "BUILD_RTP_TIMING_TRACE requires BUILD_PLUGIN=ON")
+    endif()
+    target_compile_definitions(obs-vdoninja PRIVATE VDONINJA_ENABLE_TIMING_TRACE)
+endif()
+if(BUILD_RTP_TIMING_TRACE AND BUILD_TESTS)
+    add_executable(vdoninja-rtp-timing-trace-tests tests/test-rtp-timing-trace.cpp src/vdoninja-rtp-repair.cpp)
+    target_link_libraries(vdoninja-rtp-timing-trace-tests PRIVATE GTest::gtest_main)
+    if(TARGET LibDataChannel::LibDataChannel)
+        target_link_libraries(vdoninja-rtp-timing-trace-tests PRIVATE LibDataChannel::LibDataChannel)
+    else()
+        target_include_directories(vdoninja-rtp-timing-trace-tests PRIVATE ${LIBDATACHANNEL_INCLUDE_DIRS})
+        target_link_libraries(vdoninja-rtp-timing-trace-tests PRIVATE ${LIBDATACHANNEL_LIBRARIES})
+    endif()
+    add_test(NAME rtp-timing-trace COMMAND vdoninja-rtp-timing-trace-tests)
+    set_tests_properties(rtp-timing-trace PROPERTIES TIMEOUT 30 LABELS diagnostics)
 endif()

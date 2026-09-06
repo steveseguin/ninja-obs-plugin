@@ -1,0 +1,42 @@
+# Maintainer: VDO.Ninja contributors (see project URL)
+# Development package: rebuild after OBS or FFmpeg ABI upgrades.
+pkgname=obs-vdoninja-git
+pkgver=1.1.66.r285.gb284267
+pkgrel=1
+pkgdesc='Native VDO.Ninja publishing and receiving plugin for OBS Studio'
+arch=('x86_64')
+url='https://github.com/steveseguin/ninja-obs-plugin'
+license=('AGPL-3.0-only')
+depends=('obs-studio>=32.2' 'obs-studio<32.3' 'libdatachannel' 'ffmpeg' 'openssl' 'qt6-base' 'libgcc' 'libstdc++' 'glibc')
+makedepends=('cmake' 'ninja' 'git')
+provides=('obs-vdoninja')
+conflicts=('obs-vdoninja')
+source=('ninja-obs-plugin::git+https://github.com/steveseguin/ninja-obs-plugin.git')
+sha256sums=('SKIP')
+
+pkgver() {
+  cd ninja-obs-plugin
+  local version
+  version=$(sed -n 's/^project(obs-vdoninja VERSION \([^ ]*\).*/\1/p' CMakeLists.txt)
+  printf '%s.r%s.g%s' "$version" "$(git rev-list --count HEAD)" "$(git rev-parse --short HEAD)"
+}
+
+build() {
+  cmake -S ninja-obs-plugin -B build -G Ninja \
+    -DCMAKE_BUILD_TYPE=None \
+    -DCMAKE_INSTALL_PREFIX=/usr \
+    -DCMAKE_INSTALL_LIBDIR=lib \
+    -DBUNDLE_LINUX_RUNTIME=OFF \
+    -DBUILD_TESTS=OFF \
+    -DBUILD_NATIVE_MEDIA_LINKED_GATE=ON
+  cmake --build build
+}
+
+check() {
+  ctest --test-dir build -L release-linked --no-tests=error --output-on-failure
+}
+
+package() {
+  DESTDIR="$pkgdir" cmake --install build
+  install -Dm644 ninja-obs-plugin/LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}

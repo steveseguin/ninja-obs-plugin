@@ -1,4 +1,6 @@
 const { chromium } = require("playwright");
+const fs = require("fs");
+const path = require("path");
 
 function ensureQuery(url, key, value) {
   const u = new URL(url);
@@ -52,13 +54,29 @@ async function collectMediaSnapshot(page) {
           let inboundAudioBytes = 0;
           let outboundVideoBytes = 0;
           let outboundAudioBytes = 0;
+          let framesEncoded = 0;
+          let totalEncodeTime = 0;
+          let retransmittedPackets = 0;
+          let remoteJitter = null;
+          let roundTripTime = null;
+          let qualityLimitationReason = "";
           stats.forEach((s) => {
+            if (s.type === "remote-inbound-rtp" && s.kind === "video") {
+              if (typeof s.jitter === "number") remoteJitter = Math.max(remoteJitter || 0, s.jitter);
+              if (typeof s.roundTripTime === "number") roundTripTime = Math.max(roundTripTime || 0, s.roundTripTime);
+            }
             if (s.type === "inbound-rtp" && !s.isRemote) {
               if (s.kind === "video") inboundVideoBytes += s.bytesReceived || 0;
               if (s.kind === "audio") inboundAudioBytes += s.bytesReceived || 0;
             }
             if (s.type === "outbound-rtp" && !s.isRemote) {
-              if (s.kind === "video") outboundVideoBytes += s.bytesSent || 0;
+              if (s.kind === "video") {
+                outboundVideoBytes += s.bytesSent || 0;
+                framesEncoded += s.framesEncoded || 0;
+                totalEncodeTime += s.totalEncodeTime || 0;
+                retransmittedPackets += s.retransmittedPacketsSent || 0;
+                qualityLimitationReason = s.qualityLimitationReason || "";
+              }
               if (s.kind === "audio") outboundAudioBytes += s.bytesSent || 0;
             }
           });
@@ -70,6 +88,12 @@ async function collectMediaSnapshot(page) {
             inboundAudioBytes,
             outboundVideoBytes,
             outboundAudioBytes,
+            framesEncoded,
+            totalEncodeTime,
+            retransmittedPackets,
+            remoteJitter,
+            roundTripTime,
+            qualityLimitationReason,
           });
         } catch (error) {
           pcStats.push({ source: entry.source, id: entry.id, error: String(error) });
@@ -801,10 +825,16 @@ async function main() {
 
   const viewUrl = ensureQuery(viewUrlInput, "cleanoutput", "1");
 
+  const fakeCameraFps = Number(process.env.PUBLISH_FAKE_CAMERA_FPS || 20);
+  if (!Number.isFinite(fakeCameraFps) || fakeCameraFps <= 0 || fakeCameraFps > 120) {
+    throw new Error("PUBLISH_FAKE_CAMERA_FPS must be between 0 (exclusive) and 120");
+  }
   const launchArgs = [
     "--autoplay-policy=no-user-gesture-required",
     "--use-fake-ui-for-media-stream",
-    "--use-fake-device-for-media-stream",
+    process.env.PUBLISH_FAKE_CAMERA_FPS
+      ? `--use-fake-device-for-media-stream=fps=${fakeCameraFps}`
+      : "--use-fake-device-for-media-stream",
     "--allow-http-screen-capture",
   ];
   if (fakeAudioCaptureFile) {
@@ -936,7 +966,20 @@ async function main() {
 
   // Keep publisher alive so the user can check live playout.
   await viewerPage.close();
-  await sleep(durationMs);
+  const statsPath = process.env.PUBLISH_STATS_PATH;
+  if (statsPath) {
+    fs.mkdirSync(path.dirname(path.resolve(statsPath)), { recursive: true });
+    const deadline = Date.now() + durationMs;
+    while (Date.now() < deadline) {
+      for (const entry of publisherEntries) {
+        const sample = await collectMediaSnapshot(entry.page);
+        fs.appendFileSync(statsPath, JSON.stringify({ publisherIndex: entry.index, ...sample }) + "\n");
+      }
+      await sleep(Math.min(2000, Math.max(0, deadline - Date.now())));
+    }
+  } else {
+    await sleep(durationMs);
+  }
   publisherReloadState.cancelled = true;
   if (publisherReloadState.promise) {
     await Promise.race([publisherReloadState.promise, sleep(1000)]).catch(() => {});

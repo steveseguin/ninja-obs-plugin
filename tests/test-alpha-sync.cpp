@@ -495,3 +495,58 @@ TEST(AlphaSyncTest, RejectsInvalidAlphaPlaneDimensionsAndStride)
 	EXPECT_FALSE(scaleAlphaPlaneNearest({1, 2, 3, 4}, 2, 2, 1, 4, 4, output));
 	EXPECT_FALSE(scaleAlphaPlaneNearest({1, 2, 3}, 2, 2, 2, 4, 4, output));
 }
+
+TEST(AlphaSyncTest, AudioOutputTimestampMappingPreservesTimingAcrossMultipleFullCycles)
+{
+	RtpOutputTimestampMapper mapper;
+	constexpr uint64_t baseNs = 1000000000ULL;
+	constexpr uint32_t clockRate = 48000;
+	EXPECT_EQ(mapper.map(0, baseNs, clockRate), baseNs);
+	for (uint64_t hour = 1; hour <= 80; ++hour) {
+		const uint64_t ticks = hour * 3600 * clockRate;
+		const uint64_t expected = baseNs + hour * 3600 * 1000000000ULL;
+		EXPECT_EQ(mapper.map(static_cast<uint32_t>(ticks), expected, clockRate), expected) << hour;
+	}
+	mapper.reset();
+	EXPECT_EQ(mapper.map(123, baseNs, clockRate), baseNs);
+	EXPECT_FALSE(mapper.map(122, baseNs, clockRate));
+	EXPECT_FALSE(mapper.map(123, baseNs, clockRate));
+	EXPECT_EQ(mapper.map(1083, baseNs, clockRate), baseNs + 20000000ULL);
+}
+
+TEST(AlphaSyncTest, ZeroClockRateDoesNotInitializeTimestampMapper)
+{
+	RtpOutputTimestampMapper mapper;
+	EXPECT_FALSE(mapper.map(100, 1000, 0));
+	EXPECT_EQ(mapper.map(100, 2000, 48000), 2000u);
+}
+
+TEST(AlphaSyncTest, CachedPrimeToLiveTimestampJumpDoesNotScheduleVideoSecondsAhead)
+{
+	RtpOutputTimestampMapper mapper;
+	constexpr uint64_t baseNs = 10000000000ULL;
+	EXPECT_EQ(mapper.map(0, baseNs), baseNs);
+	// A cached IDR followed immediately by the current live GOP.
+	EXPECT_EQ(mapper.map(180000, baseNs + 17000000), baseNs + 17000000);
+	EXPECT_EQ(mapper.map(181500, baseNs + 34000000), baseNs + 17000000 + 1000000000ULL / 60);
+	EXPECT_FALSE(mapper.map(180000, baseNs + 35000000));
+}
+
+TEST(AlphaSyncTest, TimestampMappingPreservesOrdinaryBurstsAndRealElapsedGaps)
+{
+	RtpOutputTimestampMapper mapper;
+	constexpr uint64_t baseNs = 10000000000ULL;
+	EXPECT_EQ(mapper.map(0, baseNs), baseNs);
+	EXPECT_EQ(mapper.map(9000, baseNs + 1000000), baseNs + 100000000);
+	EXPECT_EQ(mapper.map(189000, baseNs + 2100000000ULL), baseNs + 2100000000ULL);
+}
+
+TEST(AlphaSyncTest, FutureTimestampRebaseRemainsMonotonicAndDoesNotUnderflow)
+{
+	RtpOutputTimestampMapper mapper;
+	EXPECT_EQ(mapper.map(0, 1), 1u);
+	EXPECT_EQ(mapper.map(9000, 2), 100000001u);
+	// The tiny synthetic epoch also checks that rebasing cannot underflow it.
+	EXPECT_EQ(mapper.map(180000, 3), 100000002u);
+	EXPECT_EQ(mapper.map(181500, 200000000), 100000002u + 1000000000ULL / 60);
+}

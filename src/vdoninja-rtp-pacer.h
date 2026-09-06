@@ -149,6 +149,9 @@ public:
 	bool enqueueFrame(std::vector<Packet> packets, RtpPacerFrameInfo info = {},
 	                  FrameCompletionCallback completionCallback = {});
 	bool enqueueRepair(Packet packet, SendCallback sendCallback, RepairCompletionCallback completionCallback = {});
+	// Repeated feedback is stronger evidence of loss than one reordered packet.
+	// Keep the original deadline and the existing repair/media rate budgets.
+	bool prioritizeRepair(uint16_t sequenceNumber);
 	size_t discardQueuedDeltaFramesUntilKeyframe();
 	// Drops every not-yet-started media frame. If the front frame is already
 	// being transmitted, it is allowed to finish so a partial RTP frame is
@@ -182,6 +185,7 @@ private:
 
 	struct QueuedRepair {
 		Packet packet;
+		bool requestedAgain = false;
 		std::chrono::steady_clock::time_point queuedAt;
 		std::chrono::steady_clock::time_point expiresAt;
 		SendCallback sendCallback;

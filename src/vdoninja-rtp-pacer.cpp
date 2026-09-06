@@ -69,9 +69,9 @@ size_t calculateTimedBudget(uint64_t bitrateBitsPerSecond, std::chrono::millisec
 
 uint64_t calculateRepairBitrate(uint64_t bitrateBitsPerSecond)
 {
-	// The publisher's main pacer normally runs at twice the encoder rate.
-	// Reserving one quarter of that rate caps NACK repair near half the encoded
-	// media rate while leaving most scheduler slots available to live video.
+	// Reserve most pacing capacity for live media while it is queued. Idle
+	// slots can service repairs through the overall pacer without this
+	// additional sub-budget; otherwise reordering creates an avoidable backlog.
 	return std::max<uint64_t>(1, bitrateBitsPerSecond / 4U);
 }
 
@@ -431,6 +431,23 @@ bool RtpPacketPacer::enqueueRepair(Packet packet, SendCallback sendCallback,
 	return true;
 }
 
+bool RtpPacketPacer::prioritizeRepair(uint16_t sequenceNumber)
+{
+	std::lock_guard<std::mutex> lock(mutex_);
+	if (stopping_) {
+		return false;
+	}
+	const auto now = std::chrono::steady_clock::now();
+	for (auto &repair : repairQueue_) {
+		if (repair.packet.size() >= 4 && rtpSequenceNumber(repair.packet) == sequenceNumber && now < repair.expiresAt) {
+			repair.requestedAgain = true;
+			cv_.notify_one();
+			return true;
+		}
+	}
+	return false;
+}
+
 bool RtpPacketPacer::shouldQueueDuplicate(const Packet &packet, const RtpPacerFrameInfo &info) const
 {
 	return duplicationConfig_.mode != VideoProtectionMode::Off &&
@@ -700,15 +717,31 @@ void RtpPacketPacer::run()
 			continue;
 		}
 
+		// Keep the deque in age order for expiry, but serve the oldest repeated
+		// request first. One-off NACKs caused by reordering must not trap a
+		// still-missing packet behind an entire repair-budget backlog.
+		size_t repairIndex = 0;
+		for (size_t i = 0; i < repairQueue_.size(); ++i) {
+			if (repairQueue_[i].requestedAgain) {
+				repairIndex = i;
+				break;
+			}
+		}
 		bool repairReady = false;
+		bool borrowRepairHeadroom = false;
 		if (!repairQueue_.empty()) {
-			const size_t repairBytes = repairQueue_.front().packet.size();
+			const size_t repairBytes = repairQueue_[repairIndex].packet.size();
 			const long double requiredRepairTokens =
 			    static_cast<long double>(std::min(repairBytes, currentRepairBudget));
-			repairReady = repairTokens >= requiredRepairTokens;
+			borrowRepairHeadroom = queue_.empty() && repairTokens < requiredRepairTokens;
+			repairReady = borrowRepairHeadroom || repairTokens >= requiredRepairTokens;
 		}
-		const bool sendRepair =
-		    repairReady && (queue_.empty() || consecutiveRepairPackets < kMaxConsecutiveRepairPackets);
+		// A new keyframe supersedes the older prediction chain. Finish its
+		// original packets before spending pacing slots on the repair backlog;
+		// interleaving four repairs per packet can prolong decoder recovery.
+		const bool keyframePending = !queue_.empty() && queue_.front().info.keyframe;
+		const bool sendRepair = repairReady && !keyframePending &&
+		                        (queue_.empty() || consecutiveRepairPackets < kMaxConsecutiveRepairPackets);
 		bool duplicateReady = false;
 		if (!duplicateQueue_.empty() && now >= duplicateQueue_.front().notBefore) {
 			const size_t duplicateBytes = duplicateQueue_.front().packet.size();
@@ -727,12 +760,12 @@ void RtpPacketPacer::run()
 		if (!sendRepair && !sendDuplicate && queue_.empty()) {
 			auto wakeAt = std::chrono::steady_clock::time_point::max();
 			if (!repairQueue_.empty()) {
-				const size_t repairBytes = repairQueue_.front().packet.size();
+				const size_t repairBytes = repairQueue_[repairIndex].packet.size();
 				const long double requiredRepairTokens =
 				    static_cast<long double>(std::min(repairBytes, currentRepairBudget));
 				const auto repairReadyAt =
 				    now + tokenWaitDuration(requiredRepairTokens - repairTokens, currentRepairBitrate);
-				wakeAt = std::min(repairReadyAt, repairQueue_.front().expiresAt);
+				wakeAt = std::min(repairReadyAt, repairQueue_[repairIndex].expiresAt);
 			}
 			if (!duplicateQueue_.empty()) {
 				auto duplicateWakeAt = duplicateQueue_.front().notBefore;
@@ -754,7 +787,7 @@ void RtpPacketPacer::run()
 			continue;
 		}
 
-		const size_t packetBytes = sendRepair      ? repairQueue_.front().packet.size()
+		const size_t packetBytes = sendRepair      ? repairQueue_[repairIndex].packet.size()
 		                           : sendDuplicate ? duplicateQueue_.front().packet.size()
 		                                           : queue_.front().packets[queue_.front().nextPacket].size();
 		const uint64_t selectedQueueMutationGeneration = queueMutationGeneration_;
@@ -767,10 +800,17 @@ void RtpPacketPacer::run()
 		}
 
 		if (sharedBudget_) {
+			const auto repairDeadline =
+			    sendRepair ? repairQueue_[repairIndex].expiresAt : std::chrono::steady_clock::time_point::max();
 			lock.unlock();
 			bool sharedPacingWaited = false;
 			const bool acquired = sharedBudget_->acquire(
-			    packetBytes, [this]() { return stopping_.load(std::memory_order_acquire); }, &sharedPacingWaited);
+			    packetBytes,
+			    [this, repairDeadline]() {
+				    return stopping_.load(std::memory_order_acquire) ||
+				           std::chrono::steady_clock::now() >= repairDeadline;
+			    },
+			    &sharedPacingWaited);
 			lock.lock();
 			if (!acquired || stopping_.load(std::memory_order_acquire)) {
 				continue;
@@ -788,6 +828,12 @@ void RtpPacketPacer::run()
 			now = std::chrono::steady_clock::now();
 		}
 
+		// Aggregate pacing can outlast the repair deadline. Let the normal
+		// expiry path report it once instead of transmitting obsolete work.
+		if (sendRepair && now >= repairQueue_[repairIndex].expiresAt) {
+			continue;
+		}
+
 		if (sendDuplicate && now >= duplicateQueue_.front().expiresAt) {
 			pruneExpiredDuplicatesLocked(now);
 			continue;
@@ -802,13 +848,18 @@ void RtpPacketPacer::run()
 		lastSendAt = now;
 
 		if (sendRepair) {
-			QueuedRepair repair = std::move(repairQueue_.front());
-			repairQueue_.pop_front();
+			QueuedRepair repair = std::move(repairQueue_[repairIndex]);
+			repairQueue_.erase(repairQueue_.begin() + repairIndex);
 			queuedBytes_ -= packetBytes;
 			queuedRepairBytes_ -= packetBytes;
 			stats_.queuedBytes = queuedBytes_;
 			stats_.maxPacketDelayMs = std::max(stats_.maxPacketDelayMs, elapsedMilliseconds(now, repair.queuedAt));
 			repairTokens -= static_cast<long double>(packetBytes);
+			if (borrowRepairHeadroom) {
+				// Borrowed idle capacity must not create artificial debt against
+				// future repair slots once live media returns.
+				repairTokens = std::max(0.0L, repairTokens);
+			}
 			++consecutiveRepairPackets;
 
 			lock.unlock();

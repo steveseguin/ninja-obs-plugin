@@ -95,6 +95,8 @@ Remove plugin + data:
 
 ## Linux (`obs-vdoninja-linux-x86_64.tar.gz`)
 
+New to Linux? See the [illustrated installation and troubleshooting guide](https://steveseguin.github.io/ninja-obs-plugin/linux-installation.html).
+
 This package is for **native x86-64 OBS Studio 32.2.x** on Ubuntu 24.04.
 Ubuntu 24.04's stock OBS 30.0.2 package is too old. Check `obs --version` before
 installing; see the [OBS Linux installation guide](https://obsproject.com/kb/linux-installation)
@@ -105,6 +107,11 @@ not make this native archive compatible with its runtime.
 The archive includes a private libdatachannel runtime beside the plugin. Keep
 the `obs-vdoninja/` directory with `obs-vdoninja.so` when copying files manually.
 The installer checks the OBS version and missing shared libraries before copying files.
+System installs follow the selected OBS executable's libobs location: `/usr/local`
+for official OBS Ubuntu packages or `/usr` for distro packages. Uninstall checks both.
+
+For OBS upgrade handling and the tested version matrix, see
+[OBS compatibility and release validation](docs/obs-compatibility-and-release-validation.md).
 
 ### Install or update
 
@@ -127,7 +134,9 @@ sudo ./uninstall.sh --remove-data
 ```
 
 Use the same install scope when uninstalling: `sudo` for a system install, or
-run both scripts without `sudo` for a per-user install. If you installed in both
+run both scripts without `sudo` for a per-user install. Per-user installs follow
+`XDG_CONFIG_HOME` when set, otherwise `~/.config`. Use the same environment when
+uninstalling. If you installed in both
 scopes, uninstall in both. Updated uninstallers also remove system copies from
 Ubuntu's multiarch directory and the older `/usr/lib/obs-plugins` location.
 
@@ -139,6 +148,9 @@ An OBS scene collection can also retain references to a removed VDO.Ninja source
 <a id="install-macos"></a>
 
 ## macOS (`obs-vdoninja-macos-arm64.pkg` or `.zip`)
+
+Current Apple silicon packages target OBS 32.2.x on macOS 13 or later. Bundled
+dependencies are checked against that minimum.
 
 `obs-vdoninja-macos-arm64.pkg` is for native Apple Silicon OBS. Intel Macs, and Apple Silicon Macs running Intel OBS under Rosetta, need an `x86_64` or universal package.
 
@@ -234,3 +246,12 @@ Or:
 ```powershell
 Start-Process -FilePath "D:\OBS\obs-studio\bin\64bit\obs64.exe" -WorkingDirectory "D:\OBS\obs-studio\bin\64bit" -ArgumentList "--portable"
 ```
+
+## Arch Linux / AUR packaging
+
+Arch users should build the source package in
+[`packaging/arch`](packaging/arch/README.md), which links to Arch's installed
+OBS 32.2.x and media libraries. The Ubuntu binary archive is not an Arch package.
+The development recipe is available in this repository and is not yet published
+to the public AUR. Use `makepkg -si` to build/install and `pacman -R obs-vdoninja-git`
+to remove it. Rebuild after runtime ABI upgrades.
