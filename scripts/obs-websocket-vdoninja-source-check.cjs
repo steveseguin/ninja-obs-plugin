@@ -1065,10 +1065,45 @@ function analyzeAlphaCompositeSequence(samples, options = {}) {
       }
     }
   } else if (["alpha-checker", "alpha-opaque", "alpha-half"].includes(pattern)) {
-    if (uniqueCompositePixelHashes.length !== 1) {
-      result.failureReasons.push(
-        `static fixture produced ${uniqueCompositePixelHashes.length} unique decoded frames; expected exactly 1`
-      );
+    // A static source is not necessarily pixel-identical after lossy encoding.
+    // Compare every image to the first (not its predecessor, which would allow
+    // gradual drift). Keep epoch, per-frame composite, and evidence checks above.
+    if (uniqueCompositePixelHashes.length > 1 || options.requireEvidenceFiles === true) {
+      result.staticImageTolerance = { maximumMeanChannelError: 3, maximumChannelDelta: 16 };
+      result.staticImageDifferences = [];
+      try {
+        const images = usefulSamples.map((sample) => {
+          const bytes = fs.readFileSync(sample.screenshot.outputPath);
+          if (crypto.createHash("sha256").update(bytes).digest("hex") !== sample.screenshot.sha256) {
+            throw new Error("static screenshot evidence hash does not match its file");
+          }
+          const image = decodePng(bytes);
+          if (crypto.createHash("sha256").update(image.rgba).digest("hex") !== sample.compositePixelSha256) {
+            throw new Error("static decoded pixel hash does not match its evidence");
+          }
+          return image;
+        });
+        const reference = images[0];
+        for (const image of images.slice(1)) {
+          if (image.width !== reference.width || image.height !== reference.height) {
+            throw new Error("static composite dimensions changed");
+          }
+          const sums = [0, 0, 0, 0];
+          let maximumChannelDelta = 0;
+          for (let i = 0; i < image.rgba.length; ++i) {
+            const delta = Math.abs(image.rgba[i] - reference.rgba[i]);
+            sums[i % 4] += delta;
+            maximumChannelDelta = Math.max(maximumChannelDelta, delta);
+          }
+          const maximumMeanChannelError = Math.max(...sums) / (image.width * image.height);
+          result.staticImageDifferences.push({ maximumMeanChannelError, maximumChannelDelta });
+          if (maximumMeanChannelError > 3 || maximumChannelDelta > 16) {
+            result.failureReasons.push("static composite changed beyond lossy-image tolerance");
+          }
+        }
+      } catch (error) {
+        result.failureReasons.push(`static composite comparison failed: ${error.message}`);
+      }
     }
   }
 
