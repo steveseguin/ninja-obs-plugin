@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- Stop media measurements before exporting captures so probe teardown does not create false audio continuity failures.
 - Rebase native receive timestamps after cached-keyframe jumps so live video is not scheduled seconds ahead and does not inflate OBS audio buffering.
 - Build macOS OpenSSL dependencies for the OBS macOS 13 baseline and reject packages that silently require a newer OS.
 - Replace read-only bundled files during macOS upgrades and resolve bundled dylibs beside the plugin instead of through build-machine paths.
@@ -37,6 +38,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Require real native media and alpha-composition tests in Linux builds, and add an optional live alpha-site smoke test for dual-track decode, viewer reload, and clean shutdown.
 - Validate the same Linux release binary against official OBS 32.2.0, 32.2.1, and 32.2.2 runtimes, with 32.1.2 and 32.0.4 as incompatible-version controls.
 - Run the Linux release build on main and pull requests, with isolated install/uninstall regression tests and an extracted-package ELF loading and OBS API compatibility gate.
+
+### Validation limits
+- Two-hour Mac screen-capture testing remained connected but failed smooth-playback criteria under heavy local load; combined packet loss/reordering also remains a measured limitation despite improved repair scheduling.
+- Software VideoToolbox 1080p60 performance is content-dependent. Windows GameCapture hardware features and actual macOS 13 execution were not verified on the Mac test host; encoder quality, adaptive-bitrate, and protection defaults remain unchanged.
+- See `docs/macos-publishing-validation.md` and `docs/linux-receiver-timing-isolation.md` for measured results, audio/presentation limitations, and reproducible checks.
 
 ## [1.1.66] - 2026-09-05
 

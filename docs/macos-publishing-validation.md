@@ -392,6 +392,158 @@ Matched instrumented five-minute runs reduced p95 video timestamp lead from
 buffer, and all four complete minute PCM windows passed. Its strict overall media
 gate still failed during concurrent builds in the final minute; drops/freezes
 first appeared after 251 seconds. This establishes the timing correction, not a
-claim of frame-perfect playback under unlimited local load. A build-free sustained
-stress run is required separately. Private traces and before/after results are in
+claim of frame-perfect playback under unlimited local load. Private traces and before/after results are in
 `artifacts/obs-soak-20260905/`.
+
+## Two-hour Mac screen-capture soak
+
+The September 5 follow-up completed 7,200 seconds of uninterrupted publishing
+using the corrected release-mode plugin, official OBS 32.2.2, and an 8 GB M1 MacBook
+Air. ScreenCaptureKit captured a moving, marked native-app window; a separate
+native tone app supplied application-only ScreenCaptureKit audio. Hardware VT
+H.264 CBR used 1080p60, 8 Mbps, two-second keyframes, High video protection, and
+Opus RED. Adaptive bitrate remained off. Four viewers ran on the same Mac: one
+native plugin source at 640×360 output, two OBS Browser Sources, and an instrumented Chromium viewer.
+Their local decode/render overhead is part of these measurements; this is not a
+measurement of four viewers running on separate computers or of an actual game.
+
+Each phase lasted 15 minutes. CPU is whole-system utilization; FPS and freezes
+are from the external viewer. Audio failures count approximately minute-long
+raw decoded-track PCM windows, with a separate final window described below.
+
+| Phase | System CPU mean | Decoded FPS | OBS render skips | Frozen seconds | Failed PCM windows |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Baseline | 92.8% | 59.95 | 0.95% | 0.770* | 1* |
+| Three CPU workers, 384 MiB | 99.4% | 58.93 | 0.54% | 7.281 | 0 |
+| GPU workload | 97.3% | 59.24 | 6.99% | 7.161 | 1 |
+| Combined CPU/GPU | 99.5% | 58.13 | 1.80% | 12.941 | 0 |
+| Six CPU workers, 768 MiB, continuous GPU | 99.8% | 33.29 | 0.33% | 216.757 | 0 |
+| Reduced combined load | 99.4% | 58.43 | 1.32% | 11.940 | 0 |
+| Synthetic load removed | 97.4% | 59.92 | 2.90% | 0.179 | 0 |
+| Continued recovery | 97.0% | 60.02 | 3.38% | 0.000 | 0 |
+
+*A five-second macOS stack-sampling operation coincided with the baseline freezes
+and a 310 ms PCM dropout. Raw totals retain this measurement interference;
+excluding elapsed 430–445 seconds removes those freezes, but does not remove
+other baseline render skips, receiver drops, or minor concealment. No further
+stack sampling or builds ran during the soak.
+
+The strict overall media gate failed: 8,237 receiver frame drops, 110 freezes
+totaling 257.029 seconds, 241 ms maximum observed RTP jitter, 9,835 OBS render
+skips, and 88 encoder skips. Publisher logs show receiver bandwidth estimates
+falling below the fixed encoder rate, followed by bounded video queues reaching
+roughly four seconds. Both OBS browser viewers also froze. The stream remained
+connected, and video recovered when load decreased. The last 15 minutes had no
+external-viewer drops or freezes, although OBS render skips continued.
+
+Of 114 rolling raw PCM windows, two failed: the profiling interval and the initial
+GPU transition (220 ms dropout and one click candidate). The final 69.39-second
+raw window passed. Together these analyzed about 6,904.87 seconds of audio;
+restart/trim gaps were not PCM-certified. Continuous RTP statistics recorded
+89,863 concealed samples and 26 concealment events, so zero-concealment failed.
+The final Web Audio playout capture also detected five click candidates despite
+clean raw decoded samples. No claim of click-free audible output or measured
+acoustic lip-sync follows from the raw-track checks. Browser estimated audio/video
+playout offsets are retained as telemetry, not acoustic synchronization proof.
+
+Final flushed OBS logs show audio buffering rose from 64 to 597 ms during stack
+sampling and reached OBS's 960 ms maximum during the GPU transition, with source
+audio restarts. The cached-startup timestamp fix does not prevent scheduling-load
+buffer growth. Changing encoder quality, source timing, or audio buffering
+defaults to conceal these failures would need separate validation.
+
+OBS-reported memory stayed between approximately 348 and 489 MiB, without sustained
+growth. The thermal monitor reported `fair` throughout its observed interval;
+no absolute temperature was measured. Native Mac reception used software H.264
+decode; VideoToolbox hardware publishing does not imply hardware native decoding.
+The screen fixture loops and source-image uniqueness was not certified for this
+soak. Windows GameCapture hardware behavior and actual macOS 13 execution remain
+unverified on this Mac.
+
+## Balanced repair-scheduler comparison
+
+After the soak, eight 60-second runs compared the previous `c4c5fb7` scheduler
+with the integrated repair changes from `61c80c8`, using identical private
+dependency libraries. The order was old/new/new/old/new/old/old/new. A verified
+TURN relay carried real media through a loopback proxy that dropped every 200th
+datagram in each direction after its seven-second warmup and independently
+delayed packets by 15–40 ms, creating reordering. The synthetic CPU/GPU loads
+and screen/audio fixture apps were stopped. Hardware H.264 remained 1080p60 at
+8 Mbps with High protection and Opus RED; this comparison used marked file input
+and one external viewer.
+
+| Four runs per scheduler | Previous | Updated |
+| --- | ---: | ---: |
+| Mean decoded FPS | 58.99 | 59.75 |
+| Mean decoded-frame drops per run | 11.25 | 1.50 |
+| Frozen seconds per run, range | 6.972–9.041 | 0 |
+| Mean browser presentation FPS | 29.27 | 43.90 |
+| Missing decoded source markers per run, range | 41–77 | 7–21 |
+
+All eight strict media gates still failed. Every updated run avoided detected
+freezes, but source-marker omissions and presentation failures remained. OBS
+reported no render or encoder skips in these comparisons, and decoded raw PCM
+passed throughout. Some runs still had audio concealment or Web Audio click
+candidates. Proxy logs confirm substantial media traffic and actual injected
+drops. These results support retaining the repair scheduling mitigation, not
+increasing its budgets or claiming that combined loss/reordering is resolved.
+
+Separate 30-second clean and loss-only controls passed the configured decoded
+video, source-marker, and raw-audio gates with both schedulers: no decoded drops,
+freezes, missing markers, or OBS render/encoder skips. The optional stricter
+compositor analysis still found small presentation omissions in these controls,
+and some Web Audio captures contained click candidates. These control passes
+must not be presented as certification of every playback metric.
+
+## Recording-only software encoder isolation
+
+With plugin publishing and all viewers disabled, the detailed marked file at
+1080p60 still failed Apple software VT ABR: the analyzed recording contained
+108 repeated and 108 skipped source markers, and OBS reported 382 output skips
+with zero render skips during the sampled interval. This reproduces a problem
+before plugin network delivery. Hardware VT CBR at 1080p60, software VT ABR at
+720p60, and software VT ABR with a simple OBS-clocked 1080p60 counter each passed
+1,078 recorded-marker comparisons and had no OBS render/output skips in repeated
+controls. The clock fixture uses simple graphics; it does not certify complex
+game content at the same resolution.
+
+The initial recording extractor added one boundary duplicate after input seeking
+because FFmpeg applied output frame pacing. `-fps_mode passthrough` removed that
+artifact from the preserved software recording, and all three controls were
+recorded and checked again with corrected extraction. The substantial software
+1080p failure remained; the disputed recording and corrected control recordings
+are retained privately.
+
+Recorded hardware-1080p and software-720p audio passed their 17.25-second PCM
+windows. The first simple-clock software recording also passed audio, while its
+repeat had six short dropout windows (20 ms maximum), with no click candidates
+or clipping. Publishing was inactive in every sample. These observations do not
+justify a plugin-side encoder workaround or silently changing software-mode
+quality settings; software VT's usable workload remains content-dependent.
+
+## Adaptive bitrate and measurement teardown
+
+Four primary 120-second runs used adaptive off/on/on/off with three CPU workers,
+384 MiB of added memory pressure, and the moderate GPU workload. The file-based
+publisher fed the external viewer, two OBS browser viewers requesting 2/8 Mbps,
+and the 640×360 native viewer requesting 800 kbps. This shorter test did not
+reproduce the long screen-capture soak's video failure: all four runs had zero
+decoded drops, freezes, missing source markers, and OBS render/encoder skips.
+
+Adaptive mode correctly selected the minimum fresh receiver estimate. Logs show
+the hardware encoder target stepping 8000→4000→2000→1000→720 kbps and returning
+to 8000 kbps after each adaptive session. The small native viewer was the limiting
+request. This is a real quality tradeoff affecting all viewers, not a validated
+reason to enable adaptive mode by default. One on-run had a 10 ms raw PCM dropout;
+the other three raw PCM checks passed. All four Web Audio captures still contained
+click candidates, and strict compositor checks found small presentation omissions.
+These results verify adaptation/restoration, not universal smooth playback.
+
+An exploratory batch exposed a harness error: video capture was serialized before
+audio collection stopped. Three runs reported a single raw PCM click around the
+120-second endpoint. Freezing both collections before either export removed those
+endpoint clicks in the four primary runs while still detecting the in-window
+10 ms dropout. Regression tests verify that export cannot add post-measurement
+samples, optional captures are supported, live tracks remain untouched, and the
+freeze function works when serialized into the browser. This correction changes
+measurement teardown only; earlier raw observations remain retained.
