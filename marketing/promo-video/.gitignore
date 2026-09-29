@@ -1,4 +1,7 @@
 frames/
+frames-short/
 preview/
 *.wav
 *.mp4
+*.log
+sheet*.jpg

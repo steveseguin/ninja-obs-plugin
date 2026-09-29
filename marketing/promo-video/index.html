@@ -403,7 +403,7 @@ PLAT.forEach((p, i) => {
 function sceneAlpha(t, [a, b]) {
   if (t < a - .001 || t > b + XF) return 0;
   const i = a === 0 ? 1 : clamp((t - a) / XF);
-  const o = b >= 88 ? 1 : 1 - clamp((t - b) / XF);
+  const o = b >= 88 ? 1 : window.HARD_CUTS ? (t < b ? 1 : 0) : 1 - clamp((t - b) / XF);
   return Math.min(i, o);
 }
 
@@ -440,7 +440,7 @@ function render(t) {
     });
     const z = pr(l, 5.0, 1, p => p * p);
     st('s1', { transform: `scale(${1 + z * .6})` });
-    st('flash', { opacity: clamp(1 - Math.abs(l - 6) / .35) * .9 });
+    st('flash', { opacity: window.HARD_CUTS ? 0 : clamp(1 - Math.abs(l - 6) / .35) * .9 });
   } else st('flash', { opacity: 0 });
 
   // S2

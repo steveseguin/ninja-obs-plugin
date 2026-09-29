@@ -1,4 +1,4 @@
-import numpy as np, wave
+import numpy as np, sys, wave
 SR=44100; DUR=88.0; N=int(SR*DUR); BPM=120; B=60/BPM
 rng=np.random.default_rng(7)
 L=np.zeros(N); R=np.zeros(N)
@@ -133,6 +133,14 @@ t=np.arange(N)/SR
 st*= np.clip((DUR-t)/1.2,0,1)[:,None]
 st/=np.max(np.abs(st))*1.02
 st=np.tanh(st*1.6)/np.tanh(1.6)
-w=wave.open('music.wav','wb'); w.setnchannels(2); w.setsampwidth(2); w.setframerate(SR)
+out='music.wav'
+if '--short' in sys.argv:
+    # same windows as `node render.mjs short`; all start on a bar line so the groove stays intact
+    SEG=[(6,12),(20,32),(32,40),(48,56),(80,88)]; X=int(.012*SR)
+    parts=[st[int(a*SR):int(b*SR)].copy() for a,b in SEG]
+    for p in parts[1:]: p[:X]*=np.linspace(0,1,X)[:,None]
+    for p in parts[:-1]: p[-X:]*=np.linspace(1,0,X)[:,None]
+    st=np.concatenate(parts); out='music-short.wav'
+w=wave.open(out,'wb'); w.setnchannels(2); w.setsampwidth(2); w.setframerate(SR)
 w.writeframes((st*32000).astype('<i2').tobytes()); w.close()
 print('done')
