@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.69] - 2026-10-03
+
 ### Fixed
 - Make Windows installation explicitly confirm the target OBS folder, support selecting a custom or portable build by its executable, detect official OBS registry paths, and reject folders missing OBS before copying files.
 - Confirm ZIP installer destinations before writing, provide explicit unattended installation options, and launch OBS from its required working directory after setup.
