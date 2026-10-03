@@ -534,16 +534,17 @@ function New-ReleaseNotes {
     } else {
         $section.Body.Trim([char[]]@("`r", "`n"))
     }
+    $downloadBase = "https://github.com/steveseguin/ninja-obs-plugin/releases/download/$($VersionInfo.Tag)"
 
 return @"
 ## Compatibility - choose this first
 
 | Platform | OBS version | Download |
 | --- | --- | --- |
-| Windows | `32.2.x` | `obs-vdoninja-windows-x64-setup.exe` (recommended) or `obs-vdoninja-windows-x64.zip` |
-| Windows | `32.0.x` or `32.1.x` | `obs-vdoninja-windows-x64-obs32.0-32.1-setup.exe` or `obs-vdoninja-windows-x64-obs32.0-32.1.zip` |
-| Linux | `32.2.x` | `obs-vdoninja-linux-x86_64.tar.gz` |
-| macOS (Apple silicon) | `32.2.x` | `obs-vdoninja-macos-arm64.pkg` (recommended) or `obs-vdoninja-macos-arm64.zip` |
+| Windows | `32.2.x` | [obs-vdoninja-windows-x64-setup.exe]($downloadBase/obs-vdoninja-windows-x64-setup.exe) (recommended) or [obs-vdoninja-windows-x64.zip]($downloadBase/obs-vdoninja-windows-x64.zip) |
+| Windows | `32.0.x` or `32.1.x` | [obs-vdoninja-windows-x64-obs32.0-32.1-setup.exe]($downloadBase/obs-vdoninja-windows-x64-obs32.0-32.1-setup.exe) or [obs-vdoninja-windows-x64-obs32.0-32.1.zip]($downloadBase/obs-vdoninja-windows-x64-obs32.0-32.1.zip) |
+| Linux | `32.2.x` | [obs-vdoninja-linux-x86_64.tar.gz]($downloadBase/obs-vdoninja-linux-x86_64.tar.gz) |
+| macOS (Apple silicon) | `32.2.x` | [obs-vdoninja-macos-arm64.pkg]($downloadBase/obs-vdoninja-macos-arm64.pkg) (recommended) or [obs-vdoninja-macos-arm64.zip]($downloadBase/obs-vdoninja-macos-arm64.zip) |
 
 Do not mix the Windows builds: OBS 32.2 uses FFmpeg 8, while OBS 32.0-32.1 use FFmpeg 7. This release has no prebuilt package for OBS 31.x or older and makes no compatibility promise for future OBS versions beyond 32.2.x.
 
@@ -562,7 +563,7 @@ Do not mix the Windows builds: OBS 32.2 uses FFmpeg 8, while OBS 32.0-32.1 use F
 $changesBody
 
 ## Verification
-- SHA-256 checksums are provided in `checksums.txt`.
+- SHA-256 checksums are provided in [checksums.txt]($downloadBase/checksums.txt).
 "@
 }
 
