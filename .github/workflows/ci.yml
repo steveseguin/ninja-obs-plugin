@@ -7,6 +7,17 @@ on:
     branches: [main]
 
 jobs:
+  windows-installer:
+    name: Windows Installer
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Inno Setup
+        run: choco install innosetup -y --no-progress
+      - name: Validate ZIP and compiled setup installers
+        shell: powershell
+        run: .\tests\test-windows-package.ps1 -RequireCompiler
+
   # Run tests on Linux (tests don't require OBS)
   test:
     name: Unit Tests

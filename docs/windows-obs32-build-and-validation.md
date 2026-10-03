@@ -1,5 +1,33 @@
 # Windows OBS 32.x Build And Validation Notes
 
+## Windows installer validation (2026-10-03)
+
+Run the isolated ZIP and compiled setup regression suite with Inno Setup 6 installed:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tests/test-windows-package.ps1 -RequireCompiler
+```
+
+Use `-IsccPath "C:\path\to\ISCC.exe"` for a portable compiler. The suite uses inert
+payloads under `artifacts/windows-installer-tests`, disables test setup registration,
+and checks custom paths, cancellation, missing/incomplete OBS roots, per-user installs,
+and upgrades. Omitting `-RequireCompiler` permits ZIP-only checks; CI requires both.
+
+Local validation also exercised the interactive executable picker, invalid-folder
+error, final destination confirmation, and installation. A production-script installer
+using the unchanged 1.1.68 DLL passed fresh install, repair, and uninstall against a
+separate OBS 32.2.2 portable copy. The running process loaded `obs-vdoninja.dll` from
+the selected custom folder; uninstall preserved OBS and an unrelated sentinel file.
+These checks validate installer behavior, not a new media or compatibility claim.
+
+Standalone Windows unit tests now request OBS's 1 ms timer resolution for the test
+process and release it on teardown. This avoids false repair-expiration failures
+from repeated short waits under coarse Windows timers without relaxing assertions
+or changing plugin behavior. All 728 Windows tests passed; the affected pacing test
+also passed 20 consecutive runs.
+
+## Earlier OBS 32.x validation
+
 Status as of `2026-03-21`: validated on Steve's Windows machine with portable OBS, stream ID `steve12345`, no room ID.
 
 This note captures the actual failures encountered during the TLS/fallback investigation, the code fix that landed, and the local Windows build/test gotchas that made the debugging session harder than it should have been.

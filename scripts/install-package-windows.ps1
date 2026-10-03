@@ -1,17 +1,60 @@
 param(
     [switch]$CurrentUser,
-    [string]$ObsRoot = "$env:ProgramFiles\obs-studio",
+    [string]$ObsRoot = "",
+    [switch]$Yes,
     [switch]$NoQuickStartPopup,
     [switch]$OpenQuickStart
 )
 
 $ErrorActionPreference = "Stop"
 
+function Test-ObsRoot {
+    param([string]$Path)
+
+    return (-not [string]::IsNullOrWhiteSpace($Path)) -and
+        (Test-Path -LiteralPath (Join-Path $Path "bin\64bit\obs64.exe") -PathType Leaf) -and
+        (Test-Path -LiteralPath (Join-Path $Path "bin\64bit\obs.dll") -PathType Leaf)
+}
+
+function Get-DefaultObsRoot {
+    foreach ($hive in @([Microsoft.Win32.RegistryHive]::LocalMachine, [Microsoft.Win32.RegistryHive]::CurrentUser)) {
+        $baseKey = [Microsoft.Win32.RegistryKey]::OpenBaseKey($hive, [Microsoft.Win32.RegistryView]::Registry64)
+        try {
+            foreach ($entry in @(
+                @{ Key = "SOFTWARE\OBS Studio"; Value = "" },
+                @{ Key = "SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\OBS Studio_is1"; Value = "InstallLocation" }
+            )) {
+                $key = $baseKey.OpenSubKey($entry.Key)
+                if ($null -eq $key) { continue }
+                try {
+                    $candidate = [string]$key.GetValue($entry.Value)
+                    if (Test-ObsRoot $candidate) { return $candidate }
+                } finally {
+                    $key.Dispose()
+                }
+            }
+        } finally {
+            $baseKey.Dispose()
+        }
+    }
+
+    $programFiles = $env:ProgramW6432
+    if (-not $programFiles) { $programFiles = $env:ProgramFiles }
+    return Join-Path $programFiles "obs-studio"
+}
+
+if ($CurrentUser -and $ObsRoot) {
+    throw "Use either -CurrentUser or -ObsRoot. For custom or portable OBS, use -ObsRoot."
+}
+if ($Yes -and -not $CurrentUser -and [string]::IsNullOrWhiteSpace($ObsRoot)) {
+    throw "For unattended installation, specify -ObsRoot with -Yes (or use -CurrentUser -Yes)."
+}
+
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $packageRoot = $scriptDir
-if (-not (Test-Path (Join-Path $packageRoot "obs-plugins\64bit"))) {
-    $parent = Resolve-Path (Join-Path $scriptDir "..")
-    if (Test-Path (Join-Path $parent "obs-plugins\64bit")) {
+if (-not (Test-Path -LiteralPath (Join-Path $packageRoot "obs-plugins\64bit"))) {
+    $parent = Resolve-Path -LiteralPath (Join-Path $scriptDir "..")
+    if (Test-Path -LiteralPath (Join-Path $parent "obs-plugins\64bit")) {
         $packageRoot = $parent
     }
 }
@@ -19,10 +62,10 @@ if (-not (Test-Path (Join-Path $packageRoot "obs-plugins\64bit"))) {
 $srcPluginDir = Join-Path $packageRoot "obs-plugins\64bit"
 $srcDataDir = Join-Path $packageRoot "data\obs-plugins\obs-vdoninja"
 
-if (-not (Test-Path $srcPluginDir)) {
-    Write-Error "Package plugin directory not found: $srcPluginDir"
+if (-not (Test-Path -LiteralPath (Join-Path $srcPluginDir "obs-vdoninja.dll") -PathType Leaf)) {
+    Write-Error "Package plugin DLL not found: $srcPluginDir\obs-vdoninja.dll"
 }
-if (-not (Test-Path $srcDataDir)) {
+if (-not (Test-Path -LiteralPath $srcDataDir -PathType Container)) {
     Write-Error "Package data directory not found: $srcDataDir"
 }
 
@@ -30,6 +73,19 @@ if ($CurrentUser) {
     $dstPluginDir = Join-Path $env:APPDATA "obs-studio\plugins\obs-vdoninja\bin\64bit"
     $dstDataDir = Join-Path $env:APPDATA "obs-studio\plugins\obs-vdoninja\data"
 } else {
+    if ([string]::IsNullOrWhiteSpace($ObsRoot)) { $ObsRoot = Get-DefaultObsRoot }
+    if (-not $Yes) {
+        Write-Host "Select the OBS Studio installation to receive the plugin."
+        Write-Host "For custom or portable OBS, enter its root folder containing bin\64bit\obs64.exe."
+        Write-Host "Suggested OBS folder: $ObsRoot"
+        $selectedRoot = Read-Host "OBS folder (Enter to keep the suggestion)"
+        if (-not [string]::IsNullOrWhiteSpace($selectedRoot)) { $ObsRoot = $selectedRoot }
+    }
+    $ObsRoot = $ObsRoot.Trim().Trim('"')
+    if (-not (Test-ObsRoot $ObsRoot)) {
+        throw "OBS Studio was not found in '$ObsRoot'. Choose the root containing bin\64bit\obs64.exe and bin\64bit\obs.dll, not bin or obs-plugins."
+    }
+    $ObsRoot = (Resolve-Path -LiteralPath $ObsRoot).ProviderPath
     $dstPluginDir = Join-Path $ObsRoot "obs-plugins\64bit"
     $dstDataDir = Join-Path $ObsRoot "data\obs-plugins\obs-vdoninja"
 }
@@ -39,11 +95,19 @@ Write-Host "Source:      $packageRoot"
 Write-Host "Plugin dst:  $dstPluginDir"
 Write-Host "Data dst:    $dstDataDir"
 
+if (-not $Yes) {
+    $answer = Read-Host "Install the plugin to these folders? [y/N]"
+    if ($answer -notmatch '^(?i:y|yes)$') {
+        Write-Host "Installation cancelled. No files were copied."
+        return
+    }
+}
+
 New-Item -ItemType Directory -Force -Path $dstPluginDir | Out-Null
 New-Item -ItemType Directory -Force -Path $dstDataDir | Out-Null
 
-Copy-Item (Join-Path $srcPluginDir "*") $dstPluginDir -Recurse -Force
-Copy-Item (Join-Path $srcDataDir "*") $dstDataDir -Recurse -Force
+Get-ChildItem -LiteralPath $srcPluginDir | Copy-Item -Destination $dstPluginDir -Recurse -Force
+Get-ChildItem -LiteralPath $srcDataDir | Copy-Item -Destination $dstDataDir -Recurse -Force
 
 $quickStartPath = Join-Path $packageRoot "QUICKSTART.md"
 $quickStartUrl = "https://steveseguin.github.io/ninja-obs-plugin/#quick-start"

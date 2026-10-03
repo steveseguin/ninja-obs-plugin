@@ -31,8 +31,11 @@ Recommended (new users):
 
 1. Download `obs-vdoninja-windows-x64-setup.exe` from Releases.
 2. Run the installer.
-3. Keep the detected OBS folder (or browse to your portable OBS root).
-4. On finish, optionally launch OBS and open Quick Start.
+3. On **Select OBS Studio**, confirm the installation you actually use. For a custom or portable build, browse to its root folder or click **Select obs64.exe...** and choose its executable inside `bin\64bit`.
+4. Review the **OBS Studio folder** on the final confirmation page, then install. Setup checks that the selected folder contains `bin\64bit\obs64.exe` and `bin\64bit\obs.dll` before copying files.
+5. On finish, optionally launch the selected OBS and open Quick Start.
+
+Use the existing OBS root (for example, `D:\Custom OBS`), not its `bin`, `bin\64bit`, or `obs-plugins` subfolder. If several OBS copies are installed, select the one you intend to run. Detection is only a suggestion; the folder page also appears on updates.
 
 The primary Windows downloads target OBS `32.2.x`. OBS `32.0.x-32.1.x` users must instead download `obs-vdoninja-windows-x64-obs32.0-32.1-setup.exe` or the matching legacy ZIP.
 
@@ -46,7 +49,7 @@ ZIP fallback (`obs-vdoninja-windows-x64.zip`):
 .\install.cmd
 ```
 
-New-user default: use `install.cmd` first. It bypasses strict PowerShell script policy for this run only.
+The script suggests a detected OBS folder, lets you enter a different folder, and asks for confirmation before copying files. Use `install.cmd` to bypass strict PowerShell script policy for this run only.
 
 Per-user install (no admin):
 
@@ -65,6 +68,18 @@ Portable OBS path:
 ```powershell
 .\install.cmd -ObsRoot "D:\OBS\obs-studio"
 ```
+
+For unattended ZIP installation, specify the target explicitly and add `-Yes -NoQuickStartPopup`:
+
+```powershell
+.\install.cmd -ObsRoot "D:\Custom OBS" -Yes -NoQuickStartPopup
+```
+
+`-CurrentUser -Yes -NoQuickStartPopup` installs to the current user's shared OBS plugin directory. For a particular custom or portable OBS copy, use `-ObsRoot` instead of `-CurrentUser`.
+
+Unattended setup `.exe` installs can use `/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /DIR="D:\Custom OBS"`; the selected folder is still validated.
+
+For manual copying, merge **both** `obs-plugins` and `data` from the ZIP into the selected OBS root, including bundled dependencies. Copying only `obs-vdoninja.dll` can leave the plugin without required files. Custom OBS builds still need the matching OBS/FFmpeg package from the compatibility table above.
 
 If you need to run the PowerShell script directly:
 

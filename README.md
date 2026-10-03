@@ -115,7 +115,7 @@ Each release archive includes:
 Windows recommendation:
 
 1. Use the setup `.exe` for normal installs/uninstalls.
-2. Use ZIP scripts only for portable/custom-path workflows.
+2. Confirm the OBS folder in setup. Custom and portable builds are supported: browse to their root or use **Select obs64.exe...**. ZIP scripts remain available for manual installation.
 3. For OBS `32.2.x`, use the primary Windows download. For OBS `32.0.x` or `32.1.x`, use the filename containing `obs32.0-32.1`.
 4. Use the web quick-start guide after install: `https://steveseguin.github.io/ninja-obs-plugin/#quick-start`.
 
