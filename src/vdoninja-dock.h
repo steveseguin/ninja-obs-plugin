@@ -55,6 +55,7 @@ private:
 	QLineEdit *editPassword;
 	QSpinBox *spinMaxViewers;
 	QLineEdit *editUdpPorts;
+	QPushButton *btnGenerateId;
 
 	// Actions
 	QPushButton *btnGoLive;

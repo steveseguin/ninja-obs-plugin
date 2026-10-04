@@ -95,14 +95,14 @@ void VDONinjaDock::setupUi()
 	spinMaxViewers->setMinimumWidth(60);
 	spinMaxViewers->setToolTip(obs_module_text_vdo("MaxViewers.Description"));
 
-	QPushButton *btnGen = new QPushButton(obs_module_text_vdo("VDONinja.Dock.GenerateID"), grpCreds);
-	connect(btnGen, &QPushButton::clicked, this, &VDONinjaDock::onGenerateIdClicked);
+	btnGenerateId = new QPushButton(obs_module_text_vdo("VDONinja.Dock.GenerateID"), grpCreds);
+	connect(btnGenerateId, &QPushButton::clicked, this, &VDONinjaDock::onGenerateIdClicked);
 
 	form->addRow(obs_module_text_vdo("StreamID"), editStreamId);
 	form->addRow(obs_module_text_vdo("RoomID"), editRoomId);
 	form->addRow(obs_module_text_vdo("Password"), editPassword);
 	form->addRow(obs_module_text_vdo("VDONinja.Dock.MaxViewers"), spinMaxViewers);
-	form->addRow("", btnGen);
+	form->addRow("", btnGenerateId);
 
 	for (auto *edit : {editStreamId, editRoomId, editPassword}) {
 		connect(edit, &QLineEdit::textEdited, this, [this]() { editsPending_ = true; });
@@ -196,6 +196,7 @@ void VDONinjaDock::setupUi()
 	QVBoxLayout *statusLayout = new QVBoxLayout(grpStatus);
 
 	lblStatus = new QLabel(obs_module_text_vdo("Ready"), grpStatus);
+	lblStatus->setWordWrap(true);
 	lblStatus->setAlignment(Qt::AlignCenter);
 	lblStatus->setStyleSheet("font-weight: bold; font-size: 14px;");
 
@@ -516,6 +517,7 @@ void VDONinjaDock::updateStats()
 
 	// Lock settings while streaming is active
 	editStreamId->setEnabled(!streaming);
+	btnGenerateId->setEnabled(!streaming);
 	editRoomId->setEnabled(!streaming);
 	editPassword->setEnabled(!streaming);
 	editUdpPorts->setEnabled(!streaming);
