@@ -240,6 +240,10 @@ $env:VDONINJA_BROWSERSTACK_REQUIRE_CANDIDATE_TYPE = "relay"
 
 The generated `artifacts/browserstack-viewer-*.json` report includes receiver codecs, the selected candidate pair, received bitrate, decoded frames, NACK/PLI/FIR/FEC counters, audio concealment, and freezes. Repeat with the supported profiles in `scripts/browserstack-vdoninja-viewer-check.cjs` and with VDO.Ninja codec steering parameters where the publisher can supply that codec.
 
+For desktop playback checks without network simulation, pass `--phases '[{"name":"unshaped","networkProfile":"none","durationMs":20000}]'` directly to the viewer script. This omits network capabilities and skips the network-update API, which BrowserStack rejected for Windows desktop sessions in the October 2026 validation. Set `$env:BROWSERSTACK_NETWORK_LOGS = "false"` if its HTTP recording proxy prevents signaling WebSocket upgrades; receiver statistics and browser console collection remain available. Read credentials from an external secret file via `--secret-file`; do not copy that file into this repository.
+
+Inspect `receiverCodecs` before interpreting Firefox connection failures: both tested BrowserStack Firefox installations lacked H.264 WebRTC support. Also inspect `freezeCount` and `totalFreezesDuration`; a passing playback-progress gate alone does not establish smooth playback.
+
 BrowserStack `customNetwork` is not automatically proof of controlled WebRTC impairment. During the 2026-07-26 validation, BrowserStack accepted bandwidth/loss updates but both direct UDP and TURN/UDP media continued above the requested cap. Treat those phases as engine/route continuity tests unless the report marks `networkEffect.status` as `observed`. To make a controlled-loss gate fail closed, set:
 
 ```powershell

@@ -345,3 +345,71 @@ Use this only for regression validation, and always restore the file afterward.
 - Do not skip `build_x64/config` and `deps/w32-pthreads` when building against the local OBS source tree on Windows.
 - Do not skip `--clean-first` after changing libdatachannel source/config or header precedence.
 - Do not claim hard `srflx` validation without phone-side stats or explicit candidate logging.
+
+## Publishing Settings Validation (2026-10-03)
+
+Validated with portable OBS 32.2.2, a synthetic 1280x720/60 scene, and the locally built Release DLL. The running process loaded `_obs-portable/obs-plugins/64bit/obs-vdoninja.dll`; its hash matched `build-plugin-release-validation/Release/obs-vdoninja.dll`.
+
+| Check | Result |
+| --- | --- |
+| Edit dock ID/password, use native Start Streaming and dock Go Live | Both published the entered identity; Copy Viewer Link matched it |
+| Restart OBS | Saved ID was reused |
+| Common VDO.Ninja service, ApplyServiceSettings enabled, IgnoreRecommended disabled | x264 retained CRF, 12000 kbps CBR, and 24000 kbps CBR; Intel QSV retained ICQ quality 23 |
+| Intel QSV compatibility settings | Zero B-frames and a two-second keyframe interval, with ICQ unchanged |
+| Go Live after advanced settings changes | Preserved custom salt and adaptive minimum; clearing the password stayed effective |
+| Chrome using the copied link | Decoded over 300 frames from Intel ICQ and 24000 kbps CBR, including a custom salt |
+| C++ tests and formatting | 737 tests passed; clang-format 14 passed for all `src`/`tests` C++ files |
+| Windows packaging | 22 ZIP/compiled-installer scenarios passed; scoped firewall helper passed mocked rule checks |
+
+The 24000 kbps run received about 17005 kbps in the short browser sample, proving delivery above 6/12 Mbps. Its OBS log also recorded pacer queue growth/drops, so this is not a sustained 24 Mbps performance certification. Remote Firefox playback, cellular paths, and changes to the real Windows firewall were not tested in this pass.
+
+Copied signaling overrides use `wss2`, which retains VDO.Ninja's signaling protocol and encryption. With the same password and endpoint, `wss` selected the browser's custom-server protocol and prevented this test viewer from accepting the offer; `wss2` decoded successfully. Legacy `wss` input in an OBS Stream Key is still accepted and converted when generating links.
+
+Local evidence is under `artifacts/publish-settings-runtime/` (OBS logs, viewer statistics, module hashes, and restoration results), with build/test logs under `artifacts/publish-settings-*.log`. The original portable OBS configuration, DLL, and locale were restored and compared against the backup after testing.
+
+### Custom Local UDP Ports
+
+The additional port-selection validation used the same portable OBS version and verified the loaded DLL path/hash again. The publisher keeps separate sockets per peer; UDP multiplexing remains disabled, so a range is recommended for multiple viewers.
+
+- Native Start Streaming with `50000`: Chrome decoded more than 300 frames, and its received SDP contained only host port 50000 from OBS.
+- Dock Go Live with `50010-50020`: two concurrent Chrome viewers decoded more than 300 frames each. Their received OBS host ports were 50010 and 50020, respectively.
+- Restart retained the custom range. Go Live honored a subsequent service-side range change. Native Start Streaming restored the profile's range after recreating a common VDO.Ninja service containing only the Stream Key/server fields.
+- Switching back to Auto restored normal allocation and browser playback. Invalid text could not start through Go Live.
+- The linked socket test gathered real candidates for two peers within 42000-42100, then verified that an occupied fixed port failed without allocating a replacement port. The complete native linked suite passed.
+- All 741 dependency-light unit tests passed, including automatic allocation, single ports, inclusive ranges, boundary values, and rejection of malformed/descending/out-of-bounds input. The plugin build and clang-format 14 checks passed.
+
+Evidence is under `artifacts/udp-ports-runtime/` and `artifacts/udp-ports-*.log`. The original portable OBS configuration, DLL, and locale were restored and compared against the backup. These local tests do not establish whether a remote viewer will use TURN or whether a router will preserve the chosen external port.
+
+### Remote BrowserStack Validation (2026-10-03)
+
+Used the updated DLL in portable OBS 32.2.2, verified its loaded path and SHA-256 before and after restart, and published only synthetic 1280x720/60 motion. Sessions ran sequentially without BrowserStack Local or network shaping. Each successful receiver sample lasted about 20 seconds. BrowserStack credentials were read from the external `chunkcast/.secrets` file; no credential file was copied here.
+
+| Remote receiver | OBS configuration | Receiver result | Selected ICE pair |
+| --- | --- | --- | --- |
+| Windows Chrome 154 | x264 CBR 12000; Auto ports; native Start Streaming | 12023 kbps, 1204 decoded frames, zero lost packets and reported freezes | srflx/srflx UDP; 26 ms RTT |
+| Windows Chrome 154 | Intel QSV ICQ 23; fixed port 50000; native Start Streaming | 5563 kbps, 1206 decoded frames, zero lost packets; 10 reported freezes totaling 2.118 s | srflx/srflx UDP; 25 ms RTT |
+| Pixel 9 Chrome | Intel QSV ICQ 23; range 50010-50020; dock Go Live | 5574 kbps, 1206 decoded frames, zero lost packets; 8 reported freezes totaling 1.470 s | srflx/srflx UDP; 77 ms RTT |
+| Windows Playwright Firefox 155 and standard WebDriver Firefox 157 | H.264 capability check / ICQ playback attempt | Neither installation advertised H.264 WebRTC decoding; Firefox playback remains unverified | No selected media pair |
+
+Receiver-side `getStats()` proves the three successful routes were direct UDP. OBS socket snapshots confirmed port 50000 and port 50010 for the corresponding cases. Both start buttons preserved the edited stream ID, and Copy Viewer Link matched the live identity. Encoder logs confirmed ICQ 23, zero B-frames and a two-second keyframe interval. The ICQ cases passed the playback-progress gate, but their freeze counters prevent a smooth-playback claim. OBS logged roughly 570 KB keyframes and around 200 ms keyframe send times; pacing needs follow-up. These short results do not diagnose KRD's NAT/firewall or certify sustained 24 Mbps delivery. The phone used BrowserStack's network, not a cellular route.
+
+The remote harness needed two adjustments: disabling BrowserStack network logging restored signaling after WebSocket HTTP 403 responses, and `networkProfile: "none"` avoided the unsupported desktop network-update API. The failed attempts are retained with the successful reports.
+
+A separate viewer-side reproduction used both `codec=h264` and `bitrate=24000`: `CodecsHandler.setVideoBitrates()` threw before the answer was applied. Captured input contained a bare LF between the video media line and its connection line, while the parser split on CRLF. The failure also reproduced locally. The copied viewer link without the bitrate override worked remotely, and a local check with `bitrate=12000` alone decoded successfully. No deployed viewer code was changed during this validation.
+
+Evidence is under `artifacts/browserstack-publish-settings/`, including raw receiver reports, OBS logs, socket snapshots, module verification and `summary.json`. Remote sessions were closed, and portable OBS's original configuration, DLL and locale were restored and hash-compared against the backup.
+
+### Release Retest After Windows Pacing Correction
+
+Windows condition-variable waits rounded sub-millisecond token waits up, repeatedly exhausting the small shared bucket before the next wakeup. The corrected pacer uses a thread-owned high-resolution waitable timer for these short waits while keeping the existing burst cap and longer interruptible waits. It falls back to the condition variable if the high-resolution timer is unavailable. The same synthetic scene, encoder settings, and 20-second receiver measurements then produced:
+
+| Receiver / mode | Received kbps | Decoded frames | Reported freezes | Lost packets |
+| --- | ---: | ---: | ---: | ---: |
+| Remote Windows Chrome / ICQ 23, port 50000 | 5653 | 1208 | 0 | 0 |
+| Remote Pixel 9 Chrome / ICQ 23, range 50010-50020 | 5790 | 1210 | 0 | 0 |
+| Local Firefox / ICQ 23 with corrected viewer helper and explicit codec + bitrate | 5638 | 1212 | 0 | 0 |
+| Remote Windows Chrome / CBR 24000, Auto ports | 24043 | 1204 | 0 | 0 |
+
+The CBR 24000 log recorded zero pacing drops and a maximum keyframe send time of 52 ms. All 742 unit tests, the native linked suite, 22 compiled Windows installer scenarios, and mocked firewall checks passed. Real firewall integration is additionally required by the elevated Windows CI runner; the local shell is not elevated. The focused viewer suite passed nine cases in each of local Chrome and Firefox. The viewer correction preserves CRLF when changing codec order; it is maintained separately in the VDO.Ninja web repository.
+
+Evidence is under `artifacts/publish-release-runtime/`. The running portable OBS DLL path/hash was verified, and its configuration, DLL and locale were restored and hash-compared after testing. These are short checks, not long-duration soak results; all playback measurement windows were below one minute.

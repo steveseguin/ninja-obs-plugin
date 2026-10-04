@@ -1149,6 +1149,11 @@ void VDONinjaPeerManager::setForceTurn(bool force)
 	forceTurn_ = force;
 }
 
+void VDONinjaPeerManager::setUdpPortRange(const UdpPortRange &range)
+{
+	udpPortRange_ = range;
+}
+
 rtc::Configuration VDONinjaPeerManager::getRtcConfig() const
 {
 	rtc::Configuration config{};
@@ -1160,8 +1165,8 @@ rtc::Configuration VDONinjaPeerManager::getRtcConfig() const
 	config.enableIceUdpMux = false;
 	config.disableAutoNegotiation = false;
 	config.forceMediaTransport = false;
-	config.portRangeBegin = 1024;
-	config.portRangeEnd = 65535;
+	config.portRangeBegin = udpPortRange_.first;
+	config.portRangeEnd = udpPortRange_.last;
 	config.mtu.reset();
 	config.maxMessageSize.reset();
 

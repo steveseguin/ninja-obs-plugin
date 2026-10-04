@@ -32,8 +32,9 @@ Recommended (new users):
 1. Download `obs-vdoninja-windows-x64-setup.exe` from Releases.
 2. Run the installer.
 3. On **Select OBS Studio**, confirm the installation you actually use. For a custom or portable build, browse to its root folder or click **Select obs64.exe...** and choose its executable inside `bin\64bit`.
-4. Review the **OBS Studio folder** on the final confirmation page, then install. Setup checks that the selected folder contains `bin\64bit\obs64.exe` and `bin\64bit\obs.dll` before copying files.
-5. On finish, optionally launch the selected OBS and open Quick Start.
+4. Optionally allow peer-to-peer UDP through Windows Firewall on private and/or public networks. The rule applies only to the selected `obs64.exe`; choose the network profiles you use.
+5. Review the **OBS Studio folder** on the final confirmation page, then install. Setup checks that the selected folder contains `bin\64bit\obs64.exe` and `bin\64bit\obs.dll` before copying files.
+6. On finish, optionally launch the selected OBS and open Quick Start.
 
 Use the existing OBS root (for example, `D:\Custom OBS`), not its `bin`, `bin\64bit`, or `obs-plugins` subfolder. If several OBS copies are installed, select the one you intend to run. Detection is only a suggestion; the folder page also appears on updates.
 
@@ -78,6 +79,10 @@ For unattended ZIP installation, specify the target explicitly and add `-Yes -No
 `-CurrentUser -Yes -NoQuickStartPopup` installs to the current user's shared OBS plugin directory. For a particular custom or portable OBS copy, use `-ObsRoot` instead of `-CurrentUser`.
 
 Unattended setup `.exe` installs can use `/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /DIR="D:\Custom OBS"`; the selected folder is still validated.
+
+Firewall changes are opt-in and require administrator access. For ZIP installs, use `-FirewallProfiles Private`, `Public`, or `Private,Public` with `-ObsRoot`; `None` skips them. For unattended setup, select `/TASKS="firewallprivate"` or `/TASKS="firewallprivate,firewallpublic"`. Setup uninstall removes only the plugin-created rule for that OBS path. ZIP users can remove it with `powershell -NoProfile -ExecutionPolicy Bypass -File .\configure-windows-firewall.ps1 -Action Remove -ObsExe "D:\Custom OBS\bin\64bit\obs64.exe"`.
+
+A firewall allow rule can help direct connections but does not guarantee them across every router, VPN, or ISP. A viewer's local `relay` candidate means that viewer allocated TURN; it does not identify which endpoint prevented a direct connection. The fallback signaling server is separate from TURN media relay.
 
 For manual copying, merge **both** `obs-plugins` and `data` from the ZIP into the selected OBS root, including bundled dependencies. Copying only `obs-vdoninja.dll` can leave the plugin without required files. Custom OBS builds still need the matching OBS/FFmpeg package from the compatibility table above.
 

@@ -826,6 +826,7 @@ jobs:
 
           Copy-Item scripts\install-package-windows.cmd install\install.cmd
           Copy-Item scripts\install-package-windows.ps1 install\install.ps1
+          Copy-Item scripts\configure-windows-firewall.ps1 install\configure-windows-firewall.ps1
           Copy-Item scripts\uninstall-package-windows.cmd install\uninstall.cmd
           Copy-Item scripts\uninstall-package-windows.ps1 install\uninstall.ps1
 

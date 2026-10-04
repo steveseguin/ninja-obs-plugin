@@ -152,6 +152,7 @@ public:
 	// Configure ICE servers
 	void setIceServers(const std::vector<IceServer> &servers);
 	void setForceTurn(bool force);
+	void setUdpPortRange(const UdpPortRange &range);
 
 	// Publishing mode - create offers for incoming viewers
 	bool startPublishing(int maxViewers = 10);
@@ -406,6 +407,7 @@ private:
 	// ICE configuration
 	std::vector<IceServer> iceServers_;
 	bool forceTurn_ = false;
+	UdpPortRange udpPortRange_;
 
 	// Publishing state
 	std::atomic<bool> publishing_{false};

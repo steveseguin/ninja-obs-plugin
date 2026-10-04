@@ -53,7 +53,12 @@ SelectDirLabel3=Confirm the OBS Studio folder below. For a custom or portable bu
 SelectDirBrowseLabel=Choose the existing OBS root containing bin\64bit\obs64.exe, not the bin or obs-plugins subfolder.
 ReadyMemoDir=OBS Studio folder:
 
+[Tasks]
+Name: "firewallprivate"; Description: "Allow this OBS installation to make peer-to-peer connections on private networks"; GroupDescription: "Optional Windows Firewall access (UDP):"; Flags: unchecked
+Name: "firewallpublic"; Description: "Allow this OBS installation to make peer-to-peer connections on public networks"; GroupDescription: "Optional Windows Firewall access (UDP):"; Flags: unchecked
+
 [Files]
+Source: "{#MySourceDir}\configure-windows-firewall.ps1"; DestDir: "{app}\data\obs-plugins\obs-vdoninja\_installer"; Flags: ignoreversion
 Source: "{#MySourceDir}\obs-plugins\64bit\*"; DestDir: "{app}\obs-plugins\64bit"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "{#MySourceDir}\data\obs-plugins\obs-vdoninja\*"; DestDir: "{app}\data\obs-plugins\obs-vdoninja"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "{#MySourceDir}\LICENSE"; DestDir: "{app}\data\obs-plugins\obs-vdoninja\docs"; Flags: ignoreversion
@@ -166,4 +171,41 @@ function PrepareToInstall(var NeedsRestart: Boolean): string;
 begin
   { Also validate /DIR overrides and silent installs before writing anything. }
   Result := ObsDirectoryError(ExpandConstant('{app}'));
+end;
+
+procedure ConfigureFirewall(const Action, Profiles: string);
+var
+  ResultCode: Integer;
+  Parameters: string;
+begin
+  Parameters := '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' +
+    ExpandConstant('{app}\data\obs-plugins\obs-vdoninja\_installer\configure-windows-firewall.ps1') +
+    '" -ObsExe "' + ExpandConstant('{app}\bin\64bit\obs64.exe') +
+    '" -Action ' + Action + ' -Profiles "' + Profiles + '"';
+  if not Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
+    Parameters, '', SW_HIDE, ewWaitUntilTerminated, ResultCode) or (ResultCode <> 0) then begin
+    Log('VDO.Ninja firewall configuration failed.');
+    if Action = 'Add' then
+      SuppressibleMsgBox('The plugin was installed, but Windows Firewall access could not be configured.' + #13#10 + 'Allow the selected obs64.exe through Windows Firewall for the networks you use, or contact your administrator.',
+        mbInformation, MB_OK, IDOK);
+  end;
+end;
+
+procedure CurStepChanged(CurStep: TSetupStep);
+var
+  Profiles: string;
+begin
+  if CurStep <> ssPostInstall then exit;
+  Profiles := '';
+  if WizardIsTaskSelected('firewallprivate') then Profiles := 'Private';
+  if WizardIsTaskSelected('firewallpublic') then begin
+    if Profiles <> '' then Profiles := Profiles + ',';
+    Profiles := Profiles + 'Public';
+  end;
+  if Profiles <> '' then ConfigureFirewall('Add', Profiles);
+end;
+
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+begin
+  if CurUninstallStep = usUninstall then ConfigureFirewall('Remove', 'Private');
 end;

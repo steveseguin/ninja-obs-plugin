@@ -55,7 +55,7 @@ function Invoke-Package([hashtable]$Options, [string[]]$Answers = @(), [string]$
     foreach ($answer in $Answers) { $script:promptResponses.Enqueue($answer) }
     $failure = ''
     try {
-        & $installerScript @Options -NoQuickStartPopup 6>$null
+        & $installerScript @Options -FirewallProfiles None -NoQuickStartPopup 6>$null
     } catch {
         $failure = $_.Exception.Message
     }
@@ -68,11 +68,11 @@ function Invoke-Package([hashtable]$Options, [string[]]$Answers = @(), [string]$
     $script:passed++
 }
 
-function Invoke-Setup([string]$Root, [bool]$ExpectSuccess) {
+function Invoke-Setup([string]$Root, [bool]$ExpectSuccess, [string]$Tasks = '') {
     $log = Join-Path $testRoot ("setup-" + [guid]::NewGuid().ToString('N') + '.log')
     $process = Start-Process -FilePath $script:setupExe -ArgumentList @(
         '/CURRENTUSER', '/VERYSILENT', '/SUPPRESSMSGBOXES', '/SP-', '/NORESTART', '/NOCLOSEAPPLICATIONS',
-        ('/DIR="{0}"' -f $Root), ('/LOG="{0}"' -f $log)
+        ('/DIR="{0}"' -f $Root), ('/LOG="{0}"' -f $log), ('/TASKS="{0}"' -f $Tasks)
     ) -WindowStyle Hidden -PassThru
     if (-not $process.WaitForExit(30000)) {
         $process.Kill()
@@ -94,6 +94,7 @@ try {
         Write-Fixture (Join-Path $packageRoot $name) 'documentation fixture'
     }
     Copy-Item -LiteralPath (Join-Path $repositoryRoot 'scripts\install-package-windows.ps1') -Destination $installerScript
+    Copy-Item -LiteralPath (Join-Path $repositoryRoot 'scripts\configure-windows-firewall.ps1') -Destination $packageRoot
     $env:APPDATA = Join-Path $testRoot 'appdata'
 
     $custom = New-ObsFixture 'Custom OBS [portable]'
@@ -166,6 +167,13 @@ try {
         $source = [System.IO.File]::ReadAllText((Join-Path $repositoryRoot 'packaging\windows\installer-Windows.iss'))
         $source = $source.Replace('[Setup]', "[Setup]`nUninstallable=no`nUsePreviousAppDir=no")
         $source = $source.Replace('AppId={{A95D1933-7F52-44D5-89B2-67FE58DC4C52}', ('AppId=vdoninja-installer-test-' + [guid]::NewGuid().ToString('N')))
+        # Run the compiled installer's real task wiring with an inert firewall
+        # helper that records arguments instead of changing Windows Firewall.
+        Write-Fixture (Join-Path $packageRoot 'configure-windows-firewall.ps1') @'
+param([string]$ObsExe, [string]$Action, [string]$Profiles)
+$root = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $ObsExe))
+@{ ObsExe = $ObsExe; Action = $Action; Profiles = $Profiles } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $root 'firewall-invocation.json')
+'@
         $fixtureScript = Join-Path $testRoot 'test-installer.iss'
         [System.IO.File]::WriteAllText($fixtureScript, $source)
         $compileLog = Join-Path $testRoot 'compile.log'
@@ -188,6 +196,14 @@ try {
         Invoke-Setup $guiTarget $true
         Assert-Installed $guiTarget
         Assert-NoPlugin $cancelled
+        Assert-True (-not (Test-Path -LiteralPath (Join-Path $guiTarget 'firewall-invocation.json'))) 'Setup configured firewall without opt-in'
+        Invoke-Setup $guiTarget $true 'firewallprivate'
+        $firewall = Get-Content -LiteralPath (Join-Path $guiTarget 'firewall-invocation.json') -Raw | ConvertFrom-Json
+        Assert-True ($firewall.Profiles -eq 'Private' -and $firewall.Action -eq 'Add') 'Private firewall task was not applied'
+        Assert-True ($firewall.ObsExe -eq (Join-Path $guiTarget 'bin\64bit\obs64.exe')) 'Setup passed the wrong OBS executable'
+        Invoke-Setup $guiTarget $true 'firewallprivate,firewallpublic'
+        $firewall = Get-Content -LiteralPath (Join-Path $guiTarget 'firewall-invocation.json') -Raw | ConvertFrom-Json
+        Assert-True ($firewall.Profiles -eq 'Private,Public') 'Combined firewall tasks were not applied'
     }
     Write-Host "PASS: $script:passed Windows package scenarios. Fixtures/logs: $testRoot"
 } finally {

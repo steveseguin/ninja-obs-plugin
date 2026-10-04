@@ -447,13 +447,13 @@ function buildCapabilities(profile, profileName, firstPhase, buildName) {
     "client.playwrightVersion":
       process.env.CLIENT_PLAYWRIGHT_VERSION || playwrightPackage.version,
     "browserstack.console": "info",
-    "browserstack.networkLogs": "true",
+    "browserstack.networkLogs": process.env.BROWSERSTACK_NETWORK_LOGS || "true",
     "browserstack.video": "true",
     "browserstack.debug": process.env.BROWSERSTACK_DEBUG || "false",
   };
   if (firstPhase.customNetwork) {
     caps["browserstack.customNetwork"] = firstPhase.customNetwork;
-  } else {
+  } else if (firstPhase.networkProfile !== "none") {
     caps["browserstack.networkProfile"] = firstPhase.networkProfile;
   }
   return caps;
@@ -531,6 +531,9 @@ function findSessionId(details) {
 }
 
 async function updateNetwork(sessionId, phase) {
+  if (!phase.customNetwork && phase.networkProfile === "none") {
+    return { skipped: true, reason: "Unshaped remote playback check" };
+  }
   const response = await fetch(
     `https://api.browserstack.com/automate/sessions/${encodeURIComponent(
       sessionId,

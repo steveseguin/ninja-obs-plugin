@@ -11,6 +11,13 @@
 #include <stdexcept>
 #include <utility>
 
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
+
 namespace vdoninja
 {
 
@@ -97,6 +104,42 @@ std::chrono::steady_clock::duration tokenWaitDuration(long double missingBytes, 
 	    missingBytes * 8.0L * 1000000000.0L / static_cast<long double>(bitrateBitsPerSecond);
 	const auto roundedNanoseconds = static_cast<int64_t>(std::max<long double>(1.0L, std::ceil(nanoseconds)));
 	return std::chrono::nanoseconds(roundedNanoseconds);
+}
+
+void waitForPacerTokens(std::condition_variable &cv, std::unique_lock<std::mutex> &lock,
+                        std::chrono::steady_clock::duration duration)
+{
+#ifdef _WIN32
+	// Condition-variable timeouts round up to whole milliseconds on Windows.
+	// With a 4 KB shared bucket that can cap a 100 Mbps pacer near 20 Mbps,
+	// stretching ICQ keyframes into visible freezes. Keep the small burst cap
+	// and use a high-resolution timer for waits shorter than one millisecond.
+	// Longer waits remain immediately interruptible through the condition variable.
+	if (duration > std::chrono::steady_clock::duration::zero() && duration < std::chrono::milliseconds(1)) {
+		struct Timer {
+			HANDLE handle = CreateWaitableTimerExW(nullptr, nullptr, CREATE_WAITABLE_TIMER_HIGH_RESOLUTION,
+			                                       TIMER_MODIFY_STATE | SYNCHRONIZE);
+			~Timer()
+			{
+				if (handle)
+					CloseHandle(handle);
+			}
+		};
+		thread_local Timer timer;
+		LARGE_INTEGER due;
+		due.QuadPart =
+		    -std::max<int64_t>(1, (std::chrono::duration_cast<std::chrono::nanoseconds>(duration).count() + 99) / 100);
+		if (timer.handle && SetWaitableTimer(timer.handle, &due, 0, nullptr, nullptr, FALSE)) {
+			lock.unlock();
+			// Cancellation and rate changes are rechecked under the caller's lock
+			// after this sub-millisecond wait. Bound even an unexpected timer failure.
+			WaitForSingleObject(timer.handle, 5);
+			lock.lock();
+			return;
+		}
+	}
+#endif
+	cv.wait_for(lock, duration);
 }
 
 } // namespace
@@ -265,7 +308,7 @@ bool RtpSharedPacerBudget::acquire(size_t packetBytes, const std::function<bool(
 		const auto cancellationPoll =
 		    std::chrono::duration_cast<std::chrono::steady_clock::duration>(std::chrono::milliseconds(5));
 		didWait = true;
-		cv_.wait_for(lock, std::min(waitDuration, cancellationPoll));
+		waitForPacerTokens(cv_, lock, std::min(waitDuration, cancellationPoll));
 	}
 }
 
@@ -793,9 +836,8 @@ void RtpPacketPacer::run()
 		const uint64_t selectedQueueMutationGeneration = queueMutationGeneration_;
 		const long double requiredTokens = static_cast<long double>(std::min(packetBytes, currentBurstBudget));
 		if (availableTokens < requiredTokens) {
-			const auto wakeAt = now + tokenWaitDuration(requiredTokens - availableTokens, currentBitrate);
 			currentBurstBytes = 0;
-			cv_.wait_until(lock, wakeAt);
+			waitForPacerTokens(cv_, lock, tokenWaitDuration(requiredTokens - availableTokens, currentBitrate));
 			continue;
 		}
 

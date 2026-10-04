@@ -3,7 +3,8 @@ param(
     [string]$ObsRoot = "",
     [switch]$Yes,
     [switch]$NoQuickStartPopup,
-    [switch]$OpenQuickStart
+    [switch]$OpenQuickStart,
+    [ValidateSet('None', 'Private', 'Public', 'Private,Public')][string]$FirewallProfiles = 'None'
 )
 
 $ErrorActionPreference = "Stop"
@@ -48,6 +49,10 @@ if ($CurrentUser -and $ObsRoot) {
 }
 if ($Yes -and -not $CurrentUser -and [string]::IsNullOrWhiteSpace($ObsRoot)) {
     throw "For unattended installation, specify -ObsRoot with -Yes (or use -CurrentUser -Yes)."
+}
+
+if ($CurrentUser -and $FirewallProfiles -ne 'None') {
+    throw 'Firewall setup requires -ObsRoot so it targets the correct obs64.exe.'
 }
 
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -109,6 +114,24 @@ New-Item -ItemType Directory -Force -Path $dstDataDir | Out-Null
 Get-ChildItem -LiteralPath $srcPluginDir | Copy-Item -Destination $dstPluginDir -Recurse -Force
 Get-ChildItem -LiteralPath $srcDataDir | Copy-Item -Destination $dstDataDir -Recurse -Force
 
+# Firewall permission is separate from permission to install files. Silent
+# installs change no rules unless -FirewallProfiles was explicitly supplied.
+if (-not $Yes -and -not $CurrentUser -and -not $PSBoundParameters.ContainsKey('FirewallProfiles')) {
+    $choice = Read-Host 'Allow OBS peer-to-peer UDP through Windows Firewall? [private/public/both/N]'
+    switch ($choice.Trim().ToLowerInvariant()) {
+        'private' { $FirewallProfiles = 'Private' }
+        'public' { $FirewallProfiles = 'Public' }
+        'both' { $FirewallProfiles = 'Private,Public' }
+    }
+}
+if ($FirewallProfiles -ne 'None') {
+    try {
+        & (Join-Path $packageRoot 'configure-windows-firewall.ps1') -Action Add -Profiles $FirewallProfiles -ObsExe (Join-Path $ObsRoot 'bin\64bit\obs64.exe')
+    } catch {
+        Write-Warning "Plugin installed, but firewall access was not configured: $($_.Exception.Message). Run the installer as administrator or allow this obs64.exe manually."
+    }
+}
+
 $quickStartPath = Join-Path $packageRoot "QUICKSTART.md"
 $quickStartUrl = "https://steveseguin.github.io/ninja-obs-plugin/#quick-start"
 $nextSteps = @"
@@ -118,8 +141,8 @@ Install complete.
 Next steps:
 1. Restart OBS Studio
 2. Open Settings -> Stream and select VDO.Ninja
-3. Open Tools -> VDO.Ninja Control Center and set Stream ID (optional password/room/salt/signaling)
-4. Start Streaming and open your view URL
+3. Open Tools -> VDO.Ninja Studio and set Stream ID (optional password/room/salt/signaling)
+4. Start with Go Live or Start Streaming, then use Copy Viewer Link
 
 "@
 

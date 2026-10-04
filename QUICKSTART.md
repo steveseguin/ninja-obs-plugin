@@ -24,8 +24,24 @@ If either is missing, reinstall and confirm plugin/data paths from `INSTALL.md`.
 4. The `Stream Key` box remains in OBS for compatibility; you can still use it directly with:
    - URL form: `https://vdo.ninja/?push=mytest123&password=secret&room=myroom&salt=vdo.ninja&wss=wss://wss.vdo.ninja:443`
    - Compact form: `mytest123|secret|myroom|vdo.ninja|wss://wss.vdo.ninja:443`
-5. With basic/default settings, click OBS `Start Streaming` or `Go Live` in `VDO.Ninja Studio`.
-   - If you configured advanced service options, save them and use OBS `Start Streaming`; Studio `Go Live` rebuilds the service from the dock's basic fields and default advanced values.
+5. Click OBS `Start Streaming` or `Go Live` in `VDO.Ninja Studio`. Both use the saved session settings; `Go Live` also preserves advanced VDO.Ninja service options.
+6. Click `Copy Viewer Link` in the Studio dock and share it. While publishing, this copies the actual running session, including any custom password, room, salt, and signaling server.
+
+Your stream ID is saved with the OBS profile and reused. Editing the dock while stopped updates the selected VDO.Ninja service; changing to another streaming destination does not activate VDO.Ninja until you click `Go Live`.
+
+For ICQ/CQP/CRF or custom bitrates, use `Settings -> Output -> Advanced -> Streaming`. Simple Output uses CBR. The plugin preserves the encoder's rate control and does not impose a 6000 or 12000 kbps encoder limit. It still disables B-frames and bounds the keyframe interval to two seconds for browser playback. Quality modes vary their bitrate with the content; their RTP pacing uses a 100 Mbps transport ceiling and REMB adaptation is disabled for those modes. Choose quality settings that fit the viewers' connections.
+
+A viewer URL's `&bitrate=12000` does not reconfigure the OBS encoder. The fallback signaling server also does not change encoder settings.
+
+To choose local publishing ports, expand `Advanced Settings` in the Studio dock and set `Local UDP ports`:
+
+- `Auto` (or blank): keep normal port allocation, the default.
+- `50000`: use that one local UDP port.
+- `50000-50100`: choose available ports within that inclusive range.
+
+Use a range for multiple viewers: each peer connection needs an available local UDP port. A single port supports one simultaneous peer; another connection must wait until that socket is released. The setting is saved per OBS profile and applies on the next stream start through either start button. It is also available in the native VDO.Ninja service's advanced properties and the legacy Control Center. Invalid values prevent publishing instead of falling back to other ports.
+
+This controls the plugin publisher's local UDP sockets. It does not set browser-source ports, the viewer's ports, the router's external mapping, or the relay server's ports. Port forwarding is normally unnecessary, and choosing a range does not guarantee a direct connection. If you intentionally maintain router/firewall rules, match them to the chosen local range. If the port/range is occupied or exhausted, that viewer connection fails instead of allocating outside it.
 
 `VDO.Ninja Studio` `Go Live`/`Stop` map to the same OBS `Start Streaming`/`Stop Streaming` pipeline; they do not run as a second parallel destination.
 

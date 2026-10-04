@@ -41,6 +41,7 @@ OBS_MODULE_USE_DEFAULT_LOCALE("obs-vdoninja", "en-US")
 #endif
 
 #include "vdoninja-output.h"
+#include "vdoninja-publish-obs.h"
 #include "vdoninja-source.h"
 #include "vdoninja-utils.h"
 
@@ -104,13 +105,7 @@ constexpr const char *kVdoNinjaRtmpServiceEntry = R"VDOJSON(
             ],
             "supported audio codecs": [
                 "opus"
-            ],
-            "recommended": {
-                "keyint": 2,
-                "bframes": 0,
-                "max audio bitrate": 320,
-                "max video bitrate": 12000
-            }
+            ]
         })VDOJSON";
 
 const char *tr(const char *key, const char *fallback)
@@ -206,48 +201,6 @@ std::string findAudioEncoderIdForCodec(const char *codec)
 	}
 
 	return "";
-}
-
-int hexValue(unsigned char c)
-{
-	if (c >= '0' && c <= '9') {
-		return c - '0';
-	}
-	if (c >= 'a' && c <= 'f') {
-		return 10 + (c - 'a');
-	}
-	if (c >= 'A' && c <= 'F') {
-		return 10 + (c - 'A');
-	}
-	return -1;
-}
-
-std::string urlDecode(const std::string &value)
-{
-	std::string decoded;
-	decoded.reserve(value.size());
-
-	for (size_t i = 0; i < value.size(); ++i) {
-		const unsigned char c = static_cast<unsigned char>(value[i]);
-		if (c == '%' && i + 2 < value.size()) {
-			const int hi = hexValue(static_cast<unsigned char>(value[i + 1]));
-			const int lo = hexValue(static_cast<unsigned char>(value[i + 2]));
-			if (hi >= 0 && lo >= 0) {
-				decoded.push_back(static_cast<char>((hi << 4) | lo));
-				i += 2;
-				continue;
-			}
-		}
-
-		if (c == '+') {
-			decoded.push_back(' ');
-			continue;
-		}
-
-		decoded.push_back(static_cast<char>(c));
-	}
-
-	return decoded;
 }
 
 bool hasCatalogServiceEntry(const std::string &json, const char *serviceName)
@@ -493,6 +446,32 @@ bool injectServiceIntoCatalog(std::string &catalogJson, const char *serviceEntry
 	return true;
 }
 
+bool removeVdoCatalogRecommendations(std::string &catalog)
+{
+	size_t namePos = catalog.find("\"name\": \"VDO.Ninja\"");
+	if (namePos == std::string::npos)
+		namePos = catalog.find("\"name\":\"VDO.Ninja\"");
+	if (namePos == std::string::npos)
+		return false;
+	const size_t start = catalog.rfind('{', namePos);
+	const size_t end = findMatchingClosingBrace(catalog, start);
+	if (end == std::string::npos)
+		return false;
+	obs_data_t *entry = obs_data_create_from_json(catalog.substr(start, end - start + 1).c_str());
+	if (!entry)
+		return false;
+	const bool changed = obs_data_has_user_value(entry, "recommended");
+	if (changed) {
+		// OBS rtmp_common forces CBR whenever a recommendations object exists,
+		// even when Ignore Recommended Limits is checked. The output applies
+		// WebRTC GOP/B-frame requirements itself, without changing rate control.
+		obs_data_erase(entry, "recommended");
+		catalog.replace(start, end - start + 1, obs_data_get_json(entry));
+	}
+	obs_data_release(entry);
+	return changed;
+}
+
 void ensureRtmpCatalogHasVdoNinjaEntry(void)
 {
 	obs_module_t *rtmpServicesModule = obs_get_module(kRtmpServicesModuleName);
@@ -530,7 +509,7 @@ void ensureRtmpCatalogHasVdoNinjaEntry(void)
 		return;
 	}
 
-	bool updatedExistingEntry = false;
+	bool updatedExistingEntry = removeVdoCatalogRecommendations(catalogJson);
 	if (hasCatalogServiceEntry(catalogJson, kVdoCatalogServiceName)) {
 		const std::string quickStartField = std::string("\"stream_key_link\": \"") + kVdoNinjaQuickStartLink + "\"";
 		const std::string quickStartFieldCompact =
@@ -665,109 +644,16 @@ bool startsWithInsensitive(const std::string &value, const char *prefix)
 	return true;
 }
 
-std::string queryValue(const std::string &url, const char *param)
-{
-	if (!param || !*param) {
-		return "";
-	}
-
-	const size_t queryPos = url.find('?');
-	if (queryPos == std::string::npos || queryPos + 1 >= url.size()) {
-		return "";
-	}
-
-	const std::string keyPrefix = std::string(param) + "=";
-	const std::vector<std::string> pairs = split(url.substr(queryPos + 1), '&');
-	for (const std::string &pair : pairs) {
-		if (pair.rfind(keyPrefix, 0) == 0) {
-			return urlDecode(pair.substr(keyPrefix.size()));
-		}
-	}
-
-	return "";
-}
-
-std::string queryFirstValue(const std::string &url, const std::initializer_list<const char *> &params)
-{
-	for (const char *param : params) {
-		const std::string value = queryValue(url, param);
-		if (!value.empty()) {
-			return value;
-		}
-	}
-	return "";
-}
-
 void parseVdoStreamKey(const std::string &keyValue, std::string &streamId, std::string &password, std::string &roomId,
                        std::string &salt, std::string &wssHost, bool allowBareStreamId = true)
 {
-	if (keyValue.empty()) {
-		return;
-	}
-
-	const bool hasQuery = keyValue.find('?') != std::string::npos;
-	const bool keyLooksLikeUrl =
-	    startsWithInsensitive(keyValue, "https://") || startsWithInsensitive(keyValue, "http://") ||
-	    (hasQuery && (keyValue.find("push=") != std::string::npos || keyValue.find("view=") != std::string::npos));
-
-	if (keyLooksLikeUrl) {
-		const std::string push = queryValue(keyValue, "push");
-		const std::string view = queryValue(keyValue, "view");
-		if (streamId.empty()) {
-			if (!push.empty()) {
-				streamId = push;
-			} else if (!view.empty()) {
-				streamId = view;
-			}
-		}
-
-		if (password.empty()) {
-			password = queryFirstValue(keyValue, {"password", "pasword", "pass", "pw", "p"});
-		}
-		if (roomId.empty()) {
-			roomId = queryValue(keyValue, "room");
-		}
-		if (salt.empty()) {
-			salt = queryValue(keyValue, "salt");
-		}
-		if (wssHost.empty()) {
-			wssHost = queryValue(keyValue, "wss");
-			if (wssHost.empty()) {
-				wssHost = queryValue(keyValue, "wss_host");
-			}
-			if (wssHost.empty()) {
-				wssHost = queryValue(keyValue, "server");
-			}
-			if (wssHost.empty()) {
-				wssHost = queryValue(keyValue, "signaling");
-			}
-		}
-		return;
-	}
-
-	const std::vector<std::string> parts = split(keyValue, '|');
-	if (parts.size() > 1) {
-		if (streamId.empty()) {
-			streamId = trim(parts[0]);
-		}
-		if (password.empty() && parts.size() > 1) {
-			password = trim(parts[1]);
-		}
-		if (roomId.empty() && parts.size() > 2) {
-			roomId = trim(parts[2]);
-		}
-		if (salt.empty() && parts.size() > 3) {
-			salt = trim(parts[3]);
-		}
-		if (wssHost.empty() && parts.size() > 4) {
-			wssHost = trim(parts[4]);
-		}
-		return;
-	}
-
-	if (allowBareStreamId && streamId.empty()) {
-		streamId = keyValue;
-	}
+	PublishIdentity identity{streamId, password, roomId, salt, wssHost};
+	parsePublishStreamKey(keyValue, identity, allowBareStreamId);
+	streamId = identity.streamId;
+	password = identity.password;
+	roomId = identity.roomId;
+	salt = identity.salt;
+	wssHost = identity.wssHost;
 }
 
 void seedVdoNinjaSettingsFromCurrentService(obs_service_t *currentService, obs_data_t *settings)
@@ -776,21 +662,14 @@ void seedVdoNinjaSettingsFromCurrentService(obs_service_t *currentService, obs_d
 		return;
 	}
 
-	const char *currentType = obs_service_get_type(currentService);
 	obs_data_t *currentSettings = obs_service_get_settings(currentService);
 	if (!currentSettings) {
 		return;
 	}
 
-	if (currentType && std::strcmp(currentType, kVdoNinjaServiceType) == 0) {
-		const std::string existingPassword = obs_data_get_string(settings, "password");
-		obs_data_apply(settings, currentSettings);
-		if (trim(obs_data_get_string(settings, "password")).empty() && !trim(existingPassword).empty()) {
-			obs_data_set_string(settings, "password", existingPassword.c_str());
-		}
-		// Normalize compatibility fields so key-only configs populate
-		// stream_id/password/room/salt/wss in Tools -> VDO.Ninja Studio.
-		syncCompatibilityServiceFields(settings);
+	if (obs_data_t *normalized = copyPublishServiceSettings(currentService)) {
+		obs_data_apply(settings, normalized);
+		obs_data_release(normalized);
 		obs_data_release(currentSettings);
 		return;
 	}
@@ -874,6 +753,9 @@ void syncCompatibilityServiceFields(obs_data_t *settings)
 	if (!wssHost.empty()) {
 		obs_data_set_string(settings, "wss_host", wssHost.c_str());
 	}
+	writePublishIdentity(settings, {streamId, password, roomId, salt, wssHost});
+	if (!wssHost.empty())
+		obs_data_set_string(settings, "server", wssHost.c_str());
 }
 
 void configureProfileForVdoNinjaStreaming(void)
@@ -1167,6 +1049,7 @@ static obs_properties_t *vdoninja_service_properties(void *)
 	obs_properties_add_int(props, "max_viewers", tr("MaxViewers", "Max Viewers"), 1, 50, 1);
 
 	obs_properties_t *advanced = obs_properties_create();
+	addPublishUdpPortProperty(advanced);
 	obs_property_t *wssHost =
 	    obs_properties_add_text(advanced, "wss_host", tr("SignalingServer", "Signaling Server"), OBS_TEXT_DEFAULT);
 	obs_property_set_long_description(
@@ -1258,6 +1141,7 @@ static void vdoninja_service_defaults(obs_data_t *settings)
 	obs_data_set_default_int(settings, "video_codec", 0);
 	obs_data_set_default_int(settings, "max_viewers", 10);
 	obs_data_set_default_bool(settings, "force_turn", false);
+	obs_data_set_default_string(settings, "udp_port_range", "auto");
 	obs_data_set_default_int(settings, "video_protection_mode", static_cast<int>(VideoProtectionMode::Off));
 	obs_data_set_default_bool(settings, "audio_red", false);
 	obs_data_set_default_bool(settings, "adaptive_bitrate", false);
@@ -1308,28 +1192,10 @@ static const char *vdoninja_service_connect_info(void *data, uint32_t type)
 // that loses a frame stays broken until the encoder emits its next IDR. OBS leaves
 // the keyframe interval at the encoder's own default (250 frames — 8.3s at 30fps)
 // whenever "Keyframe Interval" is 0/auto, which viewers see as a periodic freeze.
-constexpr int64_t kMaxStreamKeyintSec = 2;
-
 static void vdoninja_service_apply_encoder_settings(void *, obs_data_t *video_settings, obs_data_t *audio_settings)
 {
 	UNUSED_PARAMETER(audio_settings);
-
-	if (video_settings) {
-		// x264/NVENC use the integer "bf" setting while VideoToolbox uses the
-		// boolean "bframes" setting. WebRTC H.264 packetization is
-		// non-interleaved, so both forms must be disabled. Leaving
-		// VideoToolbox frame reordering enabled makes browsers decode only the
-		// periodic IDRs and appears as a two-second freeze.
-		obs_data_set_int(video_settings, "bf", 0);
-		obs_data_set_bool(video_settings, "bframes", false);
-		obs_data_set_bool(video_settings, "repeat_headers", true);
-
-		// Clamp rather than force, so a deliberately tighter interval is kept.
-		const int64_t keyintSec = obs_data_get_int(video_settings, "keyint_sec");
-		if (keyintSec <= 0 || keyintSec > kMaxStreamKeyintSec) {
-			obs_data_set_int(video_settings, "keyint_sec", kMaxStreamKeyintSec);
-		}
-	}
+	applyPublishEncoderCompatibility(video_settings);
 }
 
 static const char *vdoninja_video_codecs[] = {"h264", nullptr};
@@ -1370,69 +1236,12 @@ void registerVdoNinjaService(void)
 
 static std::string buildPushUrlFromSettings(obs_data_t *settings)
 {
-	if (!settings) {
-		return "";
-	}
-
-	const std::string streamId = obs_data_get_string(settings, "stream_id");
-	if (streamId.empty()) {
-		return "";
-	}
-
-	const std::string password = trim(obs_data_get_string(settings, "password"));
-	const std::string roomId = obs_data_get_string(settings, "room_id");
-	const std::string salt = obs_data_get_string(settings, "salt");
-	const std::string wssHost = obs_data_get_string(settings, "wss_host");
-
-	std::string pushUrl = "https://vdo.ninja/?push=" + urlEncode(streamId);
-	if (!password.empty()) {
-		pushUrl += isPasswordDisabledToken(password) ? "&password=false" : "&password=" + urlEncode(password);
-	}
-	if (!roomId.empty()) {
-		pushUrl += "&room=" + urlEncode(roomId);
-	}
-	if (!salt.empty() && salt != DEFAULT_SALT) {
-		pushUrl += "&salt=" + urlEncode(salt);
-	}
-	if (!wssHost.empty() && wssHost != DEFAULT_WSS_HOST) {
-		pushUrl += "&wss=" + urlEncode(wssHost);
-	}
-
-	return pushUrl;
+	return settings ? buildPublishUrl(readPublishIdentity(settings), true) : "";
 }
 
 static std::string buildViewUrlFromSettings(obs_data_t *settings)
 {
-	if (!settings) {
-		return "";
-	}
-
-	const std::string streamId = obs_data_get_string(settings, "stream_id");
-	if (streamId.empty()) {
-		return "";
-	}
-
-	const std::string password = trim(obs_data_get_string(settings, "password"));
-	const std::string roomId = obs_data_get_string(settings, "room_id");
-	const std::string salt = obs_data_get_string(settings, "salt");
-	const std::string wssHost = obs_data_get_string(settings, "wss_host");
-
-	std::string viewUrl = "https://vdo.ninja/?view=" + urlEncode(streamId);
-	if (!password.empty()) {
-		viewUrl += isPasswordDisabledToken(password) ? "&password=false" : "&password=" + urlEncode(password);
-	}
-	if (!roomId.empty()) {
-		viewUrl += "&room=" + urlEncode(roomId);
-		viewUrl += "&solo";
-	}
-	if (!salt.empty() && salt != DEFAULT_SALT) {
-		viewUrl += "&salt=" + urlEncode(salt);
-	}
-	if (!wssHost.empty() && wssHost != DEFAULT_WSS_HOST) {
-		viewUrl += "&wss=" + urlEncode(wssHost);
-	}
-
-	return viewUrl;
+	return settings ? buildPublishUrl(readPublishIdentity(settings), false) : "";
 }
 
 static std::string formatBytesHuman(uint64_t bytes)
@@ -1537,7 +1346,15 @@ bool activateVdoNinjaServiceFromSettings(obs_data_t *sourceSettings, bool genera
 
 	obs_data_t *serviceSettings = obs_data_create();
 	vdoninja_service_defaults(serviceSettings);
+	if (obs_data_t *existing = copyPublishServiceSettings(currentService)) {
+		obs_data_apply(serviceSettings, existing);
+		obs_data_release(existing);
+	}
 	obs_data_apply(serviceSettings, sourceSettings);
+	if (obs_data_has_user_value(sourceSettings, "stream_id")) {
+		// Do not let the old compatibility key refill deliberately cleared fields.
+		obs_data_set_string(serviceSettings, "key", "");
+	}
 
 	const char *streamId = obs_data_get_string(serviceSettings, "stream_id");
 	if ((!streamId || !*streamId) && generateStreamIdIfMissing) {
@@ -1968,6 +1785,7 @@ static obs_properties_t *vdoninja_control_center_properties(void *data)
 	obs_property_text_set_info_word_wrap(peerStats, true);
 
 	obs_properties_t *advanced = obs_properties_create();
+	obs_property_t *udpPorts = addPublishUdpPortProperty(advanced);
 	wssHost =
 	    obs_properties_add_text(advanced, "wss_host", tr("SignalingServer", "Signaling Server"), OBS_TEXT_DEFAULT);
 	obs_property_set_long_description(
@@ -2044,6 +1862,7 @@ static obs_properties_t *vdoninja_control_center_properties(void *data)
 	obs_property_set_modified_callback2(wssHost, controlCenterFieldModified, ctx);
 	obs_property_set_modified_callback2(salt, controlCenterFieldModified, ctx);
 	obs_property_set_modified_callback2(forceTurn, controlCenterFieldModified, ctx);
+	obs_property_set_modified_callback2(udpPorts, controlCenterFieldModified, ctx);
 	obs_property_set_modified_callback2(protection, controlCenterFieldModified, ctx);
 	obs_property_set_modified_callback2(audioRed, controlCenterFieldModified, ctx);
 	obs_property_set_modified_callback2(adaptiveBitrate, controlCenterFieldModified, ctx);
@@ -2076,6 +1895,7 @@ static void vdoninja_control_center_defaults(obs_data_t *settings)
 	    "Leave empty to use built-in STUN defaults (Google + Cloudflare); no TURN is added automatically.");
 	obs_data_set_default_int(settings, "max_viewers", 10);
 	obs_data_set_default_bool(settings, "force_turn", false);
+	obs_data_set_default_string(settings, "udp_port_range", "auto");
 	obs_data_set_default_int(settings, "video_protection_mode", static_cast<int>(VideoProtectionMode::Off));
 	obs_data_set_default_bool(settings, "audio_red", false);
 	obs_data_set_default_bool(settings, "adaptive_bitrate", false);
@@ -2262,6 +2082,8 @@ static void frontend_event_callback(enum obs_frontend_event event, void *)
 {
 	switch (event) {
 	case OBS_FRONTEND_EVENT_STREAMING_STARTING:
+		if (g_vdo_dock)
+			g_vdo_dock->prepareStreaming();
 		ensureActiveVdoNinjaServiceConfigured();
 		break;
 	case OBS_FRONTEND_EVENT_VIRTUALCAM_STARTED:
@@ -2271,6 +2093,8 @@ static void frontend_event_callback(enum obs_frontend_event event, void *)
 		logInfo("Virtual camera stopped");
 		break;
 	case OBS_FRONTEND_EVENT_STREAMING_STARTED:
+		if (g_vdo_dock)
+			g_vdo_dock->syncFromActiveService();
 		logInfo("Streaming started");
 		break;
 	case OBS_FRONTEND_EVENT_STREAMING_STOPPED:
@@ -2287,11 +2111,15 @@ static void frontend_event_callback(enum obs_frontend_event event, void *)
 	case OBS_FRONTEND_EVENT_PROFILE_CHANGED:
 		captureLastNonVdoServiceSnapshot(obs_frontend_get_streaming_service());
 		ensureStreamingServiceExists();
+		if (g_vdo_dock)
+			g_vdo_dock->reloadProfileSettings();
 		break;
 	case OBS_FRONTEND_EVENT_FINISHED_LOADING:
 		ensureRtmpCatalogHasVdoNinjaEntry();
 		ensureStreamingServiceExists();
 		captureLastNonVdoServiceSnapshot(obs_frontend_get_streaming_service());
+		if (g_vdo_dock)
+			g_vdo_dock->reloadProfileSettings();
 		break;
 	case OBS_FRONTEND_EVENT_EXIT:
 		g_frontend_exiting = true;

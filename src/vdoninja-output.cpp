@@ -21,6 +21,8 @@
 
 #include "plugin-main.h"
 #include "vdoninja-h264-profile.h"
+#include "vdoninja-publish-obs.h"
+#include "vdoninja-publish-settings.h"
 #include "vdoninja-utils.h"
 
 namespace vdoninja
@@ -58,27 +60,24 @@ void updateAtomicMaximum(std::atomic<uint64_t> &target, uint64_t value)
 	       !target.compare_exchange_weak(current, value, std::memory_order_relaxed, std::memory_order_relaxed)) {}
 }
 
-int resolveVideoEncoderBitrate(obs_output_t *output, int fallbackBitsPerSecond)
+void resolveVideoEncoderSettings(obs_output_t *output, OutputSettings &settings)
 {
-	if (!output) {
-		return fallbackBitsPerSecond;
-	}
-
-	obs_encoder_t *encoder = obs_output_get_video_encoder(output);
-	if (!encoder) {
-		return fallbackBitsPerSecond;
-	}
-
+	obs_encoder_t *encoder = output ? obs_output_get_video_encoder(output) : nullptr;
+	if (!encoder)
+		return;
 	obs_data_t *encoderSettings = obs_encoder_get_settings(encoder);
-	if (!encoderSettings) {
-		return fallbackBitsPerSecond;
-	}
+	if (!encoderSettings)
+		return;
+	settings.videoRateControl = obs_data_get_string(encoderSettings, "rate_control");
 	const int64_t bitrateKbps = obs_data_get_int(encoderSettings, "bitrate");
+	settings.nominalVideoBitrate = !isQualityRateControl(settings.videoRateControl) && bitrateKbps > 0 &&
+	                                       bitrateKbps <= std::numeric_limits<int>::max() / 1000
+	                                   ? static_cast<int>(bitrateKbps * 1000)
+	                                   : 0;
+	settings.quality.bitrate =
+	    publishPacingBitrate(settings.videoRateControl, bitrateKbps, obs_data_get_int(encoderSettings, "max_bitrate"),
+	                         settings.quality.bitrate);
 	obs_data_release(encoderSettings);
-	if (bitrateKbps <= 0 || bitrateKbps > std::numeric_limits<int>::max() / 1000) {
-		return fallbackBitsPerSecond;
-	}
-	return static_cast<int>(bitrateKbps * 1000);
 }
 
 const char *tr(const char *key, const char *fallback)
@@ -156,153 +155,6 @@ bool looksLikeJsonContainer(const std::string &value)
 		return false;
 	}
 	return normalized.front() == '{' || normalized.front() == '[';
-}
-
-int hexValue(unsigned char c)
-{
-	if (c >= '0' && c <= '9') {
-		return c - '0';
-	}
-	if (c >= 'a' && c <= 'f') {
-		return 10 + (c - 'a');
-	}
-	if (c >= 'A' && c <= 'F') {
-		return 10 + (c - 'A');
-	}
-	return -1;
-}
-
-std::string urlDecode(const std::string &value)
-{
-	std::string decoded;
-	decoded.reserve(value.size());
-
-	for (size_t i = 0; i < value.size(); ++i) {
-		const unsigned char c = static_cast<unsigned char>(value[i]);
-		if (c == '%' && i + 2 < value.size()) {
-			const int hi = hexValue(static_cast<unsigned char>(value[i + 1]));
-			const int lo = hexValue(static_cast<unsigned char>(value[i + 2]));
-			if (hi >= 0 && lo >= 0) {
-				decoded.push_back(static_cast<char>((hi << 4) | lo));
-				i += 2;
-				continue;
-			}
-		}
-
-		if (c == '+') {
-			decoded.push_back(' ');
-			continue;
-		}
-
-		decoded.push_back(static_cast<char>(c));
-	}
-
-	return decoded;
-}
-
-std::string queryValue(const std::string &url, const char *param)
-{
-	if (!param || !*param) {
-		return "";
-	}
-
-	const size_t queryPos = url.find('?');
-	if (queryPos == std::string::npos || queryPos + 1 >= url.size()) {
-		return "";
-	}
-
-	const std::string keyPrefix = std::string(param) + "=";
-	const std::vector<std::string> pairs = split(url.substr(queryPos + 1), '&');
-	for (const std::string &pair : pairs) {
-		if (pair.rfind(keyPrefix, 0) == 0) {
-			return urlDecode(pair.substr(keyPrefix.size()));
-		}
-	}
-
-	return "";
-}
-
-std::string queryFirstValue(const std::string &url, const std::initializer_list<const char *> &params)
-{
-	for (const char *param : params) {
-		const std::string value = queryValue(url, param);
-		if (!value.empty()) {
-			return value;
-		}
-	}
-	return "";
-}
-
-void parseVdoKeyValue(const std::string &keyValue, std::string &streamId, std::string &password, std::string &roomId,
-                      std::string &salt, std::string &wssHost)
-{
-	if (keyValue.empty()) {
-		return;
-	}
-
-	const bool hasQuery = keyValue.find('?') != std::string::npos;
-	const bool keyLooksLikeUrl =
-	    startsWithInsensitive(keyValue, "https://") || startsWithInsensitive(keyValue, "http://") ||
-	    (hasQuery && (keyValue.find("push=") != std::string::npos || keyValue.find("view=") != std::string::npos));
-	if (!keyLooksLikeUrl) {
-		const std::vector<std::string> parts = split(keyValue, '|');
-		if (parts.size() > 1) {
-			if (streamId.empty()) {
-				streamId = trim(parts[0]);
-			}
-			if (password.empty() && parts.size() > 1) {
-				password = trim(parts[1]);
-			}
-			if (roomId.empty() && parts.size() > 2) {
-				roomId = trim(parts[2]);
-			}
-			if (salt.empty() && parts.size() > 3) {
-				salt = trim(parts[3]);
-			}
-			if (wssHost.empty() && parts.size() > 4) {
-				wssHost = trim(parts[4]);
-			}
-			return;
-		}
-
-		if (streamId.empty()) {
-			streamId = trim(keyValue);
-		}
-		return;
-	}
-
-	if (streamId.empty()) {
-		const std::string push = queryValue(keyValue, "push");
-		const std::string view = queryValue(keyValue, "view");
-		if (!push.empty()) {
-			streamId = push;
-		} else if (!view.empty()) {
-			streamId = view;
-		}
-	}
-
-	if (password.empty()) {
-		password = queryFirstValue(keyValue, {"password", "pasword", "pass", "pw", "p"});
-	}
-
-	if (roomId.empty()) {
-		roomId = queryValue(keyValue, "room");
-	}
-	if (salt.empty()) {
-		salt = queryValue(keyValue, "salt");
-	}
-	if (wssHost.empty()) {
-		wssHost = queryValue(keyValue, "wss");
-		if (wssHost.empty()) {
-			wssHost = queryValue(keyValue, "wss_host");
-		}
-		if (wssHost.empty()) {
-			wssHost = queryValue(keyValue, "server");
-		}
-		if (wssHost.empty()) {
-			wssHost = queryValue(keyValue, "signaling");
-		}
-	}
 }
 
 std::string codecToUrlValue(VideoCodec codec)
@@ -613,6 +465,7 @@ static obs_properties_t *vdoninja_output_properties(void *)
 	                          static_cast<int>(AutoLayoutMode::Grid));
 
 	obs_properties_t *advanced = obs_properties_create();
+	addPublishUdpPortProperty(advanced);
 	obs_property_t *wssHost =
 	    obs_properties_add_text(advanced, "wss_host", tr("SignalingServer", "Signaling Server"), OBS_TEXT_DEFAULT);
 	obs_property_set_long_description(
@@ -686,8 +539,8 @@ static obs_properties_t *vdoninja_output_properties(void *)
 
 static void vdoninja_output_defaults(obs_data_t *settings)
 {
-	const std::string defaultStreamId = generateSessionId();
-	obs_data_set_default_string(settings, "stream_id", defaultStreamId.c_str());
+	// Resolve explicit service/Stream Key settings before generating a persistent ID.
+	obs_data_set_default_string(settings, "stream_id", "");
 	obs_data_set_default_string(settings, "room_id", "");
 	obs_data_set_default_string(settings, "password", "");
 	obs_data_set_default_string(settings, "wss_host", "");
@@ -704,6 +557,7 @@ static void vdoninja_output_defaults(obs_data_t *settings)
 	obs_data_set_default_bool(settings, "enable_data_channel", true);
 	obs_data_set_default_bool(settings, "auto_reconnect", true);
 	obs_data_set_default_bool(settings, "force_turn", false);
+	obs_data_set_default_string(settings, "udp_port_range", "auto");
 	obs_data_set_default_int(settings, "video_protection_mode", static_cast<int>(VideoProtectionMode::Off));
 	obs_data_set_default_bool(settings, "audio_red", false);
 	obs_data_set_default_bool(settings, "adaptive_bitrate", false);
@@ -785,7 +639,9 @@ void VDONinjaOutput::loadSettings(obs_data_t *settings)
 	if (output_) {
 		obs_service_t *service = obs_output_get_service(output_);
 		if (service) {
-			serviceSettings = obs_service_get_settings(service);
+			serviceSettings = copyPublishServiceSettings(service);
+			if (!serviceSettings)
+				serviceSettings = obs_service_get_settings(service);
 		}
 	}
 
@@ -793,8 +649,10 @@ void VDONinjaOutput::loadSettings(obs_data_t *settings)
 		// Prefer output settings first; they are the source-of-truth snapshot used
 		// to start this output. Some OBS service fields (notably password-like
 		// fields) can be omitted/redacted when read back from service settings.
+		if (settings && obs_data_has_user_value(settings, key))
+			return obs_data_get_string(settings, key);
 		std::string value;
-		if (settings && (obs_data_has_user_value(settings, key) || !serviceSettings)) {
+		if (settings && !serviceSettings) {
 			const char *raw = obs_data_get_string(settings, key);
 			if (raw) {
 				value = raw;
@@ -865,10 +723,14 @@ void VDONinjaOutput::loadSettings(obs_data_t *settings)
 	const std::string streamKey = getStringSetting("key");
 	const std::string serviceServer = getStringSetting("server");
 
-	parseVdoKeyValue(streamKey, settings_.streamId, settings_.password, settings_.roomId, keySalt, settings_.wssHost);
-	if (!keySalt.empty()) {
-		settings_.salt = keySalt;
-	}
+	PublishIdentity identity{settings_.streamId, settings_.password, settings_.roomId, keySalt, settings_.wssHost};
+	parsePublishStreamKey(streamKey, identity);
+	settings_.streamId = trim(identity.streamId);
+	settings_.password = identity.password;
+	settings_.roomId = identity.roomId;
+	settings_.wssHost = identity.wssHost;
+	keySalt = identity.salt;
+	settings_.salt = keySalt.empty() ? DEFAULT_SALT : keySalt;
 	if (settings_.wssHost.empty() && !serviceServer.empty() &&
 	    (startsWithInsensitive(serviceServer, "wss://") || startsWithInsensitive(serviceServer, "ws://"))) {
 		settings_.wssHost = serviceServer;
@@ -907,6 +769,7 @@ void VDONinjaOutput::loadSettings(obs_data_t *settings)
 	settings_.enableDataChannel = getBoolSetting("enable_data_channel", true);
 	settings_.autoReconnect = getBoolSetting("auto_reconnect", true);
 	settings_.forceTurn = getBoolSetting("force_turn", false);
+	settings_.udpPortRange = parseUdpPortRange(getStringSetting("udp_port_range"));
 	settings_.videoProtectionMode =
 	    videoProtectionModeFromInt(getIntSetting("video_protection_mode", static_cast<int>(VideoProtectionMode::Off)));
 	settings_.enableAudioRed = getBoolSetting("audio_red", false);
@@ -952,7 +815,10 @@ void VDONinjaOutput::loadSettings(obs_data_t *settings)
 void VDONinjaOutput::update(obs_data_t *settings)
 {
 	std::lock_guard<std::mutex> lock(settingsMutex_);
-	loadSettings(settings);
+	// The running session's identity must remain stable; OBS retains pending
+	// settings and start() reloads them once the next service is attached.
+	if (!running_)
+		loadSettings(settings);
 }
 
 std::string VDONinjaOutput::buildInitialInfoMessage() const
@@ -975,7 +841,9 @@ std::string VDONinjaOutput::buildInitialInfoMessage() const
 	info.add("video_muted_init", false);
 	info.add("codec_url", codecToUrlValue(snap.videoCodec));
 	info.add("audio_codec_url", "opus");
-	info.add("vb_url", snap.quality.bitrate / 1000);
+	if (snap.nominalVideoBitrate > 0)
+		info.add("vb_url", snap.nominalVideoBitrate / 1000);
+	info.add("encoder_rate_control", snap.videoRateControl);
 	info.add("maxviewers_url", snap.maxViewers);
 
 	obs_video_info videoInfo = {};
@@ -1415,7 +1283,8 @@ void VDONinjaOutput::configureBitrateAdaptation(const OutputSettings &settings, 
 	pendingPacerBitrate_ = 0;
 	pendingPacerBitrateDueMs_ = 0;
 
-	if (!settings.enableAdaptiveBitrate) {
+	// REMB cannot control quality-based encoders through their inactive bitrate field.
+	if (!settings.enableAdaptiveBitrate || isQualityRateControl(settings.videoRateControl)) {
 		return;
 	}
 
@@ -1547,6 +1416,10 @@ void VDONinjaOutput::applyAdaptiveBitrate(uint64_t bitrateBitsPerSecond, uint64_
 	obs_encoder_update(encoder, update);
 	obs_data_release(update);
 	currentEncoderBitrate_ = targetBitsPerSecond;
+	{
+		std::lock_guard<std::mutex> lock(settingsMutex_);
+		settings_.nominalVideoBitrate = targetBitsPerSecond;
+	}
 	if (decreasing) {
 		// Dynamic encoders can emit pre-change frames for a short time. Keep
 		// the previous pacer rate long enough to drain those frames instead of
@@ -1768,10 +1641,44 @@ bool VDONinjaOutput::start()
 		return false;
 	}
 
+	obs_data_t *latestSettings = obs_output_get_settings(output_);
 	std::string streamIdSnapshot;
+	bool validUdpPorts = false;
 	{
 		std::lock_guard<std::mutex> lock(settingsMutex_);
+		loadSettings(latestSettings);
+		validUdpPorts = settings_.udpPortRange.has_value();
+		if (settings_.streamId.empty()) {
+			settings_.streamId = generateSessionId();
+			obs_service_t *service = obs_output_get_service(output_);
+			if (obs_data_t *serviceSettings = copyPublishServiceSettings(service)) {
+				auto identity = readPublishIdentity(serviceSettings);
+				identity.streamId = settings_.streamId;
+				writePublishIdentity(serviceSettings, identity);
+				obs_service_update(service, serviceSettings);
+				obs_data_release(serviceSettings);
+				obs_queue_task(
+				    OBS_TASK_UI,
+				    [](void *data) {
+					    auto *service = static_cast<obs_service_t *>(data);
+					    if (obs_frontend_get_streaming_service() == service)
+						    obs_frontend_save_streaming_service();
+					    obs_service_release(service);
+				    },
+				    obs_service_get_ref(service), false);
+			} else {
+				obs_data_set_string(latestSettings, "stream_id", settings_.streamId.c_str());
+			}
+		}
 		streamIdSnapshot = settings_.streamId;
+	}
+	obs_data_release(latestSettings);
+	if (!validUdpPorts) {
+		logError("Invalid local UDP port selection; use Auto, a port from 1 to 65535, or an ascending range");
+		obs_output_set_last_error(
+		    output_,
+		    tr("UDPPorts.Invalid", "Enter Auto, a port from 1 to 65535, or an ascending range such as 50000-50100."));
+		return false;
 	}
 	if (streamIdSnapshot.empty()) {
 		logError("Stream ID is required");
@@ -1799,6 +1706,13 @@ bool VDONinjaOutput::start()
 		logError("Refusing to start: active audio encoder codec is '%s' (Opus required)", nonOpusCodec.c_str());
 		obs_output_set_last_error(output_, error.c_str());
 		return false;
+	}
+
+	if (obs_encoder_t *encoder = obs_output_get_video_encoder(output_)) {
+		obs_data_t *encoderSettings = obs_encoder_get_settings(encoder);
+		applyPublishEncoderCompatibility(encoderSettings);
+		obs_encoder_update(encoder, encoderSettings);
+		obs_data_release(encoderSettings);
 	}
 
 	if (!obs_output_initialize_encoders(output_, 0)) {
@@ -1837,12 +1751,20 @@ bool VDONinjaOutput::start()
 		settingsSnap = settings_;
 	}
 	const int configuredBitrate = settingsSnap.quality.bitrate;
-	settingsSnap.quality.bitrate = resolveVideoEncoderBitrate(output_, configuredBitrate);
+	resolveVideoEncoderSettings(output_, settingsSnap);
+	{
+		std::lock_guard<std::mutex> lock(settingsMutex_);
+		settings_ = settingsSnap;
+	}
+	logInfo("Publishing encoder rate control: %s; nominal bitrate: %d kbps; pacing input: %d kbps",
+	        settingsSnap.videoRateControl.c_str(), settingsSnap.nominalVideoBitrate / 1000,
+	        settingsSnap.quality.bitrate / 1000);
 	if (settingsSnap.quality.bitrate != configuredBitrate) {
-		logInfo("Using active video encoder bitrate %d kbps for RTP pacing (service setting: %d kbps)",
+		logInfo("Using RTP pacing input %d kbps for the active encoder (service setting: %d kbps)",
 		        settingsSnap.quality.bitrate / 1000, configuredBitrate / 1000);
 	}
-	configureBitrateAdaptation(settingsSnap, settingsSnap.quality.bitrate);
+	configureBitrateAdaptation(settingsSnap, settingsSnap.nominalVideoBitrate > 0 ? settingsSnap.nominalVideoBitrate
+	                                                                              : settingsSnap.quality.bitrate);
 
 	startMediaSendWorker();
 	startPublishSummaryWorker();
@@ -1872,6 +1794,11 @@ void VDONinjaOutput::startThread(OutputSettings settingsSnap)
 		peerManager_->setEnableDataChannel(settingsSnap.enableDataChannel);
 		peerManager_->setIceServers(settingsSnap.customIceServers);
 		peerManager_->setForceTurn(settingsSnap.forceTurn);
+		peerManager_->setUdpPortRange(*settingsSnap.udpPortRange);
+		logInfo("Local UDP port allocation: %s (%u-%u); one socket per peer",
+		        settingsSnap.udpPortRange->automatic ? "Auto" : "Custom",
+		        static_cast<unsigned>(settingsSnap.udpPortRange->first),
+		        static_cast<unsigned>(settingsSnap.udpPortRange->last));
 		signaling_->setSalt(settingsSnap.salt);
 
 		if (autoSceneManager_) {

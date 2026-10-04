@@ -2234,6 +2234,54 @@ void testIceRestartRetiresOldPeerWithoutHoldingItsMediaLock()
 	manager.stopPublishing();
 }
 
+void testPublisherUdpPortRangeBindsRealSockets()
+{
+	VDONinjaPeerManager manager;
+	// Host candidates are enough to verify socket binding; avoid external STUN.
+	manager.setIceServers({{"stun:127.0.0.1:9"}});
+	manager.setUdpPortRange(UdpPortRange{42000, 42100, false});
+	auto first = manager.createNativeMediaTestPublisherPeer("port-range-first");
+	auto second = manager.createNativeMediaTestPublisherPeer("port-range-second");
+	auto hostPorts = [](const std::shared_ptr<PeerInfo> &peer) {
+		std::set<uint16_t> ports;
+		if (const auto description = peer->pc->localDescription()) {
+			for (auto candidate : description->candidates()) {
+				if (candidate.type() == rtc::Candidate::Type::Host && candidate.resolve() && candidate.port()) {
+					ports.insert(*candidate.port());
+				}
+			}
+		}
+		return ports;
+	};
+	requireEventually([&]() { return !hostPorts(first).empty() && !hostPorts(second).empty(); },
+	                  "custom port range did not produce host candidates for two viewers");
+	const auto firstPorts = hostPorts(first);
+	const auto secondPorts = hostPorts(second);
+	for (auto port : firstPorts) {
+		require(port >= 42000 && port <= 42100, "first viewer allocated outside the custom range");
+		require(secondPorts.count(port) == 0, "separate viewer sockets unexpectedly reused a port");
+	}
+	for (auto port : secondPorts)
+		require(port >= 42000 && port <= 42100, "second viewer allocated outside the custom range");
+
+	// Keep that port occupied and constrain a separate manager to precisely it.
+	// A conflict must fail, never escape to an automatically selected port.
+	VDONinjaPeerManager blocked;
+	blocked.setIceServers({{"stun:127.0.0.1:9"}});
+	blocked.setUdpPortRange(UdpPortRange{*firstPorts.begin(), *firstPorts.begin(), false});
+	std::shared_ptr<PeerInfo> conflict;
+	try {
+		conflict = blocked.createNativeMediaTestPublisherPeer("port-range-conflict");
+	} catch (const std::runtime_error &error) {
+		require(std::string(error.what()).find("ICE") != std::string::npos,
+		        "occupied port failed for an unrelated reason");
+		return; // libjuice can report a bind failure synchronously during gathering.
+	}
+	requireEventually([&]() { return conflict->pc->state() == rtc::PeerConnection::State::Failed; },
+	                  "occupied fixed port neither failed nor stayed constrained");
+	require(hostPorts(conflict).empty(), "occupied fixed port silently fell back to another port");
+}
+
 void testCompletionDelayedUntilAfterOwnerShutdownIsRejected()
 {
 	auto manager = std::make_unique<VDONinjaPeerManager>();
@@ -5491,6 +5539,7 @@ int main(int argc, char **argv)
 		const auto primaryGop = encodeVp9Gop(80, 48);
 		const auto alphaGop = encodeVp9Gop(48, 48);
 		const std::vector<GateCase> cases = {
+		    {"publisher UDP port range binds real sockets", testPublisherUdpPortRangeBindsRealSockets},
 		    {"ICE restart retirement releases media locks", testIceRestartRetiresOldPeerWithoutHoldingItsMediaLock},
 		    {"RTC manager-to-source stale alpha add rejection",
 		     testRtcManagerSourceRejectsLateAlphaAfterInactiveRemoval},

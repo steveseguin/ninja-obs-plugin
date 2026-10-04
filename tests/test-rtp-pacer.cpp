@@ -88,6 +88,49 @@ TEST(RtpPacketPacerTest, ClampsInvalidAndExtremeEncoderRates)
 	EXPECT_EQ(videoPacerBitrateForEncoderRate(60000000), 100000000u);
 }
 
+TEST(RtpPacketPacerTest, HighRateKeyframePreservesPacketOrderAcrossShortSharedWaits)
+{
+	std::mutex mutex;
+	std::condition_variable cv;
+	std::vector<uint16_t> sequences;
+	bool completed = false;
+	RtpPacerFrameResult result{};
+	auto shared = std::make_shared<RtpSharedPacerBudget>(4096);
+	RtpPacketPacer pacer(
+	    100000000, 2ms,
+	    [&](RtpPacketPacer::Packet &&packet) {
+		    sequences.push_back(
+		        static_cast<uint16_t>((static_cast<uint16_t>(packet[2]) << 8) | static_cast<uint16_t>(packet[3])));
+		    return true;
+	    },
+	    0, shared);
+	std::vector<RtpPacketPacer::Packet> packets;
+	for (uint16_t i = 0; i < 500; ++i)
+		packets.push_back(rtpPacketWithSequence(1200, i, 1));
+	RtpPacerFrameInfo info;
+	info.keyframe = true;
+	ASSERT_TRUE(pacer.enqueueFrame(std::move(packets), info, [&](const RtpPacerFrameResult &sent) {
+		std::lock_guard<std::mutex> lock(mutex);
+		result = sent;
+		completed = true;
+		cv.notify_all();
+	}));
+	{
+		std::unique_lock<std::mutex> lock(mutex);
+		ASSERT_TRUE(cv.wait_for(lock, 2s, [&]() { return completed; }));
+	}
+	pacer.stop();
+	ASSERT_EQ(sequences.size(), 500u);
+	EXPECT_TRUE(result.success);
+	EXPECT_EQ(result.sentPackets, 500u);
+	EXPECT_EQ(result.sendFailures, 0u);
+	for (uint16_t i = 0; i < 500; ++i)
+		EXPECT_EQ(sequences[i], i);
+	EXPECT_EQ(pacer.getStats().sentKeyframes, 1u);
+	EXPECT_EQ(pacer.getStats().droppedFrames, 0u);
+	EXPECT_EQ(shared->participantCount(), 0u);
+}
+
 TEST(RtpPacketPacerTest, RejectsAnOversizedFrameWithoutSendingAnyPart)
 {
 	std::atomic<int> sent{0};

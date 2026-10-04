@@ -17,6 +17,12 @@ jobs:
       - name: Validate ZIP and compiled setup installers
         shell: powershell
         run: .\tests\test-windows-package.ps1 -RequireCompiler
+      - name: Validate scoped Windows firewall rules
+        shell: powershell
+        run: .\tests\test-windows-firewall.ps1
+      - name: Validate real Windows firewall integration
+        shell: powershell
+        run: .\tests\test-windows-firewall-live.ps1
 
   # Run tests on Linux (tests don't require OBS)
   test:

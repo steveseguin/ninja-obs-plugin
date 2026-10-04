@@ -19,6 +19,7 @@
 #include <vector>
 
 #include "vdoninja-loss-protection.h"
+#include "vdoninja-network-settings.h"
 #include "vdoninja-video-keyframe-gate.h"
 
 // Forward declarations for libdatachannel
@@ -201,6 +202,9 @@ struct AutoInboundSettings {
 
 // Plugin output settings
 struct OutputSettings {
+	std::optional<UdpPortRange> udpPortRange = UdpPortRange{};
+	std::string videoRateControl;
+	int nominalVideoBitrate = 0; // Zero for quality-based modes without a bitrate target.
 	std::string streamId;
 	std::string roomId;
 	std::string password;

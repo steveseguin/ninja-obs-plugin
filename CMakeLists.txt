@@ -344,10 +344,15 @@ if(BUILD_PLUGIN)
         src/vdoninja-data-channel.cpp
         src/vdoninja-system-cpu.cpp
         src/vdoninja-utils.cpp
+        src/vdoninja-publish-settings.cpp
+        src/vdoninja-network-settings.cpp
         src/vdoninja-dock.cpp
     )
 
     set(PLUGIN_HEADERS
+        src/vdoninja-publish-settings.h
+        src/vdoninja-network-settings.h
+        src/vdoninja-publish-obs.h
         src/plugin-main.h
         src/vdoninja-alpha-sync.h
         src/vdoninja-audio-red.h
@@ -571,6 +576,8 @@ if(BUILD_TESTS)
         src/vdoninja-loss-protection.cpp
         src/vdoninja-rtp-utils.cpp
         src/vdoninja-utils.cpp
+        src/vdoninja-publish-settings.cpp
+        src/vdoninja-network-settings.cpp
         src/vdoninja-reliability.cpp
         src/vdoninja-rtcp-feedback.cpp
         src/vdoninja-rtp-pacer.cpp
@@ -619,6 +626,8 @@ if(BUILD_TESTS)
         tests/test-module-lifecycle.cpp
         tests/test-peer-manager.cpp
         tests/test-utils.cpp
+        tests/test-publish-settings.cpp
+        tests/test-network-settings.cpp
         tests/test-reliability.cpp
         tests/test-rtcp-feedback.cpp
         tests/test-rtp-audio.cpp
@@ -787,6 +796,8 @@ if(BUILD_NATIVE_MEDIA_LINKED_GATE)
         src/vdoninja-data-channel.cpp
         src/vdoninja-system-cpu.cpp
         src/vdoninja-utils.cpp
+        src/vdoninja-publish-settings.cpp
+        src/vdoninja-network-settings.cpp
     )
     set_target_properties(vdoninja-native-media-linked-gate PROPERTIES NO_SYSTEM_FROM_IMPORTED ON)
     target_compile_definitions(vdoninja-native-media-linked-gate PRIVATE
@@ -929,6 +940,8 @@ if(BUILD_PUBLISHER_TOOL)
         tests/tools/vp9-alpha-publisher/main.cpp
         src/vdoninja-signaling.cpp
         src/vdoninja-utils.cpp
+        src/vdoninja-publish-settings.cpp
+        src/vdoninja-network-settings.cpp
         src/vdoninja-signaling-protocol.cpp
         src/vdoninja-reliability.cpp
         src/vdoninja-rtp-utils.cpp

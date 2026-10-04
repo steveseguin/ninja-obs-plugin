@@ -25,6 +25,8 @@ public:
 	explicit VDONinjaDock(QWidget *parent = nullptr);
 	~VDONinjaDock();
 	void syncFromActiveService();
+	void prepareStreaming();
+	void reloadProfileSettings();
 	void shutdown();
 
 	// Called from output thread (via obs_queue_task) to show chat messages
@@ -43,6 +45,7 @@ private:
 	void setupUi();
 	void loadSettings();
 	void saveSettings();
+	bool applySettingsToService(bool activate);
 	QString buildUrl(bool push) const;
 	bool loadFromServiceSettings(obs_data_t *serviceSettings);
 
@@ -51,6 +54,7 @@ private:
 	QLineEdit *editRoomId;
 	QLineEdit *editPassword;
 	QSpinBox *spinMaxViewers;
+	QLineEdit *editUdpPorts;
 
 	// Actions
 	QPushButton *btnGoLive;
@@ -69,6 +73,8 @@ private:
 	QTimer *statsTimer;
 	QTimer *chatClearTimer;
 	SystemCpuSampler systemCpuSampler;
+	bool loadingSettings_ = true;
+	bool editsPending_ = false;
 };
 
 } // namespace vdoninja
