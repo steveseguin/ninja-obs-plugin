@@ -9,20 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.1.70] - 2026-10-03
 
-### Fixed
-- Keep the dock and OBS streaming service synchronized so both start buttons use the saved stream ID, password, and advanced settings; Copy Viewer Link reflects the active stream.
-- Preserve OBS encoder rate control, including Intel ICQ and x264 CRF, instead of forcing CBR through service recommendations. Use the active encoder's bitrate for pacing and stream metadata rather than a stale 6000 kbps field.
-- Use high-resolution packet waits on Windows to prevent large quality-controlled keyframes and higher-bitrate streams from accumulating pacing delays.
-- Generate custom signaling viewer links with `wss2` so the native VDO.Ninja signaling protocol remains selected.
-
-### Added
-- Advanced local UDP port selection: Auto, a single port, or an inclusive range, saved per OBS profile. Use a range for multiple simultaneous viewers; invalid settings prevent publishing.
-- Optional Windows firewall rules scoped to the selected OBS executable and inbound UDP, with separate Private/Public network choices in the installer and ZIP installer.
-
-### Validated
-- Short remote Windows Chrome and Pixel 9 checks decoded Intel ICQ at approximately 60 fps with zero reported freezes or packet loss. Remote Chrome also received 24000 kbps CBR at approximately 60 fps without reported freezes or packet loss.
-- Fixed and ranged local UDP ports, both start buttons, saved identities, and copied viewer links. Firefox H.264 playback was verified locally; BrowserStack Firefox installations did not advertise H.264 support.
-- Playback samples lasted 20 seconds each; these results do not imply that every network can sustain the same bitrate or avoid TURN.
+- Stream IDs and viewer links now stay in sync with OBS.
+- Preserves ICQ/CRF and configured bitrates, with smoother Windows playback.
+- Adds advanced UDP port or range selection.
+- Adds optional Windows firewall setup.
 
 ## [1.1.69] - 2026-10-03
 

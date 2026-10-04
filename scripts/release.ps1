@@ -537,33 +537,18 @@ function New-ReleaseNotes {
     $downloadBase = "https://github.com/steveseguin/ninja-obs-plugin/releases/download/$($VersionInfo.Tag)"
 
 return @"
-## Compatibility - choose this first
+$changesBody
+
+## Downloads
 
 | Platform | OBS version | Download |
 | --- | --- | --- |
-| Windows | `32.2.x` | [obs-vdoninja-windows-x64-setup.exe]($downloadBase/obs-vdoninja-windows-x64-setup.exe) (recommended) or [obs-vdoninja-windows-x64.zip]($downloadBase/obs-vdoninja-windows-x64.zip) |
-| Windows | `32.0.x` or `32.1.x` | [obs-vdoninja-windows-x64-obs32.0-32.1-setup.exe]($downloadBase/obs-vdoninja-windows-x64-obs32.0-32.1-setup.exe) or [obs-vdoninja-windows-x64-obs32.0-32.1.zip]($downloadBase/obs-vdoninja-windows-x64-obs32.0-32.1.zip) |
-| Linux | `32.2.x` | [obs-vdoninja-linux-x86_64.tar.gz]($downloadBase/obs-vdoninja-linux-x86_64.tar.gz) |
-| macOS (Apple silicon) | `32.2.x` | [obs-vdoninja-macos-arm64.pkg]($downloadBase/obs-vdoninja-macos-arm64.pkg) (recommended) or [obs-vdoninja-macos-arm64.zip]($downloadBase/obs-vdoninja-macos-arm64.zip) |
+| Windows | 32.2.x | [Installer]($downloadBase/obs-vdoninja-windows-x64-setup.exe) / [ZIP]($downloadBase/obs-vdoninja-windows-x64.zip) |
+| Windows | 32.0.x-32.1.x | [Installer]($downloadBase/obs-vdoninja-windows-x64-obs32.0-32.1-setup.exe) / [ZIP]($downloadBase/obs-vdoninja-windows-x64-obs32.0-32.1.zip) |
+| Linux | 32.2.x | [TAR.GZ]($downloadBase/obs-vdoninja-linux-x86_64.tar.gz) |
+| macOS (Apple silicon) | 32.2.x | [Installer]($downloadBase/obs-vdoninja-macos-arm64.pkg) / [ZIP]($downloadBase/obs-vdoninja-macos-arm64.zip) |
 
-Do not mix the Windows builds: OBS 32.2 uses FFmpeg 8, while OBS 32.0-32.1 use FFmpeg 7. This release has no prebuilt package for OBS 31.x or older and makes no compatibility promise for future OBS versions beyond 32.2.x.
-
-## Install
-- Full install guide: `https://github.com/steveseguin/ninja-obs-plugin/blob/main/INSTALL.md`
-- Linux install: `https://github.com/steveseguin/ninja-obs-plugin/blob/main/INSTALL.md#install-linux`
-- macOS install: `https://github.com/steveseguin/ninja-obs-plugin/blob/main/INSTALL.md#install-macos`
-- OBS 32.2.x Windows installer: run `obs-vdoninja-windows-x64-setup.exe`
-- OBS 32.0.x-32.1.x Windows installer: run `obs-vdoninja-windows-x64-obs32.0-32.1-setup.exe`
-- Windows ZIP: choose the package matching OBS, extract it, then run `install.cmd`
-- macOS installer: run `obs-vdoninja-macos-arm64.pkg`
-- Linux/macOS ZIP packages: extract, then run `install.sh`
-- Post-install usage: `QUICKSTART.md`
-
-## Changes
-$changesBody
-
-## Verification
-- SHA-256 checksums are provided in [checksums.txt]($downloadBase/checksums.txt).
+[Install guide](https://github.com/steveseguin/ninja-obs-plugin/blob/main/INSTALL.md) | [Checksums]($downloadBase/checksums.txt)
 "@
 }
 
