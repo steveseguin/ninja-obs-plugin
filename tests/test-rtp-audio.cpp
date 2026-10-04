@@ -110,6 +110,52 @@ TEST(RtpTimestampStepTrackerTest, DetectsLargeAndNonForwardAudioSteps)
 	EXPECT_EQ(stats.maxForwardStep, 2880u);
 }
 
+TEST(RtpTimestampSanitizerTest, PreservesFirstAndForwardTimestamps)
+{
+	bool hasLast = false;
+	uint32_t last = 1234;
+	EXPECT_EQ(sanitizeMonotonicTimestamp(0, hasLast, last, 3000), 0u);
+	EXPECT_TRUE(hasLast);
+	EXPECT_EQ(last, 0u);
+	EXPECT_EQ(sanitizeMonotonicTimestamp(1500, hasLast, last, 3000), 1500u);
+	EXPECT_EQ(last, 1500u);
+}
+
+TEST(RtpTimestampSanitizerTest, PreservesActualCadenceAcrossWrap)
+{
+	// Include 60/30/24 fps video and 10/20 ms Opus. The fallback may differ
+	// from the real cadence and must not replace an ordinary wrap.
+	for (const uint32_t step : {1500u, 3000u, 3750u, 480u, 960u}) {
+		bool hasLast = true;
+		uint32_t last = 0xFFFFFE00u;
+		uint32_t candidate = last;
+		for (size_t i = 0; i < 1000; ++i) {
+			candidate += step;
+			EXPECT_EQ(sanitizeMonotonicTimestamp(candidate, hasLast, last, 3000), candidate);
+			EXPECT_EQ(last, candidate);
+		}
+	}
+}
+
+TEST(RtpTimestampSanitizerTest, RepairsDuplicateAndBackwardTimestamps)
+{
+	bool hasLast = true;
+	uint32_t last = 5000;
+	EXPECT_EQ(sanitizeMonotonicTimestamp(5000, hasLast, last, 960), 5960u);
+	EXPECT_EQ(sanitizeMonotonicTimestamp(4000, hasLast, last, 960), 6920u);
+	EXPECT_EQ(last, 6920u);
+}
+
+TEST(RtpTimestampSanitizerTest, RepairsBackwardTimestampAcrossWrap)
+{
+	bool hasLast = true;
+	uint32_t last = 500;
+	EXPECT_EQ(sanitizeMonotonicTimestamp(0xFFFFFE00u, hasLast, last, 960), 1460u);
+	last = 0xFFFFFE00u;
+	EXPECT_EQ(sanitizeMonotonicTimestamp(last, hasLast, last, 960), 448u);
+	EXPECT_EQ(last, 448u);
+}
+
 TEST(RtpTimestampStepTrackerTest, TreatsTimestampWrapAsContinuous)
 {
 	RtpTimestampStepTracker tracker(960);
