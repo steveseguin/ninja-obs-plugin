@@ -413,3 +413,22 @@ Windows condition-variable waits rounded sub-millisecond token waits up, repeate
 The CBR 24000 log recorded zero pacing drops and a maximum keyframe send time of 52 ms. All 742 unit tests, the native linked suite, 22 compiled Windows installer scenarios, and mocked firewall checks passed. Real firewall integration is additionally required by the elevated Windows CI runner; the local shell is not elevated. The focused viewer suite passed nine cases in each of local Chrome and Firefox. The viewer correction preserves CRLF when changing codec order; it is maintained separately in the VDO.Ninja web repository.
 
 Evidence is under `artifacts/publish-release-runtime/`. The running portable OBS DLL path/hash was verified, and its configuration, DLL and locale were restored and hash-compared after testing. These are short checks, not long-duration soak results; all playback measurement windows were below one minute.
+
+### Windows High-Bitrate Validation (v1.1.71)
+
+On 2026-10-03, the published v1.1.71 DLL was verified against the module loaded by portable OBS 32.2.2. Tests used 1080p60 CBR, local Chrome, NVIDIA TITAN RTX NVENC, and Intel Core Ultra 7 265K QuickSync. Each playback measurement lasted 20 seconds. The fixed-noise scene deliberately stresses large keyframes.
+
+| Encoder | Configured Mbps | Received Mbps | Reported freezes | Lost packets |
+| --- | ---: | ---: | ---: | ---: |
+| x264 veryfast | 20 | 20.14 | 9 | 0 |
+| x264 veryfast | 40 | 40.12 | 9 | 0 |
+| NVIDIA NVENC P5 / HQ | 20 | 20.03 | 0 | 0 |
+| NVIDIA NVENC P5 / HQ | 40 | 40.13 | 0 | 0 |
+| Intel QuickSync TU4 | 20 | 20.29 | 0 | 0 |
+| Intel QuickSync TU4 | 40 | 33.31 | 0 | 0 |
+
+All local cases decoded both test audio tones. Intel's 40 Mbps publisher log reported about 39 Mbps in its final interval; the receiver measurement above must not be presented as sustained 40 Mbps delivery. Saved B-frame requests were deliberately set to three. Recordings using the streaming encoder decoded successfully with zero B-frames for every encoder and bitrate, confirming the runtime compatibility override despite the saved UI value.
+
+With ordinary animation, x264 delivered 40.28 Mbps locally with zero freezes. A remote BrowserStack Windows Chrome receiver measured NVIDIA at 40.29 Mbps with zero freezes, lost packets, or concealed audio samples. The remote fixed-noise case received 40.40 Mbps but reported 16 freezes totaling 3.45 seconds, despite zero loss and a direct `srflx`/`srflx` UDP route. High-bitrate transport works; expensive-keyframe playback still needs investigation, and these checks do not establish its cause.
+
+No plugin or website code changed for this validation. Bitrates above 40 Mbps, AMD encoders, and VPN paths were not tested. Evidence, screenshots, bitstream checks, and a browsable report are under `artifacts/high-bitrate-1.1.71/`. BrowserStack sessions were closed, and portable OBS configuration, DLL, and locale were restored and hash-verified.
