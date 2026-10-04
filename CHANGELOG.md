@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.70] - 2026-10-03
+
 ### Fixed
 - Keep the dock and OBS streaming service synchronized so both start buttons use the saved stream ID, password, and advanced settings; Copy Viewer Link reflects the active stream.
 - Preserve OBS encoder rate control, including Intel ICQ and x264 CRF, instead of forcing CBR through service recommendations. Use the active encoder's bitrate for pacing and stream metadata rather than a stale 6000 kbps field.
