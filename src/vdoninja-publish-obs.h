@@ -82,6 +82,23 @@ inline void applyPublishEncoderCompatibility(obs_data_t *settings)
 		obs_data_set_bool(settings, "bframes", false);
 	obs_data_set_bool(settings, "repeat_headers", true);
 	obs_data_set_int(settings, "keyint_sec", publishKeyframeInterval(obs_data_get_int(settings, "keyint_sec")));
+	obs_data_set_string(settings, "opts", publishNvencOptions(obs_data_get_string(settings, "opts")).c_str());
+	obs_data_set_string(settings, "tune", publishEncoderTuning(obs_data_get_string(settings, "tune")).c_str());
+	obs_data_set_bool(settings, "vdoninja_no_bframes", true);
+}
+
+inline bool hasPublishEncoderCompatibility(obs_data_t *settings)
+{
+	if (!settings || !obs_data_get_bool(settings, "vdoninja_no_bframes") || obs_data_get_int(settings, "bf") != 0)
+		return false;
+	obs_data_item_t *bframes = obs_data_item_byname(settings, "bframes");
+	const bool numericBframes = bframes && obs_data_item_gettype(bframes) == OBS_DATA_NUMBER;
+	obs_data_item_release(&bframes);
+	if (numericBframes ? obs_data_get_int(settings, "bframes") != 0 : obs_data_get_bool(settings, "bframes"))
+		return false;
+	const std::string options = obs_data_get_string(settings, "opts");
+	const std::string tuning = obs_data_get_string(settings, "tune");
+	return publishNvencOptions(options) == options && publishEncoderTuning(tuning) == tuning;
 }
 
 inline obs_property_t *addPublishUdpPortProperty(obs_properties_t *properties)

@@ -29,7 +29,9 @@ If either is missing, reinstall and confirm plugin/data paths from `INSTALL.md`.
 
 Your stream ID is saved with the OBS profile and reused. Editing the dock while stopped updates the selected VDO.Ninja service; changing to another streaming destination does not activate VDO.Ninja until you click `Go Live`.
 
-For ICQ/CQP/CRF or custom bitrates, use `Settings -> Output -> Advanced -> Streaming`. Simple Output uses CBR. The plugin preserves the encoder's rate control and does not impose a 6000 or 12000 kbps encoder limit. It still disables B-frames and bounds the keyframe interval to two seconds for browser playback. Quality modes vary their bitrate with the content; their RTP pacing uses a 100 Mbps transport ceiling and REMB adaptation is disabled for those modes. Choose quality settings that fit the viewers' connections.
+For ICQ/CQP/CRF or custom bitrates, use `Settings -> Output -> Advanced -> Streaming`. Simple Output uses CBR. The plugin preserves the encoder's rate control and does not impose a 6000 or 12000 kbps encoder limit. It disables B-frames, including conflicting NVENC custom options, and bounds the keyframe interval to two seconds for browser playback. Quality modes vary their bitrate with the content, and REMB adaptation is disabled for those modes. Choose quality settings that fit the viewers' connections.
+
+If recording uses the streaming encoder, start VDO.Ninja streaming before recording. An already-running shared encoder without compatible settings must finish recording before streaming can start; OBS displays instructions and leaves that recording running.
 
 A viewer URL's `&bitrate=12000` does not reconfigure the OBS encoder. The fallback signaling server also does not change encoder settings.
 

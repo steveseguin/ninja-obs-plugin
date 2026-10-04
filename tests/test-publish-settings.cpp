@@ -78,7 +78,7 @@ TEST(PublishSettingsTest, QualityModesIgnoreInactiveBitrateFields)
 	for (const auto *mode : {"ICQ", "LA_ICQ", "CQP", "CRF", "CQ", "VBR_CQ", "icq"}) {
 		EXPECT_TRUE(isQualityRateControl(mode));
 		const int rate = publishPacingBitrate(mode, 6000, 6000, 4000000);
-		EXPECT_EQ(videoPacerBitrateForEncoderRate(rate), 100000000u);
+		EXPECT_EQ(videoPacerBitrateForEncoderRate(rate), 500000000u);
 	}
 	EXPECT_FALSE(isQualityRateControl("CBR"));
 }
@@ -89,4 +89,23 @@ TEST(PublishSettingsTest, CompatibilityKeepsShortGopsAndBoundsAutoOrLongGops)
 	EXPECT_EQ(publishKeyframeInterval(1), 1);
 	EXPECT_EQ(publishKeyframeInterval(2), 2);
 	EXPECT_EQ(publishKeyframeInterval(10), 2);
+}
+
+TEST(PublishSettingsTest, CustomNvencOptionsCannotRestoreBFrames)
+{
+	EXPECT_EQ(publishNvencOptions("frameIntervalP=4"), "frameIntervalP=1");
+	EXPECT_EQ(publishNvencOptions(" frameIntervalP=3  aqStrength=8 frameIntervalP=5 "),
+	          " frameIntervalP=1  aqStrength=8 frameIntervalP=1 ");
+	EXPECT_EQ(publishNvencOptions("frameIntervalP=-1 targetQuality=23"), "frameIntervalP=1 targetQuality=23");
+	EXPECT_EQ(publishNvencOptions("frameIntervalP=0 frameIntervalP=1"), "frameIntervalP=0 frameIntervalP=1");
+	EXPECT_EQ(publishNvencOptions("lookaheadDepth=8 maxBitRate=40000000"), "lookaheadDepth=8 maxBitRate=40000000");
+	EXPECT_EQ(publishNvencOptions(""), "");
+}
+
+TEST(PublishSettingsTest, AvoidsTuningThatRequiresBFramesWithoutChangingOtherModes)
+{
+	EXPECT_EQ(publishEncoderTuning("uhq"), "hq");
+	EXPECT_EQ(publishEncoderTuning("UHQ"), "hq");
+	for (const auto *tuning : {"hq", "ll", "ull", "zerolatency", ""})
+		EXPECT_EQ(publishEncoderTuning(tuning), tuning);
 }

@@ -25,18 +25,22 @@ namespace
 {
 
 constexpr size_t kDefaultMinimumQueueBytes = 4U * 1024U * 1024U;
+constexpr size_t kDefaultMaximumQueueBytes = 8U * 1024U * 1024U;
 constexpr size_t kMinimumRepairQueueBytes = 64U * 1024U;
 constexpr size_t kMaxConsecutiveRepairPackets = 4;
 constexpr auto kRepairBudgetWindow = std::chrono::milliseconds(100);
 constexpr auto kRepairMaximumAge = std::chrono::milliseconds(500);
 constexpr size_t kMinimumDuplicateQueueBytes = 64U * 1024U;
-constexpr uint64_t kVideoPacerRateMultiplier = 2;
+// OBS WHIP allows ten times the encoder rate to drain large keyframes.
+// Keep that headroom separate from the average media rate and from the small
+// shared packet burst budget. A 1.3 MB IDR at 20 Mbps otherwise takes >250 ms.
+constexpr uint64_t kVideoPacerRateMultiplier = 10;
 // NVENC can retain ~180 KB IDRs even after adapting a 1080p stream below
 // 1 Mbps. At 2 Mbps those frames alone take >700 ms to send and repeatedly
 // exhaust a 500 ms viewer buffer. Keep enough packet-paced headroom to drain
 // them within that buffer; this does not change the encoded media bitrate.
 constexpr uint64_t kMinimumVideoPacerBitrate = 4000000;
-constexpr uint64_t kMaximumVideoPacerBitrate = 100000000;
+constexpr uint64_t kMaximumVideoPacerBitrate = 500000000;
 
 size_t calculateBurstBudget(uint64_t bitrateBitsPerSecond, std::chrono::milliseconds burstWindow)
 {
@@ -54,11 +58,9 @@ size_t calculateBurstBudget(uint64_t bitrateBitsPerSecond, std::chrono::millisec
 
 size_t calculateDefaultQueueLimit(uint64_t bitrateBitsPerSecond)
 {
-	const uint64_t halfSecondBytes = bitrateBitsPerSecond / 16U;
-	if (halfSecondBytes >= static_cast<uint64_t>(std::numeric_limits<size_t>::max())) {
-		return std::numeric_limits<size_t>::max();
-	}
-	return std::max(kDefaultMinimumQueueBytes, static_cast<size_t>(halfSecondBytes));
+	// Extra transmission headroom must not multiply retained media memory.
+	return static_cast<size_t>(
+	    std::clamp<uint64_t>(bitrateBitsPerSecond / 16U, kDefaultMinimumQueueBytes, kDefaultMaximumQueueBytes));
 }
 
 size_t calculateTimedBudget(uint64_t bitrateBitsPerSecond, std::chrono::milliseconds window)
@@ -168,12 +170,17 @@ uint16_t rewindRtpSequenceNumber(uint16_t nextSequenceNumber, size_t unsentPacke
 	return static_cast<uint16_t>(nextSequenceNumber - static_cast<uint16_t>(unsentPackets));
 }
 
-RtpSharedPacerBudget::RtpSharedPacerBudget(size_t burstBudgetBytes)
-    : burstBudgetBytes_(burstBudgetBytes), availableTokens_(static_cast<long double>(burstBudgetBytes)),
+RtpSharedPacerBudget::RtpSharedPacerBudget(size_t burstBudgetBytes, size_t maximumBurstBudgetBytes)
+    : minimumBurstBudgetBytes_(burstBudgetBytes),
+      maximumBurstBudgetBytes_(maximumBurstBudgetBytes ? maximumBurstBudgetBytes : burstBudgetBytes),
+      burstBudgetBytes_(burstBudgetBytes), availableTokens_(static_cast<long double>(burstBudgetBytes)),
       lastTokenUpdate_(std::chrono::steady_clock::now())
 {
 	if (burstBudgetBytes_ == 0) {
 		throw std::invalid_argument("Shared RTP pacer burst budget must be positive");
+	}
+	if (maximumBurstBudgetBytes_ < minimumBurstBudgetBytes_) {
+		throw std::invalid_argument("Shared RTP pacer maximum burst must cover its minimum");
 	}
 }
 
@@ -241,6 +248,13 @@ void RtpSharedPacerBudget::recalculateBitrateLocked()
 		}
 		aggregateBitrateBitsPerSecond_ += participant.second;
 	}
+	// At high rates, retain 250 microseconds of tokens between scheduler wakeups.
+	// A fixed 4 KB bucket discards most of a late Windows wakeup's tokens at
+	// high rates, stretching large keyframes even with enough pacing headroom.
+	// The caller's hard cap prevents synchronized viewers from forming a large burst.
+	burstBudgetBytes_ = static_cast<size_t>(std::clamp<uint64_t>(aggregateBitrateBitsPerSecond_ / 32000U,
+	                                                             minimumBurstBudgetBytes_, maximumBurstBudgetBytes_));
+	availableTokens_ = std::min(availableTokens_, static_cast<long double>(burstBudgetBytes_));
 }
 
 bool RtpSharedPacerBudget::acquire(size_t packetBytes, const std::function<bool()> &cancelled, bool *waited)
@@ -327,6 +341,12 @@ size_t RtpSharedPacerBudget::participantCount() const
 {
 	std::lock_guard<std::mutex> lock(mutex_);
 	return participantRates_.size();
+}
+
+size_t RtpSharedPacerBudget::burstBudgetBytes() const
+{
+	std::lock_guard<std::mutex> lock(mutex_);
+	return burstBudgetBytes_;
 }
 
 void RtpSharedPacerBudget::updateTokensLocked(std::chrono::steady_clock::time_point now)

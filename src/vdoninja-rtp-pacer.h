@@ -39,7 +39,7 @@ uint64_t videoPacerBitrateForEncoderAndProtectionRate(int encoderBitrate, uint64
 class RtpSharedPacerBudget
 {
 public:
-	explicit RtpSharedPacerBudget(size_t burstBudgetBytes);
+	explicit RtpSharedPacerBudget(size_t burstBudgetBytes, size_t maximumBurstBudgetBytes = 0);
 
 	uint64_t addParticipant(uint64_t bitrateBitsPerSecond);
 	void updateParticipant(uint64_t participantId, uint64_t bitrateBitsPerSecond);
@@ -48,14 +48,16 @@ public:
 	void wake();
 
 	uint64_t bitrateBitsPerSecond() const;
-	size_t burstBudgetBytes() const noexcept { return burstBudgetBytes_; }
+	size_t burstBudgetBytes() const;
 	size_t participantCount() const;
 
 private:
 	void recalculateBitrateLocked();
 	void updateTokensLocked(std::chrono::steady_clock::time_point now);
 
-	const size_t burstBudgetBytes_;
+	const size_t minimumBurstBudgetBytes_;
+	const size_t maximumBurstBudgetBytes_;
+	size_t burstBudgetBytes_;
 	mutable std::mutex mutex_;
 	std::condition_variable cv_;
 	std::unordered_map<uint64_t, uint64_t> participantRates_;

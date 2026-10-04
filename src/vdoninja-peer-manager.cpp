@@ -269,6 +269,7 @@ constexpr uint32_t kVideoClockRate = 90000;
 constexpr uint32_t kAudioClockRate = 48000;
 constexpr auto kVideoPacerInterval = std::chrono::milliseconds(2);
 constexpr size_t kAggregateVideoPacerBurstBytes = 4U * 1024U;
+constexpr size_t kMaximumAggregateVideoPacerBurstBytes = 16U * 1024U;
 constexpr size_t kObservedDataChannelHistoryLimit = 16;
 
 thread_local const rtc::DataChannel *activeManagerDataChannelCallback = nullptr;
@@ -969,7 +970,8 @@ void clearDataChannelCallbacks(const std::shared_ptr<rtc::DataChannel> &dataChan
 } // namespace
 
 VDONinjaPeerManager::VDONinjaPeerManager()
-    : videoPacerBudget_(std::make_shared<RtpSharedPacerBudget>(kAggregateVideoPacerBurstBytes)),
+    : videoPacerBudget_(std::make_shared<RtpSharedPacerBudget>(kAggregateVideoPacerBurstBytes,
+                                                               kMaximumAggregateVideoPacerBurstBytes)),
       ownerSession_(std::make_shared<PeerManagerOwnerSession>(this))
 {
 	// Generate random SSRCs for audio/video

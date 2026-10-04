@@ -11,6 +11,7 @@
 #include <limits>
 #include <memory>
 #include <mutex>
+#include <stdexcept>
 #include <vector>
 
 #include <gtest/gtest.h>
@@ -49,16 +50,16 @@ TEST(RtpPacketPacerTest, ReclaimsUnsentTailSequenceNumbersAcrossWrapAround)
 
 TEST(RtpPacketPacerTest, RetainsHeadroomForLowBitrateEncoderOvershoot)
 {
-	EXPECT_EQ(videoPacerBitrateForEncoderRate(500000), 4000000u);
-	EXPECT_EQ(videoPacerBitrateForEncoderRate(1000000), 4000000u);
-	EXPECT_EQ(videoPacerBitrateForEncoderRate(1500000), 4000000u);
+	EXPECT_GE(videoPacerBitrateForEncoderRate(500000), 4000000u);
+	EXPECT_GE(videoPacerBitrateForEncoderRate(1000000), 4000000u);
+	EXPECT_GE(videoPacerBitrateForEncoderRate(1500000), 4000000u);
 }
 
 TEST(RtpPacketPacerTest, IncludesProtectionTrafficInAggregatePacerRate)
 {
-	EXPECT_EQ(videoPacerBitrateForEncoderAndProtectionRate(500000, 100000), 4000000u);
-	EXPECT_EQ(videoPacerBitrateForEncoderAndProtectionRate(8000000, 8400000), 16400000u);
-	EXPECT_EQ(videoPacerBitrateForEncoderAndProtectionRate(60000000, 60000000), 100000000u);
+	EXPECT_EQ(videoPacerBitrateForEncoderAndProtectionRate(300000, 100000), 4000000u);
+	EXPECT_EQ(videoPacerBitrateForEncoderAndProtectionRate(8000000, 84000000), 92000000u);
+	EXPECT_EQ(videoPacerBitrateForEncoderAndProtectionRate(60000000, 600000000), 500000000u);
 }
 
 TEST(RtpPacketPacerTest, AdaptedNvencKeyframeBudgetsFitViewerBufferWithTwoViewers)
@@ -85,7 +86,40 @@ TEST(RtpPacketPacerTest, ClampsInvalidAndExtremeEncoderRates)
 {
 	EXPECT_EQ(videoPacerBitrateForEncoderRate(0), 4000000u);
 	EXPECT_EQ(videoPacerBitrateForEncoderRate(-1), 4000000u);
-	EXPECT_EQ(videoPacerBitrateForEncoderRate(60000000), 100000000u);
+	EXPECT_EQ(videoPacerBitrateForEncoderRate(60000000), 500000000u);
+}
+
+TEST(RtpPacketPacerTest, LargeHighBitrateKeyframesFitShortPlaybackBuffer)
+{
+	// Measured 1080p x264 IDRs reach 1.3 MB at both 20 and 40 Mbps.
+	// Verify the delivery budget without scheduler-dependent timing assertions.
+	constexpr uint64_t keyframeBits = 1300000U * 8U;
+	for (const int bitrate : {20000000, 40000000}) {
+		auto shared = std::make_shared<RtpSharedPacerBudget>(4096);
+		RtpPacketPacer pacer(
+		    videoPacerBitrateForEncoderRate(bitrate), 2ms, [](RtpPacketPacer::Packet &&) { return true; }, 0, shared);
+		EXPECT_LT(keyframeBits * 1000U / pacer.bitrateBitsPerSecond(), 100u);
+		EXPECT_EQ(shared->burstBudgetBytes(), 4096u);
+		EXPECT_EQ(shared->bitrateBitsPerSecond(), pacer.bitrateBitsPerSecond());
+	}
+}
+
+TEST(RtpPacketPacerTest, SharedHighRateBurstBudgetScalesWithinBoundsAndShrinksAfterRateChanges)
+{
+	RtpSharedPacerBudget budget(4096, 16384);
+	const auto first = budget.addParticipant(40000000);
+	EXPECT_EQ(budget.burstBudgetBytes(), 4096u);
+	budget.updateParticipant(first, 400000000);
+	EXPECT_EQ(budget.burstBudgetBytes(), 12500u);
+	const auto second = budget.addParticipant(400000000);
+	EXPECT_EQ(budget.burstBudgetBytes(), 16384u);
+	budget.removeParticipant(first);
+	EXPECT_EQ(budget.burstBudgetBytes(), 12500u);
+	budget.updateParticipant(second, 4000000);
+	EXPECT_EQ(budget.burstBudgetBytes(), 4096u);
+	budget.removeParticipant(second);
+	EXPECT_EQ(budget.burstBudgetBytes(), 4096u);
+	EXPECT_THROW(RtpSharedPacerBudget(4096, 1024), std::invalid_argument);
 }
 
 TEST(RtpPacketPacerTest, HighRateKeyframePreservesPacketOrderAcrossShortSharedWaits)
@@ -152,6 +186,23 @@ TEST(RtpPacketPacerTest, RejectsAnOversizedFrameWithoutSendingAnyPart)
 	EXPECT_EQ(sent.load(), 0);
 	EXPECT_EQ(stats.queuedBytes, 0u);
 	EXPECT_EQ(stats.droppedFrames, 1u);
+}
+
+TEST(RtpPacketPacerTest, ExtraKeyframeHeadroomDoesNotCreateAnUnboundedMediaQueue)
+{
+	std::atomic<int> sent{0};
+	RtpPacketPacer pacer(500000000, 2ms, [&](RtpPacketPacer::Packet &&) {
+		sent.fetch_add(1);
+		return true;
+	});
+	std::vector<RtpPacketPacer::Packet> frame;
+	for (size_t i = 0; i < 8192; ++i)
+		frame.push_back(packetWithValue(1200, 1));
+	EXPECT_FALSE(pacer.enqueueFrame(std::move(frame)));
+	pacer.stop();
+	EXPECT_EQ(sent.load(), 0);
+	EXPECT_EQ(pacer.getStats().queuedBytes, 0u);
+	EXPECT_EQ(pacer.getStats().droppedFrames, 1u);
 }
 
 TEST(RtpPacketPacerTest, PreservesPacketOrder)

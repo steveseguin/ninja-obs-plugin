@@ -220,8 +220,8 @@ int publishPacingBitrate(const std::string &rateControl, int64_t bitrateKbps, in
                          int fallbackBitsPerSecond)
 {
 	// Quality modes have no nominal bitrate. An inactive bitrate field must not
-	// throttle their media. Use the existing pacer's 100 Mbps transport ceiling
-	// (its rate is twice this input); this does not change the encoder settings.
+	// throttle their media. Use the pacer's transport ceiling (ten times this
+	// input); this does not change the encoder settings.
 	if (isQualityRateControl(rateControl))
 		return 50000000;
 	std::string mode = rateControl;
@@ -237,6 +237,41 @@ int publishPacingBitrate(const std::string &rateControl, int64_t bitrateKbps, in
 int64_t publishKeyframeInterval(int64_t seconds)
 {
 	return seconds <= 0 || seconds > 2 ? 2 : seconds;
+}
+
+std::string publishNvencOptions(const std::string &options)
+{
+	// OBS splits custom options on spaces and applies them after the normal
+	// B-frame setting. Preserve unrelated options and their formatting.
+	std::string result = options;
+	constexpr const char *prefix = "frameIntervalP=";
+	constexpr size_t prefixLength = 15;
+	size_t start = 0;
+	while ((start = result.find_first_not_of(' ', start)) != std::string::npos) {
+		const size_t end = result.find(' ', start);
+		const size_t length = (end == std::string::npos ? result.size() : end) - start;
+		if (length > prefixLength && result.compare(start, prefixLength, prefix) == 0) {
+			const auto value = result.substr(start + prefixLength, length - prefixLength);
+			if (value != "0" && value != "1") {
+				result.replace(start + prefixLength, length - prefixLength, "1");
+				start += prefixLength + 1;
+				continue;
+			}
+		}
+		if (end == std::string::npos)
+			break;
+		start = end + 1;
+	}
+	return result;
+}
+
+std::string publishEncoderTuning(const std::string &tuning)
+{
+	std::string normalized = tuning;
+	std::transform(normalized.begin(), normalized.end(), normalized.begin(),
+	               [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+	// NVENC UHQ requires B-frames, including when the B-frame field is zero.
+	return normalized == "uhq" ? "hq" : tuning;
 }
 
 } // namespace vdoninja

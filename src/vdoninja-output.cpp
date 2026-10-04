@@ -1692,6 +1692,26 @@ bool VDONinjaOutput::start()
 		return false;
 	}
 
+	if (obs_encoder_t *encoder = obs_output_get_video_encoder(output_)) {
+		obs_data_t *encoderSettings = obs_encoder_get_settings(encoder);
+		if (obs_encoder_active(encoder)) {
+			// Updating a shared recording encoder cannot remove existing B-frames.
+			const bool compatible = hasPublishEncoderCompatibility(encoderSettings);
+			obs_data_release(encoderSettings);
+			if (!compatible) {
+				obs_output_set_last_error(output_, tr("Output.SharedEncoderActive",
+				                                      "Stop the shared recording first, then start "
+				                                      "VDO.Ninja streaming before recording."));
+				logError("Shared recording encoder was started without VDO.Ninja compatibility settings");
+				return false;
+			}
+		} else {
+			applyPublishEncoderCompatibility(encoderSettings);
+			obs_encoder_update(encoder, encoderSettings);
+			obs_data_release(encoderSettings);
+		}
+	}
+
 	std::string rebindError;
 	if (!rebindOutputAudioEncodersToOpus(output_, rebindError)) {
 		logError("Unable to enforce Opus audio encoders before start: %s", rebindError.c_str());
@@ -1706,13 +1726,6 @@ bool VDONinjaOutput::start()
 		logError("Refusing to start: active audio encoder codec is '%s' (Opus required)", nonOpusCodec.c_str());
 		obs_output_set_last_error(output_, error.c_str());
 		return false;
-	}
-
-	if (obs_encoder_t *encoder = obs_output_get_video_encoder(output_)) {
-		obs_data_t *encoderSettings = obs_encoder_get_settings(encoder);
-		applyPublishEncoderCompatibility(encoderSettings);
-		obs_encoder_update(encoder, encoderSettings);
-		obs_data_release(encoderSettings);
 	}
 
 	if (!obs_output_initialize_encoders(output_, 0)) {

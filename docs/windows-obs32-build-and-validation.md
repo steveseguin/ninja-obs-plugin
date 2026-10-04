@@ -432,3 +432,22 @@ All local cases decoded both test audio tones. Intel's 40 Mbps publisher log rep
 With ordinary animation, x264 delivered 40.28 Mbps locally with zero freezes. A remote BrowserStack Windows Chrome receiver measured NVIDIA at 40.29 Mbps with zero freezes, lost packets, or concealed audio samples. The remote fixed-noise case received 40.40 Mbps but reported 16 freezes totaling 3.45 seconds, despite zero loss and a direct `srflx`/`srflx` UDP route. High-bitrate transport works; expensive-keyframe playback still needs investigation, and these checks do not establish its cause.
 
 No plugin or website code changed for this validation. Bitrates above 40 Mbps, AMD encoders, and VPN paths were not tested. Evidence, screenshots, bitstream checks, and a browsable report are under `artifacts/high-bitrate-1.1.71/`. BrowserStack sessions were closed, and portable OBS configuration, DLL, and locale were restored and hash-verified.
+
+### WHIP Review and High-Bitrate Follow-up
+
+The local `../obs-studio/plugins/obs-webrtc/` implementation (encoder-start safeguards at OBS commit `2c9f0b1df`) supplied two useful patterns: tenfold transmission headroom for keyframes, and enforcing encoder compatibility before initialization while checking an already-active recording encoder. The Ninja plugin now follows those patterns, sanitizes custom NVENC `frameIntervalP` overrides, and changes UHQ tuning to HQ because UHQ requires B-frames. Other quality/rate-control choices remain intact. It implements these safeguards without requiring the custom WHIP encoder flag in that OBS checkout.
+
+The shared packet budget now retains 250 microseconds of high-rate pacing tokens within a 4–16 KB bound, avoiding discarded tokens on delayed Windows timer wakeups. Per-viewer retained media stays capped at 8 MB. The pacer permits ten times nominal encoder bitrate up to 500 Mbps; these are transmission headroom limits, not encoder targets or a claim of tested 500 Mbps delivery. RTP payload fragmentation remains 1200 bytes. WHIP's HTTP signaling and simulcast machinery were not imported into the WebSocket publishing path; Ninja already has bounded NACK repair and small RTP fragments.
+
+Same-machine 1080p60 stress comparisons, each using a 20-second receiver sample:
+
+| Receiver / encoder | v1.1.71 freezes | Updated freezes | Updated received Mbps |
+| --- | ---: | ---: | ---: |
+| Local Chrome / x264 CBR 20 Mbps | 9 | 0 | 20.19 |
+| Local Chrome / x264 CBR 40 Mbps | 9 | 0 | 40.22 |
+| Local Chrome / NVENC CBR 40 Mbps | 0 | 0 | 39.96 |
+| Remote Windows Chrome / NVENC CBR 40 Mbps | 16 | 0 | 39.98 |
+
+All samples reported zero packet loss. Local decoded audio contained both test tones, and the remote sample had zero audio concealment. The remote publisher's maximum keyframe send time fell from 142 ms to 34 ms; maximum frame-send time fell from 237 ms to 56 ms. Intel ICQ 23 also retained its quality mode and passed at 11.44 Mbps with zero reported freezes or packet loss. Two simultaneous local Chrome viewers each received about 40.04 Mbps with verified audio, zero freezes, and zero lost packets.
+
+With OBS service recommendations disabled, a recording started first contained 75 B-frames; streaming was correctly declined while recording continued. Starting streaming first produced zero B-frames and allowed streaming to stop/restart while recording continued. NVENC custom `frameIntervalP=4` was changed to `1` at runtime while preserving `aqStrength=8`; its recorded stream contained zero B-frames. The OBS error guidance and encoder settings were visually checked. Evidence is under `artifacts/whip-publishing-improvements/`. These short samples do not certify all networks, hardware, or long-running sessions.

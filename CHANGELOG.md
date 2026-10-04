@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Smoother high-bitrate playback and stronger B-frame safeguards.
+
 ## [1.1.71] - 2026-10-03
 
 - Keeps sidebar validation messages readable and disables ID generation while streaming.
