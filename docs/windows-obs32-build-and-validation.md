@@ -451,3 +451,27 @@ Same-machine 1080p60 stress comparisons, each using a 20-second receiver sample:
 All samples reported zero packet loss. Local decoded audio contained both test tones, and the remote sample had zero audio concealment. The remote publisher's maximum keyframe send time fell from 142 ms to 34 ms; maximum frame-send time fell from 237 ms to 56 ms. Intel ICQ 23 also retained its quality mode and passed at 11.44 Mbps with zero reported freezes or packet loss. Two simultaneous local Chrome viewers each received about 40.04 Mbps with verified audio, zero freezes, and zero lost packets.
 
 With OBS service recommendations disabled, a recording started first contained 75 B-frames; streaming was correctly declined while recording continued. Starting streaming first produced zero B-frames and allowed streaming to stop/restart while recording continued. NVENC custom `frameIntervalP=4` was changed to `1` at runtime while preserving `aqStrength=8`; its recorded stream contained zero B-frames. The OBS error guidance and encoder settings were visually checked. Evidence is under `artifacts/whip-publishing-improvements/`. These short samples do not certify all networks, hardware, or long-running sessions.
+
+
+### BrowserStack Packet-Size Follow-up (2026-10-04 UTC)
+
+Twelve sequential BrowserStack sessions used about 20 seconds of measured playback each (one split into 5/10/5-second phases). Portable OBS published synthetic 1080p60 NVENC video and stereo tones. The published v1.1.72 DLL and matched local builds with 1200-byte and 1000-byte H.264 RTP payload limits were checked by loaded module path and hash. The temporary packet-size change was reverted; released behavior is unchanged.
+
+| Receiver / path | RTP payload limit | Target Mbps | Received Mbps | Reported freezes | Concealed audio ms |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Pixel 9, direct UDP, two samples | 1200 | 20 | 20.10-20.20 | 0 | 0 |
+| Pixel 9, direct UDP, two samples | 1200 | 40 | 40.28-40.48 | 0 | 0-8 |
+| Galaxy S25 Ultra, direct UDP | 1200 | 20 | 20.52 | 0 | 0 |
+| Pixel 9, direct UDP | 1000 | 20 | 20.20 | 0 | 0 |
+| Pixel 9, fresh direct UDP connections, two samples | 1000 | 40 | 39.69-40.59 | 0-2 | 0-28 |
+| Pixel 9, forced TURN UDP, published DLL | 1200 | 20 | 20.26 | 0 | 0 |
+
+All table rows using 1200-byte payloads reported zero packet loss. One fresh 1000-byte/40-Mbps connection reported 69 lost packets, two freezes totaling 1.145 seconds, and sender transport rejections/repair failures; a later fresh connection was clean. An additional 1000-byte repeat retained the preceding viewer in the publisher log, so it is excluded from the controlled comparison above. These short results do not establish packet size as the cause of the variation or justify reducing the default.
+
+The Android presentation callback diagnostic remained uneven with both packet sizes, despite approximately 60 decoded frames per second and often zero reported freezes. The Pixel averaged roughly 53 presented frames per second at 40 Mbps; the S25 averaged about 29 at 20 Mbps in this test environment. Do not equate the transport progress gate with perfect physical display cadence. Nonzero receiver audio energy confirms decoded audio, not physical speaker output.
+
+BrowserStack accepted the requested network profiles, but a diagnostic 1-Mbps cap still allowed 20.212 Mbps over direct UDP. Its loss/delay simulation was not validated for this media path; a few NACKs also occurred without shaping. These checks do not reproduce a VPN MTU restriction. The documented BrowserStack network controls cover bandwidth, latency, and loss: https://www.browserstack.com/docs/automate/selenium/simulate-network-conditions .
+
+The viewer harness now saves decode timing, buffer targets, audio energy/concealment details, and rendered video dimensions. `--capture-decoded-frame 1` optionally writes a PNG after measurement; use it when Android page screenshots omit the video layer. It confirms decoded image content independently of the page screenshot, without claiming display smoothness. `--capture-presentation 1 --expected-fps 60` records presentation diagnostics; `--require-presentation 1` additionally gates success on them.
+
+Evidence, raw metrics, decoded frames, module hashes, and the browsable report are under `artifacts/browserstack-packet-size-1.1.72/`. Portable OBS configuration, DLL, and locale were restored and hash-compared with the backup; the local build was restored to the 1200-byte default. No plugin release or packet-size option was added for these test-only changes.

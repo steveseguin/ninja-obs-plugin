@@ -793,6 +793,7 @@ async function collectSnapshot(page) {
     const videos = Array.from(document.querySelectorAll("video")).map(
       (video, index) => {
         const stream = video.srcObject;
+        const bounds = video.getBoundingClientRect();
         return {
           index,
           currentTime: video.currentTime,
@@ -800,6 +801,8 @@ async function collectSnapshot(page) {
           paused: video.paused,
           videoWidth: video.videoWidth,
           videoHeight: video.videoHeight,
+          renderedWidth: bounds.width,
+          renderedHeight: bounds.height,
           audioTracks:
             stream && stream.getAudioTracks
               ? stream.getAudioTracks().length
@@ -854,6 +857,13 @@ async function collectSnapshot(page) {
               freezeCount: stat.freezeCount || 0,
               totalFreezesDuration: stat.totalFreezesDuration || 0,
               keyFramesDecoded: stat.keyFramesDecoded || 0,
+              totalDecodeTime: stat.totalDecodeTime ?? null,
+              totalProcessingDelay: stat.totalProcessingDelay ?? null,
+              totalInterFrameDelay: stat.totalInterFrameDelay ?? null,
+              totalSquaredInterFrameDelay:
+                stat.totalSquaredInterFrameDelay ?? null,
+              decoderImplementation: stat.decoderImplementation ?? null,
+              powerEfficientDecoder: stat.powerEfficientDecoder ?? null,
               nackCount: stat.nackCount || 0,
               pliCount: stat.pliCount || 0,
               firCount: stat.firCount || 0,
@@ -861,7 +871,17 @@ async function collectSnapshot(page) {
               fecPacketsDiscarded: stat.fecPacketsDiscarded || 0,
               jitter: stat.jitter || 0,
               jitterBufferDelay: stat.jitterBufferDelay || 0,
+              jitterBufferTargetDelay: stat.jitterBufferTargetDelay ?? null,
+              jitterBufferMinimumDelay: stat.jitterBufferMinimumDelay ?? null,
               jitterBufferEmittedCount: stat.jitterBufferEmittedCount || 0,
+              totalSamplesReceived: stat.totalSamplesReceived ?? null,
+              totalAudioEnergy: stat.totalAudioEnergy ?? null,
+              totalSamplesDuration: stat.totalSamplesDuration ?? null,
+              silentConcealedSamples: stat.silentConcealedSamples ?? null,
+              insertedSamplesForDeceleration:
+                stat.insertedSamplesForDeceleration ?? null,
+              removedSamplesForAcceleration:
+                stat.removedSamplesForAcceleration ?? null,
               concealedSamples: stat.concealedSamples || 0,
               concealmentEvents: stat.concealmentEvents || 0,
             });
@@ -1352,6 +1372,32 @@ async function main() {
     }
 
     report.finalSnapshot = await collectSnapshot(page);
+    if (isEnabled(args["capture-decoded-frame"])) {
+      const frame = await page.evaluate(() => {
+        const video = Array.from(document.querySelectorAll("video")).find(
+          (candidate) => candidate.srcObject && candidate.videoWidth > 0,
+        );
+        if (!video) throw new Error("No decoded video frame is available");
+        const canvas = document.createElement("canvas");
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        canvas.getContext("2d").drawImage(video, 0, 0);
+        return {
+          width: canvas.width,
+          height: canvas.height,
+          currentTime: video.currentTime,
+          data: canvas.toDataURL("image/png").split(",")[1],
+        };
+      });
+      const framePath = outputPath.replace(/\.json$/i, "-decoded-frame.png");
+      fs.writeFileSync(framePath, Buffer.from(frame.data, "base64"));
+      report.decodedFrame = {
+        path: framePath,
+        width: frame.width,
+        height: frame.height,
+        currentTime: frame.currentTime,
+      };
+    }
     const requiredCandidateType = String(
       args["require-candidate-type"] || "",
     ).toLowerCase();
