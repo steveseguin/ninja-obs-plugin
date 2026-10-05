@@ -7,7 +7,7 @@
 
 #include <obs-module.h>
 
-#define PLUGIN_VERSION "1.1.72"
+#define PLUGIN_VERSION "1.1.73"
 
 #ifdef __cplusplus
 extern "C" {

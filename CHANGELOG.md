@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.73] - 2026-10-04
+
 - Omit blank/default signaling servers from generated links and use `wss2` for custom servers.
 
 ## [1.1.72] - 2026-10-03
