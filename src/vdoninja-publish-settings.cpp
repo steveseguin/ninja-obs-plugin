@@ -81,13 +81,29 @@ std::string queryValue(const std::string &url, const char *param)
 		return "";
 	}
 
+	// VDO.Ninja treats fragment parameters as overrides for query parameters.
+	// Parse that section separately so a fragment never becomes part of an ID
+	// or password from the query. Later repeated fragment values win upstream.
+	const std::string keyPrefix = std::string(param) + "=";
+	const size_t fragmentPos = url.find('#');
+	if (fragmentPos != std::string::npos) {
+		std::string fragment = url.substr(fragmentPos + 1);
+		std::replace(fragment.begin(), fragment.end(), '?', '&');
+		const auto pairs = split(fragment, '&');
+		for (auto it = pairs.rbegin(); it != pairs.rend(); ++it) {
+			if (*it == param)
+				return "";
+			if (it->rfind(keyPrefix, 0) == 0)
+				return urlDecode(it->substr(keyPrefix.size()));
+		}
+	}
+
 	const size_t queryPos = url.find('?');
-	if (queryPos == std::string::npos || queryPos + 1 >= url.size()) {
+	if (queryPos == std::string::npos || queryPos >= fragmentPos) {
 		return "";
 	}
 
-	const std::string keyPrefix = std::string(param) + "=";
-	const std::vector<std::string> pairs = split(url.substr(queryPos + 1), '&');
+	const std::vector<std::string> pairs = split(url.substr(queryPos + 1, fragmentPos - queryPos - 1), '&');
 	for (const std::string &pair : pairs) {
 		if (pair.rfind(keyPrefix, 0) == 0) {
 			return urlDecode(pair.substr(keyPrefix.size()));
