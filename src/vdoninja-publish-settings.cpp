@@ -262,6 +262,29 @@ std::string publishNvencOptions(const std::string &options)
 	return result;
 }
 
+std::string publishX264Options(const std::string &options)
+{
+	// OBS applies space-separated x264opts after bf=0. Sanitize every override
+	// so custom options cannot restore B-frames after the compatibility setting.
+	std::string result = options;
+	constexpr const char *prefix = "bframes=";
+	constexpr size_t prefixLength = 8;
+	size_t start = 0;
+	while ((start = result.find_first_not_of(' ', start)) != std::string::npos) {
+		const size_t end = result.find(' ', start);
+		const size_t length = (end == std::string::npos ? result.size() : end) - start;
+		if (length > prefixLength && result.compare(start, prefixLength, prefix) == 0) {
+			result.replace(start + prefixLength, length - prefixLength, "0");
+			start += prefixLength + 1;
+			continue;
+		}
+		if (end == std::string::npos)
+			break;
+		start = end + 1;
+	}
+	return result;
+}
+
 std::string publishEncoderTuning(const std::string &tuning)
 {
 	std::string normalized = tuning;

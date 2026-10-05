@@ -83,6 +83,7 @@ inline void applyPublishEncoderCompatibility(obs_data_t *settings)
 	obs_data_set_bool(settings, "repeat_headers", true);
 	obs_data_set_int(settings, "keyint_sec", publishKeyframeInterval(obs_data_get_int(settings, "keyint_sec")));
 	obs_data_set_string(settings, "opts", publishNvencOptions(obs_data_get_string(settings, "opts")).c_str());
+	obs_data_set_string(settings, "x264opts", publishX264Options(obs_data_get_string(settings, "x264opts")).c_str());
 	obs_data_set_string(settings, "tune", publishEncoderTuning(obs_data_get_string(settings, "tune")).c_str());
 	obs_data_set_bool(settings, "vdoninja_no_bframes", true);
 }
@@ -98,7 +99,9 @@ inline bool hasPublishEncoderCompatibility(obs_data_t *settings)
 		return false;
 	const std::string options = obs_data_get_string(settings, "opts");
 	const std::string tuning = obs_data_get_string(settings, "tune");
-	return publishNvencOptions(options) == options && publishEncoderTuning(tuning) == tuning;
+	const std::string x264Options = obs_data_get_string(settings, "x264opts");
+	return publishNvencOptions(options) == options && publishEncoderTuning(tuning) == tuning &&
+	       publishX264Options(x264Options) == x264Options;
 }
 
 inline obs_property_t *addPublishUdpPortProperty(obs_properties_t *properties)
