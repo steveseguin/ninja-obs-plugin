@@ -2,6 +2,7 @@
 
 #include <gtest/gtest.h>
 
+#include "vdoninja-common.h"
 #include "vdoninja-publish-settings.h"
 #include "vdoninja-rtp-pacer.h"
 
@@ -49,14 +50,49 @@ TEST(PublishSettingsTest, ViewerAndCompatibilityKeysRoundTripSpecialCharacters)
 TEST(PublishSettingsTest, SignalingOverrideRetainsNativeBrowserProtocol)
 {
 	PublishIdentity identity;
-	parsePublishStreamKey("https://vdo.ninja/?push=chosen&password=secret&wss=wss://wss.vdo.ninja:443", identity);
+	parsePublishStreamKey("https://vdo.ninja/?push=chosen&password=secret&wss=wss://proxywss.rtc.ninja:443", identity);
 	const auto view = buildPublishUrl(identity);
 	EXPECT_EQ(view.find("&wss="), std::string::npos);
 	EXPECT_NE(view.find("&wss2="), std::string::npos);
 	PublishIdentity loaded;
 	parsePublishStreamKey(view, loaded);
-	EXPECT_EQ(loaded.wssHost, "wss://wss.vdo.ninja:443");
+	EXPECT_EQ(loaded.wssHost, "wss://proxywss.rtc.ninja:443");
 	EXPECT_EQ(loaded.password, "secret");
+}
+
+TEST(PublishSettingsTest, OmitsBlankAndDefaultSignalingFromViewerAndPushUrls)
+{
+	for (const char *host : {"", " \t\r\n", DEFAULT_WSS_HOST, "wss://wss.vdo.ninja:443", "wss://wss.vdo.ninja/",
+	                         "wss://wss.vdo.ninja:443/", " WSS://WSS.VDO.NINJA:443/ "}) {
+		SCOPED_TRACE(host);
+		const PublishIdentity identity{"chosen", "secret", "", DEFAULT_SALT, host};
+		EXPECT_EQ(buildPublishUrl(identity), "https://vdo.ninja/?view=chosen&password=secret");
+		EXPECT_EQ(buildPublishUrl(identity, true), "https://vdo.ninja/?push=chosen&password=secret");
+	}
+}
+
+TEST(PublishSettingsTest, OmitsDefaultSignalingImportedFromLegacyStreamKey)
+{
+	PublishIdentity identity;
+	parsePublishStreamKey("https://vdo.ninja/?push=chosen&password=secret&wss=wss://wss.vdo.ninja:443", identity);
+	EXPECT_EQ(buildPublishUrl(identity), "https://vdo.ninja/?view=chosen&password=secret");
+}
+
+TEST(PublishSettingsTest, PreservesCustomSignalingInViewerAndPushUrls)
+{
+	for (const char *host : {"wss://proxywss.rtc.ninja:443", "wss://wss.vdo.ninja:4443", "ws://wss.vdo.ninja:443",
+	                         "wss://wss.vdo.ninja/CustomPath?token=A&B=2", "wss://signal.example:443/CustomPath"}) {
+		SCOPED_TRACE(host);
+		for (bool push : {false, true}) {
+			const PublishIdentity identity{"chosen", "", "", DEFAULT_SALT, std::string(" ") + host + " "};
+			const std::string url = buildPublishUrl(identity, push);
+			EXPECT_EQ(url.find("&wss="), std::string::npos);
+			ASSERT_NE(url.find("&wss2="), std::string::npos);
+			PublishIdentity loaded;
+			parsePublishStreamKey(url, loaded);
+			EXPECT_EQ(loaded.wssHost, host);
+		}
+	}
 }
 
 TEST(PublishSettingsTest, ViewUrlNeverStripsAnIdThatLooksLikeAHash)

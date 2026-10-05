@@ -54,6 +54,7 @@ bool isPasswordDisabledToken(const std::string &password);
 std::string hashStreamId(const std::string &streamId, const std::string &password, const std::string &salt);
 std::string hashRoomId(const std::string &roomId, const std::string &password, const std::string &salt);
 std::string deriveViewStreamId(const std::string &streamId, const std::string &password, const std::string &salt);
+std::string buildSignalingUrlParameter(const std::string &wssHost);
 std::string buildViewerPageUrl(const std::string &baseUrl, const std::string &streamId, const std::string &password,
                                const std::string &roomId, const std::string &salt, const std::string &wssHost = "");
 std::string buildInboundViewUrl(const std::string &baseUrl, const std::string &streamId, const std::string &password,

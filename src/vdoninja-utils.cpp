@@ -498,6 +498,22 @@ std::string deriveViewStreamId(const std::string &streamId, const std::string &p
 	return viewId;
 }
 
+std::string buildSignalingUrlParameter(const std::string &wssHost)
+{
+	const std::string host = trim(wssHost);
+	std::string normalized = host;
+	std::transform(normalized.begin(), normalized.end(), normalized.begin(),
+	               [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+	if (!normalized.empty() && normalized.back() == '/')
+		normalized.pop_back();
+	if (host.empty() || normalized == DEFAULT_WSS_HOST || normalized == std::string(DEFAULT_WSS_HOST) + ":443")
+		return "";
+
+	// wss selects the browser's custom-server protocol. wss2 overrides the
+	// endpoint while retaining the native VDO.Ninja protocol and encryption.
+	return "&wss2=" + urlEncode(host);
+}
+
 std::string buildViewerPageUrl(const std::string &baseUrl, const std::string &streamId, const std::string &password,
                                const std::string &roomId, const std::string &salt, const std::string &wssHost)
 {
@@ -525,9 +541,7 @@ std::string buildViewerPageUrl(const std::string &baseUrl, const std::string &st
 		url += "&salt=" + urlEncode(salt);
 	}
 
-	if (!wssHost.empty() && wssHost != DEFAULT_WSS_HOST) {
-		url += "&wss=" + urlEncode(wssHost);
-	}
+	url += buildSignalingUrlParameter(wssHost);
 
 	return url;
 }

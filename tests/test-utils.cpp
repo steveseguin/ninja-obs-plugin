@@ -318,7 +318,7 @@ TEST_F(BuildInboundViewUrlTest, BuildsViewerPageUrlWithRoomPasswordSaltAndSignal
 {
 	EXPECT_EQ(buildViewerPageUrl("https://vdo.ninja/", "cam_5", "hunter2", "greenroom", "custom-salt",
 	                             "wss://example.com:4443"),
-	          "https://vdo.ninja/?view=cam_5&room=greenroom&solo&password=hunter2&salt=custom-salt&wss="
+	          "https://vdo.ninja/?view=cam_5&room=greenroom&solo&password=hunter2&salt=custom-salt&wss2="
 	          "wss%3a%2f%2fexample.com%3a4443");
 }
 
@@ -326,6 +326,27 @@ TEST_F(BuildInboundViewUrlTest, PreservesDisabledPasswordTokenInViewerPageUrl)
 {
 	EXPECT_EQ(buildViewerPageUrl("https://vdo.ninja", "cam_4", "false", "greenroom", DEFAULT_SALT),
 	          "https://vdo.ninja/?view=cam_4&room=greenroom&solo&password=false");
+}
+
+TEST_F(BuildInboundViewUrlTest, OmitsBlankAndDefaultSignalingFromGeneratedViewerUrls)
+{
+	for (const char *host : {"", " \t\r\n", DEFAULT_WSS_HOST, "wss://wss.vdo.ninja:443", "wss://wss.vdo.ninja/",
+	                         "wss://wss.vdo.ninja:443/", " WSS://WSS.VDO.NINJA:443/ "}) {
+		SCOPED_TRACE(host);
+		EXPECT_EQ(buildViewerPageUrl("https://vdo.ninja", "cam_1", "", "", DEFAULT_SALT, host),
+		          "https://vdo.ninja/?view=cam_1");
+		EXPECT_EQ(buildInboundViewUrl("https://vdo.ninja", "cam_1", "", "", DEFAULT_SALT, host),
+		          "https://vdo.ninja/?view=cam_1");
+	}
+}
+
+TEST_F(BuildInboundViewUrlTest, PreservesCustomSignalingPathAndQueryWithWss2)
+{
+	const char *host = " WSS://signal.example:443/CustomPath?token=A&B=2 ";
+	const char *expected = "https://vdo.ninja/?view=cam_1&wss2="
+	                       "WSS%3a%2f%2fsignal.example%3a443%2fCustomPath%3ftoken%3dA%26B%3d2";
+	EXPECT_EQ(buildViewerPageUrl("https://vdo.ninja", "cam_1", "", "", DEFAULT_SALT, host), expected);
+	EXPECT_EQ(buildInboundViewUrl("https://vdo.ninja", "cam_1", "", "", DEFAULT_SALT, host), expected);
 }
 
 TEST_F(BuildInboundViewUrlTest, BuildsVdoNinjaViewUrlForPlainStreamId)
@@ -417,7 +438,7 @@ TEST_F(BuildInboundViewUrlTest, IncludesCustomSignalingServerForAutoAddedSources
 {
 	EXPECT_EQ(
 	    buildInboundViewUrl("https://vdo.ninja", "cam_3", "", "greenroom", DEFAULT_SALT, "wss://signal.example:4443"),
-	    "https://vdo.ninja/?view=cam_3&room=greenroom&solo&wss="
+	    "https://vdo.ninja/?view=cam_3&room=greenroom&solo&wss2="
 	    "wss%3a%2f%2fsignal.example%3a4443");
 }
 

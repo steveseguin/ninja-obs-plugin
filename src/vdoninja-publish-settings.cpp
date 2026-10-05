@@ -201,10 +201,7 @@ std::string buildPublishUrl(const PublishIdentity &identity, bool push)
 	}
 	if (!identity.salt.empty() && identity.salt != DEFAULT_SALT)
 		url += "&salt=" + urlEncode(identity.salt);
-	// wss selects the browser's custom-server protocol. wss2 overrides the
-	// endpoint while retaining the native VDO.Ninja protocol and encryption.
-	if (!identity.wssHost.empty() && identity.wssHost != DEFAULT_WSS_HOST)
-		url += "&wss2=" + urlEncode(identity.wssHost);
+	url += buildSignalingUrlParameter(identity.wssHost);
 	return url;
 }
 
