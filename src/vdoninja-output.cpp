@@ -2518,23 +2518,6 @@ uint32_t timestampFromPacket(const encoder_packet *packet, double rtpClockRate)
 	return 0;
 }
 
-uint32_t sanitizeMonotonicTimestamp(uint32_t candidate, bool &hasLast, uint32_t &last, uint32_t fallbackStep)
-{
-	if (!hasLast) {
-		hasLast = true;
-		last = candidate;
-		return candidate;
-	}
-
-	// Guard against non-monotonic or degenerate encoder timestamps.
-	if (candidate <= last) {
-		candidate = last + fallbackStep;
-	}
-
-	last = candidate;
-	return candidate;
-}
-
 } // namespace
 
 void VDONinjaOutput::processVideoPacket(encoder_packet *packet)
