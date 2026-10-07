@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.74] - 2026-10-06
+
 - Show the installed plugin version and a quiet daily stable-release update check in the VDO.Ninja Studio dock, with a link to GitHub releases. Prereleases do not trigger update notices.
 
 ## [1.1.73] - 2026-10-04
