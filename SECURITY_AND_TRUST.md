@@ -23,6 +23,11 @@ macOS ZIP is a manual-install/troubleshooting fallback; use the signed and notar
 
 ## Operational Security Guidance
 
+The VDO.Ninja Studio dock checks the public GitHub releases API at most once per
+day. The request identifies the installed plugin version and does not send stream
+IDs, passwords, room settings, or media. Checks use HTTPS certificate verification;
+the plugin only displays a status and a link, and does not download or install updates.
+
 - Keep OBS and plugin versions up to date.
 - Use passwords for streams when practical.
 - For controlled environments, set custom signaling and ICE servers.

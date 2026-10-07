@@ -7,7 +7,7 @@ pkgdesc='Native VDO.Ninja publishing and receiving plugin for OBS Studio'
 arch=('x86_64')
 url='https://github.com/steveseguin/ninja-obs-plugin'
 license=('AGPL-3.0-only')
-depends=('obs-studio>=32.2' 'obs-studio<32.3' 'libdatachannel' 'ffmpeg' 'openssl' 'qt6-base' 'libgcc' 'libstdc++' 'glibc')
+depends=('obs-studio>=32.2' 'obs-studio<32.3' 'libdatachannel' 'ffmpeg' 'openssl' 'curl' 'qt6-base' 'libgcc' 'libstdc++' 'glibc')
 makedepends=('cmake' 'ninja' 'git')
 provides=('obs-vdoninja')
 conflicts=('obs-vdoninja')

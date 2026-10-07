@@ -17,6 +17,8 @@
 namespace vdoninja
 {
 
+class VDONinjaUpdateChecker;
+
 class VDONinjaDock : public QDockWidget
 {
 	Q_OBJECT
@@ -43,6 +45,7 @@ private slots:
 
 private:
 	void setupUi();
+	void updateVersionStatus();
 	void loadSettings();
 	void saveSettings();
 	bool applySettingsToService(bool activate);
@@ -70,6 +73,8 @@ private:
 	QLabel *lblStats;
 	QLabel *lblSystemCpu;
 	QLabel *lblChat;
+	QLabel *lblVersion;
+	VDONinjaUpdateChecker *updateChecker_ = nullptr;
 
 	QTimer *statsTimer;
 	QTimer *chatClearTimer;

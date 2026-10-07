@@ -24,6 +24,14 @@ VDO.Ninja is a low-latency WebRTC platform used for live production, remote gues
 - Web quick start (post-install): [GitHub Pages Quick Start](https://steveseguin.github.io/ninja-obs-plugin/#quick-start)
 - First-run usage guide: [QUICKSTART.md](QUICKSTART.md)
 - Full docs: [README Quick Start](#quick-start)
+
+Open **Tools -> VDO.Ninja Studio** to see the installed plugin version in the dock footer.
+The plugin quietly checks GitHub for a stable release once a day, with the last check
+remembered across OBS restarts. The footer shows **You're up to date**, **New version
+available**, or **Update check unavailable** if the check fails. Prereleases do not
+trigger update notices. **Releases** opens the GitHub releases page in your browser;
+there are no update popups, automatic downloads, or automatic installs.
+
 Choose the package that matches the installed OBS version:
 
 | Platform | OBS version | Release package |

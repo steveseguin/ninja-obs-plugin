@@ -12,6 +12,7 @@ Plugin builds (`BUILD_PLUGIN=ON`) require:
 4. Qt Widgets development files (Qt6 preferred, Qt5 fallback)
 5. FFmpeg development libraries (`avcodec`, `avutil`, `swscale`, `swresample`)
 6. OpenSSL development libraries
+7. libcurl development files (included in the OBS dependency bundles)
 
 Unit tests only (`BUILD_PLUGIN=OFF`) do not require OBS SDK, Qt, or `libdatachannel`.
 
@@ -22,6 +23,11 @@ cmake -B build -DBUILD_TESTS=ON -DBUILD_PLUGIN=OFF -DCMAKE_BUILD_TYPE=Debug
 cmake --build build --target vdoninja-tests
 ctest --test-dir build --output-on-failure
 ```
+
+To include the asynchronous update-check tests, install Qt Core/Network and libcurl development
+files and also configure with `-DBUILD_UPDATE_CHECK_TESTS=ON`. CI runs these tests with
+simulated responses and real libcurl requests through a local fault-injection proxy,
+including prereleases, failures, timeouts, caching, and shutdown.
 
 ## Windows (Recommended From Scratch Flow)
 
@@ -93,6 +99,7 @@ You need:
 4. `libdatachannel` package or custom install prefix
 5. FFmpeg development packages (`libavcodec`, `libavutil`, `libswscale`, `libswresample`)
 6. OpenSSL development package
+7. libcurl development package (`libcurl4-openssl-dev` on Debian/Ubuntu)
 
 If your distro packages all dependencies, plugin build is typically:
 
@@ -114,6 +121,7 @@ You need:
 4. `libdatachannel` install prefix
 5. FFmpeg
 6. OpenSSL
+7. libcurl headers and library (provided by the macOS SDK or OBS dependency bundle)
 
 If not in default lookup paths, pass `OBS_SDK_PATH` and `CMAKE_PREFIX_PATH`.
 

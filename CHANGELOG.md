@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Show the installed plugin version and a quiet daily stable-release update check in the VDO.Ninja Studio dock, with a link to GitHub releases. Prereleases do not trigger update notices.
+
 ## [1.1.73] - 2026-10-04
 
 - Omit blank/default signaling servers from generated links and use `wss2` for custom servers.

@@ -20,6 +20,7 @@
 #include "plugin-main.h"
 #include "vdoninja-output.h"
 #include "vdoninja-publish-obs.h"
+#include "vdoninja-update-checker.h"
 #include "vdoninja-utils.h"
 
 namespace vdoninja
@@ -39,6 +40,11 @@ VDONinjaDock::VDONinjaDock(QWidget *parent) : QDockWidget(parent)
 
 	setupUi();
 	loadSettings();
+	char *cachePath = obs_module_config_path("update-check.ini");
+	updateChecker_ = new VDONinjaUpdateChecker(PLUGIN_VERSION, QString::fromUtf8(cachePath ? cachePath : ""), this);
+	bfree(cachePath);
+	connect(updateChecker_, &VDONinjaUpdateChecker::statusChanged, this, &VDONinjaDock::updateVersionStatus);
+	updateVersionStatus();
 
 	statsTimer = new QTimer(this);
 	connect(statsTimer, &QTimer::timeout, this, &VDONinjaDock::updateStats);
@@ -56,6 +62,8 @@ VDONinjaDock::~VDONinjaDock() {}
 
 void VDONinjaDock::shutdown()
 {
+	if (updateChecker_)
+		updateChecker_->shutdown();
 	saveSettings();
 	if (statsTimer) {
 		statsTimer->stop();
@@ -232,7 +240,46 @@ void VDONinjaDock::setupUi()
 
 	layout->addStretch();
 	scrollArea->setWidget(container);
-	setWidget(scrollArea);
+
+	// Keep the version visible even when the session settings need scrolling.
+	QWidget *body = new QWidget(this);
+	QVBoxLayout *bodyLayout = new QVBoxLayout(body);
+	bodyLayout->setContentsMargins(0, 0, 0, 0);
+	bodyLayout->addWidget(scrollArea, 1);
+	lblVersion = new QLabel(body);
+	lblVersion->setObjectName("VDONinjaVersionStatus");
+	lblVersion->setTextFormat(Qt::RichText);
+	lblVersion->setWordWrap(true);
+	lblVersion->setAlignment(Qt::AlignCenter);
+	lblVersion->setMargin(6);
+	lblVersion->setTextInteractionFlags(Qt::TextBrowserInteraction);
+	lblVersion->setOpenExternalLinks(true);
+	bodyLayout->addWidget(lblVersion);
+	setWidget(body);
+}
+
+void VDONinjaDock::updateVersionStatus()
+{
+	const auto &result = updateChecker_->result();
+	QString status;
+	switch (result.status) {
+	case UpdateCheckStatus::Checking:
+		status = obs_module_text_vdo("VDONinja.Update.Checking");
+		break;
+	case UpdateCheckStatus::UpToDate:
+		status = obs_module_text_vdo("VDONinja.Update.UpToDate");
+		break;
+	case UpdateCheckStatus::UpdateAvailable:
+		status = QString::fromUtf8(obs_module_text_vdo("VDONinja.Update.Available")).arg(result.latestVersion);
+		break;
+	case UpdateCheckStatus::Unavailable:
+		status = obs_module_text_vdo("VDONinja.Update.Unavailable");
+		break;
+	}
+	lblVersion->setText(QStringLiteral("VDO.Ninja v%1<br>%2 &middot; <a href=\"%3\">%4</a>")
+	                        .arg(QString::fromUtf8(PLUGIN_VERSION).toHtmlEscaped(), status.toHtmlEscaped(),
+	                             QString::fromUtf8(kPluginReleasesUrl),
+	                             QString::fromUtf8(obs_module_text_vdo("VDONinja.Update.Releases")).toHtmlEscaped()));
 }
 
 void VDONinjaDock::loadSettings()

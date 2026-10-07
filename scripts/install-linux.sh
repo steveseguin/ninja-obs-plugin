@@ -46,6 +46,12 @@ if ! pkg-config --exists openssl 2>/dev/null; then
     exit 1
 fi
 
+if ! pkg-config --exists libcurl 2>/dev/null; then
+    echo "Error: libcurl development files not found."
+    echo "Install with: sudo apt-get install libcurl4-openssl-dev"
+    exit 1
+fi
+
 echo "All dependencies found."
 echo ""
 

@@ -27,6 +27,11 @@ licenses and where to find their full terms.
 - Source: https://www.qt.io/
 - Notes: Required for dock/UI components when building the plugin.
 
+5. libcurl
+- License: `curl`
+- Source and license: https://curl.se/docs/copyright.html
+- Notes: Used for asynchronous HTTPS checks of public GitHub release metadata.
+
 ## Test / Dev Dependencies
 
 1. GoogleTest / GoogleMock
