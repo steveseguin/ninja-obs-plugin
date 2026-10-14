@@ -145,3 +145,115 @@ TEST(PublishSettingsTest, AvoidsTuningThatRequiresBFramesWithoutChangingOtherMod
 	for (const auto *tuning : {"hq", "ll", "ull", "zerolatency", ""})
 		EXPECT_EQ(publishEncoderTuning(tuning), tuning);
 }
+
+TEST(PublishSettingsTest, ImportsFragmentOnlyStreamKeyUrls)
+{
+	for (const char *prefix : {"https://vdo.ninja/#", "https://vdo.ninja/#?", "https://vdo.ninja/#&"}) {
+		PublishIdentity identity;
+		parsePublishStreamKey(std::string(prefix) +
+		                          "push=cam&password=secret&room=studio&salt=custom&wss2=wss%3A%2F%2Fsignal.example",
+		                      identity);
+		EXPECT_EQ(identity.streamId, "cam");
+		EXPECT_EQ(identity.password, "secret");
+		EXPECT_EQ(identity.roomId, "studio");
+		EXPECT_EQ(identity.salt, "custom");
+		EXPECT_EQ(identity.wssHost, "wss://signal.example");
+	}
+}
+
+TEST(PublishSettingsTest, ImportsFragmentPasswordWithoutCorruptingQueryStreamId)
+{
+	PublishIdentity identity;
+	parsePublishStreamKey("https://vdo.ninja/?push=cam#password=secret", identity);
+	EXPECT_EQ(identity.streamId, "cam");
+	EXPECT_EQ(identity.password, "secret");
+	EXPECT_EQ(buildPublishUrl(identity), "https://vdo.ninja/?view=cam&password=secret");
+}
+
+TEST(PublishSettingsTest, ImportsFragmentRoomWithoutCorruptingQueryPassword)
+{
+	PublishIdentity identity;
+	parsePublishStreamKey("https://vdo.ninja/?push=cam&password=secret#room=studio", identity);
+	EXPECT_EQ(identity.streamId, "cam");
+	EXPECT_EQ(identity.password, "secret");
+	EXPECT_EQ(identity.roomId, "studio");
+}
+
+TEST(PublishSettingsTest, FragmentValuesOverrideQueryValues)
+{
+	PublishIdentity identity;
+	parsePublishStreamKey("https://vdo.ninja/?push=query&password=old&room=old&salt=old&wss2=old"
+	                      "#push=fragment&password=new&room=new&salt=new&wss2=new",
+	                      identity);
+	EXPECT_EQ(identity.streamId, "fragment");
+	EXPECT_EQ(identity.password, "new");
+	EXPECT_EQ(identity.roomId, "new");
+	EXPECT_EQ(identity.salt, "new");
+	EXPECT_EQ(identity.wssHost, "new");
+}
+
+TEST(PublishSettingsTest, LastRepeatedFragmentValueWins)
+{
+	PublishIdentity identity;
+	parsePublishStreamKey("https://vdo.ninja/?push=query#push=first&push=last&password=first&password=last", identity);
+	EXPECT_EQ(identity.streamId, "last");
+	EXPECT_EQ(identity.password, "last");
+}
+
+TEST(PublishSettingsTest, FragmentEmptyValuesSuppressQueryValues)
+{
+	for (const char *password : {"password=", "password"}) {
+		PublishIdentity identity;
+		parsePublishStreamKey(std::string("https://vdo.ninja/?push=cam&password=secret&room=studio#room=&") + password,
+		                      identity);
+		EXPECT_EQ(identity.streamId, "cam");
+		EXPECT_EQ(identity.password, "");
+		EXPECT_EQ(identity.roomId, "");
+	}
+}
+
+TEST(PublishSettingsTest, FragmentSeparatorsDoNotChangeEncodedValues)
+{
+	PublishIdentity identity;
+	parsePublishStreamKey("https://vdo.ninja/#??view=cam?pw=a%23b%3Fc%26d%2Be+f?room=green%20room", identity);
+	EXPECT_EQ(identity.streamId, "cam");
+	EXPECT_EQ(identity.password, "a#b?c&d+e f");
+	EXPECT_EQ(identity.roomId, "green room");
+}
+
+TEST(PublishSettingsTest, NonParameterFragmentDoesNotBecomePartOfPassword)
+{
+	PublishIdentity identity;
+	parsePublishStreamKey("https://vdo.ninja/?push=cam&password=secret#settings", identity);
+	EXPECT_EQ(identity.streamId, "cam");
+	EXPECT_EQ(identity.password, "secret");
+}
+
+TEST(PublishSettingsTest, ExplicitFieldsStillWinOverFragmentValues)
+{
+	PublishIdentity identity{"explicit", "explicit", "explicit", "explicit", "explicit"};
+	parsePublishStreamKey("https://vdo.ninja/#push=fragment&password=new&room=new&salt=new&wss2=new", identity);
+	EXPECT_EQ(identity.streamId, "explicit");
+	EXPECT_EQ(identity.password, "explicit");
+	EXPECT_EQ(identity.roomId, "explicit");
+	EXPECT_EQ(identity.salt, "explicit");
+	EXPECT_EQ(identity.wssHost, "explicit");
+}
+
+TEST(PublishSettingsTest, QueryEncodedHashRemainsLiteralAndViewLinksImport)
+{
+	PublishIdentity identity;
+	parsePublishStreamKey("https://vdo.ninja/?view=cam&password=a%23b#room=studio", identity);
+	EXPECT_EQ(identity.streamId, "cam");
+	EXPECT_EQ(identity.password, "a#b");
+	EXPECT_EQ(identity.roomId, "studio");
+}
+
+TEST(PublishSettingsTest, CompactKeysKeepLiteralFragmentCharacters)
+{
+	PublishIdentity identity;
+	parsePublishStreamKey("cam|secret#push=literal|studio|custom|wss://signal.example", identity);
+	EXPECT_EQ(identity.streamId, "cam");
+	EXPECT_EQ(identity.password, "secret#push=literal");
+	EXPECT_EQ(identity.roomId, "studio");
+}
