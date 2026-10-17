@@ -24,6 +24,7 @@ int publishPacingBitrate(const std::string &rateControl, int64_t bitrateKbps, in
                          int fallbackBitsPerSecond);
 int64_t publishKeyframeInterval(int64_t seconds);
 std::string publishNvencOptions(const std::string &options);
+std::string publishX264Options(const std::string &options);
 std::string publishEncoderTuning(const std::string &tuning);
 
 } // namespace vdoninja

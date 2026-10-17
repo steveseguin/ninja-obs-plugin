@@ -145,3 +145,20 @@ TEST(PublishSettingsTest, AvoidsTuningThatRequiresBFramesWithoutChangingOtherMod
 	for (const auto *tuning : {"hq", "ll", "ull", "zerolatency", ""})
 		EXPECT_EQ(publishEncoderTuning(tuning), tuning);
 }
+
+TEST(PublishSettingsTest, CustomX264OptionsCannotRestoreBFrames)
+{
+	EXPECT_EQ(publishX264Options("bframes=3"), "bframes=0");
+	EXPECT_EQ(publishX264Options(" bframes=3  aq-strength=0.8 bframes=5 "), " bframes=0  aq-strength=0.8 bframes=0 ");
+	EXPECT_EQ(publishX264Options("bframes=-1 crf=23"), "bframes=0 crf=23");
+	EXPECT_EQ(publishX264Options("bframes=0 bframes=1"), "bframes=0 bframes=0");
+	EXPECT_EQ(publishX264Options("bframes=03"), "bframes=0");
+}
+
+TEST(PublishSettingsTest, X264CompatibilityPreservesUnrelatedOptionsAndIsIdempotent)
+{
+	for (const auto *options : {"", "bframes=0", "preset=slow crf=23 rc-lookahead=8", "bframes=", "bframes"})
+		EXPECT_EQ(publishX264Options(options), options);
+	const auto compatible = publishX264Options(" bframes=3  crf=23 bframes=5 ");
+	EXPECT_EQ(publishX264Options(compatible), compatible);
+}
