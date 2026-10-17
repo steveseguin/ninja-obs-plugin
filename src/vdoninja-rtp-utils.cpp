@@ -271,6 +271,25 @@ bool isRtcpSenderReportDue(uint32_t currentTimestamp, uint32_t lastReportedTimes
 	return elapsed >= clockRate;
 }
 
+uint32_t sanitizeMonotonicTimestamp(uint32_t candidate, bool &hasLast, uint32_t &last, uint32_t fallbackStep)
+{
+	if (!hasLast) {
+		hasLast = true;
+		last = candidate;
+		return candidate;
+	}
+
+	// A forward timestamp can be numerically smaller after wrapping. Match the
+	// modular ordering used by the sender-report and continuity helpers.
+	const uint32_t elapsed = candidate - last;
+	if (elapsed == 0 || elapsed >= 0x80000000u) {
+		candidate = last + fallbackStep;
+	}
+
+	last = candidate;
+	return candidate;
+}
+
 std::vector<uint8_t> buildOpusRtpPacket(const uint8_t *payload, size_t payloadSize, uint8_t payloadType,
                                         uint16_t sequenceNumber, uint32_t timestamp, uint32_t ssrc)
 {
