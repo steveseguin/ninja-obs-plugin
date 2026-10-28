@@ -160,6 +160,11 @@ async function main() {
   }
   process.on("SIGINT", stop);
   process.on("SIGTERM", stop);
+  // Windows terminates SIGTERM children without running their signal handlers.
+  // An IPC shutdown lets test callers collect the final impairment counters.
+  process.on("message", (message) => {
+    if (message === "stop") stop();
+  });
 }
 
 main().catch((error) => {

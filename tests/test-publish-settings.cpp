@@ -8,6 +8,19 @@
 
 using namespace vdoninja;
 
+TEST(PublishSettingsTest, CompatibilityDefaultsRemainConservative)
+{
+	const OutputSettings defaults;
+	EXPECT_EQ(defaults.videoCodec, VideoCodec::H264);
+	EXPECT_EQ(defaults.audioCodec, AudioCodec::Opus);
+	EXPECT_EQ(defaults.videoProtectionMode, VideoProtectionMode::Off);
+	EXPECT_FALSE(defaults.enableAudioRed);
+	EXPECT_FALSE(defaults.enableAdaptiveBitrate);
+	EXPECT_FALSE(defaults.preserveSourceColorFormat);
+	// Seconds, not frames: at 30 fps this remains a predictive 60-frame GOP.
+	EXPECT_EQ(publishKeyframeInterval(0) * 30, 60);
+}
+
 TEST(PublishSettingsTest, ExplicitIdWinsAndStreamKeySuppliesMissingFields)
 {
 	PublishIdentity identity{"sidebar-id"};

@@ -112,4 +112,11 @@ inline obs_property_t *addPublishUdpPortProperty(obs_properties_t *properties)
 	return property;
 }
 
+inline void addPublishColorFormatProperty(obs_properties_t *properties)
+{
+	auto *property = obs_properties_add_bool(properties, "preserve_source_color_format",
+	                                         obs_module_text("PreserveSourceColorFormat"));
+	obs_property_set_long_description(property, obs_module_text("PreserveSourceColorFormat.Description"));
+}
+
 } // namespace vdoninja

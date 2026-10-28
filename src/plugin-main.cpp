@@ -101,7 +101,7 @@ constexpr const char *kVdoNinjaRtmpServiceEntry = R"VDOJSON(
                 }
             ],
             "supported video codecs": [
-                "h264"
+                "h264", "hevc", "av1"
             ],
             "supported audio codecs": [
                 "opus"
@@ -1078,6 +1078,7 @@ static obs_properties_t *vdoninja_service_properties(void *)
 	obs_property_text_set_info_type(iceHelp, OBS_TEXT_INFO_NORMAL);
 	obs_property_text_set_info_word_wrap(iceHelp, true);
 	obs_properties_add_bool(advanced, "force_turn", tr("ForceTURN", "Force TURN Relay"));
+	addPublishColorFormatProperty(advanced);
 	obs_property_t *protection = obs_properties_add_list(advanced, "video_protection_mode",
 	                                                     tr("VideoProtection", "Packet Duplication (Experimental)"),
 	                                                     OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_INT);
@@ -1144,6 +1145,7 @@ static void vdoninja_service_defaults(obs_data_t *settings)
 	obs_data_set_default_string(settings, "udp_port_range", "auto");
 	obs_data_set_default_int(settings, "video_protection_mode", static_cast<int>(VideoProtectionMode::Off));
 	obs_data_set_default_bool(settings, "audio_red", false);
+	obs_data_set_default_bool(settings, "preserve_source_color_format", false);
 	obs_data_set_default_bool(settings, "adaptive_bitrate", false);
 	obs_data_set_default_int(settings, "adaptive_bitrate_min", 500);
 }
@@ -1198,7 +1200,7 @@ static void vdoninja_service_apply_encoder_settings(void *, obs_data_t *video_se
 	applyPublishEncoderCompatibility(video_settings);
 }
 
-static const char *vdoninja_video_codecs[] = {"h264", nullptr};
+static const char *vdoninja_video_codecs[] = {"h264", "hevc", "av1", nullptr};
 static const char *vdoninja_audio_codecs[] = {"opus", nullptr};
 
 static bool vdoninja_service_can_try_connect(void *data)
@@ -1814,6 +1816,7 @@ static obs_properties_t *vdoninja_control_center_properties(void *data)
 	obs_property_text_set_info_type(iceHelp, OBS_TEXT_INFO_NORMAL);
 	obs_property_text_set_info_word_wrap(iceHelp, true);
 	forceTurn = obs_properties_add_bool(advanced, "force_turn", tr("ForceTURN", "Force TURN Relay"));
+	addPublishColorFormatProperty(advanced);
 	obs_property_t *protection = obs_properties_add_list(advanced, "video_protection_mode",
 	                                                     tr("VideoProtection", "Packet Duplication (Experimental)"),
 	                                                     OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_INT);
@@ -1898,6 +1901,7 @@ static void vdoninja_control_center_defaults(obs_data_t *settings)
 	obs_data_set_default_string(settings, "udp_port_range", "auto");
 	obs_data_set_default_int(settings, "video_protection_mode", static_cast<int>(VideoProtectionMode::Off));
 	obs_data_set_default_bool(settings, "audio_red", false);
+	obs_data_set_default_bool(settings, "preserve_source_color_format", false);
 	obs_data_set_default_bool(settings, "adaptive_bitrate", false);
 	obs_data_set_default_int(settings, "adaptive_bitrate_min", 500);
 	obs_data_set_default_string(settings, "cc_push_url", "");

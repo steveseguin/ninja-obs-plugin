@@ -1689,6 +1689,25 @@ std::vector<SdpOfferedMediaSection> parseOfferedMediaSections(const std::string 
 			continue;
 		}
 
+		if (line == "a=bundle-only") {
+			current->bundleOnly = true;
+			continue;
+		}
+
+		if (line.rfind("a=extmap:", 0) == 0) {
+			const auto tokens = splitWhitespace(line.substr(9));
+			if (tokens.size() < 2)
+				continue;
+			const auto parts = split(tokens[0], '/');
+			if (parts.empty() || parts.size() > 2 || parts[0].empty() ||
+			    !std::all_of(parts[0].begin(), parts[0].end(), [](char c) { return c >= '0' && c <= '9'; }))
+				continue;
+			const int id = parseIntOrDefault(parts[0], -1);
+			if (id >= 1 && id <= 255)
+				current->headerExtensions.push_back({id, parts.size() == 2 ? parts[1] : "sendrecv", tokens[1]});
+			continue;
+		}
+
 		if (line.rfind("a=rtpmap:", 0) == 0) {
 			const size_t separator = line.find(' ');
 			if (separator == std::string::npos) {

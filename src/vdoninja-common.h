@@ -125,6 +125,7 @@ struct PeerInfo {
 	std::shared_ptr<rtc::RtpPacketizationConfig> videoRtpConfig;
 	std::shared_ptr<RtcpFeedbackTracker> videoFeedbackTracker;
 	std::shared_ptr<RtpPacketPacer> videoPacer;
+	uint8_t videoColorExtensionId = 0; // Protected by mediaMutex; zero means not negotiated.
 	bool useAudioPacketizer = false;
 	bool useVideoPacketizer = false;
 	bool useAudioRed = false;
@@ -175,7 +176,35 @@ using OnPeerCleanupCallback = std::function<void(const std::string &uuid, const 
 using OnDataCallback = std::function<void(const std::string &uuid, const std::string &data)>;
 
 // Video codec preferences
-enum class VideoCodec { H264, VP8, VP9, AV1 };
+// Append values: existing numbers are persisted in OBS settings.
+enum class VideoCodec { H264, VP8, VP9, AV1, H265 };
+
+inline const char *videoCodecRtpName(VideoCodec codec)
+{
+	switch (codec) {
+	case VideoCodec::H265:
+		return "H265";
+	case VideoCodec::AV1:
+		return "AV1";
+	case VideoCodec::VP9:
+		return "VP9";
+	case VideoCodec::VP8:
+		return "VP8";
+	default:
+		return "H264";
+	}
+}
+
+inline std::optional<VideoCodec> publishingCodecForEncoder(const std::string &codec)
+{
+	if (codec == "h264")
+		return VideoCodec::H264;
+	if (codec == "hevc" || codec == "h265")
+		return VideoCodec::H265;
+	if (codec == "av1")
+		return VideoCodec::AV1;
+	return std::nullopt;
+}
 
 // Audio codec preferences
 enum class AudioCodec { Opus, PCMU, PCMA };
@@ -220,6 +249,7 @@ struct OutputSettings {
 	bool forceTurn = false;
 	VideoProtectionMode videoProtectionMode = VideoProtectionMode::Off;
 	bool enableAudioRed = false;
+	bool preserveSourceColorFormat = false;
 	bool enableAdaptiveBitrate = false;
 	int minimumAdaptiveBitrate = 500000;
 	bool enableRemote = false;

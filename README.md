@@ -92,7 +92,7 @@ In practice, many teams use both: VDO.Ninja workflows for interactive contributi
 - Publishing (`OBS -> VDO.Ninja`) is the primary stable path.
 - Multi-viewer publishing is supported and tested end-to-end.
 - Auto-inbound management can create/update Browser Sources from room/data-channel events.
-- `VDO.Ninja Source` defaults to a browser-backed viewer path; `Use Native Receiver (Experimental)` switches to an experimental native VP9/H.264/Opus receive path.
+- `VDO.Ninja Source` defaults to a browser-backed viewer path; `Use Native Receiver (Experimental)` switches to an experimental native VP9/H.264/HEVC/AV1 video and Opus audio receive path.
 - Compatible dual-track VP9 alpha senders can preserve transparency in the native receiver. The tested user-facing path is [Game Capture](https://github.com/steveseguin/game-capture) publishing a Spout2 avatar/graphics source with VP9 alpha enabled.
 - Plugin injects a `VDO.Ninja` destination into OBS Stream service list via `rtmp-services` catalog compatibility.
 - `Tools -> VDO.Ninja Studio` provides basic publish setup, Go Live/Stop controls, generated links, and runtime peer stats. Advanced service options remain under `Settings -> Stream`.
@@ -160,10 +160,61 @@ https://vdo.ninja/?view=<StreamID>&room=<RoomID>&solo
 https://vdo.ninja/?view=<StreamID>&room=<RoomID>&solo&password=<Password>
 ```
 
+### Publishing codecs and green-screen color
+
+Choose the streaming video encoder under **Settings -> Output -> Advanced**. The plugin publishes the codec that encoder actually produces: **H.264, HEVC/H.265, or AV1**. H.264 remains the default. The viewer must support the selected codec and profile; changing a viewer URL cannot transcode the stream. The native receiver supports HEVC and AV1 as well as H.264 and VP9. The separate Guest Return still uses H.264.
+
+| Platform / encoder | Publishing route |
+| --- | --- |
+| macOS | OBS Apple VideoToolbox H.264 / HEVC hardware encoders when available. AV1 requires an available software encoder; this change adds no Apple AV1 hardware encoder. |
+| NVIDIA | OBS NVENC H.264 / HEVC; AV1 on GPUs where OBS exposes an AV1 encoder. |
+| AMD | OBS AMF on Windows, or an available OBS Linux encoder such as VAAPI. Codec availability depends on the GPU, driver and OBS build. |
+| Intel | OBS Quick Sync on Windows, or an available OBS Linux encoder such as VAAPI. HEVC/AV1 availability depends on the GPU and driver. |
+| Linux / software | Any installed OBS encoder producing H.264, HEVC or AV1 can use this output. The plugin does not bundle encoder drivers. |
+
+For SDR green screens, use matching color settings throughout the camera, capture app and OBS pipeline. The native receiver now uses each decoded frame's **color matrix and full/limited range** instead of assuming BT.601 limited range. It does not reduce colors to a palette. Lossy compression and NV12's 4:2:0 chroma subsampling still affect edges: choosing HEVC alone does not create 4:4:4 color. HEVC profile/tier/level are advertised from the encoder's SPS, including range-extension profiles, and AV1 parameters come from its sequence header. Viewers with incompatible profiles are rejected.
+
+HEVC/AV1 use standard **8-bit 4:2:0 (NV12)** by default, including when OBS's canvas uses I444 or P010. **Preserve OBS source color format (HEVC/AV1)** in the service's advanced settings is explicitly opt-in: it lets the encoder negotiate the configured format instead. For a controlled native-to-native setup, an encoder accepting OBS **I444** can preserve 4:4:4 chroma through HEVC; both endpoints must support that profile. Start streaming before a shared recording so the plugin can configure the encoder. Main10/P010 input and HDR are separate concerns: the current native output is **8-bit BGRA**, with no HDR tone mapping or wide-gamut conversion. This is not an end-to-end 10-bit/HDR workflow. VP9 dual-track transparency remains a separate mode.
+
+Browser qualification is codec **and profile** specific. Local Windows checks used installed Chrome 143 and isolated Playwright Firefox 146/155 with Cisco OpenH264 installed:
+
+| Stream | Chrome | Firefox |
+| --- | --- | --- |
+| H.264, NV12, BT.709 limited | Clean video/audio and color checks pass | Clean video/audio and color checks pass |
+| HEVC Main / Main10 | Video/audio and color checks pass | HEVC absent from WebRTC capabilities |
+| HEVC 4:4:4 (explicit opt-in) | Profile unsupported | Profile unsupported |
+| AV1, BT.709 limited | Color check passes | Color check fails (up to 25/255 per channel) |
+| AV1, explicitly selected BT.601 limited, 640x360 | Color check passes | Color check passes |
+| AV1, 1280x720 at 60 FPS, encoder level-idx 8 | Rejected: receiver advertises level-idx 5 | Rejected: omitted level-idx defaults to 5 |
+
+Firefox's AV1 BT.709 result matches Mozilla's [decoded color-space metadata issue](https://bugzilla.mozilla.org/show_bug.cgi?id=2016862). Do not treat codec availability as green-screen color qualification, or silently change the OBS matrix to work around it. H.264 remains the default. Unsupported answers are rejected without silently transcoding or reducing chroma. The BT.601 result above is a measured workaround at the stated resolution, not a guarantee for every receiver or resolution.
+
+AV1's [RTP offer/answer rules](https://aomediacodec.github.io/av1-rtp-spec/#723-usage-with-the-sdp-offeranswer-model) require the sender to stay within the receiver's advertised level and tier. The 720p60 native-to-native check passed at about 8 Mbps with a 120-frame GOP; the browser check failed negotiation. The plugin does not rewrite a level-8 bitstream as level 5 to bypass that constraint. H.264 1080p60 passed both browsers at about 12 Mbps with a 120-frame GOP and no measured output/render drops. OBS CPU was 13â€“14% for that workload, including software decoding of the lossless moving-texture fixture; this is not a plugin-only CPU measurement or a cross-machine benchmark.
+
+Loss qualification is separate from clean playback. A local TURN proxy dropped every 50th downstream datagram (approximately 2%, including control/audio). The publisher now negotiates the WebRTC color-space RTP extension and sends SDR matrix/range metadata on the last packet of each frame when the viewer accepts it. Chrome 143 H.264 passed the updated loss thresholds with NACK recovery at about 6 Mbps. The first metadata run recorded about 30 FPS, no freezes and 1/255 color error. Repeating with the focused release DLL recorded 24 FPS, one freeze and 7/255 error initially, then 30 FPS, no freezes and 1/255 error after viewer reload. Earlier runs without this metadata recorded color shifts/freezes and remain in the local evidence. Chrome 143 AV1 at 640x360/BT.601 also recovered through NACK without measured freezes or color shifts. Firefox 155 did not negotiate this extension; its clean H.264 check passed, but its AV1 BT.709 limitation remains. Firefox did not establish a connection through this local TURN fixture, even with loopback enabled, so Firefox loss behavior remains unqualified. These finite runs are not a guarantee against every network failure.
+
+The sibling-app review found that Windows Game Capture and Video Mixer already publish hardware H.264/HEVC/AV1, with software VP9 available. Their ordinary NV12 routes use BT.601 limited-range conversion and need that metadata preserved on reception. Game Capture's macOS beta has native VideoToolbox H.264/HEVC plus software VP9/AV1; its Linux parity branch has NVENC and opt-in VAAPI work. Those branches are not a claim of cross-platform qualification. No palette reduction was found in the reviewed publishing paths. Game Capture's ordinary video uses predictive encoding; its special VP9 alpha path deliberately uses every-frame keyframes for color/alpha pairing. That transparency mode has a different CPU/bandwidth cost and should not be selected merely to key a green screen. Codec quantizer limits such as `qmax` are not palette limits.
+
+Real OBS validation is reproducible with `scripts/run-codec-native-e2e.py`: two isolated portable instances, verified loaded DLL paths, lossless RGB reference patches, a grayscale ramp, moving video and audio, viewer reconnect, publisher restart, and clean shutdown. It saves screenshots, recordings, logs and measurements. See the changelog for the locally validated combinations; macOS and Linux require their own runtime checks.
+
+`scripts/run-codec-qualification.py --output artifacts/codecs/my-run --ffmpeg PATH_TO_FFMPEG` runs a finite Windows hardware/options matrix sequentially. Use `--only` with comma-separated case names to select available encoders. It covers duplication Off/Low/Medium/High, audio RED/Opus fallback, adaptive CBR and quality-based encoding, standard/opt-in color formats, full/limited range, and 30/60 FPS workloads. A recording sharing the actual streaming encoder is probed for bitrate, GOP length, pixel format and presentation/decode order. Intel HEVC low-delay GPB pictures can be labelled B without reordering; the gate checks timestamps rather than rejecting that label. `--browser-ice` accepts a disposable TURN configuration for the loss cases; route it through `scripts/udp-loss-proxy.cjs`, retain its drop counters, and verify the selected browser candidate is relay. The Firefox fixture permits loopback TURN only in its disposable test profile. These cases do not install or reconfigure the user's OBS/browser profiles.
+
+The browser harness defaults to installed Chrome and the newest installed Playwright Firefox. `CODEC_CHROME_EXECUTABLE`, `CODEC_FIREFOX_EXECUTABLE`, and `CODEC_BROWSERS=chrome,firefox` select an explicit installation/subset; reports record the actual browser version. `--browser-check --browser-only` on the individual runner isolates browser comparisons, including `--plugin` pointing to an older DLL. A browser-only result is not native-receiver qualification.
+
+H.264/Opus, packet duplication Off, audio RED Off, and adaptive bitrate Off remain the defaults. Video ULPFEC is not implemented or advertised; the checks do not count duplication as ULPFEC. The browser loss workflow exercises NACK recovery over real encrypted RTCP. Sanitizer fuzzing is a separate parser gate, covering HEVC/AV1 fragmentation/reassembly, RTP, VP9 descriptors, SDP profile parameters, RTCP/NACK and RED:
+
+```bash
+# Linux/WSL with Clang; no OBS SDK required. Keep the corpus between runs.
+cmake -S . -B build-fuzz -DBUILD_PLUGIN=OFF -DBUILD_TESTS=OFF -DBUILD_CODEC_FUZZER=ON -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
+cmake --build build-fuzz
+mkdir -p artifacts/codec-corpus
+build-fuzz/vdoninja-codec-fuzz artifacts/codec-corpus -max_total_time=120 -max_len=65536 -timeout=5 -rss_limit_mb=1024
+```
+
 ### 3. Ingest a VDO.Ninja stream in OBS
 
 1. Recommended today: use Browser Source or room-based auto-inbound.
-2. `VDO.Ninja Source` defaults to a browser-backed viewer. Enable `Use Native Receiver (Experimental)` only if you want to test the native VP9/H.264/Opus receive path or receive transparency from a compatible VP9 alpha sender.
+2. `VDO.Ninja Source` defaults to a browser-backed viewer. Enable `Use Native Receiver (Experimental)` only if you want to test the native VP9/H.264/HEVC/AV1 video and Opus audio receive path or receive transparency from a compatible VP9 alpha sender.
 3. For room automation, use auto-inbound options in plugin settings.
 
 ### Transparent Avatars and Alpha Video

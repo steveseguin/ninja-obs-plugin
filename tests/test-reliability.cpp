@@ -92,7 +92,8 @@ TEST(ReliabilityTest, NativeCodecSupportMatchesCurrentExperimentalDecoderScope)
 	EXPECT_TRUE(isSupportedNativeVideoCodecName("H264"));
 	EXPECT_TRUE(isSupportedNativeVideoCodecName("VP9"));
 	EXPECT_FALSE(isSupportedNativeVideoCodecName("VP8"));
-	EXPECT_FALSE(isSupportedNativeVideoCodecName("AV1"));
+	EXPECT_TRUE(isSupportedNativeVideoCodecName("AV1"));
+	EXPECT_TRUE(isSupportedNativeVideoCodecName("H265"));
 	EXPECT_TRUE(isSupportedNativeAudioCodecName("opus"));
 	EXPECT_TRUE(isSupportedNativeAudioCodecName("OPUS"));
 	EXPECT_FALSE(isSupportedNativeAudioCodecName("pcmu"));

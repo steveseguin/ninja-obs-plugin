@@ -166,6 +166,8 @@ std::string codecToUrlValue(VideoCodec codec)
 		return "vp9";
 	case VideoCodec::AV1:
 		return "av1";
+	case VideoCodec::H265:
+		return "h265";
 	case VideoCodec::H264:
 	default:
 		return "h264";
@@ -442,6 +444,10 @@ static obs_properties_t *vdoninja_output_properties(void *)
 	obs_property_t *codec = obs_properties_add_list(props, "video_codec", tr("VideoCodec", "Video Codec"),
 	                                                OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_INT);
 	obs_property_list_add_int(codec, "H.264", static_cast<int>(VideoCodec::H264));
+	obs_property_list_add_int(codec, "HEVC / H.265", static_cast<int>(VideoCodec::H265));
+	obs_property_list_add_int(codec, "AV1", static_cast<int>(VideoCodec::AV1));
+	obs_property_set_long_description(
+	    codec, "Publishing uses the codec of the video encoder selected in OBS Output settings.");
 
 	obs_properties_add_int(props, "bitrate", tr("Bitrate", "Bitrate (kbps)"), 500, 50000, 100);
 	obs_properties_add_int(props, "max_viewers", tr("MaxViewers", "Max Viewers"), 1, 50, 1);
@@ -505,6 +511,7 @@ static obs_properties_t *vdoninja_output_properties(void *)
 	obs_property_text_set_info_type(iceHelp, OBS_TEXT_INFO_NORMAL);
 	obs_property_text_set_info_word_wrap(iceHelp, true);
 	obs_properties_add_bool(advanced, "force_turn", tr("ForceTURN", "Force TURN Relay"));
+	addPublishColorFormatProperty(advanced);
 	obs_property_t *protection = obs_properties_add_list(advanced, "video_protection_mode",
 	                                                     tr("VideoProtection", "Packet Duplication (Experimental)"),
 	                                                     OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_INT);
@@ -571,6 +578,7 @@ static void vdoninja_output_defaults(obs_data_t *settings)
 	obs_data_set_default_string(settings, "udp_port_range", "auto");
 	obs_data_set_default_int(settings, "video_protection_mode", static_cast<int>(VideoProtectionMode::Off));
 	obs_data_set_default_bool(settings, "audio_red", false);
+	obs_data_set_default_bool(settings, "preserve_source_color_format", false);
 	obs_data_set_default_bool(settings, "adaptive_bitrate", false);
 	obs_data_set_default_int(settings, "adaptive_bitrate_min", 500);
 	obs_data_set_default_bool(settings, "auto_inbound_enabled", false);
@@ -617,7 +625,7 @@ obs_output_info vdoninja_output_info = {
     .get_properties = vdoninja_output_properties,
     .get_total_bytes = vdoninja_output_total_bytes,
     .get_connect_time_ms = vdoninja_output_connect_time,
-    .encoded_video_codecs = "h264",
+    .encoded_video_codecs = "h264;hevc;av1",
     .encoded_audio_codecs = "opus",
     .protocols = "VDO.Ninja",
 };
@@ -768,9 +776,10 @@ void VDONinjaOutput::loadSettings(obs_data_t *settings)
 	}
 
 	const int configuredVideoCodec = getIntSetting("video_codec", static_cast<int>(VideoCodec::H264));
-	settings_.videoCodec = VideoCodec::H264;
-	if (configuredVideoCodec != static_cast<int>(VideoCodec::H264)) {
-		logWarning("Only H.264 video is currently supported; overriding configured video codec to H.264");
+	if (!running_) {
+		settings_.videoCodec = configuredVideoCodec == static_cast<int>(VideoCodec::H265)  ? VideoCodec::H265
+		                       : configuredVideoCodec == static_cast<int>(VideoCodec::AV1) ? VideoCodec::AV1
+		                                                                                   : VideoCodec::H264;
 	}
 	settings_.quality.bitrate = getIntSetting("bitrate", 4000) * 1000;
 	settings_.maxViewers = getIntSetting("max_viewers", 10);
@@ -784,6 +793,7 @@ void VDONinjaOutput::loadSettings(obs_data_t *settings)
 	settings_.videoProtectionMode =
 	    videoProtectionModeFromInt(getIntSetting("video_protection_mode", static_cast<int>(VideoProtectionMode::Off)));
 	settings_.enableAudioRed = getBoolSetting("audio_red", false);
+	settings_.preserveSourceColorFormat = getBoolSetting("preserve_source_color_format", false);
 	settings_.enableAdaptiveBitrate = getBoolSetting("adaptive_bitrate", false);
 	const int minimumAdaptiveKbps = std::clamp(getIntSetting("adaptive_bitrate_min", 500), 100, 10000);
 	settings_.minimumAdaptiveBitrate = minimumAdaptiveKbps * 1000;
@@ -1325,6 +1335,8 @@ void VDONinjaOutput::configureBitrateAdaptation(const OutputSettings &settings, 
 void VDONinjaOutput::configureH264ProfileLevelId()
 {
 	obs_encoder_t *encoder = output_ ? obs_output_get_video_encoder(output_) : nullptr;
+	if (encoder && std::strcmp(obs_encoder_get_codec(encoder), "h264") != 0)
+		return;
 	std::optional<std::string> profileLevelId;
 	if (encoder) {
 		uint8_t *extraData = nullptr;
@@ -1655,10 +1667,12 @@ bool VDONinjaOutput::start()
 	obs_data_t *latestSettings = obs_output_get_settings(output_);
 	std::string streamIdSnapshot;
 	bool validUdpPorts = false;
+	bool preserveSourceColorFormat = false;
 	{
 		std::lock_guard<std::mutex> lock(settingsMutex_);
 		loadSettings(latestSettings);
 		validUdpPorts = settings_.udpPortRange.has_value();
+		preserveSourceColorFormat = settings_.preserveSourceColorFormat;
 		if (settings_.streamId.empty()) {
 			settings_.streamId = generateSessionId();
 			obs_service_t *service = obs_output_get_service(output_);
@@ -1704,10 +1718,26 @@ bool VDONinjaOutput::start()
 	}
 
 	if (obs_encoder_t *encoder = obs_output_get_video_encoder(output_)) {
+		const char *encoderCodec = obs_encoder_get_codec(encoder);
+		const auto codec = publishingCodecForEncoder(encoderCodec ? encoderCodec : "");
+		if (!codec) {
+			obs_output_set_last_error(output_, "VDO.Ninja publishing requires an H.264, HEVC or AV1 video encoder.");
+			return false;
+		}
+		{
+			std::lock_guard<std::mutex> lock(settingsMutex_);
+			settings_.videoCodec = *codec;
+		}
+		logInfo("Publishing video codec %s using OBS encoder %s", videoCodecRtpName(*codec),
+		        obs_encoder_get_id(encoder));
 		obs_data_t *encoderSettings = obs_encoder_get_settings(encoder);
 		if (obs_encoder_active(encoder)) {
 			// Updating a shared recording encoder cannot remove existing B-frames.
-			const bool compatible = hasPublishEncoderCompatibility(encoderSettings);
+			// An already-running encoder cannot change its input format. Require
+			// the standard-format override unless source-format publishing is opt-in.
+			const bool compatible = hasPublishEncoderCompatibility(encoderSettings) &&
+			                        (*codec == VideoCodec::H264 || preserveSourceColorFormat ||
+			                         obs_encoder_get_preferred_video_format(encoder) == VIDEO_FORMAT_NV12);
 			obs_data_release(encoderSettings);
 			if (!compatible) {
 				obs_output_set_last_error(output_, tr("Output.SharedEncoderActive",
@@ -1717,6 +1747,11 @@ bool VDONinjaOutput::start()
 				return false;
 			}
 		} else {
+			// Keep standard 8-bit 4:2:0 unless the publisher explicitly opts into
+			// the OBS source format. 4:4:4/Main10 require a compatible receiver.
+			if (*codec != VideoCodec::H264)
+				obs_encoder_set_preferred_video_format(encoder, preserveSourceColorFormat ? VIDEO_FORMAT_NONE
+				                                                                          : VIDEO_FORMAT_NV12);
 			applyPublishEncoderCompatibility(encoderSettings);
 			obs_encoder_update(encoder, encoderSettings);
 			obs_data_release(encoderSettings);
@@ -1745,6 +1780,36 @@ bool VDONinjaOutput::start()
 		return false;
 	}
 	configureH264ProfileLevelId();
+	peerManager_->setVideoColorSpace(std::nullopt);
+	if (auto *encoder = obs_output_get_video_encoder(output_)) {
+		if (const auto *info = video_output_get_info(obs_encoder_video(encoder))) {
+			const auto preferred = obs_encoder_get_preferred_color_space(encoder);
+			const auto space = preferred == VIDEO_CS_DEFAULT ? info->colorspace : preferred;
+			const auto preferredRange = obs_encoder_get_preferred_range(encoder);
+			const auto range = preferredRange == VIDEO_RANGE_DEFAULT ? info->range : preferredRange;
+			const uint8_t rangeByte = range == VIDEO_RANGE_FULL ? 0x20 : 0x10;
+			// Match OBS's SDR encoder VUI. Leave HDR metadata to the bitstream;
+			// this extension does not add tone mapping or alter encoded pixels.
+			if (space == VIDEO_CS_601)
+				peerManager_->setVideoColorSpace(std::array<uint8_t, 4>{6, 6, 6, rangeByte});
+			else if (space == VIDEO_CS_DEFAULT || space == VIDEO_CS_709)
+				peerManager_->setVideoColorSpace(std::array<uint8_t, 4>{1, 1, 1, rangeByte});
+			else if (space == VIDEO_CS_SRGB)
+				peerManager_->setVideoColorSpace(std::array<uint8_t, 4>{1, 13, 1, rangeByte});
+		}
+	}
+	peerManager_->setEncodedVideoFormat("");
+	{
+		auto *encoder = obs_output_get_video_encoder(output_);
+		const auto codec = encoder ? publishingCodecForEncoder(obs_encoder_get_codec(encoder)) : std::nullopt;
+		uint8_t *extra = nullptr;
+		size_t extraSize = 0;
+		if (codec && *codec != VideoCodec::H264 && obs_encoder_get_extra_data(encoder, &extra, &extraSize)) {
+			if (const auto format = encodedVideoFormat(
+			        *codec == VideoCodec::H265 ? ExtendedVideoCodec::HEVC : ExtendedVideoCodec::AV1, extra, extraSize))
+				peerManager_->setEncodedVideoFormat(*format);
+		}
+	}
 
 	selectedAudioTrackIdx_ = resolveOutputAudioTrackIndex(output_);
 	droppedAudioPacketsOtherTracks_ = 0;
@@ -2540,17 +2605,40 @@ void VDONinjaOutput::processVideoPacket(encoder_packet *packet)
 	}
 
 	bool keyframe = packet->keyframe;
+	VideoCodec codec;
+	{
+		std::lock_guard<std::mutex> lock(settingsMutex_);
+		codec = settings_.videoCodec;
+	}
+	std::vector<uint8_t> payload;
+	if (keyframe && codec != VideoCodec::H264) {
+		// OBS encoders can keep VPS/SPS/PPS or the AV1 sequence header in
+		// extradata. Repeat it with every recovery frame, including cached joins.
+		uint8_t *extra = nullptr;
+		size_t extraSize = 0;
+		auto *encoder = obs_output_get_video_encoder(output_);
+		if (encoder && obs_encoder_get_extra_data(encoder, &extra, &extraSize) && extra && extraSize)
+			payload.assign(extra, extra + extraSize);
+	}
+	payload.insert(payload.end(), packet->data, packet->data + packet->size);
+	if (keyframe && codec != VideoCodec::H264) {
+		if (const auto format =
+		        encodedVideoFormat(codec == VideoCodec::H265 ? ExtendedVideoCodec::HEVC : ExtendedVideoCodec::AV1,
+		                           payload.data(), payload.size()))
+			peerManager_->setEncodedVideoFormat(*format);
+	}
 	uint32_t timestamp = timestampFromPacket(packet, 90000.0);
 	timestamp = sanitizeMonotonicTimestamp(timestamp, hasLastVideoRtpTimestamp_, lastVideoRtpTimestamp_, 3000);
 
 	if (keyframe && packet->data && packet->size > 0) {
 		std::lock_guard<std::mutex> lock(keyframeCacheMutex_);
-		cachedKeyframe_.assign(packet->data, packet->data + packet->size);
+		cachedKeyframe_ = payload;
 		cachedKeyframeTimestamp_ = timestamp;
 	}
 
 	if (keyframe) {
-		if (const auto profileLevelId = deriveH264ProfileLevelId(packet->data, packet->size)) {
+		if (const auto profileLevelId =
+		        codec == VideoCodec::H264 ? deriveH264ProfileLevelId(packet->data, packet->size) : std::nullopt) {
 			bool changed = false;
 			{
 				std::lock_guard<std::mutex> lock(h264ProfileMutex_);
@@ -2589,7 +2677,7 @@ void VDONinjaOutput::processVideoPacket(encoder_packet *packet)
 
 	QueuedMediaFrame frame;
 	frame.type = MediaFrameType::Video;
-	frame.payload.assign(packet->data, packet->data + packet->size);
+	frame.payload = std::move(payload);
 	frame.timestamp = timestamp;
 	frame.keyframe = keyframe;
 	enqueueMediaFrame(std::move(frame));

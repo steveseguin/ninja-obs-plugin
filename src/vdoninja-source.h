@@ -20,6 +20,7 @@
 #include "vdoninja-peer-manager.h"
 #include "vdoninja-receive-queue.h"
 #include "vdoninja-reliability.h"
+#include "vdoninja-rtp-utils.h"
 #include "vdoninja-signaling.h"
 
 extern "C" {
@@ -38,6 +39,8 @@ namespace vdoninja
 enum class NativeVideoCodec {
 	H264,
 	VP9,
+	H265,
+	AV1,
 };
 
 #if defined(VDONINJA_NATIVE_MEDIA_INTEGRATION_TEST)
@@ -427,6 +430,7 @@ private:
 	std::atomic<uint64_t> outputMediaEpoch_{0};
 	NativeVideoCodec nativeVideoCodec_ = NativeVideoCodec::H264;
 	std::vector<uint8_t> videoAssemblyBuffer_;
+	VideoRtpAssembler extendedVideoAssembler_;
 	uint32_t videoAssemblyTimestamp_ = 0;
 	bool videoAssemblyActive_ = false;
 	AVCodecContext *videoDecoder_ = nullptr;

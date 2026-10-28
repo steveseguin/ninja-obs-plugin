@@ -24,6 +24,7 @@
 
 #include "vdoninja-source.h"
 #include "vdoninja-utils.h"
+#include "vdoninja-video-color.h"
 
 extern "C" {
 #include <libavcodec/avcodec.h>
@@ -79,6 +80,50 @@ std::string ffmpegError(int error)
 	char buffer[AV_ERROR_MAX_STRING_SIZE] = {};
 	av_strerror(error, buffer, sizeof(buffer));
 	return buffer;
+}
+
+void testDecodedVideoColor()
+{
+	AVFrame *frame = av_frame_alloc();
+	require(frame != nullptr, "allocate color fixture");
+	frame->width = frame->height = 16;
+	frame->format = AV_PIX_FMT_YUV420P;
+	require(av_frame_get_buffer(frame, 32) >= 0, "allocate color planes");
+	SwsContext *scaler =
+	    sws_getContext(16, 16, AV_PIX_FMT_YUV420P, 16, 16, AV_PIX_FMT_BGRA, SWS_BILINEAR, nullptr, nullptr, nullptr);
+	require(scaler != nullptr, "allocate color scaler");
+	// Same RGB green, encoded with different range/matrix metadata. Reuse one
+	// scaler and alternate metadata to catch stale settings after a format change.
+	struct Sample {
+		AVColorSpace matrix;
+		AVColorRange range;
+		uint8_t y, u, v;
+	};
+	for (const auto &sample : std::vector<Sample>{{AVCOL_SPC_BT709, AVCOL_RANGE_MPEG, 133, 82, 65},
+	                                              {AVCOL_SPC_SMPTE170M, AVCOL_RANGE_MPEG, 117, 90, 70},
+	                                              {AVCOL_SPC_BT709, AVCOL_RANGE_JPEG, 137, 76, 56},
+	                                              {AVCOL_SPC_BT709, AVCOL_RANGE_MPEG, 133, 82, 65}}) {
+		frame->colorspace = sample.matrix;
+		frame->color_range = sample.range;
+		for (int plane = 0; plane < 3; ++plane)
+			for (int y = 0; y < (plane ? 8 : 16); ++y)
+				std::memset(frame->data[plane] + y * frame->linesize[plane],
+				            plane == 0   ? sample.y
+				            : plane == 1 ? sample.u
+				                         : sample.v,
+				            plane ? 8 : 16);
+		require(configureDecodedVideoColor(scaler, frame), "apply frame color metadata");
+		std::vector<uint8_t> bgra(16 * 16 * 4);
+		uint8_t *output[4]{bgra.data(), nullptr, nullptr, nullptr};
+		int strides[4]{64, 0, 0, 0};
+		require(sws_scale(scaler, frame->data, frame->linesize, 0, 16, output, strides) == 16, "convert color fixture");
+		const size_t pixel = (8 * 16 + 8) * 4;
+		require(std::abs(int(bgra[pixel + 2]) - 24) <= 3 && std::abs(int(bgra[pixel + 1]) - 180) <= 3 &&
+		            std::abs(int(bgra[pixel]) - 40) <= 3,
+		        "decoded green changed matrix/range or hue");
+	}
+	sws_freeContext(scaler);
+	av_frame_free(&frame);
 }
 
 std::vector<uint8_t> encodeVp9Keyframe(uint8_t luma)
@@ -5645,6 +5690,7 @@ int main(int argc, char **argv)
 		const auto primaryGop = encodeVp9Gop(80, 48);
 		const auto alphaGop = encodeVp9Gop(48, 48);
 		const std::vector<GateCase> cases = {
+		    {"decoded video color matrix and range", testDecodedVideoColor},
 		    {"publisher UDP port range binds real sockets", testPublisherUdpPortRangeBindsRealSockets},
 		    {"ICE restart retirement releases media locks", testIceRestartRetiresOldPeerWithoutHoldingItsMediaLock},
 		    {"RTC manager-to-source stale alpha add rejection",

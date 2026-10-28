@@ -6,9 +6,11 @@
 
 #pragma once
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
+#include <string>
 #include <vector>
 
 namespace vdoninja
@@ -22,6 +24,11 @@ struct RtpPayloadView {
 
 // Validate RTP headers, extensions, and padding before accessing the payload.
 std::optional<RtpPayloadView> parseRtpPayloadView(const uint8_t *packetData, size_t packetSize);
+
+inline constexpr const char *kColorSpaceExtensionUri = "http://www.webrtc.org/experiments/rtp-hdrext/color-space";
+// Add negotiated SDR color metadata to a bare RTP marker packet only. Preserve
+// sequence/timestamp/payload so pacing and NACK repair use the identical packet.
+bool addRtpColorSpaceExtension(std::vector<std::byte> &packet, uint8_t id, const std::array<uint8_t, 4> &color);
 
 // Extract the primary encoded block from an RFC 2198 payload.
 std::optional<std::vector<uint8_t>> extractRedPrimaryPayload(const uint8_t *payload, size_t payloadSize);
@@ -54,6 +61,42 @@ Vp9DescriptorResult parseVP9PayloadDescriptor(const uint8_t *payload, size_t siz
 // Inspect the encoded access unit, never the sender's RTP prediction flag.
 bool isVp9Keyframe(const uint8_t *data, size_t size);
 bool isH264Keyframe(const uint8_t *data, size_t size);
+bool isHevcKeyframe(const uint8_t *data, size_t size);
+bool av1HasSequenceHeader(const uint8_t *data, size_t size);
+
+// Payload-only packetization lets the publisher retain its existing RTP
+// sequence numbers, pacing, retransmission cache and keyframe gate.
+using VideoRtpPayloads = std::vector<std::vector<uint8_t>>;
+std::optional<VideoRtpPayloads> packetizeHevc(const uint8_t *data, size_t size, size_t maxPayload);
+std::optional<VideoRtpPayloads> packetizeAv1(const uint8_t *data, size_t size, size_t maxPayload);
+
+enum class ExtendedVideoCodec { HEVC, AV1 };
+
+// Derive SDP profile/tier/level from the encoder's sequence header, including
+// HEVC range-extension profiles used for 4:4:4. Never guess from the encoder ID.
+std::optional<std::string> encodedVideoFormat(ExtendedVideoCodec codec, const uint8_t *data, size_t size);
+bool offeredVideoFormatSupports(ExtendedVideoCodec codec, const std::string &offer, const std::string &encoded);
+
+// A bounded access-unit assembler. The receive queue checks RTP sequence
+// continuity; reset() is also required whenever that queue detects a gap.
+class VideoRtpAssembler
+{
+public:
+	static constexpr size_t maxBytes = 4 * 1024 * 1024;
+	void reset();
+	std::optional<std::vector<uint8_t>> push(ExtendedVideoCodec codec, const uint8_t *payload, size_t size,
+	                                         uint32_t timestamp, bool marker);
+
+private:
+	bool appendHevc(const uint8_t *payload, size_t size);
+	bool appendAv1(const uint8_t *payload, size_t size);
+	bool appendObu(const uint8_t *data, size_t size);
+	bool active_ = false;
+	uint32_t timestamp_ = 0;
+	std::optional<uint32_t> rejectedTimestamp_;
+	std::vector<uint8_t> frame_;
+	std::vector<uint8_t> fragment_;
+};
 
 // True when at least one clock-second of RTP time has elapsed since the last
 // sender report. RTP timestamps wrap, so the comparison is made on a wrapped

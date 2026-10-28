@@ -10,7 +10,9 @@
 
 #include <rtc/rtc.hpp>
 
+#include <array>
 #include <atomic>
+#include <condition_variable>
 #include <functional>
 #include <map>
 #include <memory>
@@ -217,6 +219,8 @@ public:
 	void setVideoCodec(VideoCodec codec);
 	void setAudioCodec(AudioCodec codec);
 	void setH264ProfileLevelId(const std::string &profileLevelId);
+	void setEncodedVideoFormat(const std::string &format);
+	void setVideoColorSpace(std::optional<std::array<uint8_t, 4>> color);
 	void setBitrate(int bitrate);
 	void setVideoProtectionMode(VideoProtectionMode mode);
 	void setAudioRedEnabled(bool enable);
@@ -418,6 +422,9 @@ private:
 	AudioCodec audioCodec_ = AudioCodec::Opus;
 	mutable std::mutex codecMutex_;
 	std::string h264ProfileLevelId_ = "42e01f";
+	std::string encodedVideoFormat_;
+	std::optional<std::array<uint8_t, 4>> videoColorSpace_;
+	std::condition_variable codecReady_;
 	std::atomic<int> bitrate_{4000000};
 	VideoProtectionMode videoProtectionMode_ = VideoProtectionMode::Off;
 	std::atomic<bool> audioRedEnabled_{false};

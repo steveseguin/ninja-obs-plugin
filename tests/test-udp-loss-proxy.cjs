@@ -12,7 +12,7 @@ async function startProxy(port, args = []) {
     "--remote-port", String(port),
     "--local-port", "0",
     ...args,
-  ]);
+  ], { stdio: ["pipe", "pipe", "pipe", "ipc"] });
   let timer;
   try {
     const ready = await new Promise((resolve, reject) => {
@@ -106,7 +106,7 @@ test("UDP proxy still applies deterministic loss in both directions", async () =
     assert.deepEqual(forwarded, ["1", "3"]);
     assert.deepEqual(received, ["1"]);
   } finally {
-    child.kill("SIGTERM");
+    child.send("stop");
     await once(child, "exit");
     client.close();
     server.close();

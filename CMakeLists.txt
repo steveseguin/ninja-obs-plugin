@@ -10,6 +10,7 @@ set(PLUGIN_LICENSE "AGPL-3.0-only")
 
 # Options
 option(BUILD_TESTS "Build unit tests" OFF)
+option(BUILD_CODEC_FUZZER "Build standalone Clang libFuzzer codec target with ASan/UBSan" OFF)
 option(BUILD_UPDATE_CHECK_TESTS "Build update checker tests (requires Qt Core/Network and libcurl)" OFF)
 option(BUILD_PLUGIN "Build the OBS plugin (requires OBS SDK)" ON)
 option(BUNDLE_LINUX_RUNTIME "Bundle libdatachannel privately in Linux release packages" OFF)
@@ -37,6 +38,17 @@ endif()
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
+if(BUILD_CODEC_FUZZER)
+    if(NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang" OR MSVC)
+        message(FATAL_ERROR "Codec fuzzing requires Clang with libFuzzer/ASan/UBSan (Linux/WSL supported)")
+    endif()
+    add_executable(vdoninja-codec-fuzz tests/fuzz-video-codecs.cpp src/vdoninja-rtp-utils.cpp
+        src/vdoninja-rtp-repair.cpp src/vdoninja-rtcp-feedback.cpp)
+    target_include_directories(vdoninja-codec-fuzz PRIVATE src)
+    target_compile_options(vdoninja-codec-fuzz PRIVATE -g -O1 -fsanitize=fuzzer,address,undefined -fno-omit-frame-pointer)
+    target_link_options(vdoninja-codec-fuzz PRIVATE -fsanitize=fuzzer,address,undefined)
+endif()
 
 # Find OpenSSL (optional; libdatachannel may provide transitive crypto deps)
 find_package(OpenSSL QUIET)
@@ -654,6 +666,7 @@ if(BUILD_TESTS)
         tests/test-layout.cpp
         tests/test-system-cpu.cpp
         tests/test-vp9-rtp.cpp
+        tests/test-video-codecs.cpp
     )
 
     target_include_directories(vdoninja-tests PRIVATE

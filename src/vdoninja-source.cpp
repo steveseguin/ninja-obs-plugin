@@ -32,12 +32,27 @@ extern "C" {
 #include "plugin-main.h"
 #include "vdoninja-rtp-utils.h"
 #include "vdoninja-utils.h"
+#include "vdoninja-video-color.h"
 
 namespace vdoninja
 {
 
 namespace
 {
+
+const char *nativeVideoCodecName(NativeVideoCodec codec)
+{
+	switch (codec) {
+	case NativeVideoCodec::VP9:
+		return "VP9";
+	case NativeVideoCodec::H265:
+		return "HEVC";
+	case NativeVideoCodec::AV1:
+		return "AV1";
+	default:
+		return "H.264";
+	}
+}
 
 constexpr const char *kInternalNativeSourceId = "vdoninja_native_source_internal";
 constexpr const char *kInternalNativeSourceSetting = "internal_native_receiver_source";
@@ -389,6 +404,9 @@ bool safeRequestBitrate(const std::shared_ptr<rtc::Track> &track, unsigned int b
 
 speaker_layout speakerLayoutForChannels(int channels)
 {
+	if (channels == 6) {
+		return SPEAKERS_5POINT1;
+	}
 	return channels <= 1 ? SPEAKERS_MONO : SPEAKERS_STEREO;
 }
 
@@ -647,7 +665,8 @@ static obs_properties_t *vdoninja_source_properties(void *)
 	    props, "experimental_note",
 	    tr("VDONinjaSource.ModeNote",
 	       "Default mode uses an internal Browser Source. Native Receiver (Experimental) uses the native "
-	       "VP9/H.264/Opus WebRTC receive path. Compatible dual-track VP9 senders can preserve transparency "
+	       "VP9/H.264/HEVC/AV1 video and Opus audio WebRTC receive path. Compatible dual-track VP9 senders can "
+	       "preserve transparency "
 	       "here; browser viewers stay standard color video."),
 	    OBS_TEXT_INFO);
 	obs_property_text_set_info_type(note, OBS_TEXT_INFO_NORMAL);
@@ -658,7 +677,8 @@ static obs_properties_t *vdoninja_source_properties(void *)
 	obs_property_set_long_description(
 	    useNative, tr("VDONinjaSource.UseNativeReceiver.Description",
 	                  "Unchecked uses the simple browser-backed viewer path. Checked enables the experimental native "
-	                  "VP9/H.264/Opus receiver path with slower retry/backoff after failures. Dual-track VP9 alpha "
+	                  "VP9/H.264/HEVC/AV1 video and Opus audio receiver path with slower retry/backoff after failures. "
+	                  "Dual-track VP9 alpha "
 	                  "transparency requires this mode and a compatible sender."));
 	obs_property_set_modified_callback(useNative, vdoninja_source_native_mode_modified);
 
@@ -711,7 +731,8 @@ static void vdoninja_source_defaults(obs_data_t *settings)
 	obs_data_set_default_string(
 	    settings, "experimental_note",
 	    "Default mode uses an internal Browser Source. Native Receiver (Experimental) uses the native "
-	    "VP9/H.264/Opus WebRTC receive path. Compatible dual-track VP9 senders can preserve transparency "
+	    "VP9/H.264/HEVC/AV1 video and Opus audio WebRTC receive path. Compatible dual-track VP9 senders can preserve "
+	    "transparency "
 	    "here; browser viewers stay standard color video.");
 	obs_data_set_default_bool(settings, "use_native_receiver", false);
 	obs_data_set_default_string(settings, "stream_id", "");
@@ -2577,12 +2598,18 @@ void VDONinjaSource::onVideoTrack(const PeerEventIdentity &identity, std::shared
 	const rtc::Description::Media description = track->description();
 	const bool hasH264 = mediaDescriptionHasCodec(description, "h264");
 	const bool hasVP9 = mediaDescriptionHasCodec(description, "vp9");
-	if (!hasH264 && !hasVP9) {
-		logError("Native receiver requires H.264 or VP9 video; offered codecs: %s",
+	const bool hasHEVC = mediaDescriptionHasCodec(description, "h265");
+	const bool hasAV1 = mediaDescriptionHasCodec(description, "av1");
+	if (!hasH264 && !hasVP9 && !hasHEVC && !hasAV1) {
+		logError("Native receiver requires H.264, VP9, HEVC or AV1 video; offered codecs: %s",
 		         describeMediaCodecs(description).c_str());
 		return;
 	}
-	const NativeVideoCodec negotiatedCodec = hasVP9 ? NativeVideoCodec::VP9 : NativeVideoCodec::H264;
+	const NativeVideoCodec negotiatedCodec = hasVP9    ? NativeVideoCodec::VP9
+	                                         : hasH264 ? NativeVideoCodec::H264
+	                                         : hasHEVC ? NativeVideoCodec::H265
+	                                                   : NativeVideoCodec::AV1;
+	logInfo("Native receiver selected %s", nativeVideoCodecName(negotiatedCodec));
 
 	std::string payloadSummary;
 	std::unordered_set<uint8_t> redPayloadTypes;
@@ -3176,6 +3203,7 @@ void VDONinjaSource::recoverVideoReceive(uint64_t epoch)
 		std::unique_lock<std::mutex> output(videoOutputMutex_);
 		std::unique_lock<std::mutex> pairing(alphaPairingMutex_);
 		videoAssemblyBuffer_.clear();
+		extendedVideoAssembler_.reset();
 		alphaAssemblyBuffer_.clear();
 		videoAssemblyActive_ = alphaAssemblyActive_ = false;
 		if (videoDecoder_)
@@ -3259,7 +3287,7 @@ void VDONinjaSource::processVideoData(const uint8_t *data, size_t size, uint32_t
 		currentVideoTrack = videoTrack_;
 		codec = nativeVideoCodec_;
 	}
-	const char *codecName = codec == NativeVideoCodec::VP9 ? "VP9" : "H.264";
+	const char *codecName = nativeVideoCodecName(codec);
 
 #if defined(VDONINJA_NATIVE_MEDIA_INTEGRATION_TEST)
 	runNativeMediaTestStage(NativeMediaTestStage::PreDecode, false, rtpTimestamp, mediaEpoch);
@@ -3272,7 +3300,11 @@ void VDONinjaSource::processVideoData(const uint8_t *data, size_t size, uint32_t
 			return;
 		}
 		if (videoWaitingForKeyframe_) {
-			if (!(codec == NativeVideoCodec::VP9 ? isVp9Keyframe(data, size) : isH264Keyframe(data, size)))
+			const bool recoveryFrame = codec == NativeVideoCodec::VP9    ? isVp9Keyframe(data, size)
+			                           : codec == NativeVideoCodec::H265 ? isHevcKeyframe(data, size)
+			                           : codec == NativeVideoCodec::AV1  ? av1HasSequenceHeader(data, size)
+			                                                             : isH264Keyframe(data, size);
+			if (!recoveryFrame)
 				return;
 			videoWaitingForKeyframe_ = false;
 		}
@@ -3399,7 +3431,7 @@ void VDONinjaSource::processVideoRtpPacket(const uint8_t *packetData, size_t pac
 
 	const auto *rtpHeader = reinterpret_cast<const rtc::RtpHeader *>(packetData);
 	const auto payloadView = parseRtpPayloadView(packetData, packetSize);
-	if (!payloadView) {
+	if (!payloadView || payloadView->size == 0) {
 		return;
 	}
 
@@ -3426,6 +3458,20 @@ void VDONinjaSource::processVideoRtpPacket(const uint8_t *packetData, size_t pac
 
 	if (codec == NativeVideoCodec::VP9) {
 		processVP9RtpPacket(payload, payloadSize, rtpHeader->timestamp(), mediaEpoch);
+		return;
+	}
+	if (codec == NativeVideoCodec::H265 || codec == NativeVideoCodec::AV1) {
+		std::optional<std::vector<uint8_t>> frame;
+		{
+			std::lock_guard<std::mutex> lock(videoAssemblyMutex_);
+			if (!mediaEpochGate_.isCurrent(mediaEpoch))
+				return;
+			frame = extendedVideoAssembler_.push(codec == NativeVideoCodec::H265 ? ExtendedVideoCodec::HEVC
+			                                                                     : ExtendedVideoCodec::AV1,
+			                                     payload, payloadSize, rtpHeader->timestamp(), rtpHeader->marker());
+		}
+		if (frame)
+			processVideoData(frame->data(), frame->size(), rtpHeader->timestamp(), mediaEpoch);
 		return;
 	}
 
@@ -3866,8 +3912,11 @@ bool VDONinjaSource::initializeVideoDecoder()
 	}
 
 	const bool isVP9 = (nativeVideoCodec_ == NativeVideoCodec::VP9);
-	const AVCodecID codecId = isVP9 ? AV_CODEC_ID_VP9 : AV_CODEC_ID_H264;
-	const char *codecName = isVP9 ? "VP9" : "H.264";
+	const AVCodecID codecId = isVP9                                         ? AV_CODEC_ID_VP9
+	                          : nativeVideoCodec_ == NativeVideoCodec::H265 ? AV_CODEC_ID_HEVC
+	                          : nativeVideoCodec_ == NativeVideoCodec::AV1  ? AV_CODEC_ID_AV1
+	                                                                        : AV_CODEC_ID_H264;
+	const char *codecName = nativeVideoCodecName(nativeVideoCodec_);
 	const bool preferSoftwareForAlpha = preferSoftwareVp9DecodeForAlpha_.load(std::memory_order_relaxed);
 
 	const AVCodec *codec = avcodec_find_decoder(codecId);
@@ -4042,6 +4091,7 @@ void VDONinjaSource::resetMediaPipelineStateLocked()
 	outputMediaEpoch_.store(0, std::memory_order_release);
 	mediaEpochGate_.advance();
 	videoAssemblyBuffer_.clear();
+	extendedVideoAssembler_.reset();
 	videoAssemblyTimestamp_ = 0;
 	videoAssemblyActive_ = false;
 	videoWaitingForKeyframe_ = alphaWaitingForKeyframe_ = false;
@@ -4628,6 +4678,10 @@ void VDONinjaSource::outputDecodedVideoFrameLocked(const AVFrame *frame, uint32_
 	                         AV_PIX_FMT_BGRA, SWS_BILINEAR, nullptr, nullptr, nullptr);
 	if (!videoScaleContext_) {
 		logError("Failed to create video conversion context");
+		return;
+	}
+	if (!configureDecodedVideoColor(videoScaleContext_, frameToScale)) {
+		logWarning("Failed to apply decoded video color matrix/range");
 		return;
 	}
 

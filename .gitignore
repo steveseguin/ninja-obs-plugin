@@ -76,6 +76,7 @@ artifacts/
 obs-vdoninja-windows-x64-setup.exe
 _obs-portable/
 _obs-portable-*/
+_plugin-package/
 _tmp*
 _obs_screenshot*.png
 _obs_stderr.txt

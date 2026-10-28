@@ -19,6 +19,22 @@
 
 using namespace vdoninja;
 
+TEST(SdpUtilsTest, HeaderExtensionsRemainScopedAndMalformedIdsAreIgnored)
+{
+	const auto sections =
+	    parseOfferedMediaSections("v=0\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\na=mid:video\r\n"
+	                              "a=extmap:7/recvonly http://www.webrtc.org/experiments/rtp-hdrext/color-space\r\n"
+	                              "a=extmap:7junk bad-uri\r\na=extmap:0 bad-uri\r\na=extmap:256 bad-uri\r\n"
+	                              "m=audio 9 UDP/TLS/RTP/SAVPF 111\r\na=extmap:2 other-uri\r\n");
+	ASSERT_EQ(sections.size(), 2u);
+	ASSERT_EQ(sections[0].headerExtensions.size(), 1u);
+	EXPECT_EQ(sections[0].headerExtensions[0].id, 7);
+	EXPECT_EQ(sections[0].headerExtensions[0].direction, "recvonly");
+	ASSERT_EQ(sections[1].headerExtensions.size(), 1u);
+	EXPECT_EQ(sections[1].headerExtensions[0].id, 2);
+	EXPECT_EQ(sections[1].headerExtensions[0].direction, "sendrecv");
+}
+
 // UUID Generation Tests
 class UUIDTest : public ::testing::Test
 {

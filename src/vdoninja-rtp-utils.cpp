@@ -7,10 +7,515 @@
 #include "vdoninja-rtp-utils.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cstring>
+#include <iomanip>
+#include <map>
+#include <sstream>
 
 namespace vdoninja
 {
+
+bool addRtpColorSpaceExtension(std::vector<std::byte> &packet, uint8_t id, const std::array<uint8_t, 4> &color)
+{
+	if (id == 0 || id > 14 || packet.size() <= 12 || packet[0] != std::byte{0x80} ||
+	    !(std::to_integer<uint8_t>(packet[1]) & 0x80))
+		return false;
+	const std::byte extension[] = {std::byte{0xbe},
+	                               std::byte{0xde},
+	                               std::byte{0},
+	                               std::byte{2},
+	                               std::byte{static_cast<uint8_t>((id << 4) | 3)},
+	                               std::byte{color[0]},
+	                               std::byte{color[1]},
+	                               std::byte{color[2]},
+	                               std::byte{color[3]},
+	                               std::byte{0},
+	                               std::byte{0},
+	                               std::byte{0}};
+	packet.insert(packet.begin() + 12, std::begin(extension), std::end(extension));
+	packet[0] = std::byte{0x90};
+	return true;
+}
+
+namespace
+{
+struct CodecUnit {
+	const uint8_t *data;
+	size_t size;
+};
+
+bool readLeb(const uint8_t *data, size_t size, size_t &offset, size_t &value)
+{
+	value = 0;
+	for (unsigned i = 0; i < 8 && offset < size; ++i) {
+		const uint8_t byte = data[offset++];
+		// All supported units fit in the receive bound; reject oversized lengths
+		// before shifting (also safe on 32-bit hosts).
+		if (i >= 4 && (byte & 0x7f))
+			return false;
+		if (i < 4)
+			value |= static_cast<size_t>(byte & 0x7f) << (7 * i);
+		if (!(byte & 0x80))
+			return value <= VideoRtpAssembler::maxBytes;
+	}
+	return false;
+}
+
+void writeLeb(std::vector<uint8_t> &out, size_t value)
+{
+	do {
+		const auto byte = static_cast<uint8_t>(value & 0x7f);
+		value >>= 7;
+		out.push_back(byte | (value ? 0x80 : 0));
+	} while (value);
+}
+
+bool hevcUnits(const uint8_t *data, size_t size, std::vector<CodecUnit> &units)
+{
+	if (!data || size < 2 || size > VideoRtpAssembler::maxBytes)
+		return false;
+	const auto startCode = [&](size_t offset) -> size_t {
+		if (offset + 3 <= size && data[offset] == 0 && data[offset + 1] == 0) {
+			if (data[offset + 2] == 1)
+				return 3;
+			if (offset + 4 <= size && data[offset + 2] == 0 && data[offset + 3] == 1)
+				return 4;
+		}
+		return 0;
+	};
+	if (startCode(0)) {
+		size_t offset = 0;
+		while (offset < size) {
+			const size_t prefix = startCode(offset);
+			if (!prefix)
+				return false;
+			const size_t begin = offset + prefix;
+			offset = begin;
+			while (offset < size && !startCode(offset))
+				++offset;
+			size_t end = offset;
+			while (end > begin && data[end - 1] == 0)
+				--end;
+			if (end - begin < 2)
+				return false;
+			units.push_back({data + begin, end - begin});
+		}
+	} else {
+		// OBS emits Annex B; also accept four-byte length-prefixed access units.
+		size_t offset = 0;
+		while (offset + 4 <= size) {
+			const size_t length = (size_t(data[offset]) << 24) | (size_t(data[offset + 1]) << 16) |
+			                      (size_t(data[offset + 2]) << 8) | data[offset + 3];
+			offset += 4;
+			if (length < 2 || length > size - offset)
+				return false;
+			units.push_back({data + offset, length});
+			offset += length;
+		}
+		if (offset != size)
+			return false;
+	}
+	for (const auto &unit : units) {
+		// Single-layer HEVC, nonzero temporal_id_plus1, no forbidden bit.
+		if ((unit.data[0] & 0x81) || (unit.data[1] & 0xf8) || !(unit.data[1] & 7) || ((unit.data[0] >> 1) & 0x3f) >= 48)
+			return false;
+	}
+	return !units.empty();
+}
+
+bool av1Units(const uint8_t *data, size_t size, VideoRtpPayloads &units)
+{
+	if (!data || !size || size > VideoRtpAssembler::maxBytes)
+		return false;
+	size_t offset = 0;
+	while (offset < size) {
+		const uint8_t header = data[offset++];
+		if (header & 0x81)
+			return false;
+		std::vector<uint8_t> unit{static_cast<uint8_t>(header & ~2)};
+		if (header & 4) {
+			if (offset == size || (data[offset] & 7))
+				return false;
+			unit.push_back(data[offset++]);
+		}
+		size_t length = size - offset;
+		if ((header & 2) && !readLeb(data, size, offset, length))
+			return false;
+		if (length > size - offset)
+			return false;
+		const unsigned type = (header >> 3) & 15;
+		if (type != 2 && type != 8 && type != 15) {
+			unit.insert(unit.end(), data + offset, data + offset + length);
+			units.push_back(std::move(unit));
+		}
+		offset += length;
+	}
+	return !units.empty();
+}
+} // namespace
+
+bool isHevcKeyframe(const uint8_t *data, size_t size)
+{
+	std::vector<CodecUnit> units;
+	if (!hevcUnits(data, size, units))
+		return false;
+	return std::any_of(units.begin(), units.end(), [](const auto &unit) {
+		const unsigned type = (unit.data[0] >> 1) & 63;
+		return type >= 16 && type <= 21;
+	});
+}
+
+bool av1HasSequenceHeader(const uint8_t *data, size_t size)
+{
+	VideoRtpPayloads units;
+	if (!av1Units(data, size, units))
+		return false;
+	return std::any_of(units.begin(), units.end(), [](const auto &unit) { return ((unit[0] >> 3) & 15) == 1; });
+}
+
+std::optional<std::string> encodedVideoFormat(ExtendedVideoCodec codec, const uint8_t *data, size_t size)
+{
+	if (codec == ExtendedVideoCodec::HEVC) {
+		std::vector<CodecUnit> units;
+		if (!hevcUnits(data, size, units))
+			return std::nullopt;
+		for (const auto &unit : units) {
+			if (((unit.data[0] >> 1) & 63) != 33)
+				continue;
+			std::vector<uint8_t> rbsp;
+			unsigned zeros = 0;
+			for (size_t i = 2; i < unit.size; ++i) {
+				if (zeros >= 2 && unit.data[i] == 3) {
+					zeros = 0;
+					continue;
+				}
+				zeros = unit.data[i] == 0 ? zeros + 1 : 0;
+				rbsp.push_back(unit.data[i]);
+			}
+			if (rbsp.size() < 13 || !(rbsp[1] & 31))
+				return std::nullopt;
+			std::ostringstream fmtp;
+			fmtp << "profile-space=" << (rbsp[1] >> 6) << ";profile-id=" << (rbsp[1] & 31)
+			     << ";tier-flag=" << ((rbsp[1] >> 5) & 1) << ";level-id=" << unsigned(rbsp[12])
+			     << ";interop-constraints=";
+			for (size_t i = 6; i < 12; ++i)
+				fmtp << std::hex << std::setfill('0') << std::setw(2) << unsigned(rbsp[i]);
+			return fmtp.str();
+		}
+		return std::nullopt;
+	}
+	VideoRtpPayloads units;
+	if (!av1Units(data, size, units))
+		return std::nullopt;
+	for (const auto &unit : units) {
+		if (((unit[0] >> 3) & 15) != 1)
+			continue;
+		size_t bit = (unit[0] & 4 ? 2 : 1) * 8;
+		bool valid = true;
+		const auto read = [&](unsigned count) -> uint32_t {
+			if (count > 32 || bit + count > unit.size() * 8) {
+				valid = false;
+				return 0;
+			}
+			uint32_t value = 0;
+			while (count--) {
+				value = (value << 1) | ((unit[bit / 8] >> (7 - bit % 8)) & 1);
+				++bit;
+			}
+			return value;
+		};
+		const unsigned profile = read(3);
+		read(1); // still_picture
+		const bool reduced = read(1) != 0;
+		if (!reduced) {
+			if (read(1)) { // timing_info_present_flag
+				read(32);
+				read(32);
+				if (read(1)) { // equal_picture_interval: UVLC
+					unsigned leading = 0;
+					while (valid && !read(1) && leading < 32)
+						++leading;
+					if (leading < 32)
+						read(leading);
+				}
+				if (read(1)) { // decoder_model_info_present_flag
+					read(5);
+					read(32);
+					read(5);
+					read(5);
+				}
+			}
+			read(1);  // initial_display_delay_present_flag
+			read(5);  // operating_points_cnt_minus_1
+			read(12); // operating_point_idc[0]; OBS emits a single operating point.
+		}
+		const unsigned level = read(5);
+		const unsigned tier = !reduced && level > 7 ? read(1) : 0;
+		if (!valid || profile > 2 || level > 23)
+			return std::nullopt;
+		return "profile=" + std::to_string(profile) + ";level-idx=" + std::to_string(level) +
+		       ";tier=" + std::to_string(tier);
+	}
+	return std::nullopt;
+}
+
+bool offeredVideoFormatSupports(ExtendedVideoCodec codec, const std::string &offer, const std::string &encoded)
+{
+	bool valid = true;
+	const auto parameters = [&](const std::string &fmtp) {
+		std::map<std::string, unsigned> result;
+		std::istringstream stream(fmtp);
+		std::string token;
+		while (std::getline(stream, token, ';')) {
+			const size_t equals = token.find('=');
+			if (equals == std::string::npos)
+				continue;
+			std::string key = token.substr(0, equals);
+			key.erase(0, key.find_first_not_of(" \t"));
+			key.erase(key.find_last_not_of(" \t") + 1);
+			if (key != "profile-space" && key != "profile-id" && key != "tier-flag" && key != "level-id" &&
+			    key != "sprop-max-don-diff" && key != "profile" && key != "tier" && key != "level-idx")
+				continue;
+			unsigned value = 0;
+			std::istringstream number(token.substr(equals + 1));
+			if (number >> value) {
+				number >> std::ws;
+				if (!number.eof() || value > 65535 || !result.emplace(key, value).second)
+					valid = false;
+			} else
+				valid = false;
+		}
+		return result;
+	};
+	const auto offered = parameters(offer), actual = parameters(encoded);
+	if (!valid)
+		return false;
+	const auto get = [](const auto &values, const char *key, unsigned fallback) {
+		const auto it = values.find(key);
+		return it == values.end() ? fallback : it->second;
+	};
+	if (codec == ExtendedVideoCodec::HEVC) {
+		// Range extensions share profile-id=4. Their constraint bits distinguish
+		// 4:4:4, bit depths and other incompatible formats; require exact agreement.
+		if (get(actual, "profile-id", 1) >= 4) {
+			const auto constraints = [](const std::string &fmtp) {
+				std::istringstream stream(fmtp);
+				std::string token;
+				while (std::getline(stream, token, ';')) {
+					token.erase(
+					    std::remove_if(token.begin(), token.end(), [](unsigned char c) { return std::isspace(c); }),
+					    token.end());
+					std::transform(token.begin(), token.end(), token.begin(),
+					               [](unsigned char c) { return std::tolower(c); });
+					if (token.rfind("interop-constraints=", 0) == 0)
+						return token.substr(19);
+				}
+				return std::string("b00000000000");
+			};
+			if (constraints(offer) != constraints(encoded))
+				return false;
+		}
+		return get(offered, "profile-space", 0) == get(actual, "profile-space", 0) &&
+		       get(offered, "profile-id", 1) == get(actual, "profile-id", 1) &&
+		       get(offered, "tier-flag", 0) >= get(actual, "tier-flag", 0) &&
+		       get(offered, "level-id", 93) >= get(actual, "level-id", 93) &&
+		       get(offered, "sprop-max-don-diff", 0) == 0;
+	}
+	return get(offered, "profile", 0) >= get(actual, "profile", 0) &&
+	       get(offered, "tier", 0) >= get(actual, "tier", 0) &&
+	       get(offered, "level-idx", 5) >= get(actual, "level-idx", 5);
+}
+
+std::optional<VideoRtpPayloads> packetizeHevc(const uint8_t *data, size_t size, size_t maxPayload)
+{
+	std::vector<CodecUnit> units;
+	if (maxPayload < 4 || !hevcUnits(data, size, units))
+		return std::nullopt;
+	VideoRtpPayloads result;
+	for (const auto &unit : units) {
+		if (unit.size <= maxPayload) {
+			result.emplace_back(unit.data, unit.data + unit.size);
+			continue;
+		}
+		for (size_t offset = 2; offset < unit.size;) {
+			const size_t chunk = std::min(maxPayload - 3, unit.size - offset);
+			std::vector<uint8_t> payload{static_cast<uint8_t>((unit.data[0] & 0x81) | (49 << 1)), unit.data[1],
+			                             static_cast<uint8_t>(((unit.data[0] >> 1) & 63) | (offset == 2 ? 0x80 : 0) |
+			                                                  (offset + chunk == unit.size ? 0x40 : 0))};
+			payload.insert(payload.end(), unit.data + offset, unit.data + offset + chunk);
+			result.push_back(std::move(payload));
+			offset += chunk;
+		}
+	}
+	return result;
+}
+
+std::optional<VideoRtpPayloads> packetizeAv1(const uint8_t *data, size_t size, size_t maxPayload)
+{
+	VideoRtpPayloads units, result;
+	if (maxPayload < 4 || !av1Units(data, size, units))
+		return std::nullopt;
+	for (const auto &unit : units) {
+		for (size_t offset = 0; offset < unit.size();) {
+			const size_t chunk = std::min(maxPayload - 1, unit.size() - offset);
+			// W=1: a single OBU element, with its length inferred from the packet.
+			const bool sequenceStart = result.empty() && ((unit[0] >> 3) & 15) == 1;
+			std::vector<uint8_t> payload{static_cast<uint8_t>(
+			    0x10 | (offset ? 0x80 : 0) | (offset + chunk < unit.size() ? 0x40 : 0) | (sequenceStart ? 8 : 0))};
+			payload.insert(payload.end(), unit.begin() + offset, unit.begin() + offset + chunk);
+			result.push_back(std::move(payload));
+			offset += chunk;
+		}
+	}
+	return result;
+}
+
+void VideoRtpAssembler::reset()
+{
+	active_ = false;
+	rejectedTimestamp_.reset();
+	frame_.clear();
+	fragment_.clear();
+}
+
+std::optional<std::vector<uint8_t>> VideoRtpAssembler::push(ExtendedVideoCodec codec, const uint8_t *payload,
+                                                            size_t size, uint32_t timestamp, bool marker)
+{
+	if (rejectedTimestamp_ == timestamp)
+		return std::nullopt;
+	if (!active_ || timestamp != timestamp_) {
+		reset();
+		active_ = true;
+		timestamp_ = timestamp;
+	}
+	if (!payload || !size || size > maxBytes / 4 || frame_.size() + fragment_.size() + size * 4 > maxBytes ||
+	    !(codec == ExtendedVideoCodec::HEVC ? appendHevc(payload, size) : appendAv1(payload, size))) {
+		reset();
+		rejectedTimestamp_ = timestamp;
+		return std::nullopt;
+	}
+	if (!marker)
+		return std::nullopt;
+	if (!fragment_.empty() || frame_.empty()) {
+		reset();
+		rejectedTimestamp_ = timestamp;
+		return std::nullopt;
+	}
+	auto result = std::move(frame_);
+	reset();
+	return result;
+}
+
+bool VideoRtpAssembler::appendHevc(const uint8_t *payload, size_t size)
+{
+	if (size < 2 || (payload[0] & 0x81) || (payload[1] & 0xf8) || !(payload[1] & 7))
+		return false;
+	const unsigned type = (payload[0] >> 1) & 63;
+	const auto appendNal = [&](const uint8_t *data, size_t length) {
+		frame_.insert(frame_.end(), {0, 0, 0, 1});
+		frame_.insert(frame_.end(), data, data + length);
+	};
+	if (type < 48) {
+		if (!fragment_.empty())
+			return false;
+		appendNal(payload, size);
+		return true;
+	}
+	if (type == 48) {
+		if (!fragment_.empty())
+			return false;
+		size_t offset = 2;
+		unsigned count = 0;
+		while (offset + 2 <= size) {
+			const size_t length = (size_t(payload[offset]) << 8) | payload[offset + 1];
+			offset += 2;
+			if (length < 2 || length > size - offset || ((payload[offset] >> 1) & 63) >= 48 ||
+			    (payload[offset] & 0x81) || (payload[offset + 1] & 0xf8) || !(payload[offset + 1] & 7))
+				return false;
+			appendNal(payload + offset, length);
+			offset += length;
+			++count;
+		}
+		return offset == size && count > 0;
+	}
+	if (type != 49 || size < 4)
+		return false; // No PACI or DONL in the negotiated single-layer mode.
+	const bool start = (payload[2] & 0x80) != 0, end = (payload[2] & 0x40) != 0;
+	const unsigned nalType = payload[2] & 63;
+	if (nalType >= 48 || (start && end))
+		return false;
+	const uint8_t header = static_cast<uint8_t>((payload[0] & 0x81) | (nalType << 1));
+	if (start) {
+		if (!fragment_.empty())
+			return false;
+		fragment_ = {header, payload[1]};
+	} else if (fragment_.size() < 2 || fragment_[0] != header || fragment_[1] != payload[1])
+		return false;
+	fragment_.insert(fragment_.end(), payload + 3, payload + size);
+	if (end) {
+		appendNal(fragment_.data(), fragment_.size());
+		fragment_.clear();
+	}
+	return true;
+}
+
+bool VideoRtpAssembler::appendObu(const uint8_t *data, size_t size)
+{
+	if (!size || (data[0] & 0x81))
+		return false;
+	const size_t headerSize = (data[0] & 4) ? 2 : 1;
+	if (size < headerSize || (headerSize == 2 && (data[1] & 7)))
+		return false;
+	size_t offset = headerSize, length = size - offset;
+	if (data[0] & 2) {
+		if (!readLeb(data, size, offset, length) || length != size - offset)
+			return false;
+	}
+	const unsigned type = (data[0] >> 3) & 15;
+	if (type == 2 || type == 8 || type == 15)
+		return true;
+	frame_.push_back(data[0] | 2); // FFmpeg's low-overhead OBU format needs the size field.
+	if (headerSize == 2)
+		frame_.push_back(data[1]);
+	writeLeb(frame_, length);
+	frame_.insert(frame_.end(), data + offset, data + size);
+	return true;
+}
+
+bool VideoRtpAssembler::appendAv1(const uint8_t *payload, size_t size)
+{
+	if (size < 2 || (payload[0] & 7))
+		return false;
+	if ((payload[0] & 8) && !frame_.empty())
+		return false;
+	const bool continuation = (payload[0] & 0x80) != 0, continues = (payload[0] & 0x40) != 0;
+	if ((continuation && (payload[0] & 8)) || continuation != !fragment_.empty())
+		return false;
+	const unsigned count = (payload[0] >> 4) & 3;
+	size_t offset = 1;
+	unsigned index = 0;
+	while (offset < size) {
+		++index;
+		size_t length = size - offset;
+		if ((!count || index < count) && !readLeb(payload, size, offset, length))
+			return false;
+		if (!length || length > size - offset || (count && index > count))
+			return false;
+		const bool last = offset + length == size;
+		if ((index == 1 && continuation) || (last && continues)) {
+			fragment_.insert(fragment_.end(), payload + offset, payload + offset + length);
+			if (!(last && continues)) {
+				if (!appendObu(fragment_.data(), fragment_.size()))
+					return false;
+				fragment_.clear();
+			}
+		} else if (!appendObu(payload + offset, length))
+			return false;
+		offset += length;
+	}
+	return index != 0 && (!count || index == count);
+}
 
 bool isVp9Keyframe(const uint8_t *data, size_t size)
 {

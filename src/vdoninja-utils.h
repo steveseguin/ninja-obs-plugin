@@ -5,8 +5,10 @@
 
 #pragma once
 
+#include <array>
 #include <chrono>
 #include <map>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -37,9 +39,17 @@ struct SdpOfferedMediaSection {
 	std::string type;
 	std::string mid;
 	int port = -1;
+	// JSEP max-bundle offers use port 0 plus a=bundle-only for every section after the first.
+	bool bundleOnly = false;
 	std::string direction = "sendrecv";
 	std::vector<int> payloadTypes;
 	std::vector<SdpOfferedCodec> codecs;
+	struct HeaderExtension {
+		int id;
+		std::string direction;
+		std::string uri;
+	};
+	std::vector<HeaderExtension> headerExtensions;
 };
 
 // UUID generation
