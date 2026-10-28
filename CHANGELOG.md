@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.77] - 2026-10-28
+
 ### Added
 - Publish HEVC/H.265 and AV1 through the selected OBS encoder, including available hardware encoders, and receive both in the native source. Add bounded RTP fragmentation/reassembly, recovery headers, and sequence-header-based profile negotiation. H.264 remains the default.
 - Keep HEVC/AV1 publishing at 8-bit 4:2:0 by default. Add an explicit advanced opt-in to preserve the OBS source format for compatible 4:4:4/Main10 encoders and receivers; native output remains 8-bit, without HDR tone mapping.
