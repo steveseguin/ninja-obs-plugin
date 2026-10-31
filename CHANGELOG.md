@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.79] - 2026-10-31
+
 ### Changed
 - Separate previously unfinished six-channel audio, WHEP hosting and alpha-test tooling onto `work/parked-unfinished-features`. Main retains the Guest Return changes. Published v1.1.78 and its release notes are unchanged.
 
