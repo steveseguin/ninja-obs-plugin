@@ -25,6 +25,7 @@
 #include "vdoninja-source.h"
 #include "vdoninja-utils.h"
 #include "vdoninja-video-color.h"
+#include "vdoninja-whep-host.h"
 
 extern "C" {
 #include <libavcodec/avcodec.h>
@@ -182,6 +183,69 @@ std::vector<uint8_t> encodeVp9Keyframe(uint8_t luma)
 	}
 	require(result >= 0, "failed to receive VP9 packet: " + ffmpegError(result));
 	require((packet->flags & AV_PKT_FLAG_KEY) != 0, "generated VP9 access unit was not a keyframe");
+	std::vector<uint8_t> accessUnit(packet->data, packet->data + packet->size);
+
+	av_packet_free(&packet);
+	av_frame_free(&frame);
+	avcodec_free_context(&context);
+	return accessUnit;
+}
+
+std::vector<uint8_t> encodeH264Keyframe(uint8_t luma)
+{
+	const AVCodec *codec = avcodec_find_encoder(AV_CODEC_ID_H264);
+	require(codec != nullptr, "FFmpeg H264 encoder is unavailable");
+
+	AVCodecContext *context = avcodec_alloc_context3(codec);
+	require(context != nullptr, "failed to allocate H264 encoder context");
+	context->width = 16;
+	context->height = 16;
+	context->pix_fmt = AV_PIX_FMT_YUV420P;
+	context->time_base = AVRational{1, 90000};
+	context->framerate = AVRational{30, 1};
+	context->gop_size = 1;
+	context->max_b_frames = 0;
+	context->bit_rate = 100000;
+	av_opt_set(context->priv_data, "preset", "ultrafast", 0);
+	av_opt_set(context->priv_data, "tune", "zerolatency", 0);
+
+	const int openResult = avcodec_open2(context, codec, nullptr);
+	if (openResult < 0) {
+		const std::string message = "failed to open H264 encoder: " + ffmpegError(openResult);
+		avcodec_free_context(&context);
+		throw std::runtime_error(message);
+	}
+
+	AVFrame *frame = av_frame_alloc();
+	AVPacket *packet = av_packet_alloc();
+	require(frame != nullptr && packet != nullptr, "failed to allocate H264 encoder frame/packet");
+	frame->format = context->pix_fmt;
+	frame->width = context->width;
+	frame->height = context->height;
+	frame->pts = 0;
+	const int bufferResult = av_frame_get_buffer(frame, 32);
+	require(bufferResult >= 0, "failed to allocate H264 encoder frame buffer");
+	require(av_frame_make_writable(frame) >= 0, "failed to make H264 encoder frame writable");
+	for (int y = 0; y < frame->height; ++y) {
+		std::memset(frame->data[0] + static_cast<ptrdiff_t>(y) * frame->linesize[0], luma,
+		            static_cast<size_t>(frame->width));
+	}
+	for (int plane = 1; plane <= 2; ++plane) {
+		for (int y = 0; y < frame->height / 2; ++y) {
+			std::memset(frame->data[plane] + static_cast<ptrdiff_t>(y) * frame->linesize[plane], 128,
+			            static_cast<size_t>(frame->width / 2));
+		}
+	}
+
+	int result = avcodec_send_frame(context, frame);
+	require(result >= 0, "failed to submit H264 encoder frame: " + ffmpegError(result));
+	result = avcodec_receive_packet(context, packet);
+	if (result == AVERROR(EAGAIN)) {
+		require(avcodec_send_frame(context, nullptr) >= 0, "failed to flush H264 encoder");
+		result = avcodec_receive_packet(context, packet);
+	}
+	require(result >= 0, "failed to receive H264 packet: " + ffmpegError(result));
+	require((packet->flags & AV_PKT_FLAG_KEY) != 0, "generated H264 access unit was not a keyframe");
 	std::vector<uint8_t> accessUnit(packet->data, packet->data + packet->size);
 
 	av_packet_free(&packet);
@@ -2276,6 +2340,212 @@ void testIceRestartRetiresOldPeerWithoutHoldingItsMediaLock()
 	require(snapshots.size() == 1 && snapshots[0].videoSendEnabled && !snapshots[0].audioSendEnabled,
 	        "restart did not preserve the viewer media-enable state");
 	receiver->close();
+	manager.stopPublishing();
+}
+
+void testWhepPublisherCodec(VideoCodec codec)
+{
+	VDONinjaSignaling signaling;
+	VDONinjaPeerManager manager;
+	manager.initialize(&signaling);
+	manager.setIceServers({{"stun:127.0.0.1:9"}});
+	manager.setVideoCodec(codec);
+	const std::string format = codec == VideoCodec::H265 ? "profile-id=1;level-id=93" : "profile=0;level-idx=5;tier=0";
+	manager.setEncodedVideoFormat(format);
+	manager.setVideoColorSpace(std::array<uint8_t, 4>{1, 1, 1, 0x10});
+	manager.startPublishing(2);
+	const auto videoFrame = codec == VideoCodec::H264   ? encodeH264Keyframe(90)
+	                        : codec == VideoCodec::H265 ? std::vector<uint8_t>{0, 0, 0, 1, 0x26, 1, 0xab}
+	                                                    : std::vector<uint8_t>{0x32, 1, 0xab};
+	const uint8_t opus[] = {0xf8, 0xff, 0xfe};
+	std::vector<std::shared_ptr<rtc::PeerConnection>> clients;
+	std::vector<std::shared_ptr<rtc::Track>> tracks;
+	std::atomic<int> videos{0}, audios{0}, wrongPayload{0};
+	std::atomic<int> videosPer[2]{}, audiosPer[2]{};
+	std::atomic<int> colorPackets{0}, unexpectedColorPackets{0};
+	std::mutex repairMutex;
+	rtc::binary repairPacket;
+	// Sender reports share the track with RTP and must not count as a wrong payload.
+	const auto rtpPayloadType = [](const rtc::binary &bytes) {
+		if (bytes.size() < 12)
+			return -1;
+		const auto second = std::to_integer<uint8_t>(bytes[1]);
+		return bytes.size() > 12 && (second < 200 || second > 207) ? static_cast<int>(second & 127) : -1;
+	};
+	for (int index = 0; index < 2; ++index) {
+		rtc::Configuration config{};
+		config.disableAutoNegotiation = true;
+		auto pc = std::make_shared<rtc::PeerConnection>(config);
+		rtc::Description::Video video("picture", rtc::Description::Direction::RecvOnly);
+		if (index == 0)
+			video.addExtMap({7, kColorSpaceExtensionUri, rtc::Description::Direction::RecvOnly});
+		if (codec == VideoCodec::H265) {
+			// Browsers can list several profiles; the first need not match the encoder.
+			video.addH265Codec(101, "profile-id=2;level-id=93");
+			video.addH265Codec(102, format);
+		} else if (codec == VideoCodec::AV1) {
+			video.addAV1Codec(101, "profile=1;level-idx=0;tier=0");
+			video.addAV1Codec(102, format);
+		} else
+			video.addH264Codec(102);
+		rtc::Description::Audio audio("sound", rtc::Description::Direction::RecvOnly);
+		audio.addOpusCodec(109);
+		auto vt = pc->addTrack(video), at = pc->addTrack(audio);
+		vt->onMessage([&, index](rtc::message_variant message) {
+			if (const auto bytes = std::get_if<rtc::binary>(&message)) {
+				const int payloadType = rtpPayloadType(*bytes);
+				if (payloadType == 102) {
+					const bool hasExtension = (std::to_integer<uint8_t>((*bytes)[0]) & 0x10) != 0;
+					if (hasExtension) {
+						if (index != 0 || bytes->size() < 25 || (*bytes)[16] != std::byte{0x73} ||
+						    (*bytes)[20] != std::byte{0x10} || !(std::to_integer<uint8_t>((*bytes)[1]) & 0x80))
+							++unexpectedColorPackets;
+						else
+							++colorPackets;
+					}
+					if (index == 0) {
+						std::lock_guard<std::mutex> lock(repairMutex);
+						if (repairPacket.empty())
+							repairPacket = *bytes;
+					}
+					++videos;
+					++videosPer[index];
+				} else if (payloadType >= 0) {
+					++wrongPayload;
+				}
+			}
+		});
+		at->onMessage([&, index](rtc::message_variant message) {
+			if (const auto bytes = std::get_if<rtc::binary>(&message)) {
+				const int payloadType = rtpPayloadType(*bytes);
+				if (payloadType == 109) {
+					++audios;
+					++audiosPer[index];
+				} else if (payloadType >= 0) {
+					++wrongPayload;
+				}
+			}
+		});
+		tracks.push_back(vt);
+		tracks.push_back(at);
+		pc->setLocalDescription(rtc::Description::Type::Offer);
+		requireEventually([&]() { return pc->gatheringState() == rtc::PeerConnection::GatheringState::Complete; },
+		                  "viewer ICE gathering");
+		const std::string id = "whep-test-" + std::to_string(index);
+		std::string offer(*pc->localDescription());
+		if (index == 0 && codec != VideoCodec::H264) {
+			std::string incompatible = offer;
+			const std::string profile = codec == VideoCodec::H265 ? "profile-id=1" : "level-idx=5";
+			const auto pos = incompatible.find(profile);
+			require(pos != std::string::npos, "viewer profile was not advertised");
+			incompatible.replace(pos, profile.size(), codec == VideoCodec::H265 ? "profile-id=2" : "level-idx=0");
+			require(!manager.acceptWhepViewer("incompatible-profile", incompatible),
+			        "incompatible viewer profile was accepted");
+		}
+		if (index == 1) {
+			// JSEP max-bundle offers mark every section after the first as bundle-only with port 0.
+			const auto audioLine = offer.find("m=audio ");
+			require(audioLine != std::string::npos, "viewer offer lacks the expected audio section");
+			const auto portStart = audioLine + 8;
+			offer.replace(portStart, offer.find(' ', portStart) - portStart, "0");
+			offer.insert(offer.find("\r\n", audioLine) + 2, "a=bundle-only\r\n");
+		}
+		require(manager.acceptWhepViewer(id, offer), "WHEP offer was rejected");
+		std::string answer;
+		requireEventually(
+		    [&]() {
+			    answer = manager.getWhepAnswer(id, true);
+			    return !answer.empty();
+		    },
+		    "WHEP answer gathering", 10s);
+		require(answer.find("a=mid:picture") != std::string::npos && answer.find("a=mid:sound") != std::string::npos,
+		        "offered MIDs changed");
+		require(answer.find("m=application") == std::string::npos, "WHEP answer added a data channel");
+		require(answer.find(std::string("a=rtpmap:102 ") + videoCodecRtpName(codec) + "/90000") != std::string::npos,
+		        "answer mislabeled the publishing codec");
+		pc->setRemoteDescription(rtc::Description(answer, "answer"));
+		requireEventually([&]() { return pc->state() == rtc::PeerConnection::State::Connected; },
+		                  "WHEP media connection", 10s);
+		clients.push_back(pc);
+	}
+	require(!manager.acceptWhepViewer("whep-over-limit", std::string(*clients[0]->localDescription())),
+	        "viewer limit was ignored");
+	for (uint32_t i = 1; i < 30; ++i) {
+		manager.sendVideoFrame(videoFrame.data(), videoFrame.size(), i * 3000, true);
+		manager.sendAudioFrame(opus, sizeof(opus), i * 960);
+		std::this_thread::sleep_for(20ms);
+	}
+	require(videos > 10 && audios > 10 && wrongPayload == 0, "negotiated RTP payloads did not arrive");
+	require(videosPer[1] > 10 && audiosPer[1] > 10, "bundle-only media sections were dropped");
+	require(colorPackets > 10 && unexpectedColorPackets == 0, "color metadata was missing or sent without negotiation");
+	// Send an actual encrypted RTCP NACK back through libdatachannel. Each codec
+	// must traverse the publisher's bounded cache and paced retransmission path.
+	rtc::binary nack(16, std::byte{0});
+	nack[0] = std::byte{0x81};
+	nack[1] = std::byte{205};
+	nack[3] = std::byte{3};
+	nack[7] = std::byte{1};
+	{
+		std::lock_guard<std::mutex> lock(repairMutex);
+		require(repairPacket.size() >= 12, "no packet available for repair");
+		std::copy(repairPacket.begin() + 8, repairPacket.begin() + 12, nack.begin() + 8);
+		nack[12] = repairPacket[2];
+		nack[13] = repairPacket[3];
+	}
+	require(tracks[0]->send(nack), "RTCP NACK could not be sent");
+	uint64_t cacheHits = 0, repairsSent = 0;
+	// The receiver already saw the original SRTP sequence; its replay filter
+	// may discard this repeat. Actual loss is exercised by the TURN workflow.
+	requireEventually(
+	    [&] {
+		    const auto feedback = manager.takeVideoFeedbackStats();
+		    cacheHits += feedback.nackCacheHits;
+		    repairsSent += feedback.retransmissionsSent;
+		    return cacheHits > 0 && repairsSent > 0;
+	    },
+	    "codec paced NACK retransmission");
+	require(manager.disconnectPeer("whep-test-0"), "first WHEP viewer could not stop");
+	require(manager.getViewerCount() == 1 && clients[1]->state() == rtc::PeerConnection::State::Connected,
+	        "stopping one viewer affected another");
+	for (auto &track : tracks)
+		track->onMessage(nullptr);
+	for (auto &pc : clients)
+		pc->close();
+	manager.stopPublishing();
+}
+
+void testWhepPublisherNegotiatesPerViewer()
+{
+	testWhepPublisherCodec(VideoCodec::H264);
+}
+void testWhepPublisherHevc()
+{
+	testWhepPublisherCodec(VideoCodec::H265);
+}
+void testWhepPublisherAv1()
+{
+	testWhepPublisherCodec(VideoCodec::AV1);
+}
+
+void runWhepBrowserFixture(const std::string &endpoint, const std::string &token)
+{
+	require(endpoint.rfind("ws://127.0.0.1:", 0) == 0, "WHEP fixture only accepts a loopback broker");
+	VDONinjaSignaling signaling;
+	VDONinjaPeerManager manager;
+	manager.initialize(&signaling);
+	manager.setIceServers({{"stun:127.0.0.1:9"}});
+	manager.startPublishing(5);
+	VDONinjaWhepHost host(manager);
+	const auto frame = encodeH264Keyframe(90);
+	const uint8_t opus[] = {0xf8, 0xff, 0xfe};
+	host.start(token, endpoint);
+	std::cout << "WHEP_FIXTURE_READY" << std::endl;
+	for (uint32_t i = 1; i < 3000; ++i) {
+		manager.sendVideoFrame(frame.data(), frame.size(), i * 1800, true);
+		manager.sendAudioFrame(opus, sizeof(opus), i * 960);
+		std::this_thread::sleep_for(20ms);
+	}
+	host.stop();
 	manager.stopPublishing();
 }
 
@@ -5685,12 +5955,19 @@ int main(int argc, char **argv)
 	} rtcCleanup;
 
 	try {
+		if (argc == 4 && std::string(argv[1]) == "--whep-browser-fixture") {
+			runWhepBrowserFixture(argv[2], argv[3]);
+			return 0;
+		}
 		const std::vector<uint8_t> primaryAu = encodeVp9Keyframe(96);
 		const std::vector<uint8_t> alphaAu = encodeVp9Keyframe(72);
 		const auto primaryGop = encodeVp9Gop(80, 48);
 		const auto alphaGop = encodeVp9Gop(48, 48);
 		const std::vector<GateCase> cases = {
 		    {"decoded video color matrix and range", testDecodedVideoColor},
+		    {"WHEP per-viewer negotiation and RTP", testWhepPublisherNegotiatesPerViewer},
+		    {"WHEP HEVC negotiation and RTP", testWhepPublisherHevc},
+		    {"WHEP AV1 negotiation and RTP", testWhepPublisherAv1},
 		    {"publisher UDP port range binds real sockets", testPublisherUdpPortRangeBindsRealSockets},
 		    {"ICE restart retirement releases media locks", testIceRestartRetiresOldPeerWithoutHoldingItsMediaLock},
 		    {"RTC manager-to-source stale alpha add rejection",

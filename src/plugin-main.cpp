@@ -1049,6 +1049,8 @@ static obs_properties_t *vdoninja_service_properties(void *)
 	obs_properties_add_int(props, "max_viewers", tr("MaxViewers", "Max Viewers"), 1, 50, 1);
 
 	obs_properties_t *advanced = obs_properties_create();
+	obs_properties_add_text(advanced, "whep_token", tr("WhepToken", "WHEP link key (blank disables)"),
+	                        OBS_TEXT_PASSWORD);
 	addPublishUdpPortProperty(advanced);
 	obs_property_t *wssHost =
 	    obs_properties_add_text(advanced, "wss_host", tr("SignalingServer", "Signaling Server"), OBS_TEXT_DEFAULT);
@@ -1787,6 +1789,8 @@ static obs_properties_t *vdoninja_control_center_properties(void *data)
 	obs_property_text_set_info_word_wrap(peerStats, true);
 
 	obs_properties_t *advanced = obs_properties_create();
+	obs_properties_add_text(advanced, "whep_token", tr("WhepToken", "WHEP link key (blank disables)"),
+	                        OBS_TEXT_PASSWORD);
 	obs_property_t *udpPorts = addPublishUdpPortProperty(advanced);
 	wssHost =
 	    obs_properties_add_text(advanced, "wss_host", tr("SignalingServer", "Signaling Server"), OBS_TEXT_DEFAULT);

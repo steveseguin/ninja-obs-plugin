@@ -482,6 +482,8 @@ static obs_properties_t *vdoninja_output_properties(void *)
 	                          static_cast<int>(AutoLayoutMode::Grid));
 
 	obs_properties_t *advanced = obs_properties_create();
+	obs_properties_add_text(advanced, "whep_token", tr("WhepToken", "WHEP link key (blank disables)"),
+	                        OBS_TEXT_PASSWORD);
 	addPublishUdpPortProperty(advanced);
 	obs_property_t *wssHost =
 	    obs_properties_add_text(advanced, "wss_host", tr("SignalingServer", "Signaling Server"), OBS_TEXT_DEFAULT);
@@ -736,6 +738,7 @@ void VDONinjaOutput::loadSettings(obs_data_t *settings)
 
 	settings_.streamId = getStringSetting("stream_id");
 	settings_.roomId = getStringSetting("room_id");
+	settings_.whepToken = trim(getStringSetting("whep_token"));
 	settings_.password = getStringSetting("password");
 	settings_.wssHost = getStringSetting("wss_host");
 	std::string keySalt;
@@ -2306,9 +2309,20 @@ void VDONinjaOutput::startThread(OutputSettings settingsSnap)
 		// Configure reconnection
 		signaling_->setAutoReconnect(settingsSnap.autoReconnect, DEFAULT_RECONNECT_ATTEMPTS);
 
+		// Host WHEP viewers for this start attempt. stop() may already have taken
+		// ownership of the host, so only create it while the output is still running.
+		if (!settingsSnap.whepToken.empty()) {
+			std::lock_guard<std::mutex> whepLock(whepHostMutex_);
+			if (running_) {
+				whepHost_ = std::make_unique<VDONinjaWhepHost>(*peerManager_);
+				whepHost_->start(settingsSnap.whepToken);
+			}
+		}
+
 		// Connect to signaling server
 		if (!signaling_->connect(settingsSnap.wssHost)) {
 			logError("Failed to connect to signaling server");
+			stopWhepHost();
 			if (autoSceneManager_) {
 				autoSceneManager_->stop();
 			}
@@ -2323,13 +2337,27 @@ void VDONinjaOutput::startThread(OutputSettings settingsSnap)
 		obs_output_set_last_error(output_, e.what());
 		connected_ = false;
 		running_ = false;
+		stopWhepHost();
 		obs_output_signal_stop(output_, OBS_OUTPUT_ERROR);
 	} catch (...) {
 		logError("VDO.Ninja output start thread crashed: unknown exception");
 		obs_output_set_last_error(output_, "VDO.Ninja output thread crashed unexpectedly.");
 		connected_ = false;
 		running_ = false;
+		stopWhepHost();
 		obs_output_signal_stop(output_, OBS_OUTPUT_ERROR);
+	}
+}
+
+void VDONinjaOutput::stopWhepHost()
+{
+	std::unique_ptr<VDONinjaWhepHost> host;
+	{
+		std::lock_guard<std::mutex> whepLock(whepHostMutex_);
+		host = std::move(whepHost_);
+	}
+	if (host) {
+		host->stop();
 	}
 }
 
@@ -2349,6 +2377,7 @@ void VDONinjaOutput::stop(bool signalStop)
 		if (startStopThread_.joinable()) {
 			startStopThread_.join();
 		}
+		stopWhepHost();
 		restoreEncoderBitrate();
 		if (signalStop)
 			obs_output_end_data_capture(output_);
@@ -2388,6 +2417,10 @@ void VDONinjaOutput::stop(bool signalStop)
 	dataChannel_.setOnChatMessage(nullptr);
 	dataChannel_.setOnRemoteControl(nullptr);
 	dataChannel_.setOnTallyChange(nullptr);
+
+	// Stop admitting WHEP viewers before publishing stops. A start thread that is
+	// still connecting skips host creation once running_ is false.
+	stopWhepHost();
 
 	// Stop publishing
 	peerManager_->stopPublishing();

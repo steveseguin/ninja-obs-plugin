@@ -1,0 +1,448 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="Let VDO.Ninja guests see the OBS program, hear its audio, and read Social Stream Ninja chat in one browser window, with an optional OBS WHEP link."
+    />
+    <title>Give Guests Your OBS Program and Live Chat | OBS Plugin for VDO.Ninja</title>
+    <link rel="icon" type="image/x-icon" href="https://vdo.ninja/media/favicon.ico" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;700;800&family=JetBrains+Mono:wght@400;600&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --ink-strong: #10131a;
+        --ink: #1c2431;
+        --muted: #5f7289;
+        --card: #ffffff;
+        --line: #d9e3ef;
+        --accent: #00a596;
+        --accent-strong: #00786d;
+        --accent-soft: #e7faf8;
+        --warning-soft: #fff7e6;
+        --warning-line: #f0c36c;
+        --radius: 16px;
+        --shadow: 0 12px 40px rgba(5, 24, 43, 0.09);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html {
+        scroll-behavior: smooth;
+      }
+
+      body {
+        margin: 0;
+        font-family: "Outfit", "Segoe UI", sans-serif;
+        color: var(--ink);
+        background:
+          radial-gradient(circle at 5% 0%, #d5f4ef 0%, transparent 40%),
+          radial-gradient(circle at 95% 10%, #d9e9ff 0%, transparent 45%),
+          linear-gradient(180deg, #f5f8fd 0%, #eff4fb 100%);
+      }
+
+      a {
+        color: #0d6a9e;
+      }
+
+      .wrap {
+        width: min(920px, 92vw);
+        margin: 0 auto;
+      }
+
+      header {
+        padding: 20px 0;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+      }
+
+      .brand {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        color: var(--ink-strong);
+        font-weight: 700;
+        text-decoration: none;
+      }
+
+      .brand img {
+        width: 28px;
+        height: 28px;
+        object-fit: contain;
+        border-radius: 7px;
+        box-shadow: 0 0 0 5px rgba(0, 165, 150, 0.14);
+      }
+
+      .nav {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+      }
+
+      .nav a {
+        color: var(--ink);
+        text-decoration: none;
+        border: 1px solid var(--line);
+        background: rgba(255, 255, 255, 0.7);
+        padding: 8px 12px;
+        border-radius: 999px;
+      }
+
+      main {
+        display: grid;
+        gap: 14px;
+        padding-bottom: 34px;
+      }
+
+      .hero,
+      .section {
+        background: var(--card);
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        padding: clamp(18px, 4vw, 30px);
+        box-shadow: var(--shadow);
+      }
+
+      .eyebrow {
+        margin: 0;
+        color: var(--accent-strong);
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        font-size: 0.76rem;
+        font-weight: 700;
+      }
+
+      h1 {
+        margin: 10px 0 10px;
+        color: var(--ink-strong);
+        font-size: clamp(2rem, 6vw, 3.2rem);
+        line-height: 1.06;
+      }
+
+      h2 {
+        margin: 0 0 12px;
+        color: var(--ink-strong);
+        font-size: 1.3rem;
+      }
+
+      p {
+        line-height: 1.55;
+      }
+
+      .lede {
+        margin: 0;
+        color: var(--muted);
+        max-width: 68ch;
+        font-size: 1.08rem;
+      }
+
+      .warning {
+        margin-top: 20px;
+        padding: 14px 16px;
+        border: 1px solid var(--warning-line);
+        border-radius: 12px;
+        background: var(--warning-soft);
+      }
+
+      ol,
+      ul {
+        margin: 0;
+        padding-left: 1.3rem;
+        color: var(--muted);
+      }
+
+      li {
+        line-height: 1.5;
+      }
+
+      li + li {
+        margin-top: 8px;
+      }
+
+      li strong,
+      p strong {
+        color: var(--ink);
+      }
+
+      code {
+        font-family: "JetBrains Mono", monospace;
+        font-size: 0.86em;
+        color: #133a36;
+        background: #eaf6f3;
+        border: 1px solid #c8e7e2;
+        border-radius: 6px;
+        padding: 2px 6px;
+        overflow-wrap: anywhere;
+      }
+
+      .table-wrap {
+        margin: 16px 0 4px;
+        overflow-x: auto;
+        border: 1px solid var(--line);
+        border-radius: 12px;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.96rem;
+      }
+
+      th,
+      td {
+        padding: 12px 14px;
+        text-align: left;
+        vertical-align: top;
+        border-bottom: 1px solid var(--line);
+      }
+
+      th {
+        background: #fbfdff;
+        color: var(--ink-strong);
+        font-weight: 700;
+      }
+
+      tr:last-child td {
+        border-bottom: 0;
+      }
+
+      footer {
+        padding: 2px 0 34px;
+        color: #6f8298;
+        font-size: 0.92rem;
+      }
+
+      @media (max-width: 760px) {
+        header {
+          align-items: flex-start;
+          flex-direction: column;
+        }
+
+        .nav {
+          justify-content: flex-start;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <a class="brand" href="./">
+          <img
+            src="https://raw.githubusercontent.com/steveseguin/vdo.ninja/develop/media/vdoninja.png"
+            alt="VDO.Ninja logo"
+          />
+          <span>OBS Plugin for VDO.Ninja</span>
+        </a>
+        <nav class="nav">
+          <a href="#room">Room publishing</a>
+          <a href="#chat">Live chat</a>
+          <a href="#whep">WHEP link</a>
+          <a href="#audio">Guest audio</a>
+          <a href="#troubleshooting">Troubleshooting</a>
+        </nav>
+      </header>
+
+      <main>
+        <section class="hero">
+          <p class="eyebrow">Guest workflow guide</p>
+          <h1>Give guests your OBS program and live chat</h1>
+          <p class="lede">
+            Your guests can join a VDO.Ninja room, see the OBS program, hear its audio, and read Social Stream Ninja
+            chat in the same browser window.
+          </p>
+          <div class="warning">
+            <strong>Development status:</strong> the Share a link WHEP controls and plugin WHEP hosting described
+            below require the updated frontend, plugin, and WHEP broker. They are development changes until those
+            versions are released and deployed.
+          </div>
+        </section>
+
+        <section class="section" id="room">
+          <h2>1. Start with ordinary room publishing</h2>
+          <p>
+            If OBS is also streaming to YouTube or another destination, use the separate
+            <strong>Guest Return</strong> tab instead of changing your main streaming service.
+            Set the same room and password, exclude all guest microphones from the return audio track,
+            and use <strong>Copy room guest invite</strong>. See the
+            <a href="https://github.com/steveseguin/ninja-obs-plugin/blob/main/QUICKSTART.md#return-the-obs-program-to-a-group-room">group return guide</a>.
+          </p>
+          <ol>
+            <li>
+              Create a VDO.Ninja room as its director. Send each guest their invite link. Bring their feeds into OBS
+              using the plugin's receiving sources or OBS Browser Sources.
+            </li>
+            <li>
+              In OBS, select the VDO.Ninja streaming service. In <strong>Tools → VDO.Ninja Studio</strong>, set the
+              stream ID, room ID, and matching password.
+            </li>
+            <li>
+              Check OBS's streaming audio-track selection and the mixer tracks assigned to it, then start streaming.
+              The plugin sends video and audio together. OBS Virtual Camera and virtual audio cables are unnecessary
+              for this path.
+            </li>
+            <li>
+              The program publisher already sends to guests in that room. Use the room's existing layout and
+              highlight controls to arrange what guests see.
+            </li>
+          </ol>
+          <p>
+            The plugin uses OBS's main Start Streaming output. It cannot also send that same output to a different
+            streaming service at the same time. WHEP adds viewers to the active VDO.Ninja output; it does not create a
+            second OBS streaming output.
+          </p>
+        </section>
+
+        <section class="section" id="chat">
+          <h2>2. Add live chat beside the video</h2>
+          <ol>
+            <li>Open your Social Stream Ninja session and copy its chat dock/viewing URL.</li>
+            <li>
+              In the VDO.Ninja director's room settings, enable <strong>Embed a sidebar widget for all</strong> and
+              paste that URL.
+            </li>
+            <li>Have a guest confirm that the chat sidebar appears and that new messages arrive.</li>
+          </ol>
+          <p>
+            Use the chat viewing link appropriate for guests. A page that refuses embedding needs to be opened
+            separately. The sidebar is separate from Share a link, so chat can stay visible while a shared video
+            changes.
+          </p>
+        </section>
+
+        <section class="section" id="whep">
+          <h2>3. Share an OBS WHEP link</h2>
+          <p>
+            This is useful when the program should be shared as an additional video, or when a guest wants to share
+            a WHEP source from elsewhere.
+          </p>
+          <ol>
+            <li>
+              Before going live, click <strong>Enable WHEP / Copy Link</strong> in VDO.Ninja Studio. This creates a
+              separate WHEP key and copies a URL beginning with <code>https://whep.vdo.ninja/</code>. If already live
+              without WHEP enabled, stop, enable it, and start again.
+            </li>
+            <li>
+              Start the VDO.Ninja output in OBS. The copied URL works while that output is running. Anyone with the
+              URL can watch; the room password does not protect this separate link.
+            </li>
+            <li>
+              In VDO.Ninja, either a guest or the director clicks <strong>Share a link</strong> and pastes it. Known
+              WHEP URLs are detected automatically. For another endpoint, choose <strong>WHEP video</strong>. A normal
+              webpage uses <strong>Website</strong>.
+            </li>
+            <li>
+              If the endpoint needs a bearer token, choose <strong>WHEP video</strong> to show the token field and
+              enter it there. That token must be shared with the viewers so their players can connect.
+            </li>
+            <li>
+              Click <strong>Change or stop sharing</strong> to replace the link or remove it. Your own preview has no
+              audio.
+            </li>
+          </ol>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Already sharing</th>
+                  <th>What a new WHEP link does</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Camera or main WHEP feed</td>
+                  <td>Adds an extra video; keeps the main feed running.</td>
+                </tr>
+                <tr>
+                  <td>A WHEP link through Share a link</td>
+                  <td>Replaces that extra video.</td>
+                </tr>
+                <tr>
+                  <td>A screen share in the extra-video slot</td>
+                  <td>Asks before replacing the screen share.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p>
+            There is one main feed and one extra screen/WHEP feed. Ordinary website links keep their existing
+            embedded-page behavior. To disable plugin WHEP hosting, clear
+            <strong>WHEP link key (blank disables)</strong> in the streaming settings and restart the output.
+          </p>
+        </section>
+
+        <section class="section" id="audio">
+          <h2>4. Keep guest audio comfortable</h2>
+          <p>
+            A full OBS program often contains the guest's own voice. Sending it back makes them hear themselves with
+            a delay. Choose an OBS streaming audio track that contains the audio they need and excludes their own
+            microphone where possible. Headphones help with speaker feedback, but do not remove a delayed copy of
+            their voice from the program.
+          </p>
+          <p>
+            One shared program audio track cannot provide a different mix-minus for every guest. Decide which audio
+            belongs in that return feed before using it as the guests' main monitoring source.
+          </p>
+        </section>
+
+        <section class="section" id="troubleshooting">
+          <h2>If video or audio does not arrive</h2>
+          <ul>
+            <li>
+              <strong>Works locally, fails on another network:</strong> the public WHEP broker exchanges connection
+              messages; it does not relay the program itself. Configure working TURN servers in the plugin's Custom
+              STUN/TURN Servers setting for restrictive networks. Test with a guest outside your network.
+            </li>
+            <li>
+              <strong>Video but no program audio:</strong> check the OBS streaming track and its mixer assignments. A
+              browser may also need a click to allow audio playback.
+            </li>
+            <li>
+              <strong>WHEP URL opens as a webpage:</strong> paste it into Share a link and choose WHEP video. The
+              endpoint must support browser CORS. Use HTTPS for a remotely hosted endpoint.
+            </li>
+            <li>
+              <strong>Too many viewers:</strong> WHEP viewers and ordinary VDO.Ninja viewers share the plugin's viewer
+              limit and upload capacity. Each viewer receives a separate media connection.
+            </li>
+            <li>
+              <strong>Still using OBS Virtual Camera:</strong> it provides video only. The browser needs a separate
+              audio input; on Windows, a virtual cable's recording/output device is normally the input selected in
+              VDO.Ninja. Restart the browser after installing or changing virtual audio devices.
+            </li>
+          </ul>
+          <p>
+            Other streamers can receive the program in their own OBS and choose their own broadcast destination.
+            Avoid returning their broadcast or monitoring audio into the same shared program.
+          </p>
+        </section>
+
+        <section class="section">
+          <h2>References</h2>
+          <ul>
+            <li>
+              <a href="https://github.com/steveseguin/ninja-obs-plugin/blob/main/QUICKSTART.md#guest-return-alongside-a-public-stream"
+                >Guest Return alongside a public stream</a
+              >
+              for sending a dedicated return track while the public stream continues.
+            </li>
+            <li><a href="./#quick-start">OBS VDO.Ninja plugin quick start</a></li>
+          </ul>
+        </section>
+      </main>
+
+      <footer>OBS Plugin for VDO.Ninja - AGPL-3.0-only</footer>
+    </div>
+  </body>
+</html>

@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Host WHEP viewers directly from the OBS publisher through the `whep.vdo.ninja` broker. VDO.Ninja Studio gains an **Enable WHEP / Copy Link** button that creates the link key before going live; the key is also editable as **WHEP link key** in the service's advanced settings (blank disables). WHEP viewers count toward the viewer limit, negotiate the active publishing codec (H.264 with packetization-mode=1, HEVC, or AV1) and Opus per viewer, and receive no data channel. Anyone with the link can watch while the output is live.
+- Add a guide for giving guests the OBS program, its audio, and Social Stream Ninja chat (`docs/guests-program-and-chat.html`).
+
+### Fixed
+- WHEP offers that follow JSEP max-bundle (port 0 plus `a=bundle-only` on every media section after the first, as GStreamer `whepsrc` and max-bundle browser players send) keep all of their media sections instead of being answered video-only or audio-only.
+
+### Validation
+- `scripts/whep-host-native-e2e.py` runs the installed plugin in a review copy of portable OBS, hosts a WHEP link through the per-viewer-session broker (`--broker local` starts the `whip_private` fixture on loopback via the `VDONINJA_WHEP_ENDPOINT` override; `--broker hosted` needs that protocol deployed on whep.vdo.ninja), watches it in Chrome through the VDO.Ninja player, and cycles the output including an immediate stop. The native-media linked gate ignores RTCP when checking per-viewer payload types and covers a max-bundle WHEP offer.
+- The native-media linked gate covers per-viewer WHEP negotiation and RTP payload types. Hosted release remains pending the per-viewer broker protocol deployment.
+
 ## [1.1.78] - 2026-10-31
 
 ### Added

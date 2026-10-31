@@ -162,6 +162,9 @@ public:
 	bool isPublishing() const;
 	int getViewerCount() const;
 	int getMaxViewers() const;
+	bool acceptWhepViewer(const std::string &uuid, const std::string &offer);
+	std::string getWhepAnswer(const std::string &uuid, bool allowIncompleteGathering = false) const;
+	void addWhepCandidate(const std::string &uuid, const std::string &candidate, const std::string &mid);
 	bool requestIceRestart(const std::string &uuid, const std::string &session = "");
 
 	// Send media to all connected peers (viewers)
@@ -300,7 +303,7 @@ private:
 	// Create a new peer connection for a viewer (we send media to them)
 	std::shared_ptr<PeerInfo> createPublisherConnection(const std::string &uuid, const std::string &session = "",
 	                                                    const PublisherMediaState *initialMediaState = nullptr,
-	                                                    bool registerPeer = true);
+	                                                    bool registerPeer = true, const std::string &whepOffer = "");
 
 	// Create a new peer connection for viewing (we receive media from them)
 	std::shared_ptr<PeerInfo> createViewerConnection(const std::string &uuid);
@@ -370,7 +373,7 @@ private:
 #endif
 
 	// Setup tracks for publishing
-	void setupPublisherTracks(std::shared_ptr<PeerInfo> peer);
+	void setupPublisherTracks(std::shared_ptr<PeerInfo> peer, const std::string &whepOffer = "");
 	void prepareViewerTracks(const std::shared_ptr<PeerInfo> &peer, const std::string &offerSdp);
 	void clearPeerCallbacks(const std::shared_ptr<PeerInfo> &peer);
 	void releasePeerResources(const std::shared_ptr<PeerInfo> &peer);

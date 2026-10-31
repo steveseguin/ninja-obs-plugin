@@ -205,6 +205,9 @@ void VDONinjaDock::setupUi()
 
 	linkLayout->addWidget(btnView);
 	linkLayout->addWidget(btnPush);
+	auto *btnWhep = new QPushButton(obs_module_text_vdo("VDONinja.Dock.CopyWhepLink"), grpLinks);
+	connect(btnWhep, &QPushButton::clicked, this, &VDONinjaDock::onCopyWhepLink);
+	linkLayout->addWidget(btnWhep);
 
 	layout->addWidget(grpLinks);
 
@@ -518,6 +521,42 @@ void VDONinjaDock::onCopyPushLink()
 		QApplication::clipboard()->setText(url);
 		lblStatus->setText(obs_module_text_vdo("VDONinja.Dock.LinkCopied"));
 	}
+}
+
+void VDONinjaDock::onCopyWhepLink()
+{
+	std::string token;
+	if (obs_frontend_streaming_active()) {
+		auto *output = obs_frontend_get_streaming_output();
+		if (output && std::strcmp(obs_output_get_id(output), "vdoninja_output") == 0) {
+			auto *vdo = static_cast<VDONinjaOutput *>(obs_obj_get_data(output));
+			if (vdo)
+				token = vdo->getSettingsSnapshot().whepToken;
+		}
+		if (output)
+			obs_output_release(output);
+		if (token.empty()) {
+			lblStatus->setText(obs_module_text_vdo("VDONinja.Dock.WhepStopFirst"));
+			return;
+		}
+	} else {
+		if (!applySettingsToService(true))
+			return;
+		auto *service = obs_frontend_get_streaming_service();
+		auto *settings = copyPublishServiceSettings(service);
+		if (!settings)
+			return;
+		token = trim(obs_data_get_string(settings, "whep_token"));
+		if (token.empty()) {
+			token = generateUUID();
+			obs_data_set_string(settings, "whep_token", token.c_str());
+			obs_service_update(service, settings);
+			obs_frontend_save_streaming_service();
+		}
+		obs_data_release(settings);
+	}
+	QApplication::clipboard()->setText(QString::fromStdString("https://whep.vdo.ninja/" + urlEncode(token)));
+	lblStatus->setText(obs_module_text_vdo("VDONinja.Dock.WhepCopied"));
 }
 
 void VDONinjaDock::onGoLiveClicked()

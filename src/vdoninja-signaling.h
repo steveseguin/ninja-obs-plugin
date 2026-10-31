@@ -76,6 +76,7 @@ public:
 
 	// Connection management
 	bool connect(const std::string &wssHost = DEFAULT_WSS_HOST);
+	static const std::string &getCaCertificateFile();
 	void disconnect();
 	bool isConnected() const;
 
