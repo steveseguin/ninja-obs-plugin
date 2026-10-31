@@ -1896,10 +1896,7 @@ async function main() {
           const diagnosticsAtCaptureStart = diagnosticsObserver
             ? diagnosticsObserver.latest()
             : null;
-          // Initial alpha activation can replace the bootstrap transport before
-          // useful frames arrive. Bind each pre-action capture to its observed
-          // transport; the explicit transition evidence freezes the boundary.
-          if (checkpointPhase === "pre" && diagnosticsAtCaptureStart &&
+          if (!initialObservedPeer && diagnosticsAtCaptureStart &&
               diagnosticsAtCaptureStart.peer && diagnosticsAtCaptureStart.peer.connected) {
             initialObservedPeer = diagnosticsAtCaptureStart.peer;
           }
@@ -2285,7 +2282,6 @@ if (require.main === module) {
 }
 
 module.exports = {
-  decodePng,
   ObsWebSocketClient,
   analyzeAlphaComposite,
   analyzeAlphaCompositeImages,

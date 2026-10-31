@@ -73,14 +73,6 @@ int chooseViewerTargetBitrateKbps(uint32_t width, uint32_t height);
 uint32_t normalizeSourceDimension(int64_t value, uint32_t fallback, uint32_t minValue, uint32_t maxValue);
 int normalizeOpusSampleRate(int sampleRate);
 int normalizeOpusChannelCount(int channels);
-// Six discrete output slots, in SDP order (no implied Vorbis speaker reorder).
-struct MultiOpusConfig {
-	uint8_t streams = 0;
-	uint8_t coupledStreams = 0;
-	std::array<uint8_t, 6> mapping{};
-};
-std::optional<MultiOpusConfig> parseSixChannelMultiOpus(int rate, int channels, const std::string &parameters);
-std::vector<uint8_t> multiOpusHeader(const MultiOpusConfig &config);
 std::string buildViewerRequestMessage(uint32_t width, uint32_t height, bool guest,
                                       const std::string &viewerInfoJson = "");
 std::vector<std::string> buildIncomingSignalingPasswordCandidates(const std::string &messageStreamId,

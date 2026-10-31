@@ -2,6 +2,13 @@
 
 ## Scope
 
+Previously unfinished WHEP hosting, six-channel audio and alpha-test tooling are
+parked on [work/parked-unfinished-features](https://github.com/steveseguin/ninja-obs-plugin/tree/work/parked-unfinished-features).
+They are separate from this Guest Return task. Main no longer includes those
+imported changes. Historical v1.1.78 binaries and tags remain unchanged; the
+release measurements below describe those binaries, not a new release.
+No VDO.Ninja client, broker, signaling service or API changes are authorized.
+
 The plugin provides an independent OBS program return alongside the normal public
 stream. Room guests receive program video using `broadcast=RETURN_ID`, hear the
 selected OBS return track, and retain direct guest-to-guest audio. No VDO.Ninja
@@ -147,11 +154,8 @@ window: the driver now opens the popup through accessibility and sends the mouse
 click to that popup handle, rather than to the dock behind it.
 The failed 720p assertions are retained locally, not counted as reduced-size passes.
 
-Six-channel native reception passed distinct-tone 5.1 recording and reconnect.
-Stereo downmix passed its five main channels; OBS correctly omits the LFE channel.
-This used a packaged Game Capture publisher with synthetic capture, not physical
-six-channel hardware. 807 unit cases and 91 OBS/FFmpeg-linked cases passed in the
-combined working tree (three linked cases cover pending WHEP work).
+The combined validation build passed 807 unit and 91 OBS/FFmpeg-linked cases.
+Results belonging to the parked audio/WHEP work are retained on its branch.
 
 [Extended screenshot manifest](../media-assets/guest-return-room/extended/manifest.json)
 and [compact results](../media-assets/guest-return-room/extended/validation-results.json)
@@ -172,7 +176,6 @@ plus printable PDFs, are in `artifacts/guest-return-guides-published-1.1.78/`.
 - [x] Separate Firefox, iPhone Safari and Android Chrome remote playback checks.
 - [x] Proven UDP relay path and unreachable-relay negative check; fix direct fallback.
 - [x] Independent return size/FPS, final UI captures, and restart persistence.
-- [x] Six-channel 5.1 reception and stereo downmix with reconnect.
 - [x] Host, guest and pre-show visual guides; desktop/mobile review.
 - [x] Release packaging/CI, ZIP installation, checksum verification and final
   packaged-binary 20-guest room test.
@@ -183,11 +186,10 @@ plus printable PDFs, are in `artifacts/guest-return-guides-published-1.1.78/`.
   are useful gates but do not replace a room rehearsal on those hosts.
 - [ ] TCP/TLS-only TURN support: requires a suitable ICE backend and separate
   restricted-network tests. Current UDP relay checks do not establish this.
-- [ ] Hosted WHEP publication: production broker returned HTTP 504. A disposable WebSocket/HTTP protocol
-  probe confirmed its POST contains no `sessionId`, which the pending native
-  implementation requires. Preserve the
-  pending implementation, fix/deploy the broker protocol and rerun hosted E2E
-  before shipping its controls or guide. Local broker success is insufficient.
+WHEP hosting is outside this task and parked on the branch above. The failed
+check reflects an incompatible requirement in that unfinished adapter; it does
+not establish that the existing broker should change.
+
 - [ ] Native Meshcast/server distribution: separate feature requiring native
   WHIP publishing, server-return identity in room invitations, auth/reconnect
   handling and multi-device tests. Direct WHEP hosting does not reduce OBS upload.
@@ -201,8 +203,8 @@ excludes all guest mics and keeps their direct room conversation.
 ## Release verification
 
 v1.1.78 was cut with `scripts/release.ps1 -Action cut -Bump patch -Push` from
-a clean main checkout; pending WHEP work remains uncommitted in the original
-checkout. The clean release passed 807 unit and 88 native OBS/FFmpeg tests.
+a clean main checkout. Previously unfinished work was subsequently separated
+onto the branch above. The clean release passed 807 unit and 88 native OBS/FFmpeg tests.
 Windows (both OBS compatibility bands), macOS arm64 and Linux CI packages passed.
 The Arch source package also passed its current OBS 33 build, linked tests,
 install/reinstall, module initialization and removal after updating its SDK

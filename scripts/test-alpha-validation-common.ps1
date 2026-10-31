@@ -23,36 +23,6 @@ function Sync-PortableObsPluginPayload {
         New-Item -ItemType Directory -Force -Path (Split-Path $portableDll -Parent) | Out-Null
         Copy-Item $sourceDll $portableDll -Force
     }
-
-    # OBS resolves module resources relative to the installed DLL. The data-path
-    # environment variable alone does not install the release's locale files.
-    $sourceData = Join-Path $InstallPrefixPath "data\obs-plugins\obs-vdoninja"
-    if (-not (Test-Path -LiteralPath (Join-Path $sourceData "locale\en-US.ini"))) {
-        throw "Portable OBS sync requires module data at $sourceData"
-    }
-    foreach ($portableData in @(
-        (Join-Path $RepoRoot "_obs-portable\data\obs-plugins\obs-vdoninja"),
-        (Join-Path $RepoRoot "_obs-portable\config\obs-studio\plugins\obs-vdoninja\data")
-    )) {
-        New-Item -ItemType Directory -Force -Path $portableData | Out-Null
-        Copy-Item -Path (Join-Path $sourceData '*') -Destination $portableData -Recurse -Force
-    }
-}
-
-function Wait-AlphaMotionDemoWindow {
-    param([int]$TimeoutSeconds = 20)
-
-    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
-    do {
-        $window = Get-Process chrome -ErrorAction SilentlyContinue |
-            Where-Object { $_.MainWindowTitle -like '*GC Alpha Motion Demo*' } |
-            Select-Object -First 1
-        if ($window) {
-            return
-        }
-        Start-Sleep -Milliseconds 250
-    } while ((Get-Date) -lt $deadline)
-    throw "Chrome did not expose the GC Alpha Motion Demo capture window within $TimeoutSeconds seconds"
 }
 
 function Stop-AlphaMotionDemoProcesses {

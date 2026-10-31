@@ -29,7 +29,7 @@ $viewerOut = Join-Path $repoRoot "artifacts\\alpha-concurrent-browser.out.json"
 $viewerErr = Join-Path $repoRoot "artifacts\\alpha-concurrent-browser.err.log"
 $smokeOut = Join-Path $repoRoot "artifacts\\alpha-concurrent-smoke.out.log"
 $smokeErr = Join-Path $repoRoot "artifacts\\alpha-concurrent-smoke.err.log"
-$chromeProfile = Join-Path $repoRoot ("artifacts\\chrome-gc-alpha-concurrent-profile-" + [Guid]::NewGuid().ToString("N"))
+$chromeProfile = Join-Path $repoRoot "artifacts\\chrome-gc-alpha-concurrent-profile"
 
 foreach ($path in @($publisherOut, $publisherErr, $viewerOut, $viewerErr, $smokeOut, $smokeErr)) {
     if (Test-Path $path) {
@@ -53,13 +53,11 @@ $previousSkipCapture = $env:VDONINJA_SKIP_CAPTURE
 try {
     $chromeProc = Start-Process -FilePath $chromeExePath -ArgumentList @(
             "--user-data-dir=$chromeProfile",
-            "--no-first-run",
-            "--no-default-browser-check",
             "--autoplay-policy=no-user-gesture-required",
             "--app=$motionDemoUri",
             "--window-size=1280,720"
-        ) -WindowStyle Normal -PassThru
-    Wait-AlphaMotionDemoWindow
+        ) -PassThru
+    Start-Sleep -Seconds 2
 
     $publisherProc = Start-Process -FilePath $gameCaptureExePath -ArgumentList @(
             "--headless",
@@ -71,7 +69,7 @@ try {
             "--fps=30",
             "--bitrate-kbps=6000",
             "--duration-ms=$PublisherDurationMs",
-            '"--window=GC Alpha Motion Demo"'
+            "--window=GC Alpha Motion Demo"
         ) -RedirectStandardOutput $publisherOut -RedirectStandardError $publisherErr -PassThru
     Start-Sleep -Seconds $PublisherWarmupSeconds
 
@@ -81,9 +79,7 @@ try {
         ) -WorkingDirectory $repoRoot -RedirectStandardOutput $viewerOut -RedirectStandardError $viewerErr -PassThru
 
     $env:VDONINJA_WAIT_MS = [string]$ObsWaitMs
-    # The source checker skips its render wait when capture is disabled.
-    # Keep capture enabled so the native receiver overlaps the browser viewer.
-    $env:VDONINJA_SKIP_CAPTURE = "0"
+    $env:VDONINJA_SKIP_CAPTURE = "1"
     $smokeOutput = & powershell -ExecutionPolicy Bypass -File $smokeScriptPath `
         -Mode native `
         -StreamId $StreamId `

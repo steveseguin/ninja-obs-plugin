@@ -2972,23 +2972,7 @@ void VDONinjaSource::onAudioTrack(const PeerEventIdentity &identity, std::shared
 	int sampleRate = 48000;
 	int channels = 2;
 	const rtc::Description::Media description = track->description();
-	std::optional<MultiOpusConfig> multistream;
-	for (const int payload : description.payloadTypes()) {
-		const auto *codec = description.rtpMap(payload);
-		if (!codec || toLowerCopy(codec->format) != "multiopus" || codec->encParams != "6") {
-			continue;
-		}
-		std::string parameters;
-		for (const auto &fmtp : codec->fmtps)
-			parameters += fmtp + ";";
-		multistream = parseSixChannelMultiOpus(codec->clockRate, 6, parameters);
-		if (multistream) {
-			sampleRate = 48000;
-			channels = 6;
-			break;
-		}
-	}
-	if (!multistream && !mediaDescriptionHasCodec(description, "opus", &sampleRate, &channels)) {
+	if (!mediaDescriptionHasCodec(description, "opus", &sampleRate, &channels)) {
 		logError("Native receiver only supports Opus audio today; offered codecs: %s",
 		         describeMediaCodecs(description).c_str());
 		return;
@@ -2997,7 +2981,7 @@ void VDONinjaSource::onAudioTrack(const PeerEventIdentity &identity, std::shared
 	        track->mid().c_str(), static_cast<int>(description.direction()), sampleRate, channels);
 
 	const int normalizedSampleRate = normalizeOpusSampleRate(sampleRate);
-	const int normalizedChannels = multistream ? 6 : normalizeOpusChannelCount(channels);
+	const int normalizedChannels = normalizeOpusChannelCount(channels);
 	if (sampleRate > 0 && sampleRate != normalizedSampleRate) {
 		logWarning("Normalized native Opus sample rate from %d to %d", sampleRate, normalizedSampleRate);
 	}
@@ -3040,11 +3024,10 @@ void VDONinjaSource::onAudioTrack(const PeerEventIdentity &identity, std::shared
 			loggedAudioDecodeSubmitFailure_ = false;
 			lastAudioTime_.store(0, std::memory_order_relaxed);
 		}
-		audioSampleRate_ = normalizedSampleRate;
-		audioChannels_ = normalizedChannels;
-		audioMultiOpus_ = multistream;
 	}
 	clearTrackCallbacks(replacedTrack);
+	audioSampleRate_ = normalizedSampleRate;
+	audioChannels_ = normalizedChannels;
 	const auto callbackState = callbackState_;
 	track->onMessage([callbackState, weakTrack = std::weak_ptr<rtc::Track>(track)](rtc::message_variant message) {
 		runNoexceptCallback("native_audio_track_onMessage", [&]() {
@@ -4006,7 +3989,7 @@ bool VDONinjaSource::initializeVideoDecoder()
 bool VDONinjaSource::initializeAudioDecoder(int sampleRate, int channels)
 {
 	sampleRate = normalizeOpusSampleRate(sampleRate);
-	channels = audioMultiOpus_ && channels == 6 ? 6 : normalizeOpusChannelCount(channels);
+	channels = normalizeOpusChannelCount(channels);
 
 	if (audioDecoder_ && audioSampleRate_ == sampleRate && audioChannels_ == channels) {
 		return true;
@@ -4033,16 +4016,6 @@ bool VDONinjaSource::initializeAudioDecoder(int sampleRate, int channels)
 	audioChannels_ = channels;
 	audioDecoder_->sample_rate = audioSampleRate_;
 	av_channel_layout_default(&audioDecoder_->ch_layout, audioChannels_);
-	if (audioMultiOpus_ && channels == 6) {
-		const auto header = multiOpusHeader(*audioMultiOpus_);
-		audioDecoder_->extradata = static_cast<uint8_t *>(av_mallocz(header.size() + AV_INPUT_BUFFER_PADDING_SIZE));
-		if (!audioDecoder_->extradata) {
-			resetAudioDecoder();
-			return false;
-		}
-		std::copy(header.begin(), header.end(), audioDecoder_->extradata);
-		audioDecoder_->extradata_size = static_cast<int>(header.size());
-	}
 
 	const int openResult = avcodec_open2(audioDecoder_, codec, nullptr);
 	if (openResult < 0) {
@@ -4838,7 +4811,7 @@ void VDONinjaSource::outputDecodedAudioFrame(const AVFrame *frame, uint64_t time
 
 	const int inputChannels =
 	    frame->ch_layout.nb_channels > 0 ? static_cast<int>(frame->ch_layout.nb_channels) : audioChannels_;
-	const int outputChannels = audioMultiOpus_ && inputChannels == 6 ? 6 : (inputChannels <= 1 ? 1 : 2);
+	const int outputChannels = inputChannels <= 1 ? 1 : 2;
 	AVChannelLayout outputLayout;
 	av_channel_layout_default(&outputLayout, outputChannels);
 
@@ -4850,7 +4823,7 @@ void VDONinjaSource::outputDecodedAudioFrame(const AVFrame *frame, uint64_t time
 		}
 
 		AVChannelLayout inputLayout = frame->ch_layout;
-		if (inputLayout.nb_channels == 0 || inputLayout.order == AV_CHANNEL_ORDER_UNSPEC) {
+		if (inputLayout.nb_channels == 0) {
 			av_channel_layout_default(&inputLayout, inputChannels);
 		}
 

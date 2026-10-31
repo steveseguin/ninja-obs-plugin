@@ -10,7 +10,6 @@ param(
     [int]$PublisherDurationMs = 50000,
     [int]$ObsWaitMs = 65000,
     [int]$CheckTimeoutSeconds = 160,
-    # Retained for callers of the old file-size heuristic; pixels now determine success.
     [int]$MaxClearedScreenshotBytes = 6000
 )
 
@@ -30,7 +29,7 @@ $publisherErr = Join-Path $repoRoot "artifacts\\alpha-teardown-publisher.err.log
 $smokeOut = Join-Path $repoRoot "artifacts\\alpha-teardown-smoke.out.log"
 $smokeErr = Join-Path $repoRoot "artifacts\\alpha-teardown-smoke.err.log"
 $sourceCheckOut = Join-Path $repoRoot "artifacts\\obs-source-smoke-native.out.log"
-$chromeProfile = Join-Path $repoRoot ("artifacts\\chrome-gc-alpha-teardown-profile-" + [Guid]::NewGuid().ToString("N"))
+$chromeProfile = Join-Path $repoRoot "artifacts\\chrome-gc-alpha-teardown-profile"
 
 foreach ($path in @($publisherOut, $publisherErr, $smokeOut, $smokeErr)) {
     if (Test-Path $path) {
@@ -53,13 +52,11 @@ $previousMinScreenshotBytes = $env:VDONINJA_MIN_SCREENSHOT_BYTES
 try {
     $chromeProc = Start-Process -FilePath $chromeExePath -ArgumentList @(
             "--user-data-dir=$chromeProfile",
-            "--no-first-run",
-            "--no-default-browser-check",
             "--autoplay-policy=no-user-gesture-required",
             "--app=$motionDemoUri",
             "--window-size=1280,720"
-        ) -WindowStyle Normal -PassThru
-    Wait-AlphaMotionDemoWindow
+        ) -PassThru
+    Start-Sleep -Seconds 2
 
     $publisherProc = Start-Process -FilePath $gameCaptureExePath -ArgumentList @(
             "--headless",
@@ -71,7 +68,7 @@ try {
             "--fps=30",
             "--bitrate-kbps=6000",
             "--duration-ms=$PublisherDurationMs",
-            '"--window=GC Alpha Motion Demo"'
+            "--window=GC Alpha Motion Demo"
         ) -RedirectStandardOutput $publisherOut -RedirectStandardError $publisherErr -PassThru
     Start-Sleep -Seconds $PublisherWarmupSeconds
 
@@ -109,9 +106,8 @@ try {
     if (-not $sourceCheckJson.screenshot) {
         throw "Teardown smoke did not capture a screenshot"
     }
-    $pixelCheck = & node (Join-Path $PSScriptRoot "analyze-cleared-screenshot.cjs") $sourceCheckJson.screenshot.outputPath
-    if ($LASTEXITCODE -ne 0) {
-        throw "Expected cleared black output after publisher teardown: $pixelCheck"
+    if ([int64]$sourceCheckJson.screenshot.byteLength -gt $MaxClearedScreenshotBytes) {
+        throw "Expected a near-empty cleared-scene screenshot, got $($sourceCheckJson.screenshot.byteLength) bytes"
     }
 
     [pscustomobject]@{
@@ -120,7 +116,6 @@ try {
         obsLog = $obsLogPath
         screenshot = $sourceCheckJson.screenshot
         clearedVideoOutput = $true
-        clearedPixelCheck = ($pixelCheck | ConvertFrom-Json)
         publisherLog = $publisherOut
         smokeLog = $smokeOut
     } | ConvertTo-Json -Depth 4

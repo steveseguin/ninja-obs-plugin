@@ -3673,16 +3673,7 @@ void VDONinjaPeerManager::prepareViewerTracks(const std::shared_ptr<PeerInfo> &p
 					}
 				}
 
-				const SdpOfferedCodec *audioCodec = nullptr;
-				for (const auto &codec : section.codecs) {
-					if (codecNameLower(codec.codec) == "multiopus" &&
-					    parseSixChannelMultiOpus(codec.clockRate, codec.channels, codec.formatParameters)) {
-						audioCodec = &codec;
-						break;
-					}
-				}
-				if (!audioCodec)
-					audioCodec = findPreferredOfferedCodec(section, "opus");
+				const SdpOfferedCodec *audioCodec = findPreferredOfferedCodec(section, "opus");
 				if (!audioCodec) {
 					logWarning("Remote offer for %s did not include Opus in audio section %s", peer->uuid.c_str(),
 					           section.mid.c_str());
@@ -3691,10 +3682,7 @@ void VDONinjaPeerManager::prepareViewerTracks(const std::shared_ptr<PeerInfo> &p
 
 				rtc::Description::Audio receiveAudio(section.mid.empty() ? "audio" : section.mid,
 				                                     rtc::Description::Direction::RecvOnly);
-				if (codecNameLower(audioCodec->codec) == "multiopus") {
-					receiveAudio.addAudioCodec(audioCodec->payloadType, "multiopus/48000/6",
-					                           audioCodec->formatParameters);
-				} else if (audioCodec->formatParameters.empty()) {
+				if (audioCodec->formatParameters.empty()) {
 					receiveAudio.addOpusCodec(audioCodec->payloadType);
 				} else {
 					receiveAudio.addOpusCodec(audioCodec->payloadType, audioCodec->formatParameters);
