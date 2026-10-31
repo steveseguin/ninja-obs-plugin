@@ -187,6 +187,13 @@ function evaluateObservedTransition(kind, before, retired, after) {
   };
 }
 
+function observePreTransitionPeer(previousPeer, phase, snapshot) {
+  // Alpha activation can replace the bootstrap transport before useful frames
+  // arrive. Freeze the baseline only when the explicit test action starts.
+  return phase === "pre" && snapshot && snapshot.peer && snapshot.peer.connected
+    ? snapshot.peer : previousPeer;
+}
+
 function classifyObservedConnection(snapshot, transitionEvidence, initialPeer) {
   const peer = snapshot && snapshot.peer;
   const beforePeer = transitionEvidence && transitionEvidence.before && transitionEvidence.before.peer || initialPeer;
@@ -1896,10 +1903,9 @@ async function main() {
           const diagnosticsAtCaptureStart = diagnosticsObserver
             ? diagnosticsObserver.latest()
             : null;
-          if (!initialObservedPeer && diagnosticsAtCaptureStart &&
-              diagnosticsAtCaptureStart.peer && diagnosticsAtCaptureStart.peer.connected) {
-            initialObservedPeer = diagnosticsAtCaptureStart.peer;
-          }
+          initialObservedPeer = observePreTransitionPeer(
+            initialObservedPeer, checkpointPhase, diagnosticsAtCaptureStart
+          );
           const checkpoint = alphaTransitionEnabled
             ? `${checkpointPhase}:${alphaTransitionLabel}`
             : "steady";
@@ -2030,8 +2036,9 @@ async function main() {
         }
       }
       screenshot = screenshots[0] || null;
-    } else if (checkAudioMeter) {
-      logStep(`waiting ${waitMs}ms for source audio`);
+    } else {
+      // Skipping the PNG must not skip the connection/rendering interval.
+      logStep(`waiting ${waitMs}ms for source ${checkAudioMeter ? "audio" : "playback"}`);
       await sleep(waitMs);
     }
     perturbResult = await waitForPerturbCommand(perturb, perturbTimeoutMs);
@@ -2282,6 +2289,7 @@ if (require.main === module) {
 }
 
 module.exports = {
+  decodePng,
   ObsWebSocketClient,
   analyzeAlphaComposite,
   analyzeAlphaCompositeImages,
@@ -2292,6 +2300,7 @@ module.exports = {
   normalizedDiagnosticsPeer,
   evaluateObservedTransition,
   classifyObservedConnection,
+  observePreTransitionPeer,
   sameLogicalPeer,
   sameTransportIdentity,
 };

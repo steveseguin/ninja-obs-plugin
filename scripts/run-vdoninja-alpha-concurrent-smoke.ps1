@@ -29,7 +29,7 @@ $viewerOut = Join-Path $repoRoot "artifacts\\alpha-concurrent-browser.out.json"
 $viewerErr = Join-Path $repoRoot "artifacts\\alpha-concurrent-browser.err.log"
 $smokeOut = Join-Path $repoRoot "artifacts\\alpha-concurrent-smoke.out.log"
 $smokeErr = Join-Path $repoRoot "artifacts\\alpha-concurrent-smoke.err.log"
-$chromeProfile = Join-Path $repoRoot "artifacts\\chrome-gc-alpha-concurrent-profile"
+$chromeProfile = Join-Path $repoRoot ("artifacts\\chrome-gc-alpha-concurrent-profile-" + [Guid]::NewGuid().ToString("N"))
 
 foreach ($path in @($publisherOut, $publisherErr, $viewerOut, $viewerErr, $smokeOut, $smokeErr)) {
     if (Test-Path $path) {
@@ -38,7 +38,6 @@ foreach ($path in @($publisherOut, $publisherErr, $viewerOut, $viewerErr, $smoke
 }
 
 Sync-PortableObsPluginPayload -RepoRoot $repoRoot -InstallPrefixPath $installPrefixPath
-Stop-AlphaMotionDemoProcesses
 New-Item -ItemType Directory -Force -Path $chromeProfile | Out-Null
 
 $motionDemoUri = "file:///" + ($motionDemoPath -replace '\\', '/')
@@ -51,13 +50,21 @@ $previousWaitMs = $env:VDONINJA_WAIT_MS
 $previousSkipCapture = $env:VDONINJA_SKIP_CAPTURE
 
 try {
+    # This window is the captured video fixture; Windows capture excludes hidden windows.
     $chromeProc = Start-Process -FilePath $chromeExePath -ArgumentList @(
-            "--user-data-dir=$chromeProfile",
+            ('"--user-data-dir={0}"' -f $chromeProfile),
+            "--no-first-run",
+            "--no-default-browser-check",
+            "--disable-gpu",
+            "--disable-features=CalculateNativeWinOcclusion",
+            "--disable-backgrounding-occluded-windows",
+            "--disable-renderer-backgrounding",
+            "--disable-background-timer-throttling",
             "--autoplay-policy=no-user-gesture-required",
-            "--app=$motionDemoUri",
+            ('"--app={0}"' -f $motionDemoUri),
             "--window-size=1280,720"
-        ) -PassThru
-    Start-Sleep -Seconds 2
+        ) -WindowStyle Normal -PassThru
+    Wait-AlphaMotionDemoWindow -ChromeProcessId $chromeProc.Id
 
     $publisherProc = Start-Process -FilePath $gameCaptureExePath -ArgumentList @(
             "--headless",
@@ -69,17 +76,18 @@ try {
             "--fps=30",
             "--bitrate-kbps=6000",
             "--duration-ms=$PublisherDurationMs",
-            "--window=GC Alpha Motion Demo"
-        ) -RedirectStandardOutput $publisherOut -RedirectStandardError $publisherErr -PassThru
+            '"--window=GC Alpha Motion Demo"'
+        ) -WindowStyle Hidden -RedirectStandardOutput $publisherOut -RedirectStandardError $publisherErr -PassThru
     Start-Sleep -Seconds $PublisherWarmupSeconds
 
     $viewerProc = Start-Process -FilePath "node" -ArgumentList @(
             "scripts/playwright-vdo-view-check.cjs",
             $viewUrl
-        ) -WorkingDirectory $repoRoot -RedirectStandardOutput $viewerOut -RedirectStandardError $viewerErr -PassThru
+        ) -WindowStyle Hidden -WorkingDirectory $repoRoot -RedirectStandardOutput $viewerOut -RedirectStandardError $viewerErr -PassThru
 
     $env:VDONINJA_WAIT_MS = [string]$ObsWaitMs
-    $env:VDONINJA_SKIP_CAPTURE = "1"
+    # Keep capture enabled to verify rendered content while both viewers overlap.
+    $env:VDONINJA_SKIP_CAPTURE = "0"
     $smokeOutput = & powershell -ExecutionPolicy Bypass -File $smokeScriptPath `
         -Mode native `
         -StreamId $StreamId `
@@ -94,6 +102,11 @@ try {
         ($smokeOutput | Out-String) | Set-Content -Path $smokeErr -Encoding UTF8
         throw "OBS native alpha smoke failed with exit code $LASTEXITCODE"
     }
+
+    $sourceCheck = Get-Content (Join-Path $repoRoot 'artifacts/obs-source-smoke-native.result.json') -Raw | ConvertFrom-Json
+    if (-not $sourceCheck.screenshot) { throw 'Concurrent smoke did not capture OBS output' }
+    $pixelCheck = & node (Join-Path $PSScriptRoot 'analyze-motion-demo-screenshot.cjs') $sourceCheck.screenshot.outputPath
+    if ($LASTEXITCODE -ne 0) { throw "OBS did not render the colorful motion fixture: $pixelCheck" }
 
     if ($viewerProc -and -not $viewerProc.HasExited) {
         Wait-Process -Id $viewerProc.Id -Timeout 90 -ErrorAction Stop
@@ -138,6 +151,7 @@ try {
         browserInboundVideoBytes = $browserInboundVideoBytes
         obsLog = $obsLogPath
         obsAlphaCompositionActive = $true
+        motionPixelCheck = ($pixelCheck | ConvertFrom-Json)
         publisherLog = $publisherOut
         browserLog = $viewerOut
         smokeLog = $smokeOut
@@ -164,5 +178,5 @@ finally {
     if ($chromeProc -and -not $chromeProc.HasExited) {
         Stop-Process -Id $chromeProc.Id -Force -ErrorAction SilentlyContinue
     }
-    Stop-AlphaMotionDemoProcesses
+    Stop-AlphaMotionDemoProcesses -ProfilePath $chromeProfile
 }

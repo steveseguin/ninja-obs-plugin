@@ -22,10 +22,10 @@ param(
 $ErrorActionPreference = "Stop"
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
+. (Join-Path $PSScriptRoot "test-alpha-validation-common.ps1")
 $obsExePath = (Resolve-Path $ObsExe).Path
 $obsWorkingDirPath = (Resolve-Path $ObsWorkingDirectory).Path
 $installPrefixPath = (Resolve-Path $InstallPrefix).Path
-$pluginPath = (Resolve-Path (Join-Path $installPrefixPath "obs-plugins\\64bit")).Path
 $dataPath = (Resolve-Path (Join-Path $installPrefixPath "data\\obs-plugins")).Path
 $depsBin = "C:\\Users\\steve\\Code\\obs-build-dependencies\\windows-deps-2023-06-01-x64\\bin"
 $obsWebSocketConfigPath = Join-Path $repoRoot "_obs-portable\\config\\obs-studio\\plugin_config\\obs-websocket\\config.json"
@@ -74,6 +74,7 @@ if (-not (Test-Path $obsWebSocketConfigPath)) {
     throw "obs-websocket config not found at $obsWebSocketConfigPath"
 }
 
+Sync-PortableObsPluginPayload -RepoRoot $repoRoot -InstallPrefixPath $installPrefixPath
 $originalObsWebSocketConfig = Get-Content $obsWebSocketConfigPath -Raw
 $obsWebSocketConfig = $originalObsWebSocketConfig | ConvertFrom-Json
 $obsWebSocketConfig.server_enabled = $true
@@ -82,7 +83,7 @@ $obsWebSocketConfig.server_port = $ObsWebSocketPort
 $obsWebSocketConfig | ConvertTo-Json | Set-Content -Path $obsWebSocketConfigPath -Encoding UTF8
 
 $env:OBS_WEBSOCKET_URL = "ws://127.0.0.1:$ObsWebSocketPort"
-$env:OBS_PLUGINS_PATH = $pluginPath
+Remove-Item Env:OBS_PLUGINS_PATH -ErrorAction SilentlyContinue
 $env:OBS_PLUGINS_DATA_PATH = $dataPath
 $env:PATH = "$depsBin;$env:PATH"
 $env:VDONINJA_KEEP_SCENE = "1"
@@ -189,10 +190,11 @@ try {
         -WorkingDirectory $obsWorkingDirPath `
         -RedirectStandardOutput $obsStdout `
         -RedirectStandardError $obsStderr `
-        -PassThru
+        -WindowStyle Hidden -PassThru
 
     Record-ObsCpuSample
     Sleep-WithCpuSamples -Seconds $ObsStartupSeconds
+    $loadedPlugin = Get-TestObsPluginEvidence -ObsProcessId $obsProc.Id -InstallPrefixPath $installPrefixPath
     $latestLogPath = Get-LatestObsLogPath
 
     $initialConnectCount = Get-PatternCount -Path $latestLogPath -Pattern "Connected to publisher"
@@ -202,7 +204,7 @@ try {
         -WorkingDirectory $repoRoot `
         -RedirectStandardOutput $publisherOut1 `
         -RedirectStandardError $publisherErr1 `
-        -PassThru
+        -WindowStyle Hidden -PassThru
 
     Sleep-WithCpuSamples -Seconds $PublisherWarmupSeconds
 
@@ -220,7 +222,8 @@ try {
             -WorkingDirectory $repoRoot `
             -RedirectStandardOutput $checkOut `
             -RedirectStandardError $checkErr `
-            -PassThru
+            -WindowStyle Hidden -PassThru
+        $null = $checkProc.Handle
         try {
             Wait-Process -Id $checkProc.Id -Timeout $InitialCheckTimeoutSeconds -ErrorAction Stop
         } catch {
@@ -230,7 +233,8 @@ try {
             throw "Timed out waiting for initial source check after $InitialCheckTimeoutSeconds seconds"
         }
         $checkProc.Refresh()
-        $checkExitCode = if ($null -eq $checkProc.ExitCode) { 0 } else { [int]$checkProc.ExitCode }
+        if ($null -eq $checkProc.ExitCode) { throw "Source checker exited without an exit status" }
+        $checkExitCode = [int]$checkProc.ExitCode
     } finally {
         Pop-Location
     }
@@ -254,7 +258,7 @@ try {
         -WorkingDirectory $repoRoot `
         -RedirectStandardOutput $publisherOut2 `
         -RedirectStandardError $publisherErr2 `
-        -PassThru
+        -WindowStyle Hidden -PassThru
 
     Wait-ForPatternCount -Path $latestLogPath -Pattern "Connected to publisher" -MinimumCount ($reconnectCount + 1) `
         -TimeoutSeconds $RecoveryWarmupSeconds -Description "publisher recovery"
@@ -281,6 +285,8 @@ try {
     Write-Output "OBS_PID=$($obsProc.Id)"
     Write-Output "INITIAL_PUBLISHER_PID=$($publisherProc1.Id)"
     Write-Output "RECOVERY_PUBLISHER_PID=$($publisherProc2.Id)"
+    Write-Output "LOADED_PLUGIN_PATH=$($loadedPlugin.path)"
+    Write-Output "LOADED_PLUGIN_SHA256=$($loadedPlugin.sha256)"
     Write-Output "OBS_CPU_SAMPLES=$($script:cpuSamples.Count)"
     Write-Output "OBS_CPU_AVG_PERCENT=$avgCpu"
     Write-Output "OBS_CPU_MAX_PERCENT=$maxCpu"

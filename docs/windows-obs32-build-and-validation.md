@@ -260,7 +260,8 @@ stall both encoded audio and video delivery.
 
 ## Alpha Validation
 
-Status as of `2026-04-12`: validated locally with `game-capture` publishing `VP9 + Alpha` into the OBS native receiver path.
+These checks exercise existing `VP9 + Alpha` reception. Test-harness maintenance
+does not add transparency, change color handling, or require a plugin release.
 
 Expected behavior:
 
@@ -274,15 +275,31 @@ Tracked motion source used for these checks:
 
 Local automation wrappers that now cover the validated path:
 
+Run from the repository root with the test portable OBS closed. Supply the actual
+Game Capture executable and unpacked plugin package; the old machine-specific
+defaults may not exist on your machine. The motion fixture opens a visible Chrome
+window because Windows window capture excludes hidden windows. Background
+throttling is disabled for that fixture; the separate browser viewer is headless.
+
+```powershell
+$gameCapture = 'C:\path\to\game-capture.exe'
+$package = '.\artifacts\release-package-1.1.80\unpacked'
+$chrome = node -e "console.log(require('playwright').chromium.executablePath())"
+# Install the fixture browser first if needed: npx playwright install chromium
+```
+
+These wrappers use the same portable OBS and log filenames. Run them sequentially.
+
 ### Concurrent OBS + Browser alpha check
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\run-vdoninja-alpha-concurrent-smoke.ps1
+powershell -ExecutionPolicy Bypass -File .\scripts\run-vdoninja-alpha-concurrent-smoke.ps1 `
+  -GameCaptureExe $gameCapture -ChromeExe $chrome -InstallPrefix $package
 ```
 
 What it does:
 
-1. syncs the installed plugin DLL into the portable OBS plugin path used on this machine
+1. installs the package's DLL and locale data into both portable OBS plugin locations
 2. launches the tracked motion-demo window in Chrome
 3. launches `game-capture` headless in `VP9 + Alpha`
 4. runs a standard Chromium VDO.Ninja viewer against the same stream
@@ -290,17 +307,19 @@ What it does:
 6. verifies:
    - browser viewer received exactly one video track with inbound media
    - OBS log reached `Native receiver alpha composition active`
+   - OBS screenshot contains the fixture's colored shapes, not just gray browser chrome
    - OBS log did not hit stale-video timeout or queue-drop storms
 
 ### Publisher teardown / clear check
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\run-vdoninja-alpha-teardown-smoke.ps1
+powershell -ExecutionPolicy Bypass -File .\scripts\run-vdoninja-alpha-teardown-smoke.ps1 `
+  -GameCaptureExe $gameCapture -ChromeExe $chrome -InstallPrefix $package
 ```
 
 What it does:
 
-1. syncs the installed plugin DLL into the portable OBS plugin path used on this machine
+1. installs the package's DLL and locale data into both portable OBS plugin locations
 2. launches the tracked motion-demo window in Chrome
 3. launches `game-capture` headless in `VP9 + Alpha`
 4. waits long enough for alpha composition to become active
@@ -309,13 +328,30 @@ What it does:
    - OBS log reached `Native receiver alpha composition active`
    - OBS log recorded peer disconnect
    - OBS log recorded `Clearing native video output (peer-disconnected)`
-   - the end-of-run screenshot from the empty test scene is near-blank
+   - every RGB channel in the end-of-run screenshot is at most 2/255
 
-These wrappers intentionally validate against the machine-specific portable plugin path:
+The checks inspect the running OBS process and require exactly one plugin module
+whose SHA256 matches the supplied package. They stage both discovery locations:
 
+- `_obs-portable/obs-plugins/64bit/obs-vdoninja.dll`
 - `_obs-portable/config/obs-studio/plugins/obs-vdoninja/bin/64bit/obs-vdoninja.dll`
 
-That avoids the common Windows mistake of testing a stale portable plugin copy while the repo build under `install-obs32` is newer.
+Locale data is staged alongside both copies. Replacing a file detaches any hardlink
+so archived test runs are preserved. Chrome cleanup targets only the current run's
+unique profile.
+
+Teardown examines decoded pixels, not compressed PNG size. The former
+`MaxClearedScreenshotBytes` parameter remains accepted for old callers but is no
+longer used. The concurrent check rejects blank/gray fixture captures. These are
+transport/render/clear checks; this window fixture does not independently qualify
+transparent-edge quality or higher color detail.
+
+Focused offline checks (also run in CI):
+
+```powershell
+node --test tests/test-cleared-screenshot.cjs tests/test-motion-demo-screenshot.cjs tests/test-alpha-capture-cadence.cjs tests/test-alpha-observed-connection.cjs
+powershell -ExecutionPolicy Bypass -File tests/test-alpha-validation-common.ps1
+```
 
 ## Forced Fallback Test Recipe
 

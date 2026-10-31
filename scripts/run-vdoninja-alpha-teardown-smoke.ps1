@@ -10,6 +10,7 @@ param(
     [int]$PublisherDurationMs = 50000,
     [int]$ObsWaitMs = 65000,
     [int]$CheckTimeoutSeconds = 160,
+    # Retained for callers of the old file-size heuristic; pixels now determine success.
     [int]$MaxClearedScreenshotBytes = 6000
 )
 
@@ -29,7 +30,7 @@ $publisherErr = Join-Path $repoRoot "artifacts\\alpha-teardown-publisher.err.log
 $smokeOut = Join-Path $repoRoot "artifacts\\alpha-teardown-smoke.out.log"
 $smokeErr = Join-Path $repoRoot "artifacts\\alpha-teardown-smoke.err.log"
 $sourceCheckOut = Join-Path $repoRoot "artifacts\\obs-source-smoke-native.out.log"
-$chromeProfile = Join-Path $repoRoot "artifacts\\chrome-gc-alpha-teardown-profile"
+$chromeProfile = Join-Path $repoRoot ("artifacts\\chrome-gc-alpha-teardown-profile-" + [Guid]::NewGuid().ToString("N"))
 
 foreach ($path in @($publisherOut, $publisherErr, $smokeOut, $smokeErr)) {
     if (Test-Path $path) {
@@ -38,7 +39,6 @@ foreach ($path in @($publisherOut, $publisherErr, $smokeOut, $smokeErr)) {
 }
 
 Sync-PortableObsPluginPayload -RepoRoot $repoRoot -InstallPrefixPath $installPrefixPath
-Stop-AlphaMotionDemoProcesses
 New-Item -ItemType Directory -Force -Path $chromeProfile | Out-Null
 
 $motionDemoUri = "file:///" + ($motionDemoPath -replace '\\', '/')
@@ -50,13 +50,21 @@ $previousSkipCapture = $env:VDONINJA_SKIP_CAPTURE
 $previousMinScreenshotBytes = $env:VDONINJA_MIN_SCREENSHOT_BYTES
 
 try {
+    # This window is the captured video fixture; Windows capture excludes hidden windows.
     $chromeProc = Start-Process -FilePath $chromeExePath -ArgumentList @(
-            "--user-data-dir=$chromeProfile",
+            ('"--user-data-dir={0}"' -f $chromeProfile),
+            "--no-first-run",
+            "--no-default-browser-check",
+            "--disable-gpu",
+            "--disable-features=CalculateNativeWinOcclusion",
+            "--disable-backgrounding-occluded-windows",
+            "--disable-renderer-backgrounding",
+            "--disable-background-timer-throttling",
             "--autoplay-policy=no-user-gesture-required",
-            "--app=$motionDemoUri",
+            ('"--app={0}"' -f $motionDemoUri),
             "--window-size=1280,720"
-        ) -PassThru
-    Start-Sleep -Seconds 2
+        ) -WindowStyle Normal -PassThru
+    Wait-AlphaMotionDemoWindow -ChromeProcessId $chromeProc.Id
 
     $publisherProc = Start-Process -FilePath $gameCaptureExePath -ArgumentList @(
             "--headless",
@@ -68,8 +76,8 @@ try {
             "--fps=30",
             "--bitrate-kbps=6000",
             "--duration-ms=$PublisherDurationMs",
-            "--window=GC Alpha Motion Demo"
-        ) -RedirectStandardOutput $publisherOut -RedirectStandardError $publisherErr -PassThru
+            '"--window=GC Alpha Motion Demo"'
+        ) -WindowStyle Hidden -RedirectStandardOutput $publisherOut -RedirectStandardError $publisherErr -PassThru
     Start-Sleep -Seconds $PublisherWarmupSeconds
 
     $env:VDONINJA_WAIT_MS = [string]$ObsWaitMs
@@ -106,8 +114,9 @@ try {
     if (-not $sourceCheckJson.screenshot) {
         throw "Teardown smoke did not capture a screenshot"
     }
-    if ([int64]$sourceCheckJson.screenshot.byteLength -gt $MaxClearedScreenshotBytes) {
-        throw "Expected a near-empty cleared-scene screenshot, got $($sourceCheckJson.screenshot.byteLength) bytes"
+    $pixelCheck = & node (Join-Path $PSScriptRoot "analyze-cleared-screenshot.cjs") $sourceCheckJson.screenshot.outputPath
+    if ($LASTEXITCODE -ne 0) {
+        throw "Expected cleared black output after publisher teardown: $pixelCheck"
     }
 
     [pscustomobject]@{
@@ -116,6 +125,7 @@ try {
         obsLog = $obsLogPath
         screenshot = $sourceCheckJson.screenshot
         clearedVideoOutput = $true
+        clearedPixelCheck = ($pixelCheck | ConvertFrom-Json)
         publisherLog = $publisherOut
         smokeLog = $smokeOut
     } | ConvertTo-Json -Depth 4
@@ -145,5 +155,5 @@ finally {
     if ($chromeProc -and -not $chromeProc.HasExited) {
         Stop-Process -Id $chromeProc.Id -Force -ErrorAction SilentlyContinue
     }
-    Stop-AlphaMotionDemoProcesses
+    Stop-AlphaMotionDemoProcesses -ProfilePath $chromeProfile
 }
