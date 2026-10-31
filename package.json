@@ -1,6 +1,6 @@
 {
   "name": "ninja-plugin",
-  "version": "1.1.77",
+  "version": "1.1.78",
   "description": "OBS VDO.Ninja plugin",
   "main": "index.js",
   "directories": {

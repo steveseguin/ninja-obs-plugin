@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.78] - 2026-10-31
+
 ### Added
 - Add independent Guest Return size and frame-rate controls, with metadata matching the dedicated encoder.
 - Add short visual host, guest and pre-show guides for rooms up to 20 guests.
