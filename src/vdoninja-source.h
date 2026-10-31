@@ -22,6 +22,7 @@
 #include "vdoninja-reliability.h"
 #include "vdoninja-rtp-utils.h"
 #include "vdoninja-signaling.h"
+#include "vdoninja-utils.h"
 
 extern "C" {
 struct AVBufferRef;
@@ -454,6 +455,7 @@ private:
 	SwrContext *audioResampleContext_ = nullptr;
 	int audioSampleRate_ = 48000;
 	int audioChannels_ = 2;
+	std::optional<MultiOpusConfig> audioMultiOpus_;
 	int audioResampleInputFormat_ = -1;
 	int audioResampleInputRate_ = 0;
 	int audioResampleInputChannels_ = 0;
