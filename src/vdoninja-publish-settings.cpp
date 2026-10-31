@@ -201,20 +201,40 @@ void parsePublishStreamKey(const std::string &keyValue, PublishIdentity &identit
 	}
 }
 
+static std::string publishPasswordParameter(const PublishIdentity &identity)
+{
+	std::string url;
+	const std::string password = trim(identity.password);
+	if (!password.empty())
+		url += isPasswordDisabledToken(password) ? "&password=false" : "&password=" + urlEncode(password);
+	return url;
+}
+
 std::string buildPublishUrl(const PublishIdentity &identity, bool push)
 {
 	if (trim(identity.streamId).empty())
 		return "";
 	std::string url =
 	    std::string("https://vdo.ninja/?") + (push ? "push=" : "view=") + urlEncode(trim(identity.streamId));
-	const std::string password = trim(identity.password);
-	if (!password.empty())
-		url += isPasswordDisabledToken(password) ? "&password=false" : "&password=" + urlEncode(password);
+	url += publishPasswordParameter(identity);
 	if (!identity.roomId.empty()) {
 		url += "&room=" + urlEncode(identity.roomId);
 		if (!push)
 			url += "&solo";
 	}
+	if (!identity.salt.empty() && identity.salt != DEFAULT_SALT)
+		url += "&salt=" + urlEncode(identity.salt);
+	url += buildSignalingUrlParameter(identity.wssHost);
+	return url;
+}
+
+std::string buildRoomGuestInviteUrl(const PublishIdentity &identity)
+{
+	if (trim(identity.streamId).empty() || trim(identity.roomId).empty())
+		return "";
+	std::string url = "https://vdo.ninja/?room=" + urlEncode(trim(identity.roomId)) +
+	                  "&broadcast=" + urlEncode(trim(identity.streamId));
+	url += publishPasswordParameter(identity);
 	if (!identity.salt.empty() && identity.salt != DEFAULT_SALT)
 		url += "&salt=" + urlEncode(identity.salt);
 	url += buildSignalingUrlParameter(identity.wssHost);

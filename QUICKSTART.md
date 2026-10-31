@@ -68,9 +68,23 @@ Use **Tools -> VDO.Ninja Studio -> Guest Return** to send the full OBS program t
 4. Click **Start return**, then **Copy return viewer link**. Start the public stream using OBS's normal **Start Streaming** button. Either output can be started first or stopped independently.
 5. Give the guest the return viewer link. To publish their camera and watch the return in one VDO.Ninja page, use a link such as `https://vdo.ninja/?push=GUEST_ID&view=RETURN_ID&password=YOUR_PASSWORD`, using the same password for these two feeds. Use `GUEST_ID` in the OBS source and `RETURN_ID` in Guest Return. Headphones prevent the return audio from reaching their microphone.
 
-The selected return track is a manual mix-minus: it excludes whichever sources you uncheck on that track. It does not automatically detect guests or create separate mixes for multiple guests. Settings are saved per OBS profile. Changing profiles or scene collections stops the return; start it again when ready. Hiding the dock keeps it running. Guest Return uses the default VDO.Ninja signaling service and does not inherit advanced settings from OBS's main streaming service.
+The selected return track is a manual mix-minus: it excludes whichever sources you uncheck on that track. It does not automatically detect guests or create separate mixes for multiple guests. Settings are saved per OBS profile. Changing profiles or scene collections stops the return; start it again when ready. Hiding the dock keeps it running. Guest Return has its own **Advanced connection settings** for signaling, salt, custom STUN/TURN, and Force TURN; it does not inherit OBS's main streaming service settings. Leave these blank for defaults. Force TURN requires a TURN server entry. Copied links include custom signaling and salt, but do not include relay credentials.
 
 The dock's original **Go Live** and **Stop** buttons still control OBS's main stream. Use the buttons inside **Guest Return** for the independent return.
+
+### Return the OBS program to a group room
+
+1. Keep OBS's normal streaming service set to your public destination. Open the room's browser director and bring the individual guests into OBS using their separate viewer sources.
+2. In **Guest Return**, enter the same **Room ID** and **Password** as the director, and use a separate **Stream ID** for the program return.
+3. In **Advanced Audio Properties**, include all guests on public track 1, and exclude **every guest microphone** on return track 2. Include shared clips and music on both. Include the host on track 2 only if guests do not already hear the host through the director browser. Avoid capturing the room's playback again through desktop audio.
+4. Select return track 2 and an H.264 encoder. Set **Max Viewers** to cover guests, director previews, and other monitors. The default is 10, adjustable from 1 to 50; increasing it also requires more upload capacity. At 2500 kbps video plus 128 kbps audio, eight viewers need about 21 Mbps before overhead, in addition to the public stream.
+5. Click **Copy room guest invite** and send that link to participating guests. It is available once a stream ID and room ID are entered, even before starting. The link uses `room=ROOM_ID&broadcast=RETURN_ID` with the matching password. Each guest gets their own publishing identity. Plain `&broadcast` selects the browser director instead.
+6. Click **Start return**. Guests open the copied invitation, choose **Join Room with Camera**, select devices, and click **START**. They see OBS's program and hear its selected track, while hearing each other directly through the room. Use headphones. Existing guests should rejoin using the new invitation.
+7. Start the public stream with OBS's normal **Start Streaming** button. The return status shows connected viewers and the configured limit. Either output can stop independently.
+
+**Copy return viewer link** is for a monitor that only watches the return. It is different from the participating-guest invitation. Do not add the return itself back into the OBS program. The shared return cannot give everyone the exact public audio mix without also returning their own voices; keep the direct room conversation and exclude guest microphones from the return.
+
+See [room validation and remaining work](docs/guest-return-room-validation.md) for the tested scope and the screenshot walkthrough.
 
 ## 3) Ingest a VDO.Ninja stream in OBS
 
@@ -142,3 +156,5 @@ Additional docs:
 - `README.md`
 - `TESTING_OBS_MANUAL.md`
 - `SECURITY_AND_TRUST.md`
+
+Visual guides: [Host setup](docs/guest-return.html) ? [Guest joining](docs/guest-return-join.html) ? [Pre-show check](docs/guest-return-rehearsal.html).

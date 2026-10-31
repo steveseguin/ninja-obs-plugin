@@ -35,6 +35,7 @@ struct obs_encoder_t {
 	obs_data_t settings;
 	size_t mixer = 0;
 	int refs = 1;
+	uint32_t width = 0, height = 0, divisor = 1;
 };
 struct obs_service_t {
 	obs_data_t settings;
@@ -157,6 +158,24 @@ inline void *obs_get_audio()
 	return nullptr;
 }
 inline void obs_encoder_set_video(obs_encoder_t *, void *) {}
+struct obs_video_info {
+	uint32_t output_width = 1920, output_height = 1080;
+};
+inline bool obs_get_video_info(obs_video_info *info)
+{
+	*info = {};
+	return true;
+}
+inline bool obs_encoder_set_frame_rate_divisor(obs_encoder_t *encoder, uint32_t divisor)
+{
+	encoder->divisor = divisor;
+	return true;
+}
+inline void obs_encoder_set_scaled_size(obs_encoder_t *encoder, uint32_t width, uint32_t height)
+{
+	encoder->width = width;
+	encoder->height = height;
+}
 inline void obs_encoder_set_audio(obs_encoder_t *, void *) {}
 inline obs_service_t *obs_service_create(const char *, const char *, obs_data_t *d, obs_data_t *)
 {

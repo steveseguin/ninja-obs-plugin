@@ -1,0 +1,406 @@
+{
+  "captured_on": "2026-10-31",
+  "binary_sha256": "b7309f9222b25a254f4419c79e9bf5b6d323a51f3e3a2bd913894f816fa3a852",
+  "provenance": "Actual owned OBS and browser captures; crops only. Demo rooms and synthetic media. Remote device checks were separate from the 20-guest local run.",
+  "assets": [
+    {
+      "id": "32-settings-stopped",
+      "full": "32-settings-stopped-full.png",
+      "cropped": "32-settings-stopped.png",
+      "crop_xyxy": [
+        17,
+        78,
+        583,
+        764
+      ],
+      "full_dimensions": [
+        600,
+        1100
+      ],
+      "cropped_dimensions": [
+        566,
+        686
+      ],
+      "sha256": "026863fbe50b0c8b71e3b46bc0d663a785c0bd2aeffaa6e9fcf2301f78fdd307",
+      "review": "Reviewed: readable settings and controls; matches measured 20-guest run."
+    },
+    {
+      "id": "31-final-settings",
+      "full": "31-final-settings-full.png",
+      "cropped": "31-final-settings.png",
+      "crop_xyxy": [
+        17,
+        78,
+        583,
+        764
+      ],
+      "full_dimensions": [
+        600,
+        1100
+      ],
+      "cropped_dimensions": [
+        566,
+        686
+      ],
+      "sha256": "d07738644c5dd693f3ffdcc9750c3f827f94b3b6761e9c5982dc14608fe37242",
+      "review": "Reviewed: readable settings and controls; matches measured 20-guest run."
+    },
+    {
+      "id": "29-twenty-return-stopped",
+      "full": "29-twenty-return-stopped-full.png",
+      "cropped": "29-twenty-return-stopped.png",
+      "crop_xyxy": [
+        17,
+        78,
+        583,
+        764
+      ],
+      "full_dimensions": [
+        600,
+        1100
+      ],
+      "cropped_dimensions": [
+        566,
+        686
+      ],
+      "sha256": "026863fbe50b0c8b71e3b46bc0d663a785c0bd2aeffaa6e9fcf2301f78fdd307",
+      "review": "Reviewed: readable settings and controls; matches measured 20-guest run."
+    },
+    {
+      "id": "25-twenty-room-director",
+      "full": "25-twenty-room-director-full.png",
+      "cropped": "25-twenty-room-director.png",
+      "crop_xyxy": [
+        0,
+        0,
+        1440,
+        1000
+      ],
+      "full_dimensions": [
+        1440,
+        1000
+      ],
+      "cropped_dimensions": [
+        1440,
+        1000
+      ],
+      "sha256": "f87fd0d27fb9b40561cfd96db498b1194a1bdedd94c5a47069891a48f7303719",
+      "review": "Reviewed: director scroll viewport shows part of the room; full guest count is established by stats and 21/22 native viewer status."
+    },
+    {
+      "id": "25-twenty-room-Alice",
+      "full": "25-twenty-room-Alice-full.png",
+      "cropped": "25-twenty-room-Alice.png",
+      "crop_xyxy": [
+        0,
+        0,
+        1440,
+        1000
+      ],
+      "full_dimensions": [
+        1440,
+        1000
+      ],
+      "cropped_dimensions": [
+        1440,
+        1000
+      ],
+      "sha256": "2d59af49100a090c1cf88bfdb676081f27237f138368deec206ac59352fbfe8d",
+      "review": "Reviewed: readable settings and controls; matches measured 20-guest run."
+    },
+    {
+      "id": "25-twenty-room-Guest 20",
+      "full": "25-twenty-room-Guest 20-full.png",
+      "cropped": "25-twenty-room-Guest 20.png",
+      "crop_xyxy": [
+        0,
+        0,
+        1440,
+        1000
+      ],
+      "full_dimensions": [
+        1440,
+        1000
+      ],
+      "cropped_dimensions": [
+        1440,
+        1000
+      ],
+      "sha256": "3588dcd9e8ce76a28e4bcff2e9ad1476fae23d334559be2ac6ed317bbb3807ba",
+      "review": "Reviewed: readable settings and controls; matches measured 20-guest run."
+    },
+    {
+      "id": "firefox-01-invitation",
+      "full": "firefox-01-invitation-full.png",
+      "cropped": "firefox-01-invitation.png",
+      "crop_xyxy": [
+        0,
+        0,
+        1280,
+        900
+      ],
+      "full_dimensions": [
+        1280,
+        900
+      ],
+      "cropped_dimensions": [
+        1280,
+        900
+      ],
+      "sha256": "b5e3e8eb9a3af3ebacc10a733f7c872aec7119d412b7bb0e206784e3509e10b6",
+      "review": "Reviewed: real invitation, device choice or decoded program. Remote check ran separately from the 20-guest test."
+    },
+    {
+      "id": "firefox-02-permission",
+      "full": "firefox-02-permission-full.png",
+      "cropped": "firefox-02-permission.png",
+      "crop_xyxy": [
+        0,
+        0,
+        1280,
+        900
+      ],
+      "full_dimensions": [
+        1280,
+        900
+      ],
+      "cropped_dimensions": [
+        1280,
+        900
+      ],
+      "sha256": "373afede39acdcb29b463b7a38f9d11b0db4ef2c19c11d3a3b98ed928b9dbc43",
+      "review": "Reviewed: transition after permission request; native browser permission dialog is not visible in this capture. Do not label this as a permission-dialog screenshot."
+    },
+    {
+      "id": "firefox-03-devices",
+      "full": "firefox-03-devices-full.png",
+      "cropped": "firefox-03-devices.png",
+      "crop_xyxy": [
+        0,
+        0,
+        1280,
+        900
+      ],
+      "full_dimensions": [
+        1280,
+        900
+      ],
+      "cropped_dimensions": [
+        1280,
+        900
+      ],
+      "sha256": "06e7d674e13d9d4c1ddfc7171a121f45b49ababd48fdd2529d5649e7e5191b50",
+      "review": "Reviewed: real invitation, device choice or decoded program. Remote check ran separately from the 20-guest test."
+    },
+    {
+      "id": "firefox-04-program",
+      "full": "firefox-04-program-full.png",
+      "cropped": "firefox-04-program.png",
+      "crop_xyxy": [
+        0,
+        0,
+        1280,
+        900
+      ],
+      "full_dimensions": [
+        1280,
+        900
+      ],
+      "cropped_dimensions": [
+        1280,
+        900
+      ],
+      "sha256": "befcd41119b99e5adec743449610fe78c2b55d6787859d8ae749cdbc10974a5d",
+      "review": "Reviewed: real invitation, device choice or decoded program. Remote check ran separately from the 20-guest test."
+    },
+    {
+      "id": "ios-01-invitation",
+      "full": "ios-01-invitation-full.png",
+      "cropped": "ios-01-invitation.png",
+      "crop_xyxy": [
+        0,
+        0,
+        1290,
+        2796
+      ],
+      "full_dimensions": [
+        1290,
+        2796
+      ],
+      "cropped_dimensions": [
+        1290,
+        2796
+      ],
+      "sha256": "fa9ce6472a1c701096a021ae1342c43ed8925134e09a6b8ac944e90771a26ba5",
+      "review": "Reviewed: real invitation, device choice or decoded program. Remote check ran separately from the 20-guest test."
+    },
+    {
+      "id": "ios-02-permission",
+      "full": "ios-02-permission-full.png",
+      "cropped": "ios-02-permission.png",
+      "crop_xyxy": [
+        0,
+        0,
+        1290,
+        2796
+      ],
+      "full_dimensions": [
+        1290,
+        2796
+      ],
+      "cropped_dimensions": [
+        1290,
+        2796
+      ],
+      "sha256": "883a5b4bbcc0548695a7d4149e01da72ad81539a4dc19e920279e3384ddda79a",
+      "review": "Reviewed: transition after permission request; native browser permission dialog is not visible in this capture. Do not label this as a permission-dialog screenshot."
+    },
+    {
+      "id": "ios-03-devices",
+      "full": "ios-03-devices-full.png",
+      "cropped": "ios-03-devices.png",
+      "crop_xyxy": [
+        0,
+        0,
+        1290,
+        2796
+      ],
+      "full_dimensions": [
+        1290,
+        2796
+      ],
+      "cropped_dimensions": [
+        1290,
+        2796
+      ],
+      "sha256": "75524c6fab7c2aa3cd5f2a9f55b8d240543edf13afb405afc39e5011bd9207fb",
+      "review": "Reviewed: real invitation, device choice or decoded program. Remote check ran separately from the 20-guest test."
+    },
+    {
+      "id": "ios-04-program",
+      "full": "ios-04-program-full.png",
+      "cropped": "ios-04-program.png",
+      "crop_xyxy": [
+        0,
+        0,
+        1290,
+        2796
+      ],
+      "full_dimensions": [
+        1290,
+        2796
+      ],
+      "cropped_dimensions": [
+        1290,
+        2796
+      ],
+      "sha256": "5d1e6c38b239ed8aab0f99817d6e13033ee94c8105492539e2e8ebc124756317",
+      "review": "Reviewed: real invitation, device choice or decoded program. Remote check ran separately from the 20-guest test."
+    },
+    {
+      "id": "android-01-invitation",
+      "full": "android-01-invitation-full.png",
+      "cropped": "android-01-invitation.png",
+      "crop_xyxy": [
+        0,
+        0,
+        1080,
+        2251
+      ],
+      "full_dimensions": [
+        1080,
+        2251
+      ],
+      "cropped_dimensions": [
+        1080,
+        2251
+      ],
+      "sha256": "cba8f422c16de2dd24ad59dca1497480c3093ceeca62c8da57d906f434ee505c",
+      "review": "Reviewed: real invitation, device choice or decoded program. Remote check ran separately from the 20-guest test."
+    },
+    {
+      "id": "android-02-permission",
+      "full": "android-02-permission-full.png",
+      "cropped": "android-02-permission.png",
+      "crop_xyxy": [
+        0,
+        0,
+        1080,
+        2251
+      ],
+      "full_dimensions": [
+        1080,
+        2251
+      ],
+      "cropped_dimensions": [
+        1080,
+        2251
+      ],
+      "sha256": "b8caa5fccecf06b5dfa7e868dc938c33ddaaa70fedcdbfc31407988243b47bbd",
+      "review": "Reviewed: transition after permission request; native browser permission dialog is not visible in this capture. Do not label this as a permission-dialog screenshot."
+    },
+    {
+      "id": "android-03-devices",
+      "full": "android-03-devices-full.png",
+      "cropped": "android-03-devices.png",
+      "crop_xyxy": [
+        0,
+        0,
+        1080,
+        2251
+      ],
+      "full_dimensions": [
+        1080,
+        2251
+      ],
+      "cropped_dimensions": [
+        1080,
+        2251
+      ],
+      "sha256": "b8ed9fec231d7cca2dc02e706c86c181a228a80ca13f97048c3c36cd67d138b5",
+      "review": "Reviewed: real invitation, device choice or decoded program. Remote check ran separately from the 20-guest test."
+    },
+    {
+      "id": "android-04-program",
+      "full": "android-04-program-full.png",
+      "cropped": "android-04-program.png",
+      "crop_xyxy": [
+        0,
+        0,
+        1080,
+        2251
+      ],
+      "full_dimensions": [
+        1080,
+        2251
+      ],
+      "cropped_dimensions": [
+        1080,
+        2251
+      ],
+      "sha256": "291b364f730b9ae8b3dff70a6d61bb8ebff292cc71f951e84d426c8f587520bb",
+      "review": "Reviewed: real invitation, device choice or decoded program. Remote check ran separately from the 20-guest test."
+    },
+    {
+      "id": "33-persisted-settings",
+      "full": "33-persisted-settings-full.png",
+      "cropped": "33-persisted-settings.png",
+      "crop_xyxy": [
+        17,
+        78,
+        583,
+        764
+      ],
+      "full_dimensions": [
+        600,
+        1100
+      ],
+      "cropped_dimensions": [
+        566,
+        686
+      ],
+      "sha256": "32ea92353c4897b6c1c074f40aa94d0573d71442d2987aeb70b6e38c6b9b3018",
+      "review": "Verified persisted 540p, half-rate and capacity 22 after OBS restart; return stopped."
+    }
+  ]
+}

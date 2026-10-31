@@ -1,0 +1,75 @@
+{
+  "guests": 3,
+  "director": 1,
+  "video": "1280x720",
+  "checks": {
+    "public-stream-active": true,
+    "reconnected": true,
+    "public-stopped-return-active": true,
+    "custom-signaling-restart-settled": true,
+    "final-continuity": true,
+    "videoContinuesForAllGuests": true,
+    "capacityRejectsFifthViewer": true,
+    "mainSurvivesReturnStop": true,
+    "settingsPersistAcrossObsRestart": true,
+    "copiedLinks": true,
+    "actualObsTrackCheckboxControlsReturnedGuestAudio": true,
+    "publicMixContainsEveryGuestHostAndClip": true
+  },
+  "audio": {
+    "public-stream-active/Alice": {
+      "returnGuestRejectionDb": 75.3
+    },
+    "public-stream-active/Ben": {
+      "returnGuestRejectionDb": 75.3
+    },
+    "public-stream-active/Casey": {
+      "returnGuestRejectionDb": 75.3
+    },
+    "reconnected/Alice": {
+      "returnGuestRejectionDb": 74.8
+    },
+    "reconnected/Ben": {
+      "returnGuestRejectionDb": 75.4
+    },
+    "reconnected/Casey": {
+      "returnGuestRejectionDb": 75.4
+    },
+    "public-stopped-return-active/Alice": {
+      "returnGuestRejectionDb": 75.4
+    },
+    "public-stopped-return-active/Ben": {
+      "returnGuestRejectionDb": 75.4
+    },
+    "public-stopped-return-active/Casey": {
+      "returnGuestRejectionDb": 75.3
+    },
+    "custom-signaling-restart-settled/Alice": {
+      "returnGuestRejectionDb": 75.6
+    },
+    "custom-signaling-restart-settled/Ben": {
+      "returnGuestRejectionDb": 75.6
+    },
+    "custom-signaling-restart-settled/Casey": {
+      "returnGuestRejectionDb": 75.6
+    },
+    "final-continuity/Alice": {
+      "returnGuestRejectionDb": 75.6
+    },
+    "final-continuity/Ben": {
+      "returnGuestRejectionDb": 75.6
+    },
+    "final-continuity/Casey": {
+      "returnGuestRejectionDb": 75.6
+    }
+  },
+  "audioCheckboxDbDifference": 87.3,
+  "publicAudioDbfs": {
+    "300": -39.4,
+    "600": -39.8,
+    "900": -39.8,
+    "1200": -20.3,
+    "1500": -20.3
+  },
+  "ok": true
+}

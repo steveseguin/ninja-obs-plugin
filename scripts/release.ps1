@@ -515,10 +515,10 @@ function Invoke-UnitTests {
     )
 
     Write-Host "Building vdoninja-tests"
-    Invoke-CheckedCommand -FilePath "cmake" -Arguments @("--build", $ReleaseBuildDir, "--target", "vdoninja-tests")
+    Invoke-CheckedCommand -FilePath "cmake" -Arguments @("--build", $ReleaseBuildDir, "--config", "Release", "--target", "vdoninja-tests")
 
     Write-Host "Running ctest"
-    Invoke-CheckedCommand -FilePath "ctest" -Arguments @("--test-dir", $ReleaseBuildDir, "--output-on-failure")
+    Invoke-CheckedCommand -FilePath "ctest" -Arguments @("--test-dir", $ReleaseBuildDir, "-C", "Release", "--output-on-failure")
 }
 
 function New-ReleaseNotes {

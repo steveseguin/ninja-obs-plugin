@@ -114,6 +114,35 @@ TEST(PublishSettingsTest, ViewUrlNeverStripsAnIdThatLooksLikeAHash)
 	EXPECT_TRUE(buildPublishUrl({}).empty());
 }
 
+TEST(PublishSettingsTest, RoomInviteSelectsReturnWithoutReusingPublisherOrViewerIdentity)
+{
+	const auto invite = buildRoomGuestInviteUrl({"program", "secret", "group"});
+	EXPECT_EQ(invite, "https://vdo.ninja/?room=group&broadcast=program&password=secret");
+	EXPECT_EQ(invite.find("push="), std::string::npos);
+	EXPECT_EQ(invite.find("view="), std::string::npos);
+	EXPECT_EQ(invite.find("solo"), std::string::npos);
+	EXPECT_TRUE(buildRoomGuestInviteUrl({"program"}).empty());
+	EXPECT_TRUE(buildRoomGuestInviteUrl({"", "", "group"}).empty());
+	EXPECT_TRUE(buildRoomGuestInviteUrl({"program", "", " \t"}).empty());
+}
+
+TEST(PublishSettingsTest, RoomInvitePreservesEncodedCredentialsAndCustomConnectionIdentity)
+{
+	const PublishIdentity identity{" program ", "a &+% secret", " my room ", "custom salt",
+	                               "wss://signal.test/path?a=1&b=2"};
+	const auto invite = buildRoomGuestInviteUrl(identity);
+	EXPECT_NE(invite.find("?room=my%20room&broadcast=program"), std::string::npos);
+	EXPECT_NE(invite.find("&password=a%20%26%2b%25%20secret"), std::string::npos);
+	PublishIdentity parsed;
+	parsePublishStreamKey(invite, parsed);
+	EXPECT_EQ(parsed.roomId, "my room");
+	EXPECT_EQ(parsed.password, identity.password);
+	EXPECT_EQ(parsed.salt, identity.salt);
+	EXPECT_EQ(parsed.wssHost, identity.wssHost);
+	EXPECT_EQ(buildRoomGuestInviteUrl({"program", "false", "group", DEFAULT_SALT, DEFAULT_WSS_HOST}),
+	          "https://vdo.ninja/?room=group&broadcast=program&password=false");
+}
+
 TEST(PublishSettingsTest, BitratesAboveSixAndTwelveMbpsArePreserved)
 {
 	EXPECT_EQ(publishPacingBitrate("CBR", 12000, 6000, 4000000), 12000000);

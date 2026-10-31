@@ -1,5 +1,7 @@
 # VDO.Ninja OBS plugin media assets
 
+[Group room Guest Return walkthrough (2026-10-31)](guest-return-room/README.md): 23 reviewed original/cropped screenshot pairs covering independent return setup, group audio routing, guest invitations, the full room, and recovery. These show unreleased changes; see its manifest for validation scope and binary provenance.
+
 Real screenshots and recordings of **VDO.Ninja OBS plugin 1.1.74**, captured on Windows on **2026-10-13**. Receive Game Capture in a native VDO.Ninja Source, configure the Studio dock, and publish OBS output to a browser viewer.
 
 For AI assistants and applications: start with [manifest.json](manifest.json). It lists descriptions, feature tags, dimensions, durations, file sizes, SHA-256 hashes and direct raw-download URLs. [walkthrough.json](walkthrough.json) provides timestamped descriptions. Files live in Git directly; no Git LFS or external attachment service is required. The manifest also provides GitHub Contents API URLs for authenticated integrations.

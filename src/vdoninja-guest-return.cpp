@@ -1,9 +1,11 @@
 #include "vdoninja-guest-return.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cstring>
 
 #include "vdoninja-publish-obs.h"
+#include "vdoninja-utils.h"
 
 namespace vdoninja
 {
@@ -56,9 +58,24 @@ bool GuestReturnOutput::start(const GuestReturnSettings &settings)
 	stop();
 	clearError();
 	if (settings.identity.streamId.empty() || settings.audioTrack < 1 || settings.audioTrack > 6 ||
-	    settings.videoBitrate < 100 || settings.videoBitrate > 50000) {
+	    settings.videoBitrate < 100 || settings.videoBitrate > 50000 || settings.maxViewers < 1 ||
+	    settings.maxViewers > 50 || settings.frameRateDivisor < 1 || settings.frameRateDivisor > 4 ||
+	    (settings.maxHeight != 0 && settings.maxHeight != 360 && settings.maxHeight != 540 &&
+	     settings.maxHeight != 720 && settings.maxHeight != 1080)) {
 		error_ = "GuestReturn.InvalidSettings";
 		return false;
+	}
+	if (settings.forceTurn) {
+		const auto servers = parseIceServers(settings.customIceServers);
+		if (std::none_of(servers.begin(), servers.end(), [](const auto &server) {
+			    std::string url = server.urls;
+			    std::transform(url.begin(), url.end(), url.begin(),
+			                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+			    return url.rfind("turn:", 0) == 0 || url.rfind("turns:", 0) == 0;
+		    })) {
+			error_ = "GuestReturn.TurnRequired";
+			return false;
+		}
 	}
 	const auto encoders = videoEncoders();
 	const auto audioId = opusEncoder();
@@ -70,6 +87,9 @@ bool GuestReturnOutput::start(const GuestReturnSettings &settings)
 	settings_ = settings;
 	auto *data = obs_data_create();
 	writePublishIdentity(data, settings.identity);
+	obs_data_set_int(data, "max_viewers", settings.maxViewers);
+	obs_data_set_string(data, "custom_ice_servers", settings.customIceServers.c_str());
+	obs_data_set_bool(data, "force_turn", settings.forceTurn);
 	obs_data_set_bool(data, "auto_inbound_enabled", false);
 	obs_data_set_bool(data, "enable_remote", false);
 	obs_data_set_int(data, "audio_encoder_index", 0);
@@ -96,8 +116,20 @@ bool GuestReturnOutput::start(const GuestReturnSettings &settings)
 	auto *audio = obs_audio_encoder_create(audioId.c_str(), "VDO.Ninja Guest Return Audio", audioSettings,
 	                                       static_cast<size_t>(settings.audioTrack - 1), nullptr);
 	obs_data_release(audioSettings);
+	bool videoConfigured = video != nullptr;
 	if (video) {
 		obs_encoder_set_video(video, obs_get_video());
+		videoConfigured = obs_encoder_set_frame_rate_divisor(video, settings.frameRateDivisor);
+		if (settings.maxHeight) {
+			obs_video_info info = {};
+			if (!obs_get_video_info(&info) || !info.output_width || !info.output_height) {
+				videoConfigured = false;
+			} else if (info.output_height > static_cast<uint32_t>(settings.maxHeight)) {
+				const auto width = static_cast<uint32_t>(static_cast<uint64_t>(info.output_width) * settings.maxHeight /
+				                                         info.output_height);
+				obs_encoder_set_scaled_size(video, std::max(2u, width & ~1u), settings.maxHeight);
+			}
+		}
 		obs_output_set_video_encoder(output_, video);
 		obs_encoder_release(video);
 	}
@@ -106,7 +138,7 @@ bool GuestReturnOutput::start(const GuestReturnSettings &settings)
 		obs_output_set_audio_encoder(output_, audio, 0);
 		obs_encoder_release(audio);
 	}
-	if (!video || !audio) {
+	if (!videoConfigured || !audio) {
 		error_ = "GuestReturn.EncoderFailed";
 		stop();
 		return false;

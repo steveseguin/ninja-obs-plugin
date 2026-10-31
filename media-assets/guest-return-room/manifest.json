@@ -1,0 +1,615 @@
+{
+  "schema_version": 1,
+  "captured_on": "2026-10-31",
+  "application": "VDO.Ninja OBS plugin",
+  "version": "1.1.77 + unreleased Guest Return changes",
+  "base_revision": "f5eb05f",
+  "working_tree_changes": true,
+  "obs": "32.2.2",
+  "browser": "Chrome 143.0.7499.4",
+  "platform": "Windows 11 x64",
+  "initial_binary_sha256": "330c5a8187bf2c4fb29769403190ea177fe091cb30c13c2d27a581158c7e7935",
+  "final_binary_sha256": "6c3e7fe719e1e71c4096aa670437bd227138f0003f732bbd22594450654c1ecf",
+  "provenance": "Actual portable OBS window captures via PrintWindow and real Chrome viewport captures. Crops only; no generated, repainted or reconstructed UI. Synthetic cameras and audio tones; real room signaling, media and encoders. IDs/password are disposable demo values; sessions have ended.",
+  "limits": "One director and three Chrome guests on one Windows host. Public output tested with local RTMP, not a YouTube broadcast. No claim of mobile, WAN, TURN-relay, macOS or Linux qualification.",
+  "assets": [
+    {
+      "id": "01-main-destination",
+      "title": "Keep the normal streaming destination",
+      "full": "full/01-main-destination.png",
+      "cropped": "cropped/01-main-destination.png",
+      "crop_xyxy": [
+        8,
+        31,
+        983,
+        281
+      ],
+      "full_dimensions": [
+        997,
+        769
+      ],
+      "cropped_dimensions": [
+        975,
+        250
+      ],
+      "source_capture": "00-main-destination-full.png",
+      "full_sha256": "99d94ce5d5d21892f04305d44e87a48bda68d72689fa57b3073ed33624b227f6",
+      "cropped_sha256": "ff5f21aa1cf2a3feaedad30b4c9c61b8b6bbc4e8eb4765b1f7788ed5d4137878",
+      "review": "Reviewed: Custom RTMP loopback receiver is the test stand-in for YouTube; stream key remains masked. Do not copy this server into a real production setup.",
+      "reviewed": true,
+      "binary_sha256": "6c3e7fe719e1e71c4096aa670437bd227138f0003f732bbd22594450654c1ecf"
+    },
+    {
+      "id": "02-main-audio-track",
+      "title": "Select public audio track 1",
+      "full": "full/02-main-audio-track.png",
+      "cropped": "cropped/02-main-audio-track.png",
+      "crop_xyxy": [
+        203,
+        31,
+        983,
+        331
+      ],
+      "full_dimensions": [
+        997,
+        769
+      ],
+      "cropped_dimensions": [
+        780,
+        300
+      ],
+      "source_capture": "00-main-audio-track-full.png",
+      "full_sha256": "1d72632538bfab4a4923ce3fb720f065a137ee7b9207eb9a12b06be7f8f9d93b",
+      "cropped_sha256": "ac3357398a0c0b5acfaf453b4e3e94adf732fe3bcc7054cadd321d4cc2fd336a",
+      "review": "Reviewed: Advanced output, track 1 selected, AAC for the public stream; separate return uses Opus.",
+      "reviewed": true,
+      "binary_sha256": "6c3e7fe719e1e71c4096aa670437bd227138f0003f732bbd22594450654c1ecf"
+    },
+    {
+      "id": "03-director-room",
+      "title": "Open the matching director room",
+      "full": "full/03-director-room.png",
+      "cropped": "cropped/03-director-room.png",
+      "crop_xyxy": [
+        0,
+        0,
+        1210,
+        1000
+      ],
+      "full_dimensions": [
+        1440,
+        1000
+      ],
+      "cropped_dimensions": [
+        1210,
+        1000
+      ],
+      "source_capture": "03-director-room-full.png",
+      "full_sha256": "01b4dce815b39cb4d69aa02a2a0e36c526c9fd20cb0122b00d6b2140807a1d94",
+      "cropped_sha256": "4a09cdf3b2e6635d132adad5c840c45a26ec7c0ca9bba6d19a8257430503f9ad",
+      "review": "Reviewed: director room and invitation controls are visible. The plugin return is a room publisher; it does not claim the director role.",
+      "reviewed": true,
+      "binary_sha256": "330c5a8187bf2c4fb29769403190ea177fe091cb30c13c2d27a581158c7e7935"
+    },
+    {
+      "id": "04-guest-source",
+      "title": "Bring individual guests into OBS",
+      "full": "full/04-guest-source.png",
+      "cropped": "cropped/04-guest-source.png",
+      "crop_xyxy": [
+        8,
+        391,
+        1058,
+        741
+      ],
+      "full_dimensions": [
+        1070,
+        800
+      ],
+      "cropped_dimensions": [
+        1050,
+        350
+      ],
+      "source_capture": "00-guest-source-properties-full.png",
+      "full_sha256": "5ebd2777c46aff3cb616fbe8cb02edee7634c876f0e132f7f446371ada47601c",
+      "cropped_sha256": "23d5fcd57bce341309496a0ae9501881651be032c5b530939416c8ef6f346dac",
+      "review": "Reviewed: individual view URL, room/password, solo and cleanoutput, and Control audio via OBS checked. Source preview is intentionally inactive in this post-session settings capture; crop focuses on settings.",
+      "reviewed": true,
+      "binary_sha256": "6c3e7fe719e1e71c4096aa670437bd227138f0003f732bbd22594450654c1ecf"
+    },
+    {
+      "id": "05-audio-routing",
+      "title": "Route audio for the whole room",
+      "full": "full/05-audio-routing.png",
+      "cropped": "cropped/05-audio-routing.png",
+      "crop_xyxy": [
+        8,
+        31,
+        926,
+        276
+      ],
+      "full_dimensions": [
+        1070,
+        379
+      ],
+      "cropped_dimensions": [
+        918,
+        245
+      ],
+      "source_capture": "08-audio-routing-full.png",
+      "full_sha256": "2384b00fda06546e3cd5711e52c93844ce293abbbddbc2704f8893a6635bc6aa",
+      "cropped_sha256": "3d29829132a15eadad1cf34a48bceaad835a47a67b8c641bf46014f57a27b6ff",
+      "review": "Reviewed: Alice, Ben and Casey are checked on track 1 and unchecked on track 2; host and clip are checked on both. The crop focuses on public track 1 and return track 2. This post-session settings capture preserves the tested routing.",
+      "reviewed": true,
+      "binary_sha256": "6c3e7fe719e1e71c4096aa670437bd227138f0003f732bbd22594450654c1ecf"
+    },
+    {
+      "id": "06-room-required",
+      "title": "Enter a room to enable the invitation",
+      "full": "full/06-room-required.png",
+      "cropped": "cropped/06-room-required.png",
+      "crop_xyxy": [
+        17,
+        78,
+        483,
+        680
+      ],
+      "full_dimensions": [
+        500,
+        980
+      ],
+      "cropped_dimensions": [
+        466,
+        602
+      ],
+      "source_capture": "01-room-required-full.png",
+      "full_sha256": "88947e1fab5a1e4f2407103dff89abd76614b382a6da2fe2bab98047a60fc0de",
+      "cropped_sha256": "f4bec5aa952721cd14152e7cd0a901a4baddb34257998213e397dc1cc30961c2",
+      "review": "Reviewed: empty Room ID disables Copy room guest invite, while the standalone viewer-link button remains available.",
+      "reviewed": true,
+      "binary_sha256": "6c3e7fe719e1e71c4096aa670437bd227138f0003f732bbd22594450654c1ecf"
+    },
+    {
+      "id": "07-return-settings",
+      "title": "Configure the independent return",
+      "full": "full/07-return-settings.png",
+      "cropped": "cropped/07-return-settings.png",
+      "crop_xyxy": [
+        17,
+        78,
+        483,
+        680
+      ],
+      "full_dimensions": [
+        500,
+        980
+      ],
+      "cropped_dimensions": [
+        466,
+        602
+      ],
+      "source_capture": "02-configured-full.png",
+      "full_sha256": "8b1a403e8e01cac45e8a89ec6cf8f421054a5f7e6cb0cf6fe8256f4d7b047f55",
+      "cropped_sha256": "222a397bc1c0e4ec86c29870f976ddcd5dbb262c6b8c5486bf87679a824fc1b8",
+      "review": "Reviewed: room and stream ID are separate, password masked, track 2, x264, 2500 kbps and capacity 4. Both copy actions are visible.",
+      "reviewed": true,
+      "binary_sha256": "330c5a8187bf2c4fb29769403190ea177fe091cb30c13c2d27a581158c7e7935"
+    },
+    {
+      "id": "08-advanced-defaults",
+      "title": "Optional connection settings",
+      "full": "full/08-advanced-defaults.png",
+      "cropped": "cropped/08-advanced-defaults.png",
+      "crop_xyxy": [
+        17,
+        78,
+        483,
+        900
+      ],
+      "full_dimensions": [
+        500,
+        980
+      ],
+      "cropped_dimensions": [
+        466,
+        822
+      ],
+      "source_capture": "02b-advanced-full.png",
+      "full_sha256": "a89a1f829a221e65fa31af825d461e04e9cf87710f0d262c9b2f5faca0842602",
+      "cropped_sha256": "a32f36614402d374e63a2db2b14c1cc5ca22e8e9cd34ece148d3d7a68f3f9cc7",
+      "review": "Reviewed: signaling, salt, ICE and Force TURN controls fit at normal width; default behavior and credential omission are explained.",
+      "reviewed": true,
+      "binary_sha256": "330c5a8187bf2c4fb29769403190ea177fe091cb30c13c2d27a581158c7e7935"
+    },
+    {
+      "id": "09-guest-invitation",
+      "title": "Guest opens the copied invitation",
+      "full": "full/09-guest-invitation.png",
+      "cropped": "cropped/09-guest-invitation.png",
+      "crop_xyxy": [
+        380,
+        50,
+        1060,
+        290
+      ],
+      "full_dimensions": [
+        1440,
+        1000
+      ],
+      "cropped_dimensions": [
+        680,
+        240
+      ],
+      "source_capture": "04-Alice-invitation-full.png",
+      "full_sha256": "8d2e91314248367b4f01a25d32bf53f5bc175a97beab728ce42b657eca265db1",
+      "cropped_sha256": "75178085006aa4c8bd4eacd111a0bb3a0df59e74ff06e6cc291880e855929b6f",
+      "review": "Reviewed: Join Room with Camera and Screenshare with Room are both visible; the guest invitation is not a viewing-only link.",
+      "reviewed": true,
+      "binary_sha256": "330c5a8187bf2c4fb29769403190ea177fe091cb30c13c2d27a581158c7e7935"
+    },
+    {
+      "id": "10-guest-devices",
+      "title": "Guest selects camera and microphone",
+      "full": "full/10-guest-devices.png",
+      "cropped": "cropped/10-guest-devices.png",
+      "crop_xyxy": [
+        430,
+        20,
+        1010,
+        730
+      ],
+      "full_dimensions": [
+        1440,
+        1000
+      ],
+      "cropped_dimensions": [
+        580,
+        710
+      ],
+      "source_capture": "05-guest0-devices-full.png",
+      "full_sha256": "b9c3124e5a8f469245749816e3dddb7192d10703b44b87e8361bef9bfbb52f52",
+      "cropped_sha256": "db85954bbd52e8c53e140cd604aba966caeefbd537b945a0e3c52da07920c587",
+      "review": "Reviewed: camera preview, START, audio source and output selector are visible. Fake devices are deliberate synthetic test inputs.",
+      "reviewed": true,
+      "binary_sha256": "330c5a8187bf2c4fb29769403190ea177fe091cb30c13c2d27a581158c7e7935"
+    },
+    {
+      "id": "11-first-guest",
+      "title": "First guest receives the program",
+      "full": "full/11-first-guest.png",
+      "cropped": "cropped/11-first-guest.png",
+      "crop_xyxy": [
+        0,
+        24,
+        1440,
+        995
+      ],
+      "full_dimensions": [
+        1440,
+        1000
+      ],
+      "cropped_dimensions": [
+        1440,
+        971
+      ],
+      "source_capture": "06-guest0-start-full.png",
+      "full_sha256": "a2a9104001b04dcb3c3530e69405f45d6c1f3b1136af975fae38fed04d45701a",
+      "cropped_sha256": "0ef6e61dfcc52627e5e1a7ba181e9b0ddf50ad37fb9e069ad1429e859d611f78",
+      "review": "Reviewed: OBS program title appears with guest self-preview. This was captured before individual camera sources were added to the program layout.",
+      "reviewed": true,
+      "binary_sha256": "330c5a8187bf2c4fb29769403190ea177fe091cb30c13c2d27a581158c7e7935"
+    },
+    {
+      "id": "12-return-capacity",
+      "title": "Check connected viewers and capacity",
+      "full": "full/12-return-capacity.png",
+      "cropped": "cropped/12-return-capacity.png",
+      "crop_xyxy": [
+        17,
+        78,
+        483,
+        680
+      ],
+      "full_dimensions": [
+        500,
+        980
+      ],
+      "cropped_dimensions": [
+        466,
+        602
+      ],
+      "source_capture": "07-return-live-full.png",
+      "full_sha256": "52b0f1c9d8d0ffbe9f520e6a3c6968294b016638b4aa83e5e97a58314f1e3009",
+      "cropped_sha256": "3eed28ce8273bed91b293295bfac19da9354fb641434c0d80b613fcbacd92e35",
+      "review": "Reviewed: 4 / 4 means three guests plus the director preview. Settings are disabled during the active return; copy and stop buttons remain enabled.",
+      "reviewed": true,
+      "binary_sha256": "330c5a8187bf2c4fb29769403190ea177fe091cb30c13c2d27a581158c7e7935"
+    },
+    {
+      "id": "13-director-full-room",
+      "title": "Director sees the return and all three guests",
+      "full": "full/13-director-full-room.png",
+      "cropped": "cropped/13-director-full-room.png",
+      "crop_xyxy": [
+        15,
+        345,
+        1205,
+        920
+      ],
+      "full_dimensions": [
+        1440,
+        1000
+      ],
+      "cropped_dimensions": [
+        1190,
+        575
+      ],
+      "source_capture": "09-full-room-director-full.png",
+      "full_sha256": "c76d8d04bac01780f63b9f9356a53a08540ee3978af773db4af324b2545c60c9",
+      "cropped_sha256": "49f1289aa45b95d178a660f72e6f3541637a6301606b09b11fc74b2ada99cc63",
+      "review": "Reviewed: distinct program return, Alice, Ben and Casey cards are visible. The return shows the OBS composition.",
+      "reviewed": true,
+      "binary_sha256": "330c5a8187bf2c4fb29769403190ea177fe091cb30c13c2d27a581158c7e7935"
+    },
+    {
+      "id": "14-alice-program",
+      "title": "Alice sees the OBS program",
+      "full": "full/14-alice-program.png",
+      "cropped": "cropped/14-alice-program.png",
+      "crop_xyxy": [
+        0,
+        24,
+        1440,
+        995
+      ],
+      "full_dimensions": [
+        1440,
+        1000
+      ],
+      "cropped_dimensions": [
+        1440,
+        971
+      ],
+      "source_capture": "09-full-room-Alice-full.png",
+      "full_sha256": "b4e3245a0714127f71c9936d6092d5d72b7555ea9a0ba0bf9d3a846af3204fa9",
+      "cropped_sha256": "493f7ece919924553195b8e277dea315060a9e5b3e607ab35fc0e37b8f9c1935",
+      "review": "Reviewed: OBS title and all three composed cameras appear, with a separate self-preview. Ben and Casey appear in the audio-only participant list.",
+      "reviewed": true,
+      "binary_sha256": "330c5a8187bf2c4fb29769403190ea177fe091cb30c13c2d27a581158c7e7935"
+    },
+    {
+      "id": "15-ben-program",
+      "title": "Ben sees the same program",
+      "full": "full/15-ben-program.png",
+      "cropped": "cropped/15-ben-program.png",
+      "crop_xyxy": [
+        0,
+        24,
+        1440,
+        995
+      ],
+      "full_dimensions": [
+        1440,
+        1000
+      ],
+      "cropped_dimensions": [
+        1440,
+        971
+      ],
+      "source_capture": "09-full-room-Ben-full.png",
+      "full_sha256": "43892479b31630efe435937dba3ed1ccce02a39e3ac9a8d01e25412295c14aff",
+      "cropped_sha256": "d865879f79e7b02aa36d7c5dc8b0ab8c12bdfeb895506cfc4f35f69407cb440e",
+      "review": "Reviewed: same OBS composition and a separate self-preview; other guests remain audio-only outside the program.",
+      "reviewed": true,
+      "binary_sha256": "330c5a8187bf2c4fb29769403190ea177fe091cb30c13c2d27a581158c7e7935"
+    },
+    {
+      "id": "16-casey-program",
+      "title": "Casey joins late and receives the program",
+      "full": "full/16-casey-program.png",
+      "cropped": "cropped/16-casey-program.png",
+      "crop_xyxy": [
+        0,
+        24,
+        1440,
+        995
+      ],
+      "full_dimensions": [
+        1440,
+        1000
+      ],
+      "cropped_dimensions": [
+        1440,
+        971
+      ],
+      "source_capture": "09-full-room-Casey-full.png",
+      "full_sha256": "6fb76a05ab6d5bdc02050fae66eb4c98b2d511883471740cc6d90dd2919f6ef9",
+      "cropped_sha256": "eb18a968520e0d00cf0114f23fe2d6ccb1c24890a77f30be9e6c1e64ea5d5c02",
+      "review": "Reviewed: late guest has the complete OBS composition and separate self-preview. This also confirms the third guest flow.",
+      "reviewed": true,
+      "binary_sha256": "330c5a8187bf2c4fb29769403190ea177fe091cb30c13c2d27a581158c7e7935"
+    },
+    {
+      "id": "17-obs-public-stream",
+      "title": "Run the public stream alongside the return",
+      "full": "full/17-obs-public-stream.png",
+      "cropped": "cropped/17-obs-public-stream.png",
+      "crop_xyxy": [
+        8,
+        31,
+        1062,
+        991
+      ],
+      "full_dimensions": [
+        1070,
+        999
+      ],
+      "cropped_dimensions": [
+        1054,
+        960
+      ],
+      "source_capture": "10-obs-simultaneous-full.png",
+      "full_sha256": "ff18d761bcd9d2845361f08121fd4d66484e9d13cdcd0ffb584207527af670b5",
+      "cropped_sha256": "29ed191a4085d17da3fb992645b9b04a044976fb4535c628edfacaa4a252db78",
+      "review": "Reviewed: Stop Streaming button, active output status and source audio meters are visible. This test streamed to a local RTMP recorder.",
+      "reviewed": true,
+      "binary_sha256": "330c5a8187bf2c4fb29769403190ea177fe091cb30c13c2d27a581158c7e7935"
+    },
+    {
+      "id": "18-return-stopped",
+      "title": "Stop the return independently",
+      "full": "full/18-return-stopped.png",
+      "cropped": "cropped/18-return-stopped.png",
+      "crop_xyxy": [
+        17,
+        78,
+        483,
+        680
+      ],
+      "full_dimensions": [
+        500,
+        980
+      ],
+      "cropped_dimensions": [
+        466,
+        602
+      ],
+      "source_capture": "13-return-stopped-full.png",
+      "full_sha256": "2f2a274ee12bf4f20264b5b6acc5b58defae4e957c70bfddecc3a7a55e8bd60b",
+      "cropped_sha256": "69a9f327385e8f2e73106bb1b022ee994072fd5a7986657a766a18174e1aa2e6",
+      "review": "Reviewed: Return stopped, Start return enabled, Stop return disabled. The separate recorded status check confirms the main stream remained active.",
+      "reviewed": true,
+      "binary_sha256": "330c5a8187bf2c4fb29769403190ea177fe091cb30c13c2d27a581158c7e7935"
+    },
+    {
+      "id": "19-guest-rejoined",
+      "title": "Guest reloads and rejoins",
+      "full": "full/19-guest-rejoined.png",
+      "cropped": "cropped/19-guest-rejoined.png",
+      "crop_xyxy": [
+        0,
+        24,
+        1440,
+        995
+      ],
+      "full_dimensions": [
+        1440,
+        1000
+      ],
+      "cropped_dimensions": [
+        1440,
+        971
+      ],
+      "source_capture": "15-rejoined-full.png",
+      "full_sha256": "fbfe942c8a0d25e6f07af7cc2f73d78ebc37d89b352ba2945badc2eaa04ef250",
+      "cropped_sha256": "742638b82b830e2f0399892a0756f9a75d6df94f45dc666bb10e3c407faaf847",
+      "review": "Reviewed: OBS composition returns after camera selection and START; measured guest stream ID is unchanged.",
+      "reviewed": true,
+      "binary_sha256": "330c5a8187bf2c4fb29769403190ea177fe091cb30c13c2d27a581158c7e7935"
+    },
+    {
+      "id": "20-turn-validation",
+      "title": "Correct a missing TURN server",
+      "full": "full/20-turn-validation.png",
+      "cropped": "cropped/20-turn-validation.png",
+      "crop_xyxy": [
+        17,
+        78,
+        471,
+        918
+      ],
+      "full_dimensions": [
+        500,
+        980
+      ],
+      "cropped_dimensions": [
+        454,
+        840
+      ],
+      "source_capture": "17-turn-required-full.png",
+      "full_sha256": "34bec754d85bd9388b855602c205f834db3dc804ed5a714e4c1dc18501e79aa9",
+      "cropped_sha256": "f9d7ee0672df7f65f00714d326de40f274b7b40c1f3a214775cf995ac86bace7",
+      "review": "Reviewed: Force TURN checked without an entry produces readable inline guidance; no return starts.",
+      "reviewed": true,
+      "binary_sha256": "330c5a8187bf2c4fb29769403190ea177fe091cb30c13c2d27a581158c7e7935"
+    },
+    {
+      "id": "21-restored-settings",
+      "title": "Settings survive an OBS restart",
+      "full": "full/21-restored-settings.png",
+      "cropped": "cropped/21-restored-settings.png",
+      "crop_xyxy": [
+        17,
+        78,
+        483,
+        900
+      ],
+      "full_dimensions": [
+        500,
+        980
+      ],
+      "cropped_dimensions": [
+        466,
+        822
+      ],
+      "source_capture": "19-settings-restored-full.png",
+      "full_sha256": "f1b28ac31edd119d26f423e8702572abe65f3e4b7f5ecc29eef932d06893e8cf",
+      "cropped_sha256": "5bf574ed9f006008ee7e0258a841ec7187c00c5f38a2057ac1512c6423c9a3c2",
+      "review": "Reviewed: capacity 6, custom signaling, default salt and masked STUN configuration are restored; the return is stopped until manually started.",
+      "reviewed": true,
+      "binary_sha256": "6c3e7fe719e1e71c4096aa670437bd227138f0003f732bbd22594450654c1ecf"
+    },
+    {
+      "id": "22-custom-network-live",
+      "title": "Run with the saved connection settings",
+      "full": "full/22-custom-network-live.png",
+      "cropped": "cropped/22-custom-network-live.png",
+      "crop_xyxy": [
+        17,
+        78,
+        483,
+        900
+      ],
+      "full_dimensions": [
+        500,
+        980
+      ],
+      "cropped_dimensions": [
+        466,
+        822
+      ],
+      "source_capture": "20-final-return-full.png",
+      "full_sha256": "dcffb8da8d7e3cd7c3bced5154c88f3ed401562fce9683b7546bd811f1d9b175",
+      "cropped_sha256": "75fbabeff4bf58367b7cbda25e2fe8cc19d8710fd746a886c82e8326d1c8c626",
+      "review": "Reviewed: final DLL is running through custom signaling with four viewers out of six; both basic and advanced fields are disabled.",
+      "reviewed": true,
+      "binary_sha256": "6c3e7fe719e1e71c4096aa670437bd227138f0003f732bbd22594450654c1ecf"
+    },
+    {
+      "id": "23-narrow-dock",
+      "title": "Check the narrow dock layout",
+      "full": "full/23-narrow-dock.png",
+      "cropped": "cropped/23-narrow-dock.png",
+      "crop_xyxy": [
+        17,
+        78,
+        248,
+        794
+      ],
+      "full_dimensions": [
+        260,
+        980
+      ],
+      "cropped_dimensions": [
+        231,
+        716
+      ],
+      "source_capture": "21-narrow-dock-full.png",
+      "full_sha256": "7d7c205d1511184c5f97919558c001b1041e32355ab7c7f821be2c0b48550c13",
+      "cropped_sha256": "d6ce30cf694cafe4884d3ae34cf492796a85fcf385dad0ea78bce4aa86c5382c",
+      "review": "Reviewed: labels wrap and buttons/status remain readable. Long IDs scroll within their fields; the normal-width capture is preferable for guides.",
+      "reviewed": true,
+      "binary_sha256": "6c3e7fe719e1e71c4096aa670437bd227138f0003f732bbd22594450654c1ecf"
+    }
+  ]
+}

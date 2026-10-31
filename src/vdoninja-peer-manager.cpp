@@ -1182,6 +1182,7 @@ void VDONinjaPeerManager::setIceServers(const std::vector<IceServer> &servers)
 void VDONinjaPeerManager::setForceTurn(bool force)
 {
 	forceTurn_ = force;
+	logInfo("ICE policy: %s (%zu custom servers)", force ? "relay only" : "all candidates", iceServers_.size());
 }
 
 void VDONinjaPeerManager::setUdpPortRange(const UdpPortRange &range)
@@ -1843,7 +1844,7 @@ void VDONinjaPeerManager::setupPeerConnectionCallbacks(std::shared_ptr<PeerInfo>
 	const std::weak_ptr<PeerManagerOwnerSession> weakOwnerSession = ownerSession;
 	std::string uuid = peer->uuid;
 
-	peer->pc->onStateChange([weakOwnerSession, weakPeer, uuid, pcHandle](rtc::PeerConnection::State state) {
+	peer->pc->onStateChange([weakOwnerSession, weakPeer, weakPc, uuid, pcHandle](rtc::PeerConnection::State state) {
 		auto permit = PeerManagerOwnerSession::acquire(weakOwnerSession, PeerManagerCompletionKind::PeerConnectionState,
 		                                               pcHandle);
 		if (!permit) {
@@ -1875,6 +1876,14 @@ void VDONinjaPeerManager::setupPeerConnectionCallbacks(std::shared_ptr<PeerInfo>
 				peer->disconnectNotified.store(false);
 				peer->cleanupRetired.store(false);
 				logInfo("Peer %s connected", uuid.c_str());
+				rtc::Candidate localCandidate, remoteCandidate;
+				const auto pc = weakPc.lock();
+				if (pc && pc->getSelectedCandidatePair(&localCandidate, &remoteCandidate)) {
+					std::ostringstream route;
+					route << "local=" << localCandidate.type() << ", remote=" << remoteCandidate.type()
+					      << ", transport=" << localCandidate.transportType();
+					logInfo("Peer %s selected ICE route: %s", uuid.c_str(), route.str().c_str());
+				}
 				OnPeerConnectedCallback cb;
 				{
 					std::lock_guard<std::mutex> callbackLock(manager->callbackMutex_);
@@ -3664,7 +3673,16 @@ void VDONinjaPeerManager::prepareViewerTracks(const std::shared_ptr<PeerInfo> &p
 					}
 				}
 
-				const SdpOfferedCodec *audioCodec = findPreferredOfferedCodec(section, "opus");
+				const SdpOfferedCodec *audioCodec = nullptr;
+				for (const auto &codec : section.codecs) {
+					if (codecNameLower(codec.codec) == "multiopus" &&
+					    parseSixChannelMultiOpus(codec.clockRate, codec.channels, codec.formatParameters)) {
+						audioCodec = &codec;
+						break;
+					}
+				}
+				if (!audioCodec)
+					audioCodec = findPreferredOfferedCodec(section, "opus");
 				if (!audioCodec) {
 					logWarning("Remote offer for %s did not include Opus in audio section %s", peer->uuid.c_str(),
 					           section.mid.c_str());
@@ -3673,7 +3691,10 @@ void VDONinjaPeerManager::prepareViewerTracks(const std::shared_ptr<PeerInfo> &p
 
 				rtc::Description::Audio receiveAudio(section.mid.empty() ? "audio" : section.mid,
 				                                     rtc::Description::Direction::RecvOnly);
-				if (audioCodec->formatParameters.empty()) {
+				if (codecNameLower(audioCodec->codec) == "multiopus") {
+					receiveAudio.addAudioCodec(audioCodec->payloadType, "multiopus/48000/6",
+					                           audioCodec->formatParameters);
+				} else if (audioCodec->formatParameters.empty()) {
 					receiveAudio.addOpusCodec(audioCodec->payloadType);
 				} else {
 					receiveAudio.addOpusCodec(audioCodec->payloadType, audioCodec->formatParameters);

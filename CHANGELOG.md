@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Add independent Guest Return size and frame-rate controls, with metadata matching the dedicated encoder.
+- Add short visual host, guest and pre-show guides for rooms up to 20 guests.
+- Add room guest invitations and an adjustable viewer limit to Guest Return, with connected/capacity status and group audio-routing guidance. Add independent signaling, salt, custom STUN/TURN and Force TURN settings, saved per OBS profile; copied links omit relay credentials.
+- Receive six-channel `multiopus` audio in the native VDO.Ninja source (four streams, two coupled, mapping `0,4,1,2,3,5`) and output it to OBS as a 5.1 speaker layout. Mono and stereo Opus behavior is unchanged.
+
+### Fixed
+- Enforce relay-only candidate pairing in the bundled networking library; forced TURN no longer silently selects a direct path. Release builds and source installers apply the pinned dependency patch. UDP TURN is supported; TCP/TLS-only relay networks remain unsupported.
+- Make release verification select the Release configuration on multi-configuration generators.
+- Alpha smoke scripts wait for the Chrome capture window, use fresh Chrome profiles, sync module locale data into the portable OBS layout, and verify cleared teardown output by pixel analysis instead of screenshot size.
+
+### Validation
+- Windows: director plus 20 synthetic guests passed 540p/15 fps return, rejoin, and independent 720p/30 fps public output. Separate Firefox, remote iPhone Safari and Android Chrome checks passed with browser-confirmed UDP relay candidates. Six-channel reception and stereo downmix passed recording/reconnect checks. Actual participant rehearsal and macOS/Linux full-room runtime remain unqualified.
+- Add six-channel native reception checks: `scripts/six-channel-native-e2e.py` records a packaged Game Capture publisher through portable OBS in 5.1 and stereo profiles.
+
 ## [1.1.77] - 2026-10-28
 
 ### Added

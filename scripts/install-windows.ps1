@@ -66,19 +66,24 @@ $depsDir = Join-Path $projectDir "deps"
 New-Item -ItemType Directory -Force -Path $depsDir | Out-Null
 
 # Build libdatachannel
-$libdcDir = Join-Path $depsDir "libdatachannel"
-$libdcInstallDir = Join-Path $depsDir "libdatachannel-install"
+$libdcDir = Join-Path $depsDir "libdatachannel-relay-v1"
+$libdcInstallDir = Join-Path $depsDir "libdatachannel-relay-v1-install"
 
 if (-not (Test-Path (Join-Path $libdcInstallDir "lib\datachannel.lib"))) {
     Write-Host "Building libdatachannel..."
 
     if (Test-Path $libdcDir) {
-        Remove-Item -Recurse -Force $libdcDir
+        $resolvedDependency = (Resolve-Path -LiteralPath $libdcDir).Path
+        $expectedDependency = [IO.Path]::GetFullPath((Join-Path $projectDir "deps\libdatachannel-relay-v1"))
+        if ($resolvedDependency -ne $expectedDependency) { throw "Unexpected dependency directory" }
+        Remove-Item -LiteralPath $resolvedDependency -Recurse -Force
     }
 
     git clone --depth 1 --branch v0.20.2 https://github.com/paullouisageneau/libdatachannel.git $libdcDir
     Push-Location $libdcDir
     git submodule update --init --recursive --depth 1
+    python (Join-Path $scriptDir "patch-libdatachannel-relay.py") $libdcDir
+    if ($LASTEXITCODE -ne 0) { throw "Relay dependency patch failed" }
 
     cmake -B build -G "Visual Studio 17 2022" -A x64 `
         -DCMAKE_BUILD_TYPE=Release `

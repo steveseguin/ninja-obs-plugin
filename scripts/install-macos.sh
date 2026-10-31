@@ -31,7 +31,7 @@ fi
 
 # Install dependencies via Homebrew
 echo "Installing build dependencies..."
-brew install cmake openssl@3 || true
+brew install cmake python openssl@3 || true
 
 echo "All dependencies found."
 echo ""
@@ -51,8 +51,8 @@ DEPS_DIR="$PROJECT_DIR/deps"
 mkdir -p "$DEPS_DIR"
 
 # Build libdatachannel if not present
-LIBDC_DIR="$DEPS_DIR/libdatachannel"
-LIBDC_INSTALL_DIR="$DEPS_DIR/libdatachannel-install"
+LIBDC_DIR="$DEPS_DIR/libdatachannel-relay-v1"
+LIBDC_INSTALL_DIR="$DEPS_DIR/libdatachannel-relay-v1-install"
 
 if [ ! -f "$LIBDC_INSTALL_DIR/lib/libdatachannel.dylib" ]; then
     echo "Building libdatachannel..."
@@ -63,6 +63,7 @@ if [ ! -f "$LIBDC_INSTALL_DIR/lib/libdatachannel.dylib" ]; then
     git clone --depth 1 --branch v0.20.2 https://github.com/paullouisageneau/libdatachannel.git "$LIBDC_DIR"
     cd "$LIBDC_DIR"
     git submodule update --init --recursive --depth 1
+    python3 "$SCRIPT_DIR/patch-libdatachannel-relay.py" "$LIBDC_DIR"
 
     cmake -B build \
         -DCMAKE_BUILD_TYPE=Release \

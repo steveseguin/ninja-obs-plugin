@@ -18,6 +18,7 @@ struct PublishIdentity {
 // IDs must only be filled after this parser has had a chance to read the key.
 void parsePublishStreamKey(const std::string &key, PublishIdentity &identity, bool allowBareStreamId = true);
 std::string buildPublishUrl(const PublishIdentity &identity, bool push = false);
+std::string buildRoomGuestInviteUrl(const PublishIdentity &identity);
 
 bool isQualityRateControl(const std::string &rateControl);
 int publishPacingBitrate(const std::string &rateControl, int64_t bitrateKbps, int64_t maxBitrateKbps,

@@ -153,6 +153,7 @@ jobs:
           git clone --depth 1 --branch ${{ env.LIBDATACHANNEL_VERSION }} https://github.com/paullouisageneau/libdatachannel.git
           cd libdatachannel
           git submodule update --init --recursive --depth 1
+          python3 ../scripts/patch-libdatachannel-relay.py .
           cmake -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_INSTALL_PREFIX=/usr/local \

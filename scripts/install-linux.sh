@@ -55,52 +55,41 @@ fi
 echo "All dependencies found."
 echo ""
 
-# Build libdatachannel if not present
-LIBDC_INSTALLED=false
-if pkg-config --exists libdatachannel 2>/dev/null || [ -f "/usr/lib/libdatachannel.so" ]; then
-    echo "libdatachannel found."
-    LIBDC_INSTALLED=true
-else
-    echo "libdatachannel not found. Building from source..."
-    echo ""
-
-    TEMP_DIR=$(mktemp -d)
-    cd "$TEMP_DIR"
-
-    git clone --depth 1 --branch v0.20.2 https://github.com/paullouisageneau/libdatachannel.git
-    cd libdatachannel
+# Use our private pinned build: a system library may not enforce relay-only ICE.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+LIBDC_DIR="$PROJECT_DIR/deps/libdatachannel-relay-v1"
+LIBDC_INSTALL_DIR="$PROJECT_DIR/deps/libdatachannel-relay-v1-install"
+check_command python3 python3
+if [ ! -f "$LIBDC_INSTALL_DIR/lib/libdatachannel.a" ]; then
+    mkdir -p "$PROJECT_DIR/deps"
+    if [ ! -d "$LIBDC_DIR/.git" ]; then
+        git clone --depth 1 --branch v0.20.2 https://github.com/paullouisageneau/libdatachannel.git "$LIBDC_DIR"
+    fi
+    cd "$LIBDC_DIR"
     git submodule update --init --recursive --depth 1
+    python3 "$SCRIPT_DIR/patch-libdatachannel-relay.py" "$LIBDC_DIR"
 
     cmake -B build \
         -DCMAKE_BUILD_TYPE=Release \
         -DNO_EXAMPLES=ON \
-        -DNO_TESTS=ON
+        -DNO_TESTS=ON \
+        -DBUILD_SHARED_LIBS=OFF \
+        -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+        -DCMAKE_INSTALL_LIBDIR=lib
 
-    cmake --build build -j$(nproc)
-
-    echo ""
-    echo "Installing libdatachannel (requires sudo)..."
-    sudo cmake --install build
-
-    cd /
-    rm -rf "$TEMP_DIR"
-
-    LIBDC_INSTALLED=true
-    echo "libdatachannel installed successfully."
+    cmake --build build --clean-first -j"$(nproc)"
+    cmake --install build --prefix "$LIBDC_INSTALL_DIR"
 fi
 
 echo ""
 echo "Building OBS VDO.Ninja plugin..."
 echo ""
 
-# Get the script directory
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
-
 cd "$PROJECT_DIR"
 
 # Build the plugin
-cmake -B build -DCMAKE_BUILD_TYPE=Release
+cmake -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$LIBDC_INSTALL_DIR"
 cmake --build build -j$(nproc)
 
 echo ""

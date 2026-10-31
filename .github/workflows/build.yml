@@ -248,6 +248,7 @@ jobs:
         run: |
           git clone --depth 1 --branch ${{ env.LIBDATACHANNEL_VERSION }} https://github.com/paullouisageneau/libdatachannel.git libdatachannel-src
           git -C "${{ github.workspace }}/libdatachannel-src" submodule update --init --recursive --depth 1
+          python3 scripts/patch-libdatachannel-relay.py libdatachannel-src
           cmake -S "${{ github.workspace }}/libdatachannel-src" -B "${{ github.workspace }}/libdatachannel-build" -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_OSX_ARCHITECTURES=${{ matrix.arch }} \
@@ -610,6 +611,8 @@ jobs:
         run: |
           git clone --depth 1 --branch ${{ env.LIBDATACHANNEL_VERSION }} https://github.com/paullouisageneau/libdatachannel.git libdatachannel-src
           git -C "${{ github.workspace }}\\libdatachannel-src" submodule update --init --recursive --depth 1
+          python scripts/patch-libdatachannel-relay.py libdatachannel-src
+          if ($LASTEXITCODE -ne 0) { throw "Relay dependency patch failed" }
           cmake -S "${{ github.workspace }}\\libdatachannel-src" -B "${{ github.workspace }}\\libdatachannel-build" -G Ninja `
             -DCMAKE_BUILD_TYPE=Release `
             -DBUILD_SHARED_LIBS=OFF `

@@ -16,6 +16,11 @@ struct GuestReturnSettings {
 	std::string videoEncoder;
 	int audioTrack = 2; // OBS mixer, one-based; the encoded output always uses slot zero.
 	int videoBitrate = 2500;
+	int maxViewers = 10;
+	std::string customIceServers;
+	bool forceTurn = false;
+	int maxHeight = 0; // Zero keeps the OBS output size; otherwise only scale down.
+	int frameRateDivisor = 1;
 };
 
 struct GuestReturnEncoder {

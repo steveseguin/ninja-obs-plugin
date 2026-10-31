@@ -869,11 +869,12 @@ std::string VDONinjaOutput::buildInitialInfoMessage() const
 
 	obs_video_info videoInfo = {};
 	if (obs_get_video_info(&videoInfo)) {
-		const int fps = videoInfo.fps_den > 0
-		                    ? static_cast<int>((videoInfo.fps_num + (videoInfo.fps_den / 2)) / videoInfo.fps_den)
-		                    : 0;
-		const int width = static_cast<int>(videoInfo.output_width ? videoInfo.output_width : videoInfo.base_width);
-		const int height = static_cast<int>(videoInfo.output_height ? videoInfo.output_height : videoInfo.base_height);
+		const auto *encoder = obs_output_get_video_encoder(output_);
+		const auto divisor = encoder ? obs_encoder_get_frame_rate_divisor(encoder) : 1u;
+		const uint64_t denominator = static_cast<uint64_t>(videoInfo.fps_den) * std::max(1u, divisor);
+		const int fps = denominator > 0 ? static_cast<int>((videoInfo.fps_num + (denominator / 2)) / denominator) : 0;
+		const int width = static_cast<int>(encoder ? obs_encoder_get_width(encoder) : videoInfo.output_width);
+		const int height = static_cast<int>(encoder ? obs_encoder_get_height(encoder) : videoInfo.output_height);
 		if (width > 0) {
 			info.add("video_init_width", width);
 		}

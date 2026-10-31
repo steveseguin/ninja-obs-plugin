@@ -16,6 +16,15 @@ Plugin builds (`BUILD_PLUGIN=ON`) require:
 
 Unit tests only (`BUILD_PLUGIN=OFF`) do not require OBS SDK, Qt, or `libdatachannel`.
 
+Release builds use libdatachannel **v0.20.2** with the bundled relay-policy patch.
+After initializing its submodules, run
+`python scripts/patch-libdatachannel-relay.py PATH_TO_LIBDATACHANNEL` from this repo.
+Rebuild both libjuice and libdatachannel from clean objects: the patch changes their
+private shared struct layout. Do not mix patched headers with unpatched libraries.
+The release workflows and source installers apply this patch automatically.
+An arbitrary system libdatachannel is not qualified for Force TURN. The bundled
+libjuice backend supports UDP TURN; TCP/TLS-only relay networks remain unsupported.
+
 ## Quick Test-Only Build
 
 ```bash
