@@ -5,8 +5,8 @@
 Previously unfinished WHEP hosting, six-channel audio and alpha-test tooling are
 parked on [work/parked-unfinished-features](https://github.com/steveseguin/ninja-obs-plugin/tree/work/parked-unfinished-features).
 They are separate from this Guest Return task. Main no longer includes those
-imported changes. Historical v1.1.78 binaries and tags remain unchanged; the
-release measurements below describe those binaries, not a new release.
+imported changes. Historical v1.1.78 binaries and tags remain unchanged.
+The delivery release is v1.1.79; its checks are recorded separately below.
 No VDO.Ninja client, broker, signaling service or API changes are authorized.
 
 The plugin provides an independent OBS program return alongside the normal public
@@ -182,17 +182,17 @@ plus printable PDFs, are in `artifacts/guest-return-guides-published-1.1.78/`.
 - [ ] Actual rehearsal with Matt's participants and their Internet connections.
   Target up to 20 people. This needs participant/device access; automated local
   guests do not establish their network quality or acoustic echo behavior.
-- [ ] macOS/Linux full-room runtime qualification. CI compile/module-load checks
-  are useful gates but do not replace a room rehearsal on those hosts.
-- [ ] TCP/TLS-only TURN support: requires a suitable ICE backend and separate
-  restricted-network tests. Current UDP relay checks do not establish this.
-WHEP hosting is outside this task and parked on the branch above. The failed
+
+### Scope and limits
+
+macOS/Linux packages have CI compile/module-load coverage, but the full-room
+runtime checks were on Windows. TCP/TLS-only TURN and native Meshcast publishing
+are not supported by this workflow. They are separate projects, not unfinished
+steps for the documented direct Guest Return setup.
+
+WHEP hosting is outside this task and parked on the branch above. Its failed
 check reflects an incompatible requirement in that unfinished adapter; it does
 not establish that the existing broker should change.
-
-- [ ] Native Meshcast/server distribution: separate feature requiring native
-  WHIP publishing, server-return identity in room invitations, auth/reconnect
-  handling and multi-device tests. Direct WHEP hosting does not reduce OBS upload.
 
 At 22 return viewers and 1500 kbps video, allow about **46.8 Mbps** for the return
 including the guide's audio/headroom allowance, plus public streaming and other
@@ -200,7 +200,7 @@ uploads. Lower upload capacity needs a lower return bitrate or server distributi
 Automatic per-guest mix-minus is separate work; the documented group return
 excludes all guest mics and keeps their direct room conversation.
 
-## Release verification
+## Historical v1.1.78 release verification
 
 v1.1.78 was cut with `scripts/release.ps1 -Action cut -Bump patch -Push` from
 a clean main checkout. Previously unfinished work was subsequently separated
@@ -239,3 +239,62 @@ capture was rejected and retaken with the complete window visible.
 Release: https://github.com/steveseguin/ninja-obs-plugin/releases/tag/v1.1.78
 
 All owned test OBS and browser/controller sessions were closed after validation.
+
+## Final Guest Return delivery: v1.1.79
+
+[Download v1.1.79](https://github.com/steveseguin/ninja-obs-plugin/releases/tag/v1.1.79).
+This release excludes the parked WHEP hosting, six-channel audio and alpha-test
+tooling changes. No VDO.Ninja client, broker or API changes were made.
+
+The supported release script passed **803 unit tests** and format checks. The
+clean native build passed **88 OBS/FFmpeg-linked cases**. Release CI passed both
+Windows compatibility bands, macOS arm64 signing/notarization and Linux packaging.
+
+The Windows ZIP was installed with its own `install.ps1` into an isolated portable
+OBS 32.2.2 installation. The running process's loaded module path was verified;
+its DLL SHA-256 was
+`f28710391b0b5dbeef9a2fca6d5955b0b61b8545dd047589c7abab6b964f6e63`.
+The ZIP and setup EXE matched the release's published SHA-256 checksums. The EXE
+has the expected signing certificate; this machine reports an untrusted root,
+as covered by the existing [Windows trust notes](../SECURITY_AND_TRUST.md).
+
+The packaged binary passed a fresh real room with **20 synthetic local guests**,
+one browser director and a separate public output to a local RTMP recorder:
+
+- Every guest received moving 960x540 return video at approximately 15 fps and
+  advancing audio, with 1500 kbps video and 22 viewer slots.
+- The twentieth guest rejoined and received the return again.
+- Stopping Guest Return left the public output running.
+- An unreachable forced UDP relay did not fall back to a direct route.
+- All 20 guests recovered after restarting the return without rejoining.
+- All 20 also received moving 640x360 video and advancing audio at 750 kbps and
+  15 fps. Allow about **26 Mbps** for this return preset at 22 viewers, plus the
+  public stream. The 540p/1500 kbps preset needs about **47 Mbps** on the same basis.
+
+The 540p sample measured 14.95–14.98 fps at the guests, with zero OBS rendering
+or output skipped frames. These short measurements establish functional behavior,
+not a guarantee for a long production show.
+
+[Ten new original/cropped screenshot pairs](../media-assets/guest-return-room/release-1.1.79/manifest.json)
+were visually reviewed, including settings, live viewer count, guest playback,
+rejoin, stop, restart and the lower-upload preset. The host guide uses captures
+from this packaged release. [Compact results](../media-assets/guest-return-room/release-1.1.79/validation-results.json)
+record the DLL hash, frame measurements and each guest's recovery checks.
+The original walkthrough and remote-browser captures remain available above.
+
+All three guides passed desktop/mobile layout, screenshot loading, local links,
+calculator and checklist checks again. Final captures are retained in
+`artifacts/guest-return-guides-final-1.1.79/`. The test helper now keeps the OBS
+window fully on screen, captures the rejoined guest, and avoids clicking camera
+selection buttons that are absent when an automated guest has already rejoined.
+
+Raw runs are retained in `artifacts/guest-return-clean-1.1.79/` and
+`artifacts/guest-return-release-1.1.79/`. The first is the clean local build;
+the second uses the packaged DLL. These are automated functional checks, not
+a rehearsal with Matt's actual guests or proof of their Internet capacity.
+All owned OBS and browser test processes were closed after the run.
+
+The only remaining show-specific step is Matt's rehearsal with his participants,
+devices, audio equipment, public streaming destination and Internet connections,
+using the [pre-show checklist](https://steveseguin.github.io/ninja-obs-plugin/guest-return-rehearsal.html).
+A [ready-to-send reply](matt-guest-return-reply.txt) is included; it has not been sent.

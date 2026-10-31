@@ -1,0 +1,217 @@
+{
+  "release": "v1.1.79",
+  "binary_sha256": "f28710391b0b5dbeef9a2fca6d5955b0b61b8545dd047589c7abab6b964f6e63",
+  "provenance": "Actual packaged Windows plugin installed with its ZIP installer into owned portable OBS. Real room and WebRTC; 20 synthetic local camera/microphone guests. Crops only; no reconstructed UI.",
+  "assets": [
+    {
+      "id": "24-twenty-settings",
+      "full": "24-twenty-settings-full.png",
+      "cropped": "24-twenty-settings.png",
+      "crop_xyxy": [
+        17,
+        78,
+        583,
+        764
+      ],
+      "full_dimensions": [
+        600,
+        1100
+      ],
+      "cropped_dimensions": [
+        566,
+        686
+      ],
+      "sha256": "31d3691e7d3248651600ecc1143eecf43047368429e90e3922f5f40f8779a9a5",
+      "review": "Reviewed: complete readable 540p/1500 kbps settings, 22 slots, track 2, stopped controls; selected for host guide."
+    },
+    {
+      "id": "25-twenty-room-Alice",
+      "full": "25-twenty-room-Alice-full.png",
+      "cropped": "25-twenty-room-Alice.png",
+      "crop_xyxy": [
+        0,
+        24,
+        1440,
+        1000
+      ],
+      "full_dimensions": [
+        1440,
+        1000
+      ],
+      "cropped_dimensions": [
+        1440,
+        976
+      ],
+      "sha256": "9562eebcf7b00311bb1310b93c57150f24cb9ea5d08595cc96b3ac0fb786b715",
+      "review": "Reviewed: OBS program grid with 20 synthetic cameras, guest self-preview and room controls visible. Media/rejoin/restart assertions are recorded separately in validation-results.json."
+    },
+    {
+      "id": "25-twenty-room-Guest 20",
+      "full": "25-twenty-room-Guest 20-full.png",
+      "cropped": "25-twenty-room-Guest 20.png",
+      "crop_xyxy": [
+        0,
+        24,
+        1440,
+        1000
+      ],
+      "full_dimensions": [
+        1440,
+        1000
+      ],
+      "cropped_dimensions": [
+        1440,
+        976
+      ],
+      "sha256": "aeba52c86452732300024a3dce7ed8f43dd813ed4b1b51fe7c41ac4c02a2122a",
+      "review": "Reviewed: OBS program grid with 20 synthetic cameras, guest self-preview and room controls visible. Media/rejoin/restart assertions are recorded separately in validation-results.json."
+    },
+    {
+      "id": "26-twenty-live",
+      "full": "26-twenty-live-full.png",
+      "cropped": "26-twenty-live.png",
+      "crop_xyxy": [
+        17,
+        78,
+        583,
+        764
+      ],
+      "full_dimensions": [
+        600,
+        1100
+      ],
+      "cropped_dimensions": [
+        566,
+        686
+      ],
+      "sha256": "b2af77e6b5e38f3020160c7281f375c1444b4b37b4e5ca45f37c0fee606de03f",
+      "review": "Reviewed: live output with locked controls and 21/22 connected viewers (20 guests plus director)."
+    },
+    {
+      "id": "28-twentieth-rejoined-Guest 20",
+      "full": "28-twentieth-rejoined-Guest 20-full.png",
+      "cropped": "28-twentieth-rejoined-Guest 20.png",
+      "crop_xyxy": [
+        0,
+        24,
+        1440,
+        1000
+      ],
+      "full_dimensions": [
+        1440,
+        1000
+      ],
+      "cropped_dimensions": [
+        1440,
+        976
+      ],
+      "sha256": "7b1bbd4d1527cc97822c22a322be41ed09b252586aa9bb873b1ded9436212edc",
+      "review": "Reviewed: OBS program grid with 20 synthetic cameras, guest self-preview and room controls visible. Media/rejoin/restart assertions are recorded separately in validation-results.json."
+    },
+    {
+      "id": "29-twenty-return-stopped",
+      "full": "29-twenty-return-stopped-full.png",
+      "cropped": "29-twenty-return-stopped.png",
+      "crop_xyxy": [
+        17,
+        78,
+        583,
+        764
+      ],
+      "full_dimensions": [
+        600,
+        1100
+      ],
+      "cropped_dimensions": [
+        566,
+        686
+      ],
+      "sha256": "a9d7af14686885178ecd8aa057ccea80ad9a35fba9c1df428dee34b46fed8d3a",
+      "review": "Reviewed: stopped status and enabled settings; separate stats establish public output remained live."
+    },
+    {
+      "id": "30-lower-upload-settings",
+      "full": "30-lower-upload-settings-full.png",
+      "cropped": "30-lower-upload-settings.png",
+      "crop_xyxy": [
+        17,
+        78,
+        583,
+        764
+      ],
+      "full_dimensions": [
+        600,
+        1100
+      ],
+      "cropped_dimensions": [
+        566,
+        686
+      ],
+      "sha256": "1cccf7446c70f97554fc9f3da7e6efa06b84f9f2ef951b78bf8771417590a01c",
+      "review": "Reviewed: complete readable 360p/750 kbps settings, frame divisor 2, 22 slots and track 2."
+    },
+    {
+      "id": "31-lower-upload-room-Alice",
+      "full": "31-lower-upload-room-Alice-full.png",
+      "cropped": "31-lower-upload-room-Alice.png",
+      "crop_xyxy": [
+        0,
+        24,
+        1440,
+        1000
+      ],
+      "full_dimensions": [
+        1440,
+        1000
+      ],
+      "cropped_dimensions": [
+        1440,
+        976
+      ],
+      "sha256": "8861cb45c11df3bd2736d6dd5c90fadd4281c588264fadb752c3393c7530c7f9",
+      "review": "Reviewed: OBS program grid with 20 synthetic cameras, guest self-preview and room controls visible. Media/rejoin/restart assertions are recorded separately in validation-results.json."
+    },
+    {
+      "id": "32-packaged-settings-final",
+      "full": "32-packaged-settings-final-full.png",
+      "cropped": "32-packaged-settings-final.png",
+      "crop_xyxy": [
+        17,
+        78,
+        583,
+        764
+      ],
+      "full_dimensions": [
+        600,
+        1100
+      ],
+      "cropped_dimensions": [
+        566,
+        686
+      ],
+      "sha256": "61655421877771ce100d7a7b00faa9a59822664313ce7ca0594ec9849fbb3500",
+      "review": "Reviewed: original 540p/1500 kbps preset restored after lower-upload test; return stopped."
+    },
+    {
+      "id": "33-return-restarted-Alice",
+      "full": "33-return-restarted-Alice-full.png",
+      "cropped": "33-return-restarted-Alice.png",
+      "crop_xyxy": [
+        0,
+        24,
+        1440,
+        1000
+      ],
+      "full_dimensions": [
+        1440,
+        1000
+      ],
+      "cropped_dimensions": [
+        1440,
+        976
+      ],
+      "sha256": "282c4c6a70fb150826ddc67f01f84465973f5a771ea0db57aa6963a04a730a07",
+      "review": "Reviewed: OBS program grid with 20 synthetic cameras, guest self-preview and room controls visible. Media/rejoin/restart assertions are recorded separately in validation-results.json."
+    }
+  ]
+}

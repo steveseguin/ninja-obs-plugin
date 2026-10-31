@@ -84,7 +84,7 @@ The dock's original **Go Live** and **Stop** buttons still control OBS's main st
 
 **Copy return viewer link** is for a monitor that only watches the return. It is different from the participating-guest invitation. Do not add the return itself back into the OBS program. The shared return cannot give everyone the exact public audio mix without also returning their own voices; keep the direct room conversation and exclude guest microphones from the return.
 
-See [room validation and remaining work](docs/guest-return-room-validation.md) for the tested scope and the screenshot walkthrough.
+For a short walkthrough, use the [visual host guide](https://steveseguin.github.io/ninja-obs-plugin/guest-return.html). See [room validation](docs/guest-return-room-validation.md) for the tested scope and screenshot evidence.
 
 ## 3) Ingest a VDO.Ninja stream in OBS
 
@@ -157,4 +157,4 @@ Additional docs:
 - `TESTING_OBS_MANUAL.md`
 - `SECURITY_AND_TRUST.md`
 
-Visual guides: [Host setup](docs/guest-return.html) ? [Guest joining](docs/guest-return-join.html) ? [Pre-show check](docs/guest-return-rehearsal.html).
+Visual guides: [Host setup](docs/guest-return.html) | [Guest joining](docs/guest-return-join.html) | [Pre-show check](docs/guest-return-rehearsal.html).

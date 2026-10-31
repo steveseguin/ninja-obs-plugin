@@ -1,0 +1,329 @@
+{
+  "release": "v1.1.79",
+  "sha256": "f28710391b0b5dbeef9a2fca6d5955b0b61b8545dd047589c7abab6b964f6e63",
+  "installedWithPackageScript": true,
+  "guestCount": 20,
+  "syntheticDevices": true,
+  "publicDestination": "local RTMP recorder",
+  "twentyGuestPassed": true,
+  "sampleSeconds": 30.436,
+  "fpsRange": [
+    14.949402023919044,
+    14.982257852543041
+  ],
+  "publicSurvivedReturnStop": true,
+  "statsBefore": {
+    "activeFps": 30.000000300000007,
+    "cpuUsage": 2.0906474541898588,
+    "averageFrameRenderTime": 1.377374,
+    "outputSkippedFrames": 0,
+    "outputTotalFrames": 4056,
+    "renderSkippedFrames": 0,
+    "renderTotalFrames": 6146
+  },
+  "statsAfter": {
+    "activeFps": 30.000000300000007,
+    "cpuUsage": 4.545509170896926,
+    "averageFrameRenderTime": 1.3337,
+    "outputSkippedFrames": 0,
+    "outputTotalFrames": 4970,
+    "renderSkippedFrames": 0,
+    "renderTotalFrames": 7059
+  },
+  "restartAndLowerUpload": {
+    "syntheticGuests": 20,
+    "phases": [
+      {
+        "name": "restart-with-guests-still-joined",
+        "guests": [
+          {
+            "name": "Alice",
+            "frames": 230,
+            "audioBytes": 380432,
+            "width": 960,
+            "height": 540
+          },
+          {
+            "name": "Ben",
+            "frames": 229,
+            "audioBytes": 380432,
+            "width": 960,
+            "height": 540
+          },
+          {
+            "name": "Casey",
+            "frames": 230,
+            "audioBytes": 380928,
+            "width": 960,
+            "height": 540
+          },
+          {
+            "name": "Dana",
+            "frames": 230,
+            "audioBytes": 379936,
+            "width": 960,
+            "height": 540
+          },
+          {
+            "name": "Guest 05",
+            "frames": 230,
+            "audioBytes": 380432,
+            "width": 960,
+            "height": 540
+          },
+          {
+            "name": "Guest 06",
+            "frames": 229,
+            "audioBytes": 380432,
+            "width": 960,
+            "height": 540
+          },
+          {
+            "name": "Guest 07",
+            "frames": 229,
+            "audioBytes": 380432,
+            "width": 960,
+            "height": 540
+          },
+          {
+            "name": "Guest 08",
+            "frames": 230,
+            "audioBytes": 380432,
+            "width": 960,
+            "height": 540
+          },
+          {
+            "name": "Guest 09",
+            "frames": 230,
+            "audioBytes": 380432,
+            "width": 960,
+            "height": 540
+          },
+          {
+            "name": "Guest 10",
+            "frames": 229,
+            "audioBytes": 380432,
+            "width": 960,
+            "height": 540
+          },
+          {
+            "name": "Guest 11",
+            "frames": 229,
+            "audioBytes": 380432,
+            "width": 960,
+            "height": 540
+          },
+          {
+            "name": "Guest 12",
+            "frames": 230,
+            "audioBytes": 380432,
+            "width": 960,
+            "height": 540
+          },
+          {
+            "name": "Guest 13",
+            "frames": 230,
+            "audioBytes": 380432,
+            "width": 960,
+            "height": 540
+          },
+          {
+            "name": "Guest 14",
+            "frames": 229,
+            "audioBytes": 380432,
+            "width": 960,
+            "height": 540
+          },
+          {
+            "name": "Guest 15",
+            "frames": 229,
+            "audioBytes": 380432,
+            "width": 960,
+            "height": 540
+          },
+          {
+            "name": "Guest 16",
+            "frames": 229,
+            "audioBytes": 379936,
+            "width": 960,
+            "height": 540
+          },
+          {
+            "name": "Guest 17",
+            "frames": 230,
+            "audioBytes": 379936,
+            "width": 960,
+            "height": 540
+          },
+          {
+            "name": "Guest 18",
+            "frames": 230,
+            "audioBytes": 379936,
+            "width": 960,
+            "height": 540
+          },
+          {
+            "name": "Guest 19",
+            "frames": 229,
+            "audioBytes": 379936,
+            "width": 960,
+            "height": 540
+          },
+          {
+            "name": "Guest 20",
+            "frames": 230,
+            "audioBytes": 380928,
+            "width": 960,
+            "height": 540
+          }
+        ]
+      },
+      {
+        "name": "lower-upload-750kbps-360p",
+        "guests": [
+          {
+            "name": "Alice",
+            "frames": 229,
+            "audioBytes": 379440,
+            "width": 640,
+            "height": 360
+          },
+          {
+            "name": "Ben",
+            "frames": 229,
+            "audioBytes": 379440,
+            "width": 640,
+            "height": 360
+          },
+          {
+            "name": "Casey",
+            "frames": 229,
+            "audioBytes": 379440,
+            "width": 640,
+            "height": 360
+          },
+          {
+            "name": "Dana",
+            "frames": 230,
+            "audioBytes": 379440,
+            "width": 640,
+            "height": 360
+          },
+          {
+            "name": "Guest 05",
+            "frames": 229,
+            "audioBytes": 379440,
+            "width": 640,
+            "height": 360
+          },
+          {
+            "name": "Guest 06",
+            "frames": 229,
+            "audioBytes": 379440,
+            "width": 640,
+            "height": 360
+          },
+          {
+            "name": "Guest 07",
+            "frames": 229,
+            "audioBytes": 379440,
+            "width": 640,
+            "height": 360
+          },
+          {
+            "name": "Guest 08",
+            "frames": 229,
+            "audioBytes": 378944,
+            "width": 640,
+            "height": 360
+          },
+          {
+            "name": "Guest 09",
+            "frames": 230,
+            "audioBytes": 378944,
+            "width": 640,
+            "height": 360
+          },
+          {
+            "name": "Guest 10",
+            "frames": 230,
+            "audioBytes": 378944,
+            "width": 640,
+            "height": 360
+          },
+          {
+            "name": "Guest 11",
+            "frames": 229,
+            "audioBytes": 378944,
+            "width": 640,
+            "height": 360
+          },
+          {
+            "name": "Guest 12",
+            "frames": 229,
+            "audioBytes": 378944,
+            "width": 640,
+            "height": 360
+          },
+          {
+            "name": "Guest 13",
+            "frames": 229,
+            "audioBytes": 379440,
+            "width": 640,
+            "height": 360
+          },
+          {
+            "name": "Guest 14",
+            "frames": 230,
+            "audioBytes": 379440,
+            "width": 640,
+            "height": 360
+          },
+          {
+            "name": "Guest 15",
+            "frames": 230,
+            "audioBytes": 378944,
+            "width": 640,
+            "height": 360
+          },
+          {
+            "name": "Guest 16",
+            "frames": 229,
+            "audioBytes": 379440,
+            "width": 640,
+            "height": 360
+          },
+          {
+            "name": "Guest 17",
+            "frames": 229,
+            "audioBytes": 379440,
+            "width": 640,
+            "height": 360
+          },
+          {
+            "name": "Guest 18",
+            "frames": 230,
+            "audioBytes": 378944,
+            "width": 640,
+            "height": 360
+          },
+          {
+            "name": "Guest 19",
+            "frames": 230,
+            "audioBytes": 379440,
+            "width": 640,
+            "height": 360
+          },
+          {
+            "name": "Guest 20",
+            "frames": 228,
+            "audioBytes": 379440,
+            "width": 640,
+            "height": 360
+          }
+        ]
+      }
+    ],
+    "passed": true
+  }
+}

@@ -14,7 +14,7 @@ function save(){fs.writeFileSync(path.join(output,'twenty-results.json'),JSON.st
 async function main(){
   if(!process.env.RETURN_TWENTY_RESUME) {
   if(/GuestReturnStop[^\n]*True/.test(ui('status')))ui('click','GuestReturnStop');
-  ui('resize','500','1000');
+  ui('resize','600','1100');
   ui('set',JSON.stringify({GuestReturnICEServers:'turn:127.0.0.1:9|invalid|invalid',GuestReturnForceTURN:true}));
   ui('click','GuestReturnStart');await wait(30000);
   report.unreachableRelay=await command('probe',{name:'unreachable-relay',fast:true,director:true});
@@ -23,7 +23,7 @@ async function main(){
   ui('set',JSON.stringify({GuestReturnBitrate:1500,GuestReturnMaxViewers:22,GuestReturnForceTURN:false,GuestReturnICEServers:''}));
   ui('combo','GuestReturnSize','Up to 540p');ui('combo','GuestReturnFrameRate','OBS frame rate / 2');
   ui('click','GuestReturnAdvanced');
-  ui('resize','500','1000');
+  ui('resize','600','1100');
   ui('capture','24-twenty-settings','VDONinjaGuestReturn');
   ui('click','GuestReturnCopyInvite');ui('clipboard','invite.txt');
   ui('click','GuestReturnStart');
@@ -54,11 +54,14 @@ async function main(){
       otherGuestVideoFrames:report.after[i].peers.filter(p=>p.stream!==state.stream).reduce((sum,p)=>sum+p.rtp.filter(t=>t.kind==='video').reduce((n,t)=>n+(t.frames||0),0),0)});
   }
   await command('snap',{name:'25-twenty-room'});ui('capture','26-twenty-live','VDONinjaGuestReturn');
-  await command('reload',{guest:19});
-  await command('click',{guest:19,selector:'text=Join Room with Camera',name:'27-twentieth-rejoin-devices'}).catch(()=>{});
-  await command('click',{guest:19,selector:'#gowebcam',name:'28-twentieth-rejoined'}).catch(()=>{});
+  let rejoinButtons=await command('reload',{guest:19});
+  if(rejoinButtons.some(b=>b.text.includes('Join Room with Camera')))
+    rejoinButtons=await command('click',{guest:19,selector:'text=Join Room with Camera',name:'27-twentieth-rejoin-devices'});
+  if(rejoinButtons.some(b=>b.id==='gowebcam'))
+    await command('click',{guest:19,selector:'#gowebcam',name:'28-twentieth-rejoined'});
   await wait(10000);report.rejoined=await command('probe',{name:'twenty-rejoined',fast:true});
   assert(report.rejoined[19].peers.some(p=>p.stream===state.stream&&p.rtp.some(t=>t.kind==='video'&&t.frames>10)));
+  await command('snap',{name:'28-twentieth-rejoined',guest:19});
   ui('click','GuestReturnStop');await wait(1500);report.mainAfterReturnStop=await command('request',{type:'GetStreamStatus'});
   assert(report.mainAfterReturnStop.outputActive);ui('capture','29-twenty-return-stopped','VDONinjaGuestReturn');
   await command('request',{type:'StopStream'});report.passed=true;save();console.log('20-guest room passed media, reduced return, rejoin and independent public-output checks.');

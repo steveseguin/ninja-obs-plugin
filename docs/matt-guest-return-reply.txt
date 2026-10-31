@@ -1,0 +1,13 @@
+Matt,
+
+Yes — your room guests can see and hear the OBS return while your normal stream continues. Use the plugin's Guest Return tab, then send everyone its “Copy room guest invite” link. Existing guests should rejoin using that link.
+
+Give the return its own audio track with clips and show audio. Leave all guest microphones off that track: the room already carries everyone's conversation, so this avoids delayed duplicate voices.
+
+Setup guide: https://steveseguin.github.io/ninja-obs-plugin/guest-return.html
+Guest instructions: https://steveseguin.github.io/ninja-obs-plugin/guest-return-join.html
+
+I've validated the flow with 20 automated guests. The guide includes two tested settings: about 47 Mbps upload for a 540p return, or 26 Mbps for a smaller 360p return, plus your public stream. Please run the short pre-show check with your actual guests and connections before Tuesday:
+https://steveseguin.github.io/ninja-obs-plugin/guest-return-rehearsal.html
+
+Steve

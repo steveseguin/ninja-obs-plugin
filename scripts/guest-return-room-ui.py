@@ -104,8 +104,9 @@ elif action == 'resize':
     import win32gui
     identifier = sys.argv[5] if len(sys.argv) > 5 else 'VDONinjaStudioDock'
     control = find(identifier)
-    win32gui.MoveWindow(control.handle, 100 if identifier != 'VDONinjaStudioDock' else 1080,
-                       40, int(sys.argv[3]), int(sys.argv[4]), True)
+    win32gui.MoveWindow(control.handle, 100, 40, int(sys.argv[3]), int(sys.argv[4]), True)
+    win32gui.ShowWindow(control.handle, 5)
+    time.sleep(.3)
 elif action == 'audio-track':
     import win32gui
     dialog = find('OBSAdvAudio')

@@ -117,6 +117,10 @@ async function command(action, args) {
     report.guests.push({name:guest.name,stream:guest.stream,frequency:guest.frequency});save();return {name:guest.name,stream:guest.stream};
   }
   if(action==='snap') {
+    if(Number.isInteger(args.guest)) {
+      const guest=guests[args.guest];
+      await shot(guest.page,args.name+'-'+guest.name);return {ok:true};
+    }
     await shot(director,args.name+'-director');
     for(const guest of guests) await shot(guest.page,args.name+'-'+guest.name);
     return {ok:true};
