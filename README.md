@@ -21,6 +21,7 @@ VDO.Ninja is a low-latency WebRTC platform used for live production, remote gues
 - Linux install: [INSTALL.md#install-linux](INSTALL.md#install-linux)
 - macOS install: [INSTALL.md#install-macos](INSTALL.md#install-macos)
 - macOS multichannel audio interfaces: [Scarlett 1-2 + 3-4 routing guide](https://steveseguin.github.io/ninja-obs-plugin/macos-multichannel-audio.html)
+- Receive a compatible six-channel stream in OBS: [Native 5.1 audio guide](https://steveseguin.github.io/ninja-obs-plugin/six-channel-audio.html)
 - macOS installer validation: [docs/macos-installer-validation.md](docs/macos-installer-validation.md)
 - Build requirements and source build guide: [BUILDING.md](BUILDING.md)
 - Web quick start (post-install): [GitHub Pages Quick Start](https://steveseguin.github.io/ninja-obs-plugin/#quick-start)

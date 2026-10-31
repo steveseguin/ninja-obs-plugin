@@ -4,8 +4,10 @@
 
 Previously unfinished WHEP hosting, six-channel audio and alpha-test tooling are
 parked on [work/parked-unfinished-features](https://github.com/steveseguin/ninja-obs-plugin/tree/work/parked-unfinished-features).
-They are separate from this Guest Return task. Main no longer includes those
-imported changes. Historical v1.1.78 binaries and tags remain unchanged.
+They are separate from this Guest Return task and were excluded from v1.1.79.
+The later, separate six-channel receiver release is covered by the
+[native 5.1 audio guide](https://steveseguin.github.io/ninja-obs-plugin/six-channel-audio.html).
+Historical v1.1.78 binaries and tags remain unchanged.
 The delivery release is v1.1.79; its checks are recorded separately below.
 No VDO.Ninja client, broker, signaling service or API changes are authorized.
 

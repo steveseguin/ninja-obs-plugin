@@ -621,6 +621,70 @@ int normalizeOpusChannelCount(int channels)
 	return 2;
 }
 
+std::optional<MultiOpusConfig> parseSixChannelMultiOpus(int rate, int channels, const std::string &parameters)
+{
+	if (rate != 48000 || channels != 6) {
+		return std::nullopt;
+	}
+	std::map<std::string, std::string> values;
+	std::istringstream fields(parameters);
+	std::string field;
+	while (std::getline(fields, field, ';')) {
+		const auto separator = field.find('=');
+		if (separator == std::string::npos) {
+			continue;
+		}
+		const auto key = trim(field.substr(0, separator));
+		if (!values.emplace(key, trim(field.substr(separator + 1))).second) {
+			return std::nullopt;
+		}
+	}
+	auto number = [](const std::string &text, int &value) {
+		if (text.empty() || text.size() > 3 ||
+		    !std::all_of(text.begin(), text.end(), [](unsigned char c) { return c >= '0' && c <= '9'; })) {
+			return false;
+		}
+		value = std::stoi(text);
+		return true;
+	};
+	int streams = 0, coupled = 0;
+	if (!number(values["num_streams"], streams) || !number(values["coupled_streams"], coupled) || streams < 1 ||
+	    coupled > streams || streams + coupled > 6) {
+		return std::nullopt;
+	}
+	MultiOpusConfig result;
+	result.streams = static_cast<uint8_t>(streams);
+	result.coupledStreams = static_cast<uint8_t>(coupled);
+	std::istringstream mapping(values["channel_mapping"]);
+	for (auto &slot : result.mapping) {
+		int value = 0;
+		if (!std::getline(mapping, field, ',') || !number(trim(field), value) ||
+		    (value >= streams + coupled && value != 255)) {
+			return std::nullopt;
+		}
+		slot = static_cast<uint8_t>(value);
+	}
+	if (mapping.peek() != std::char_traits<char>::eof() || values["channel_mapping"].back() == ',') {
+		return std::nullopt;
+	}
+	return result;
+}
+
+std::vector<uint8_t> multiOpusHeader(const MultiOpusConfig &config)
+{
+	// OpusHead: magic, version 1, 6 channels, pre-skip 0, 48000 Hz input rate
+	// (little-endian), 0 dB output gain. Mapping family 255 preserves SDP
+	// output-slot order; family 1 would apply an additional Vorbis-to-speaker
+	// reorder to already ordered WebRTC audio.
+	static const uint8_t kOpusHead[] = {'O', 'p', 'u', 's', 'H', 'e', 'a', 'd', 1, 6, 0, 0, 0x80, 0xbb, 0, 0, 0, 0};
+	std::vector<uint8_t> header(std::begin(kOpusHead), std::end(kOpusHead));
+	header.push_back(255);
+	header.push_back(config.streams);
+	header.push_back(config.coupledStreams);
+	header.insert(header.end(), config.mapping.begin(), config.mapping.end());
+	return header;
+}
+
 std::string buildViewerRequestMessage(uint32_t width, uint32_t height, bool guest, const std::string &viewerInfoJson)
 {
 	JsonBuilder request;

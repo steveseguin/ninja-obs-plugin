@@ -92,6 +92,8 @@ For a short walkthrough, use the [visual host guide](https://steveseguin.github.
 2. `VDO.Ninja Source` defaults to a browser-backed viewer. Enable `Use Native Receiver (Experimental)` only for native VP9/H.264/Opus testing or compatible VP9 alpha transparency.
 3. Confirm video/audio appears in preview/program.
 
+For six-channel audio reception, see the [native 5.1 audio guide](https://steveseguin.github.io/ninja-obs-plugin/six-channel-audio.html). Use a compatible six-channel `multiopus` sender, enable **Use Native Receiver (Experimental)** on the VDO.Ninja Source, and select **5.1** in OBS audio settings to preserve all six channels. A stereo OBS profile downmixes them. This is one multichannel source, not six separate mixer sources or recording tracks.
+
 ## 4) Transparent avatars and alpha video
 
 For transparent avatars or graphics, use Game Capture as the VDO.Ninja publisher and this OBS plugin as the native receiver:

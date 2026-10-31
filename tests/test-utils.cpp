@@ -1288,6 +1288,42 @@ TEST(OpusAudioSettingsTest, NormalizesChannelCountToMonoOrStereo)
 	EXPECT_EQ(normalizeOpusChannelCount(9999), 2);
 }
 
+TEST(OpusAudioSettingsTest, ParsesSixDiscreteChannelsAndBuildsDecoderHeader)
+{
+	const auto config = parseSixChannelMultiOpus(
+	    48000, 6, "minptime=10; num_streams=4; coupled_streams=2; channel_mapping=0,4,1,2,3,5");
+	ASSERT_TRUE(config);
+	EXPECT_EQ(config->streams, 4);
+	EXPECT_EQ(config->coupledStreams, 2);
+	EXPECT_EQ(config->mapping, (std::array<uint8_t, 6>{0, 4, 1, 2, 3, 5}));
+	const auto header = multiOpusHeader(*config);
+	ASSERT_EQ(header.size(), 27u);
+	EXPECT_EQ(std::string(header.begin(), header.begin() + 8), "OpusHead");
+	EXPECT_EQ(header[9], 6);
+	EXPECT_EQ(header[18], 255); // No implicit surround reorder.
+	EXPECT_EQ(header[19], 4);
+	EXPECT_EQ(header[20], 2);
+	EXPECT_EQ(std::vector<uint8_t>(header.begin() + 21, header.end()), (std::vector<uint8_t>{0, 4, 1, 2, 3, 5}));
+}
+
+TEST(OpusAudioSettingsTest, RejectsUnsupportedOrMalformedMultistreamDescriptions)
+{
+	const std::string valid = "num_streams=4;coupled_streams=2;channel_mapping=0,4,1,2,3,5";
+	EXPECT_FALSE(parseSixChannelMultiOpus(44100, 6, valid));
+	EXPECT_FALSE(parseSixChannelMultiOpus(48000, 8, valid));
+	for (const auto &parameters :
+	     {"", "num_streams=4;coupled_streams=2", "num_streams=0;coupled_streams=0;channel_mapping=0,1,2,3,4,5",
+	      "num_streams=4;coupled_streams=3;channel_mapping=0,1,2,3,4,5",
+	      "num_streams=4;coupled_streams=2;channel_mapping=0,4,1,2,3,6",
+	      "num_streams=4;coupled_streams=2;channel_mapping=0,4,1,2,3,5,",
+	      "num_streams=4;coupled_streams=2;channel_mapping=0,4,1,2,3,5,0",
+	      "num_streams=4;coupled_streams=2;channel_mapping=0,4,1,2,3,-1",
+	      "num_streams=4x;coupled_streams=2;channel_mapping=0,4,1,2,3,5",
+	      "num_streams=4;num_streams=3;coupled_streams=2;channel_mapping=0,4,1,2,3,5"}) {
+		EXPECT_FALSE(parseSixChannelMultiOpus(48000, 6, parameters)) << parameters;
+	}
+}
+
 TEST(ViewerRequestMessageTest, IncludesAudioVideoAndResolutionDefaults)
 {
 	const std::string message = buildViewerRequestMessage(1920, 1080, false);
