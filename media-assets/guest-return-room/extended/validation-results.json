@@ -788,5 +788,217 @@
     ],
     "cleanExit": true,
     "ok": true
+  },
+  "cleanReleaseNativeReceiverRelay": {
+    "passed": true,
+    "pluginSha256": "5df5f4107fcd76eb14ad0261853f026ac750df389c0ea0cf4fdac47da284551a",
+    "route": {
+      "remoteType": "prflx",
+      "protocol": "udp",
+      "sent": [
+        {
+          "kind": "audio",
+          "bytes": 24408
+        },
+        {
+          "kind": "video",
+          "bytes": 260512,
+          "frames": 157
+        }
+      ],
+      "nativeLocalTypes": [
+        "selected ICE route: local=relay",
+        "selected ICE route: local=relay"
+      ],
+      "proof": "Native selected candidates; browser labels its learned remote candidate prflx"
+    },
+    "hashes": [
+      "8877d5a71c1aad45d214f645a111e8be05a7f96fd4d8574b899b667af2e5caa6",
+      "e9d5e3dd827df469809fa207efc2c855eded9b4b28e63968ede0b72d105a047e"
+    ]
+  },
+  "releaseGates": {
+    "version": "1.1.78",
+    "unitCases": 807,
+    "nativeLinkedCases": 88,
+    "archRun": "https://github.com/steveseguin/ninja-obs-plugin/actions/runs/41222607536",
+    "packageRun": "https://github.com/steveseguin/ninja-obs-plugin/actions/runs/41222807492"
+  },
+  "packagedReleaseTwenty": {
+    "version": "1.1.78",
+    "pluginSha256": "2e8f55ff538885dc26201206bc035f4e41dd35e957042ddca035187b59a7929e",
+    "installedUsing": "release ZIP install.ps1 into isolated portable OBS",
+    "releaseChecksumsVerified": true,
+    "guestCount": 20,
+    "passed": true,
+    "unreachableRelay": [
+      {
+        "name": "Director",
+        "stream": "gRPYjA2",
+        "broadcast": false,
+        "peers": [
+          {
+            "uuid": "70f79afd-32ff-4349-877d-cd5abae0ba1c",
+            "stream": "ProgramReturn3ab9e51f",
+            "state": "new",
+            "width": 0,
+            "height": 0,
+            "currentTime": 0,
+            "rtp": []
+          }
+        ]
+      }
+    ],
+    "phases": [
+      {
+        "guest": 1,
+        "frames": 456,
+        "fps": 14.988167236392322,
+        "otherGuestVideoFrames": 0
+      },
+      {
+        "guest": 2,
+        "frames": 456,
+        "fps": 14.988167236392322,
+        "otherGuestVideoFrames": 0
+      },
+      {
+        "guest": 3,
+        "frames": 455,
+        "fps": 14.955298448593217,
+        "otherGuestVideoFrames": 0
+      },
+      {
+        "guest": 4,
+        "frames": 455,
+        "fps": 14.955298448593217,
+        "otherGuestVideoFrames": 0
+      },
+      {
+        "guest": 5,
+        "frames": 456,
+        "fps": 14.988167236392322,
+        "otherGuestVideoFrames": 0
+      },
+      {
+        "guest": 6,
+        "frames": 456,
+        "fps": 14.988167236392322,
+        "otherGuestVideoFrames": 0
+      },
+      {
+        "guest": 7,
+        "frames": 456,
+        "fps": 14.988167236392322,
+        "otherGuestVideoFrames": 0
+      },
+      {
+        "guest": 8,
+        "frames": 456,
+        "fps": 14.988167236392322,
+        "otherGuestVideoFrames": 0
+      },
+      {
+        "guest": 9,
+        "frames": 456,
+        "fps": 14.988167236392322,
+        "otherGuestVideoFrames": 0
+      },
+      {
+        "guest": 10,
+        "frames": 457,
+        "fps": 15.021036024191428,
+        "otherGuestVideoFrames": 0
+      },
+      {
+        "guest": 11,
+        "frames": 456,
+        "fps": 14.988167236392322,
+        "otherGuestVideoFrames": 0
+      },
+      {
+        "guest": 12,
+        "frames": 456,
+        "fps": 14.988167236392322,
+        "otherGuestVideoFrames": 0
+      },
+      {
+        "guest": 13,
+        "frames": 456,
+        "fps": 14.988167236392322,
+        "otherGuestVideoFrames": 0
+      },
+      {
+        "guest": 14,
+        "frames": 457,
+        "fps": 15.021036024191428,
+        "otherGuestVideoFrames": 0
+      },
+      {
+        "guest": 15,
+        "frames": 456,
+        "fps": 14.988167236392322,
+        "otherGuestVideoFrames": 0
+      },
+      {
+        "guest": 16,
+        "frames": 456,
+        "fps": 14.988167236392322,
+        "otherGuestVideoFrames": 0
+      },
+      {
+        "guest": 17,
+        "frames": 456,
+        "fps": 14.988167236392322,
+        "otherGuestVideoFrames": 0
+      },
+      {
+        "guest": 18,
+        "frames": 456,
+        "fps": 14.988167236392322,
+        "otherGuestVideoFrames": 0
+      },
+      {
+        "guest": 19,
+        "frames": 456,
+        "fps": 14.988167236392322,
+        "otherGuestVideoFrames": 0
+      },
+      {
+        "guest": 20,
+        "frames": 456,
+        "fps": 14.988167236392322,
+        "otherGuestVideoFrames": 0
+      }
+    ],
+    "sampleSeconds": 30.424,
+    "statsBefore": {
+      "activeFps": 30.000000300000007,
+      "availableDiskSpace": 52876.73046875,
+      "averageFrameRenderTime": 0.893738,
+      "cpuUsage": 2.2063656573634067,
+      "memoryUsage": 669.46484375,
+      "outputSkippedFrames": 0,
+      "outputTotalFrames": 4053,
+      "renderSkippedFrames": 0,
+      "renderTotalFrames": 6104,
+      "webSocketSessionIncomingMessages": 79,
+      "webSocketSessionOutgoingMessages": 79
+    },
+    "statsAfter": {
+      "activeFps": 30.000000300000007,
+      "availableDiskSpace": 52826.921875,
+      "averageFrameRenderTime": 0.963416,
+      "cpuUsage": 4.672791587428582,
+      "memoryUsage": 670.56640625,
+      "outputSkippedFrames": 0,
+      "outputTotalFrames": 4966,
+      "renderSkippedFrames": 0,
+      "renderTotalFrames": 7017,
+      "webSocketSessionIncomingMessages": 80,
+      "webSocketSessionOutgoingMessages": 80
+    },
+    "publicActiveAfterReturnStop": true,
+    "rejoinGuest20": true
   }
 }

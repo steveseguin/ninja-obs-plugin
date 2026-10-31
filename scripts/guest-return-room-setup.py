@@ -30,7 +30,8 @@ def copy_file(source, destination):
     return destination
 
 shutil.copytree(template, review, copy_function=copy_file)
-plugin = root / 'build-plugin-release-validation/RelWithDebInfo/obs-vdoninja.dll'
+plugin = (Path(sys.argv[2]).resolve() if len(sys.argv) > 2 else
+          root / 'build-plugin-release-validation/RelWithDebInfo/obs-vdoninja.dll')
 target = review / 'obs-plugins/64bit/obs-vdoninja.dll'
 assert target.resolve().is_relative_to(output) and target != plugin
 target.unlink()

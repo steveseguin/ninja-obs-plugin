@@ -43,6 +43,6 @@ Each step has an original application/viewport capture and a crop. No UI was gen
 
 ## Final controls, 20 guests and remote browsers
 
-The [extended manifest](extended/manifest.json) adds 19 full/cropped pairs with visual review notes: final return controls, 21/22 live capacity, 20-guest program, independent stop, persisted settings, and invitation/device/program flow on Firefox, iPhone Safari and Android Chrome. [Measured results](extended/validation-results.json) distinguish the local 20-guest load test from the separate remote relay checks. Permission-transition images do not show native permission dialogs.
+The [extended manifest](extended/manifest.json) adds 21 full/cropped pairs with visual review notes: final return controls, 21/22 live capacity, 20-guest program, independent stop, persisted settings, and invitation/device/program flow on Firefox, iPhone Safari and Android Chrome. [Measured results](extended/validation-results.json) distinguish the local 20-guest load test from the separate remote relay checks. Permission-transition images do not show native permission dialogs.
 
-The finished guides are [Host setup](../../docs/guest-return.html), [Guest joining](../../docs/guest-return-join.html), and [Pre-show check](../../docs/guest-return-rehearsal.html). Their desktop/mobile full-page and section captures and printable PDFs are in the local `artifacts/guest-return-guide-final-20261031/` directory.
+The finished guides are [Host setup](../../docs/guest-return.html), [Guest joining](../../docs/guest-return-join.html), and [Pre-show check](../../docs/guest-return-rehearsal.html). Their desktop/mobile full-page and section captures and printable PDFs are in the local `artifacts/guest-return-guides-published-1.1.78/` directory.

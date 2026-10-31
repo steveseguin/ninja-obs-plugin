@@ -25,10 +25,11 @@ def find(identifier):
 def native_click(control):
     import win32gui
     window = control
-    while window.element_info.control_type != 'Window' or not window.handle:
+    while not window.handle:
         window = window.parent()
     point = control.rectangle().mid_point()
     x, y = win32gui.ScreenToClient(window.handle, (point.x, point.y))
+    win32gui.SendMessage(window.handle, 0x0200, 0, (y << 16) | x)
     win32gui.SendMessage(window.handle, 0x0201, 1, (y << 16) | x)
     win32gui.SendMessage(window.handle, 0x0202, 0, (y << 16) | x)
 
@@ -42,7 +43,12 @@ if action == 'dump':
 elif action == 'open':
     main.set_focus()
     main.maximize()
-    main.menu_select('Tools->VDO.Ninja Studio')
+    try:
+        visible = find('VDONinjaStudioDock').is_visible()
+    except RuntimeError:
+        visible = False
+    if not visible:
+        main.menu_select('Tools->VDO.Ninja Studio')
 elif action == 'tab':
     for window in app.windows():
         matches = [c for c in window.descendants(control_type='TabItem') if c.window_text() == 'Guest Return']
@@ -82,14 +88,16 @@ elif action == 'combo':
     import win32gui
     dock = find('VDONinjaStudioDock')
     win32gui.MoveWindow(dock.handle, 100, 40, 600, 1100, True)
+    win32gui.ShowWindow(dock.handle, 5)
+    time.sleep(.3)
     control = find(sys.argv[3])
     assert control.is_enabled()
-    control.click_input()
+    control.expand()
     time.sleep(.3)
     choices = [c for w in app.windows() for c in w.descendants(control_type='ListItem')
                if c.window_text() == sys.argv[4] and c.is_visible()]
     assert choices, 'Combo option not visible'
-    choices[0].click_input()
+    native_click(choices[0])
     time.sleep(.2)
     assert find(sys.argv[3]).selected_text() == sys.argv[4], 'Combo selection did not apply'
 elif action == 'resize':

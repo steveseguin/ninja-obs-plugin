@@ -8,7 +8,8 @@ selected OBS return track, and retain direct guest-to-guest audio. No VDO.Ninja
 code changes are required for this workflow.
 
 Implemented controls: room guest invitation, viewer capacity (1–50, default 10),
-connected/maximum viewer status, group audio guidance, and independent signaling,
+connected/maximum viewer status, independent return size/FPS, group audio guidance,
+and independent signaling,
 salt, custom STUN/TURN, and Force TURN settings. Links preserve signaling/salt and
 omit relay credentials. Settings remain locked during a session and saved per
 OBS profile. Force TURN without a TURN entry is rejected before allocation.
@@ -140,8 +141,10 @@ The bundled backend still does not support TCP/TLS-only TURN networks.
 Resolution, FPS divisor and capacity survived OBS restart; return remained
 stopped until manually started. Two Qt automation issues were caught by media
 assertions and screenshots: changing combo values via keyboard/native messages
-had no effect, and an off-screen dock defeated physical clicks. The harness now
-moves its owned dock on screen, clicks the option and verifies the selected text.
+had no effect, and an off-screen dock defeated physical clicks. The harness moves its owned dock on screen and verifies the selected text.
+A later clean-build smoke also caught a Qt popup belonging to its own native
+window: the driver now opens the popup through accessibility and sends the mouse
+click to that popup handle, rather than to the dock behind it.
 The failed 720p assertions are retained locally, not counted as reduced-size passes.
 
 Six-channel native reception passed distinct-tone 5.1 recording and reconnect.
@@ -160,7 +163,7 @@ native permission dialogs. Crops never reconstruct UI.
 
 The three HTML guides passed 1280px desktop and 390px mobile layout, local links,
 image loading, calculator and checklist checks. Full-page and section captures,
-plus printable PDFs, are in `artifacts/guest-return-guide-final-20261031/`.
+plus printable PDFs, are in `artifacts/guest-return-guides-published-1.1.78/`.
 
 ## Delivery checklist and remaining work
 
@@ -171,7 +174,8 @@ plus printable PDFs, are in `artifacts/guest-return-guide-final-20261031/`.
 - [x] Independent return size/FPS, final UI captures, and restart persistence.
 - [x] Six-channel 5.1 reception and stereo downmix with reconnect.
 - [x] Host, guest and pre-show visual guides; desktop/mobile review.
-- [ ] Release packaging/CI and final packaged-binary smoke test.
+- [x] Release packaging/CI, ZIP installation, checksum verification and final
+  packaged-binary 20-guest room test.
 - [ ] Actual rehearsal with Matt's participants and their Internet connections.
   Target up to 20 people. This needs participant/device access; automated local
   guests do not establish their network quality or acoustic echo behavior.
@@ -179,7 +183,9 @@ plus printable PDFs, are in `artifacts/guest-return-guide-final-20261031/`.
   are useful gates but do not replace a room rehearsal on those hosts.
 - [ ] TCP/TLS-only TURN support: requires a suitable ICE backend and separate
   restricted-network tests. Current UDP relay checks do not establish this.
-- [ ] Hosted WHEP publication: production broker returned HTTP 504. Preserve the
+- [ ] Hosted WHEP publication: production broker returned HTTP 504. A disposable WebSocket/HTTP protocol
+  probe confirmed its POST contains no `sessionId`, which the pending native
+  implementation requires. Preserve the
   pending implementation, fix/deploy the broker protocol and rerun hosted E2E
   before shipping its controls or guide. Local broker success is insufficient.
 - [ ] Native Meshcast/server distribution: separate feature requiring native
@@ -191,3 +197,43 @@ including the guide's audio/headroom allowance, plus public streaming and other
 uploads. Lower upload capacity needs a lower return bitrate or server distribution.
 Automatic per-guest mix-minus is separate work; the documented group return
 excludes all guest mics and keeps their direct room conversation.
+
+## Release verification
+
+v1.1.78 was cut with `scripts/release.ps1 -Action cut -Bump patch -Push` from
+a clean main checkout; pending WHEP work remains uncommitted in the original
+checkout. The clean release passed 807 unit and 88 native OBS/FFmpeg tests.
+Windows (both OBS compatibility bands), macOS arm64 and Linux CI packages passed.
+The Arch source package also passed its current OBS 33 build, linked tests,
+install/reinstall, module initialization and removal after updating its SDK
+dependency band and SIMD header dependency. Official archives retain their
+OBS 32.2.0 / Windows legacy 32.0.4 SDK baselines.
+
+A clean locally built v1.1.78 passed two-guest return/media/independent-output
+smoke checks. A separate native receiving test passed decoded moving pixels and
+audio with the native selected route reporting UDP relay. Chrome learned that
+remote candidate as `prflx`; do not describe it as browser-side `relay`-type proof.
+The earlier timeout and remote-type assertions were harness errors (publisher
+peer map versus receiver peer map, and the learned candidate classification);
+the raw runs are retained in ignored artifacts. Browser-side relay-type proof
+for Guest Return publishing is from the separate remote-device run above.
+
+The three visual guides are published at
+[Host setup](https://steveseguin.github.io/ninja-obs-plugin/guest-return.html),
+[Guest joining](https://steveseguin.github.io/ninja-obs-plugin/guest-return-join.html),
+and [Pre-show check](https://steveseguin.github.io/ninja-obs-plugin/guest-return-rehearsal.html).
+All three returned HTTP 200 and loaded their screenshot assets in a real browser.
+
+The published Windows ZIP was installed with its own `install.ps1` into isolated
+portable OBS. Its loaded DLL hash was
+`2e8f55ff538885dc26201206bc035f4e41dd35e957042ddca035187b59a7929e`.
+Both the downloaded ZIP and setup EXE matched published SHA-256 checksums.
+The packaged DLL passed the full **20-guest** run again: moving 960x540/15 fps
+return video, advancing audio, twentieth guest rejoin, unreachable-relay negative
+check, and public output surviving return stop. Final packaged controls and
+20-guest program captures now appear in the host guide. One clipped settings
+capture was rejected and retaken with the complete window visible.
+
+Release: https://github.com/steveseguin/ninja-obs-plugin/releases/tag/v1.1.78
+
+All owned test OBS and browser/controller sessions were closed after validation.

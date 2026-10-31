@@ -401,6 +401,52 @@
       ],
       "sha256": "32ea92353c4897b6c1c074f40aa94d0573d71442d2987aeb70b6e38c6b9b3018",
       "review": "Verified persisted 540p, half-rate and capacity 22 after OBS restart; return stopped."
+    },
+    {
+      "id": "release-20-settings",
+      "full": "release-20-settings-full.png",
+      "cropped": "release-20-settings.png",
+      "crop_xyxy": [
+        17,
+        78,
+        583,
+        764
+      ],
+      "full_dimensions": [
+        600,
+        1100
+      ],
+      "cropped_dimensions": [
+        566,
+        686
+      ],
+      "sha256": "33d51b451a2300c6655b4a68242b0194d61870c1b7425fce95521a9c73ffd519",
+      "plugin_version": "1.1.78",
+      "binary_sha256": "2e8f55ff538885dc26201206bc035f4e41dd35e957042ddca035187b59a7929e",
+      "review": "Retaken after native window resize clipped the first capture. Reviewed complete controls with saved 540p, half-rate, 22 slots and return stopped. Actual released Windows ZIP."
+    },
+    {
+      "id": "release-20-program",
+      "full": "release-20-program-full.png",
+      "cropped": "release-20-program.png",
+      "crop_xyxy": [
+        0,
+        0,
+        1440,
+        1000
+      ],
+      "full_dimensions": [
+        1440,
+        1000
+      ],
+      "cropped_dimensions": [
+        1440,
+        1000
+      ],
+      "sha256": "f34a9d526464ae5fdba77e5453931a0cb66c8de9842c6d73f98541a8941cbd3d",
+      "plugin_version": "1.1.78",
+      "binary_sha256": "2e8f55ff538885dc26201206bc035f4e41dd35e957042ddca035187b59a7929e",
+      "review": "Actual CI release ZIP installed using its installer into owned portable OBS. Reviewed final settings / 20-guest composed program. Synthetic media; local RTMP public output."
     }
   ]
 }
