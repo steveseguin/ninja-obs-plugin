@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.80] - 2026-10-31
+
 ### Added
 - Restore six-channel `multiopus` reception as a separate native-receiver feature. Compatible six-channel senders retain their channel order in OBS 5.1; OBS stereo profiles use the normal downmix. Ordinary mono/stereo Opus reception is unchanged. This does not add six-channel publishing or separate recording tracks.
 
