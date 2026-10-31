@@ -11,12 +11,18 @@ makepkg -si
 sudo pacman -R obs-vdoninja-git
 ```
 
-The package supports OBS 32.2.x. Rebuild after OBS, FFmpeg, or libdatachannel ABI
-upgrades. A new OBS minor release needs compatibility review before relaxing the
-upper dependency bound. Use a full Arch system upgrade; partial upgrades are not
-supported. The `-git` version is derived from the checked-out source automatically.
+The source recipe requires OBS 32.2 or newer and builds against the installed SDK.
+The resulting package records that SDK's minor compatibility band (for example,
+33.0.x); rebuild after OBS minor, FFmpeg, or libdatachannel ABI upgrades. CI checks
+the current Arch build with linked tests and real module initialization. This
+does not change the OBS 32.2.0 baseline for the downloadable release archives.
+Use a full Arch system upgrade; partial upgrades are not supported. The `-git`
+version is derived from the checked-out source automatically.
 
-`check()` runs all nine real linked native media tests. CI builds the exact
+Arch uses the system libdatachannel. The bundled UDP relay-policy qualification
+for official archives does not establish Force TURN behavior for that library.
+
+`check()` runs the real linked native media tests. CI builds the exact
 repository revision in an Arch container, installs and reinstalls with pacman,
 checks file ownership/dependencies, initializes the installed plugin in OBS,
 then removes it and checks that the binary and data are gone. No custom install
