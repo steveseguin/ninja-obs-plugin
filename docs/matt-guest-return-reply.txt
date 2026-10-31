@@ -1,13 +1,23 @@
-Matt,
+Hi Matt,
 
-Yes — your room guests can see and hear the OBS return while your normal stream continues. Use the plugin's Guest Return tab, then send everyone its “Copy room guest invite” link. Existing guests should rejoin using that link.
+SSN can show which creator's channel a message, Super Chat, membership or gift came from, including in the queue. Enable “Show originating channel name” using this guide:
+https://socialstream.ninja/beta/docs/channel-names-guide.html
 
-Give the return its own audio track with clips and show audio. Leave all guest microphones off that track: the room already carries everyone's conversation, so this avoids delayed duplicate voices.
+For the VDO.Ninja OBS plugin, please use v1.1.79:
+https://github.com/steveseguin/ninja-obs-plugin/releases/tag/v1.1.79
 
-Setup guide: https://steveseguin.github.io/ninja-obs-plugin/guest-return.html
-Guest instructions: https://steveseguin.github.io/ninja-obs-plugin/guest-return-join.html
+Yes—everyone who joins using the plugin's “Copy room guest invite” link can see your OBS program and hear its return audio while your normal stream continues. Existing guests should rejoin with that link. The setup guide explains how to avoid echo while guests still hear one another through the room.
 
-I've validated the flow with 20 automated guests. The guide includes two tested settings: about 47 Mbps upload for a 540p return, or 26 Mbps for a smaller 360p return, plus your public stream. Please run the short pre-show check with your actual guests and connections before Tuesday:
+Host setup:
+https://steveseguin.github.io/ninja-obs-plugin/guest-return.html
+
+Guest joining instructions:
+https://steveseguin.github.io/ninja-obs-plugin/guest-return-join.html
+
+Pre-show checklist:
 https://steveseguin.github.io/ninja-obs-plugin/guest-return-rehearsal.html
 
+I've tested the packaged Windows plugin with 20 automated guests. The guide includes two tested presets needing about 26 or 47 Mbps upload for the return, plus your public stream. Please run the checklist with your actual guests and connections before Tuesday.
+
+Thanks,
 Steve
