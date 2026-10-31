@@ -8,7 +8,7 @@ arch=('x86_64')
 url='https://github.com/steveseguin/ninja-obs-plugin'
 license=('AGPL-3.0-only')
 depends=('obs-studio>=32.2' 'libdatachannel' 'ffmpeg' 'openssl' 'curl' 'qt6-base' 'libgcc' 'libstdc++' 'glibc')
-makedepends=('cmake' 'ninja' 'git')
+makedepends=('cmake' 'ninja' 'git' 'simde')
 provides=('obs-vdoninja')
 conflicts=('obs-vdoninja')
 source=('ninja-obs-plugin::git+https://github.com/steveseguin/ninja-obs-plugin.git')

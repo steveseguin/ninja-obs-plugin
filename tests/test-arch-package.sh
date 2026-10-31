@@ -7,7 +7,7 @@ if [[ $EUID -ne 0 || ! -f /.dockerenv ]]; then
 fi
 repo="$(cd "$(dirname "$0")/.." && pwd)"
 pacman -Syu --noconfirm --needed base-devel cmake ninja git obs-studio libdatachannel \
-  openssl qt6-base ffmpeg namcap xorg-server-xvfb xorg-xauth python-pyqt6
+  openssl qt6-base ffmpeg simde namcap xorg-server-xvfb xorg-xauth python-pyqt6
 work="$(mktemp -d /tmp/vdoninja-arch.XXXXXX)"
 id -u package-test >/dev/null 2>&1 || useradd -m package-test
 chmod 755 "$work"
