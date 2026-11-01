@@ -1,0 +1,1479 @@
+{
+  "release": "v1.1.84",
+  "publisherDllSha256": "ce56856a412e7f79507a18f191ec4ef3375964ded848c289d7cfc0e42f2d2c29",
+  "publisher": "Windows OBS 32.2.2",
+  "browserStackLocal": false,
+  "runs": [
+    {
+      "name": "default-run",
+      "report": {
+        "date": "2026-11-01T04:25:50.236Z",
+        "browserStackLocal": false,
+        "player": "tests/tools/whep-player.html",
+        "fixtureSha256": "aa803387de45d7a015564739e97f5e38072fb3ef3bf876d29b1138bd75b043cf",
+        "loading": "Fixture installed through automation into an isolated HTTPS document; WHEP requests go directly to the public endpoint.",
+        "profiles": [
+          {
+            "profile": "win-chrome",
+            "samples": [],
+            "environment": {
+              "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36",
+              "secure": true
+            },
+            "readyScreenshot": "browserstack-win-chrome-ready.png",
+            "ok": false,
+            "error": "playing: connected\n+ actual - expected\n\n+ 'failed'\n- 'connected'\n",
+            "failureState": {
+              "state": "failed",
+              "frames": 0,
+              "audioPackets": 0,
+              "audioState": "running",
+              "muted": true,
+              "paused": false,
+              "route": {},
+              "pixel": [
+                0,
+                0,
+                0,
+                0
+              ],
+              "rms": 0,
+              "peakHz": 11.71875,
+              "width": 0,
+              "height": 0,
+              "currentTime": 0
+            }
+          },
+          {
+            "profile": "android",
+            "samples": [],
+            "environment": {
+              "secure": true,
+              "userAgent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Mobile Safari/537.36"
+            },
+            "readyScreenshot": "browserstack-android-ready.png",
+            "ok": false,
+            "error": "playing: connected\n+ actual - expected\n\n+ 'failed'\n- 'connected'\n",
+            "failureState": {
+              "audioCodec": null,
+              "audioEnergy": null,
+              "audioPackets": 0,
+              "audioSamples": null,
+              "audioState": "running",
+              "currentTime": 0,
+              "frames": 0,
+              "height": 0,
+              "muted": true,
+              "paused": false,
+              "peakHz": 11.71875,
+              "pixel": [
+                0,
+                0,
+                0,
+                0
+              ],
+              "rms": 0,
+              "route": {
+                "local": null,
+                "protocol": null,
+                "relayProtocol": null,
+                "remote": null,
+                "remoteRelayProtocol": null
+              },
+              "state": "failed",
+              "videoCodec": null,
+              "width": 0
+            }
+          },
+          {
+            "profile": "ios",
+            "samples": [],
+            "environment": {
+              "userAgent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.6.1 Mobile/15E148 Safari/604.1",
+              "secure": true
+            },
+            "readyScreenshot": "browserstack-ios-ready.png",
+            "ok": false,
+            "error": "playing: connected\n+ actual - expected\n\n+ 'failed'\n- 'connected'\n",
+            "failureState": {
+              "state": "failed",
+              "frames": 0,
+              "audioPackets": 0,
+              "audioEnergy": null,
+              "audioSamples": null,
+              "audioState": "running",
+              "muted": true,
+              "paused": false,
+              "route": {
+                "local": null,
+                "remote": null,
+                "protocol": null,
+                "relayProtocol": null,
+                "remoteRelayProtocol": null
+              },
+              "videoCodec": null,
+              "audioCodec": null,
+              "pixel": [
+                0,
+                0,
+                0,
+                0
+              ],
+              "rms": 0,
+              "peakHz": 11.71875,
+              "width": 0,
+              "height": 0,
+              "currentTime": 0
+            }
+          }
+        ],
+        "ok": false
+      },
+      "metadata": [
+        {
+          "profile": "win-chrome",
+          "statusBeforeUpdate": "done",
+          "markedStatus": "failed",
+          "device": null,
+          "os": "Windows",
+          "os_version": "11",
+          "browser": "chrome",
+          "browser_version": "156.0",
+          "duration": 67,
+          "name": "Basic WHEP win-chrome"
+        },
+        {
+          "profile": "android",
+          "statusBeforeUpdate": "done",
+          "markedStatus": "failed",
+          "device": "Google Pixel 9",
+          "os": "android",
+          "os_version": "16.0",
+          "browser": "chrome_android",
+          "browser_version": null,
+          "duration": 84,
+          "name": "Basic WHEP android"
+        },
+        {
+          "profile": "ios",
+          "statusBeforeUpdate": "done",
+          "markedStatus": "failed",
+          "device": "iPhone 15 Pro Max",
+          "os": "ios",
+          "os_version": "26.6",
+          "browser": "iphone",
+          "browser_version": null,
+          "duration": 96,
+          "name": "Basic WHEP ios"
+        }
+      ],
+      "hostWorkflowPassed": false,
+      "cleanObsExit": false
+    },
+    {
+      "name": "stun-run",
+      "report": {
+        "date": "2026-11-01T04:28:09.729Z",
+        "browserStackLocal": false,
+        "playerStun": [
+          "stun:stun.l.google.com:19302",
+          "stun:stun.cloudflare.com:3478"
+        ],
+        "player": "tests/tools/whep-player.html",
+        "fixtureSha256": "fe3423a6da0818be59d34650543872363430f7c0913861dfb965456b6e1da0df",
+        "loading": "Fixture installed through automation into an isolated HTTPS document; WHEP requests go directly to the public endpoint.",
+        "profiles": [
+          {
+            "profile": "win-chrome",
+            "samples": [
+              {
+                "label": "playing",
+                "before": {
+                  "state": "connected",
+                  "iceState": "connected",
+                  "gathering": "complete",
+                  "localCandidates": [
+                    "host",
+                    "host",
+                    "srflx",
+                    "host",
+                    "host"
+                  ],
+                  "remoteCandidates": [
+                    "host",
+                    "host",
+                    "host",
+                    "srflx"
+                  ],
+                  "frames": 82,
+                  "audioPackets": 231,
+                  "audioEnergy": 0.07190429878255421,
+                  "audioSamples": 222720,
+                  "audioState": "running",
+                  "muted": false,
+                  "paused": false,
+                  "route": {
+                    "local": "srflx",
+                    "remote": "srflx",
+                    "protocol": "udp"
+                  },
+                  "videoCodec": "video/H264",
+                  "audioCodec": "audio/opus",
+                  "pixel": [
+                    255,
+                    127,
+                    48,
+                    255
+                  ],
+                  "rms": 0.17250659657633502,
+                  "peakHz": 445.3125,
+                  "width": 1280,
+                  "height": 720,
+                  "currentTime": 2.732454
+                },
+                "after": {
+                  "state": "connected",
+                  "iceState": "connected",
+                  "gathering": "complete",
+                  "localCandidates": [
+                    "host",
+                    "host",
+                    "srflx",
+                    "host",
+                    "host"
+                  ],
+                  "remoteCandidates": [
+                    "host",
+                    "host",
+                    "host",
+                    "srflx"
+                  ],
+                  "frames": 382,
+                  "audioPackets": 735,
+                  "audioEnergy": 0.6791468609306363,
+                  "audioSamples": 705120,
+                  "audioState": "running",
+                  "muted": false,
+                  "paused": false,
+                  "route": {
+                    "local": "srflx",
+                    "remote": "srflx",
+                    "protocol": "udp"
+                  },
+                  "videoCodec": "video/H264",
+                  "audioCodec": "audio/opus",
+                  "pixel": [
+                    255,
+                    127,
+                    48,
+                    255
+                  ],
+                  "rms": 0.17216223787456383,
+                  "peakHz": 445.3125,
+                  "width": 1280,
+                  "height": 720,
+                  "currentTime": 12.785828
+                },
+                "screenshot": "browserstack-win-chrome-playing.png"
+              },
+              {
+                "label": "rejoined",
+                "before": {
+                  "state": "connected",
+                  "iceState": "connected",
+                  "gathering": "complete",
+                  "localCandidates": [
+                    "host",
+                    "host",
+                    "host",
+                    "srflx",
+                    "host"
+                  ],
+                  "remoteCandidates": [
+                    "srflx",
+                    "host",
+                    "host",
+                    "host"
+                  ],
+                  "frames": 65,
+                  "audioPackets": 132,
+                  "audioEnergy": 0.11963466086192036,
+                  "audioSamples": 120000,
+                  "audioState": "running",
+                  "muted": false,
+                  "paused": false,
+                  "route": {
+                    "local": "srflx",
+                    "remote": "srflx",
+                    "protocol": "udp"
+                  },
+                  "videoCodec": "video/H264",
+                  "audioCodec": "audio/opus",
+                  "pixel": [
+                    255,
+                    127,
+                    48,
+                    255
+                  ],
+                  "rms": 0.17237753066500533,
+                  "peakHz": 445.3125,
+                  "width": 1280,
+                  "height": 720,
+                  "currentTime": 2.19225
+                },
+                "after": {
+                  "state": "connected",
+                  "iceState": "connected",
+                  "gathering": "complete",
+                  "localCandidates": [
+                    "host",
+                    "host",
+                    "host",
+                    "srflx",
+                    "host"
+                  ],
+                  "remoteCandidates": [
+                    "srflx",
+                    "host",
+                    "host",
+                    "host"
+                  ],
+                  "frames": 365,
+                  "audioPackets": 634,
+                  "audioEnergy": 0.7274761292693563,
+                  "audioSamples": 602880,
+                  "audioState": "running",
+                  "muted": false,
+                  "paused": false,
+                  "route": {
+                    "local": "srflx",
+                    "remote": "srflx",
+                    "protocol": "udp"
+                  },
+                  "videoCodec": "video/H264",
+                  "audioCodec": "audio/opus",
+                  "pixel": [
+                    255,
+                    127,
+                    48,
+                    255
+                  ],
+                  "rms": 0.17234307180779498,
+                  "peakHz": 445.3125,
+                  "width": 1280,
+                  "height": 720,
+                  "currentTime": 12.247406
+                },
+                "screenshot": "browserstack-win-chrome-rejoined.png"
+              }
+            ],
+            "environment": {
+              "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36",
+              "secure": true
+            },
+            "readyScreenshot": "browserstack-win-chrome-ready.png",
+            "stoppedScreenshot": "browserstack-win-chrome-stopped.png",
+            "requests": [
+              {
+                "method": "POST",
+                "status": 201
+              },
+              {
+                "method": "DELETE",
+                "status": 200
+              },
+              {
+                "method": "POST",
+                "status": 201
+              },
+              {
+                "method": "DELETE",
+                "status": 200
+              }
+            ],
+            "ok": true
+          },
+          {
+            "profile": "android",
+            "samples": [
+              {
+                "label": "playing",
+                "before": {
+                  "audioCodec": "audio/opus",
+                  "audioEnergy": 0.07492673487735,
+                  "audioPackets": 166,
+                  "audioSamples": 158400,
+                  "audioState": "running",
+                  "currentTime": 2.885,
+                  "frames": 87,
+                  "gathering": "complete",
+                  "height": 720,
+                  "iceState": "connected",
+                  "localCandidates": [
+                    "host",
+                    "srflx",
+                    "host",
+                    "host",
+                    "host"
+                  ],
+                  "muted": false,
+                  "paused": false,
+                  "peakHz": 445.3125,
+                  "pixel": [
+                    255,
+                    126,
+                    42,
+                    255
+                  ],
+                  "remoteCandidates": [
+                    "host",
+                    "host",
+                    "host",
+                    "srflx"
+                  ],
+                  "rms": 0.1724213346432619,
+                  "route": {
+                    "local": "srflx",
+                    "protocol": "udp",
+                    "relayProtocol": null,
+                    "remote": "srflx",
+                    "remoteRelayProtocol": null
+                  },
+                  "state": "connected",
+                  "videoCodec": "video/H264",
+                  "width": 1280
+                },
+                "after": {
+                  "audioCodec": "audio/opus",
+                  "audioEnergy": 0.6948516453174692,
+                  "audioPackets": 679,
+                  "audioSamples": 650880,
+                  "audioState": "running",
+                  "currentTime": 13.198,
+                  "frames": 394,
+                  "gathering": "complete",
+                  "height": 720,
+                  "iceState": "connected",
+                  "localCandidates": [
+                    "host",
+                    "srflx",
+                    "host",
+                    "host",
+                    "host"
+                  ],
+                  "muted": false,
+                  "paused": false,
+                  "peakHz": 445.3125,
+                  "pixel": [
+                    255,
+                    126,
+                    42,
+                    255
+                  ],
+                  "remoteCandidates": [
+                    "host",
+                    "host",
+                    "host",
+                    "srflx"
+                  ],
+                  "rms": 0.1723663331708687,
+                  "route": {
+                    "local": "srflx",
+                    "protocol": "udp",
+                    "relayProtocol": null,
+                    "remote": "srflx",
+                    "remoteRelayProtocol": null
+                  },
+                  "state": "connected",
+                  "videoCodec": "video/H264",
+                  "width": 1280
+                },
+                "screenshot": "browserstack-android-playing.png"
+              },
+              {
+                "label": "rejoined",
+                "before": {
+                  "audioCodec": "audio/opus",
+                  "audioEnergy": 0.16736472286946433,
+                  "audioPackets": 335,
+                  "audioSamples": 320640,
+                  "audioState": "running",
+                  "currentTime": 2.86,
+                  "frames": 86,
+                  "gathering": "complete",
+                  "height": 720,
+                  "iceState": "connected",
+                  "localCandidates": [
+                    "host",
+                    "host",
+                    "host",
+                    "srflx",
+                    "host"
+                  ],
+                  "muted": false,
+                  "paused": false,
+                  "peakHz": 445.3125,
+                  "pixel": [
+                    255,
+                    126,
+                    42,
+                    255
+                  ],
+                  "remoteCandidates": [
+                    "host",
+                    "host",
+                    "srflx",
+                    "host"
+                  ],
+                  "rms": 0.17230369887170366,
+                  "route": {
+                    "local": "srflx",
+                    "protocol": "udp",
+                    "relayProtocol": null,
+                    "remote": "srflx",
+                    "remoteRelayProtocol": null
+                  },
+                  "state": "connected",
+                  "videoCodec": "video/H264",
+                  "width": 1280
+                },
+                "after": {
+                  "audioCodec": "audio/opus",
+                  "audioEnergy": 0.7836738431782662,
+                  "audioPackets": 844,
+                  "audioSamples": 810240,
+                  "audioState": "running",
+                  "currentTime": 13.047,
+                  "frames": 391,
+                  "gathering": "complete",
+                  "height": 720,
+                  "iceState": "connected",
+                  "localCandidates": [
+                    "host",
+                    "host",
+                    "host",
+                    "srflx",
+                    "host"
+                  ],
+                  "muted": false,
+                  "paused": false,
+                  "peakHz": 445.3125,
+                  "pixel": [
+                    255,
+                    126,
+                    42,
+                    255
+                  ],
+                  "remoteCandidates": [
+                    "srflx"
+                  ],
+                  "rms": 0.17233979697362722,
+                  "route": {
+                    "local": "srflx",
+                    "protocol": "udp",
+                    "relayProtocol": null,
+                    "remote": "srflx",
+                    "remoteRelayProtocol": null
+                  },
+                  "state": "connected",
+                  "videoCodec": "video/H264",
+                  "width": 1280
+                },
+                "screenshot": "browserstack-android-rejoined.png"
+              }
+            ],
+            "environment": {
+              "secure": true,
+              "userAgent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Mobile Safari/537.36"
+            },
+            "readyScreenshot": "browserstack-android-ready.png",
+            "stoppedScreenshot": "browserstack-android-stopped.png",
+            "requests": [
+              {
+                "method": "POST",
+                "status": 201
+              },
+              {
+                "method": "DELETE",
+                "status": 200
+              },
+              {
+                "method": "POST",
+                "status": 201
+              },
+              {
+                "method": "DELETE",
+                "status": 200
+              }
+            ],
+            "ok": true
+          },
+          {
+            "profile": "ios",
+            "samples": [
+              {
+                "label": "playing",
+                "before": {
+                  "state": "connected",
+                  "iceState": "connected",
+                  "gathering": "complete",
+                  "localCandidates": [
+                    "host",
+                    "host",
+                    "host",
+                    "srflx",
+                    "host"
+                  ],
+                  "remoteCandidates": [
+                    "host",
+                    "srflx",
+                    "host",
+                    "host"
+                  ],
+                  "frames": 96,
+                  "audioPackets": 212,
+                  "audioEnergy": 0.2500851256667728,
+                  "audioSamples": 203520,
+                  "audioState": "running",
+                  "muted": false,
+                  "paused": false,
+                  "route": {
+                    "local": "srflx",
+                    "remote": "srflx",
+                    "protocol": "udp",
+                    "relayProtocol": null,
+                    "remoteRelayProtocol": null
+                  },
+                  "videoCodec": "video/H264",
+                  "audioCodec": "audio/opus",
+                  "pixel": [
+                    254,
+                    127,
+                    42,
+                    255
+                  ],
+                  "rms": 0.17223706277284132,
+                  "peakHz": 445.3125,
+                  "width": 1280,
+                  "height": 720,
+                  "currentTime": 3.186217666666664
+                },
+                "after": {
+                  "state": "connected",
+                  "iceState": "connected",
+                  "gathering": "complete",
+                  "localCandidates": [
+                    "host",
+                    "host",
+                    "host",
+                    "srflx",
+                    "host"
+                  ],
+                  "remoteCandidates": [
+                    "host",
+                    "srflx",
+                    "host",
+                    "host"
+                  ],
+                  "frames": 404,
+                  "audioPackets": 727,
+                  "audioEnergy": 0.8706254462791916,
+                  "audioSamples": 696480,
+                  "audioState": "running",
+                  "muted": false,
+                  "paused": false,
+                  "route": {
+                    "local": "srflx",
+                    "remote": "srflx",
+                    "protocol": "udp",
+                    "relayProtocol": null,
+                    "remoteRelayProtocol": null
+                  },
+                  "videoCodec": "video/H264",
+                  "audioCodec": "audio/opus",
+                  "pixel": [
+                    254,
+                    127,
+                    42,
+                    255
+                  ],
+                  "rms": 0.17251012379984984,
+                  "peakHz": 445.3125,
+                  "width": 1280,
+                  "height": 720,
+                  "currentTime": 13.461209875000009
+                },
+                "screenshot": "browserstack-ios-playing.png"
+              },
+              {
+                "label": "rejoined",
+                "before": {
+                  "state": "connected",
+                  "iceState": "connected",
+                  "gathering": "complete",
+                  "localCandidates": [
+                    "host",
+                    "host",
+                    "host",
+                    "srflx",
+                    "host"
+                  ],
+                  "remoteCandidates": [
+                    "host",
+                    "host",
+                    "host",
+                    "srflx"
+                  ],
+                  "frames": 99,
+                  "audioPackets": 227,
+                  "audioEnergy": 0.2681696336222243,
+                  "audioSamples": 217920,
+                  "audioState": "running",
+                  "muted": false,
+                  "paused": false,
+                  "route": {
+                    "local": "srflx",
+                    "remote": "srflx",
+                    "protocol": "udp",
+                    "relayProtocol": null,
+                    "remoteRelayProtocol": null
+                  },
+                  "videoCodec": "video/H264",
+                  "audioCodec": "audio/opus",
+                  "pixel": [
+                    254,
+                    127,
+                    42,
+                    255
+                  ],
+                  "rms": 0.17232859672960044,
+                  "peakHz": 445.3125,
+                  "width": 1280,
+                  "height": 720,
+                  "currentTime": 3.274450166666668
+                },
+                "after": {
+                  "state": "connected",
+                  "iceState": "connected",
+                  "gathering": "complete",
+                  "localCandidates": [
+                    "host",
+                    "host",
+                    "host",
+                    "srflx",
+                    "host"
+                  ],
+                  "remoteCandidates": [
+                    "host",
+                    "host",
+                    "host",
+                    "srflx"
+                  ],
+                  "frames": 407,
+                  "audioPackets": 742,
+                  "audioEnergy": 0.8893117108596329,
+                  "audioSamples": 711360,
+                  "audioState": "running",
+                  "muted": false,
+                  "paused": false,
+                  "route": {
+                    "local": "srflx",
+                    "remote": "srflx",
+                    "protocol": "udp",
+                    "relayProtocol": null,
+                    "remoteRelayProtocol": null
+                  },
+                  "videoCodec": "video/H264",
+                  "audioCodec": "audio/opus",
+                  "pixel": [
+                    254,
+                    127,
+                    42,
+                    255
+                  ],
+                  "rms": 0.17232982612119055,
+                  "peakHz": 445.3125,
+                  "width": 1280,
+                  "height": 720,
+                  "currentTime": 13.556647041666679
+                },
+                "screenshot": "browserstack-ios-rejoined.png"
+              }
+            ],
+            "environment": {
+              "userAgent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.6.1 Mobile/15E148 Safari/604.1",
+              "secure": true
+            },
+            "readyScreenshot": "browserstack-ios-ready.png",
+            "stoppedScreenshot": "browserstack-ios-stopped.png",
+            "requests": [
+              {
+                "method": "POST",
+                "status": 201
+              },
+              {
+                "method": "DELETE",
+                "status": 200
+              },
+              {
+                "method": "POST",
+                "status": 201
+              },
+              {
+                "method": "DELETE",
+                "status": 200
+              }
+            ],
+            "ok": true
+          }
+        ],
+        "ok": true
+      },
+      "metadata": [
+        {
+          "profile": "win-chrome",
+          "statusBeforeUpdate": "done",
+          "markedStatus": "passed",
+          "device": null,
+          "os": "Windows",
+          "os_version": "11",
+          "browser": "chrome",
+          "browser_version": "156.0",
+          "duration": 39,
+          "name": "Basic WHEP win-chrome"
+        },
+        {
+          "profile": "android",
+          "statusBeforeUpdate": "done",
+          "markedStatus": "passed",
+          "device": "Google Pixel 9",
+          "os": "android",
+          "os_version": "16.0",
+          "browser": "chrome_android",
+          "browser_version": null,
+          "duration": 60,
+          "name": "Basic WHEP android"
+        },
+        {
+          "profile": "ios",
+          "statusBeforeUpdate": "done",
+          "markedStatus": "passed",
+          "device": "iPhone 15 Pro Max",
+          "os": "ios",
+          "os_version": "26.6",
+          "browser": "iphone",
+          "browser_version": null,
+          "duration": 73,
+          "name": "Basic WHEP ios"
+        }
+      ],
+      "hostWorkflowPassed": true,
+      "cleanObsExit": true
+    },
+    {
+      "name": "desktop-run",
+      "report": {
+        "date": "2026-11-01T04:31:07.104Z",
+        "browserStackLocal": false,
+        "playerStun": [
+          "stun:stun.l.google.com:19302",
+          "stun:stun.cloudflare.com:3478"
+        ],
+        "player": "tests/tools/whep-player.html",
+        "fixtureSha256": "04899e94edb23be7e603b3e20950500e7ed49a8ee14fe9563d47a311287e66a2",
+        "loading": "Fixture installed through automation into an isolated HTTPS document; WHEP requests go directly to the public endpoint.",
+        "profiles": [
+          {
+            "profile": "win-firefox",
+            "samples": [],
+            "environment": {
+              "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:155.0) Gecko/20100101 Firefox/155.0",
+              "secure": true
+            },
+            "readyScreenshot": "browserstack-win-firefox-ready.png",
+            "ok": false,
+            "error": "page.evaluate: This browser has no H264 decoder\n@debugger eval code line 311 > eval:2:41\nevaluate@debugger eval code:313:16\n@debugger eval code:1:44\n@debugger eval code:1:62\n",
+            "requests": [],
+            "failureState": {
+              "state": "new",
+              "iceState": "new",
+              "gathering": "new",
+              "localCandidates": [],
+              "remoteCandidates": [],
+              "frames": 0,
+              "audioPackets": 0,
+              "muted": true,
+              "paused": true,
+              "route": {},
+              "pixel": [
+                0,
+                0,
+                0,
+                0
+              ],
+              "rms": 0,
+              "peakHz": 0,
+              "width": 0,
+              "height": 0,
+              "currentTime": 0
+            }
+          },
+          {
+            "profile": "mac-chrome",
+            "samples": [
+              {
+                "label": "playing",
+                "before": {
+                  "state": "connected",
+                  "iceState": "connected",
+                  "gathering": "complete",
+                  "localCandidates": [
+                    "host",
+                    "host",
+                    "srflx",
+                    "host",
+                    "host"
+                  ],
+                  "remoteCandidates": [
+                    "host",
+                    "srflx",
+                    "host",
+                    "host"
+                  ],
+                  "frames": 86,
+                  "audioPackets": 165,
+                  "audioEnergy": 0.077470829068481,
+                  "audioSamples": 157440,
+                  "audioState": "running",
+                  "muted": false,
+                  "paused": false,
+                  "route": {
+                    "local": "host",
+                    "remote": "srflx",
+                    "protocol": "udp"
+                  },
+                  "videoCodec": "video/H264",
+                  "audioCodec": "audio/opus",
+                  "pixel": [
+                    255,
+                    127,
+                    42,
+                    255
+                  ],
+                  "rms": 0.17303972563840256,
+                  "peakHz": 441.4306640625,
+                  "width": 1280,
+                  "height": 720,
+                  "currentTime": 3.238153
+                },
+                "after": {
+                  "state": "connected",
+                  "iceState": "connected",
+                  "gathering": "complete",
+                  "localCandidates": [
+                    "host",
+                    "host",
+                    "srflx",
+                    "host",
+                    "host"
+                  ],
+                  "remoteCandidates": [
+                    "host",
+                    "srflx",
+                    "host",
+                    "host"
+                  ],
+                  "frames": 389,
+                  "audioPackets": 671,
+                  "audioEnergy": 0.6898336107429947,
+                  "audioSamples": 642720,
+                  "audioState": "running",
+                  "muted": false,
+                  "paused": false,
+                  "route": {
+                    "local": "host",
+                    "remote": "srflx",
+                    "protocol": "udp"
+                  },
+                  "videoCodec": "video/H264",
+                  "audioCodec": "audio/opus",
+                  "pixel": [
+                    255,
+                    127,
+                    42,
+                    255
+                  ],
+                  "rms": 0.173335296486229,
+                  "peakHz": 441.4306640625,
+                  "width": 1280,
+                  "height": 720,
+                  "currentTime": 13.350304
+                },
+                "screenshot": "browserstack-mac-chrome-playing.png"
+              },
+              {
+                "label": "rejoined",
+                "before": {
+                  "state": "connected",
+                  "iceState": "connected",
+                  "gathering": "complete",
+                  "localCandidates": [
+                    "srflx",
+                    "host",
+                    "host",
+                    "host",
+                    "host"
+                  ],
+                  "remoteCandidates": [
+                    "host",
+                    "host",
+                    "host",
+                    "srflx"
+                  ],
+                  "frames": 92,
+                  "audioPackets": 157,
+                  "audioEnergy": 0.18345296542168452,
+                  "audioSamples": 150240,
+                  "audioState": "running",
+                  "muted": false,
+                  "paused": false,
+                  "route": {
+                    "local": "host",
+                    "remote": "srflx",
+                    "protocol": "udp"
+                  },
+                  "videoCodec": "video/H264",
+                  "audioCodec": "audio/opus",
+                  "pixel": [
+                    255,
+                    127,
+                    42,
+                    255
+                  ],
+                  "rms": 0.17341330996199947,
+                  "peakHz": 441.4306640625,
+                  "width": 1280,
+                  "height": 720,
+                  "currentTime": 3.113689
+                },
+                "after": {
+                  "state": "connected",
+                  "iceState": "connected",
+                  "gathering": "complete",
+                  "localCandidates": [
+                    "srflx",
+                    "host",
+                    "host",
+                    "host",
+                    "host"
+                  ],
+                  "remoteCandidates": [
+                    "host",
+                    "host",
+                    "host",
+                    "srflx"
+                  ],
+                  "frames": 394,
+                  "audioPackets": 662,
+                  "audioEnergy": 0.7958297096193125,
+                  "audioSamples": 635520,
+                  "audioState": "running",
+                  "muted": false,
+                  "paused": false,
+                  "route": {
+                    "local": "host",
+                    "remote": "srflx",
+                    "protocol": "udp"
+                  },
+                  "videoCodec": "video/H264",
+                  "audioCodec": "audio/opus",
+                  "pixel": [
+                    255,
+                    127,
+                    42,
+                    255
+                  ],
+                  "rms": 0.17332339224560567,
+                  "peakHz": 441.4306640625,
+                  "width": 1280,
+                  "height": 720,
+                  "currentTime": 13.227337
+                },
+                "screenshot": "browserstack-mac-chrome-rejoined.png"
+              }
+            ],
+            "environment": {
+              "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36",
+              "secure": true
+            },
+            "readyScreenshot": "browserstack-mac-chrome-ready.png",
+            "stoppedScreenshot": "browserstack-mac-chrome-stopped.png",
+            "requests": [
+              {
+                "method": "POST",
+                "status": 201
+              },
+              {
+                "method": "DELETE",
+                "status": 200
+              },
+              {
+                "method": "POST",
+                "status": 201
+              },
+              {
+                "method": "DELETE",
+                "status": 200
+              }
+            ],
+            "ok": true
+          }
+        ],
+        "ok": false
+      },
+      "metadata": [
+        {
+          "profile": "win-firefox",
+          "statusBeforeUpdate": "done",
+          "markedStatus": "failed",
+          "device": null,
+          "os": "Windows",
+          "os_version": "11",
+          "browser": "playwright-firefox",
+          "browser_version": "155.0",
+          "duration": 19,
+          "name": "Basic WHEP win-firefox"
+        },
+        {
+          "profile": "mac-chrome",
+          "statusBeforeUpdate": "done",
+          "markedStatus": "passed",
+          "device": null,
+          "os": "OS X",
+          "os_version": "Sequoia",
+          "browser": "chrome",
+          "browser_version": "156.0",
+          "duration": 37,
+          "name": "Basic WHEP mac-chrome"
+        }
+      ],
+      "hostWorkflowPassed": false,
+      "cleanObsExit": false
+    },
+    {
+      "name": "native-desktop-run",
+      "report": {
+        "date": "2026-11-01T04:33:03.030Z",
+        "browserStackLocal": false,
+        "playerStun": [
+          "stun:stun.l.google.com:19302",
+          "stun:stun.cloudflare.com:3478"
+        ],
+        "player": "tests/tools/whep-player.html",
+        "fixtureSha256": "04899e94edb23be7e603b3e20950500e7ed49a8ee14fe9563d47a311287e66a2",
+        "loading": "Fixture installed through automation into an isolated HTTPS document; WHEP requests go directly to the public endpoint.",
+        "profiles": [
+          {
+            "profile": "win-firefox-native",
+            "samples": [],
+            "environment": {
+              "secure": true,
+              "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:159.0) Gecko/20100101 Firefox/159.0"
+            },
+            "readyScreenshot": "browserstack-win-firefox-native-ready.png",
+            "ok": false,
+            "error": "BrowserStack WebDriver HTTP 200: {\"value\":{\"error\":\"This browser has no H264 decoder\",\"ok\":false}}",
+            "requests": [],
+            "failureState": {
+              "audioCodec": null,
+              "audioEnergy": null,
+              "audioPackets": 0,
+              "audioSamples": null,
+              "audioState": null,
+              "currentTime": 0,
+              "frames": 0,
+              "gathering": "new",
+              "height": 0,
+              "iceState": "new",
+              "localCandidates": [],
+              "muted": true,
+              "paused": true,
+              "peakHz": 0,
+              "pixel": [
+                0,
+                0,
+                0,
+                0
+              ],
+              "remoteCandidates": [],
+              "rms": 0,
+              "route": {
+                "local": null,
+                "protocol": null,
+                "relayProtocol": null,
+                "remote": null,
+                "remoteRelayProtocol": null
+              },
+              "state": "new",
+              "videoCodec": null,
+              "width": 0
+            }
+          },
+          {
+            "profile": "mac-safari",
+            "samples": [
+              {
+                "label": "playing",
+                "before": {
+                  "iceState": "connected",
+                  "gathering": "complete",
+                  "remoteCandidates": [
+                    "host",
+                    "host",
+                    "host",
+                    "srflx"
+                  ],
+                  "paused": false,
+                  "currentTime": 3.4587249166688707,
+                  "muted": false,
+                  "pixel": [
+                    254,
+                    127,
+                    42,
+                    255
+                  ],
+                  "state": "connected",
+                  "peakHz": 441.4306640625,
+                  "audioEnergy": 0.20109075564208567,
+                  "audioSamples": 166080,
+                  "route": {
+                    "remote": "srflx",
+                    "remoteRelayProtocol": null,
+                    "protocol": "udp",
+                    "local": "host",
+                    "relayProtocol": null
+                  },
+                  "audioState": "running",
+                  "audioCodec": "audio/opus",
+                  "frames": 71,
+                  "videoCodec": "video/H264",
+                  "width": 1280,
+                  "audioPackets": 174,
+                  "height": 720,
+                  "localCandidates": [
+                    "host",
+                    "host",
+                    "host",
+                    "srflx",
+                    "host"
+                  ],
+                  "rms": 0.17225344591547662
+                },
+                "after": {
+                  "iceState": "connected",
+                  "gathering": "complete",
+                  "remoteCandidates": [
+                    "host",
+                    "host",
+                    "host",
+                    "srflx"
+                  ],
+                  "paused": false,
+                  "currentTime": 13.718193208336743,
+                  "muted": false,
+                  "pixel": [
+                    254,
+                    127,
+                    42,
+                    255
+                  ],
+                  "state": "connected",
+                  "peakHz": 441.4306640625,
+                  "audioEnergy": 0.8187880378347343,
+                  "audioSamples": 658560,
+                  "route": {
+                    "remote": "srflx",
+                    "remoteRelayProtocol": null,
+                    "protocol": "udp",
+                    "local": "host",
+                    "relayProtocol": null
+                  },
+                  "audioState": "running",
+                  "audioCodec": "audio/opus",
+                  "frames": 378,
+                  "videoCodec": "video/H264",
+                  "width": 1280,
+                  "audioPackets": 686,
+                  "height": 720,
+                  "localCandidates": [
+                    "host",
+                    "host",
+                    "host",
+                    "srflx",
+                    "host"
+                  ],
+                  "rms": 0.17268346995814482
+                },
+                "screenshot": "browserstack-mac-safari-playing.png"
+              },
+              {
+                "label": "rejoined",
+                "before": {
+                  "iceState": "connected",
+                  "gathering": "complete",
+                  "remoteCandidates": [
+                    "host",
+                    "host",
+                    "srflx",
+                    "host"
+                  ],
+                  "paused": false,
+                  "currentTime": 4.690306333333865,
+                  "muted": false,
+                  "pixel": [
+                    254,
+                    127,
+                    42,
+                    255
+                  ],
+                  "state": "connected",
+                  "peakHz": 441.4306640625,
+                  "audioEnergy": 0.27521491137260357,
+                  "audioSamples": 225120,
+                  "route": {
+                    "remote": "srflx",
+                    "remoteRelayProtocol": null,
+                    "protocol": "udp",
+                    "local": "host",
+                    "relayProtocol": null
+                  },
+                  "audioState": "running",
+                  "audioCodec": "audio/opus",
+                  "frames": 83,
+                  "videoCodec": "video/H264",
+                  "width": 1280,
+                  "audioPackets": 235,
+                  "height": 720,
+                  "localCandidates": [
+                    "srflx",
+                    "host",
+                    "host",
+                    "host",
+                    "host"
+                  ],
+                  "rms": 0.172580588076297
+                },
+                "after": {
+                  "iceState": "connected",
+                  "gathering": "complete",
+                  "remoteCandidates": [
+                    "host",
+                    "srflx",
+                    "host"
+                  ],
+                  "paused": false,
+                  "currentTime": 15.004078708334418,
+                  "muted": false,
+                  "pixel": [
+                    254,
+                    127,
+                    42,
+                    255
+                  ],
+                  "state": "connected",
+                  "peakHz": 441.4306640625,
+                  "audioEnergy": 0.8959289243836361,
+                  "audioSamples": 720000,
+                  "route": {
+                    "remote": "srflx",
+                    "remoteRelayProtocol": null,
+                    "protocol": "udp",
+                    "local": "host",
+                    "relayProtocol": null
+                  },
+                  "audioState": "running",
+                  "audioCodec": "audio/opus",
+                  "frames": 392,
+                  "videoCodec": "video/H264",
+                  "width": 1280,
+                  "audioPackets": 751,
+                  "height": 720,
+                  "localCandidates": [
+                    "srflx",
+                    "host",
+                    "host",
+                    "host",
+                    "host"
+                  ],
+                  "rms": 0.1726509835077872
+                },
+                "screenshot": "browserstack-mac-safari-rejoined.png"
+              }
+            ],
+            "environment": {
+              "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.4 Safari/605.1.15",
+              "secure": true
+            },
+            "readyScreenshot": "browserstack-mac-safari-ready.png",
+            "stoppedScreenshot": "browserstack-mac-safari-stopped.png",
+            "requests": [
+              {
+                "status": 201,
+                "method": "POST"
+              },
+              {
+                "status": 200,
+                "method": "DELETE"
+              },
+              {
+                "status": 201,
+                "method": "POST"
+              },
+              {
+                "status": 200,
+                "method": "DELETE"
+              }
+            ],
+            "ok": true
+          }
+        ],
+        "ok": false
+      },
+      "metadata": [
+        {
+          "profile": "win-firefox-native",
+          "statusBeforeUpdate": "done",
+          "markedStatus": "failed",
+          "device": null,
+          "os": "Windows",
+          "os_version": "11",
+          "browser": "firefox",
+          "browser_version": "159.0",
+          "duration": 22,
+          "name": "Basic WHEP win-firefox-native"
+        },
+        {
+          "profile": "mac-safari",
+          "statusBeforeUpdate": "done",
+          "markedStatus": "passed",
+          "device": null,
+          "os": "OS X",
+          "os_version": "Sequoia",
+          "browser": "safari",
+          "browser_version": "18.4",
+          "duration": 46,
+          "name": "Basic WHEP mac-safari"
+        }
+      ],
+      "hostWorkflowPassed": false,
+      "cleanObsExit": false
+    }
+  ],
+  "remaining": [
+    "Cellular paths",
+    "TURN-only networks",
+    "Remote Firefox H.264 decode",
+    "macOS/Linux OBS publishing",
+    "Long-duration/load testing"
+  ]
+}

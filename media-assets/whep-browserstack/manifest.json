@@ -1,0 +1,312 @@
+[
+  {
+    "original": "default-run-browserstack-android-failure.png",
+    "sha256": "0267f6d972278c1a734f5b502b7bbc493a67dbf9b5ac335cc0a8057ddfc1e070",
+    "run": "default-run"
+  },
+  {
+    "original": "default-run-browserstack-android-ready.png",
+    "sha256": "f21caa2213e21b852cea52a2b09b0cff255c3b88da68c40d2a78205cc9787635",
+    "run": "default-run"
+  },
+  {
+    "original": "default-run-browserstack-ios-failure.png",
+    "sha256": "bbfe04794f5f5e2bb3ce2805def8e62a8e2bf50eaa753eaab1f0c2da17583ea7",
+    "run": "default-run"
+  },
+  {
+    "original": "default-run-browserstack-ios-ready.png",
+    "sha256": "6cb341d990a47e903e07b5a6dd2dfb025042cf919e9ac5ee34c277c43b0f4124",
+    "run": "default-run"
+  },
+  {
+    "original": "default-run-browserstack-win-chrome-failure.png",
+    "sha256": "3e2bbf870e3fad7a82d26ac295f0e92b75c6dbf7012a45b096a7423e9d39c82f",
+    "run": "default-run"
+  },
+  {
+    "original": "default-run-browserstack-win-chrome-ready.png",
+    "sha256": "bb571611357a5e276be079d4075f27228d82757b6cdea2d6e3b7ae96b8d61e4b",
+    "run": "default-run"
+  },
+  {
+    "original": "stun-run-browserstack-android-playing.png",
+    "sha256": "12faa3a3340b44ba60faba8c2e486e03b42ff4505ec8dbf25c2a54035e346570",
+    "run": "stun-run",
+    "cropped": "stun-run-browserstack-android-playing-crop.png",
+    "crop": [
+      0,
+      0,
+      1080,
+      1120
+    ],
+    "review": "Reviewed ready, playing, stopped or rejoined controls and expected video state; decoded audio and frame progression are verified in results.json."
+  },
+  {
+    "original": "stun-run-browserstack-android-ready.png",
+    "sha256": "579b23ecb2ad4bce21273f4a091e74a9e82dffd1fff0533ba6e4feeeee18b635",
+    "run": "stun-run",
+    "cropped": "stun-run-browserstack-android-ready-crop.png",
+    "crop": [
+      0,
+      0,
+      1080,
+      1120
+    ],
+    "review": "Reviewed ready, playing, stopped or rejoined controls and expected video state; decoded audio and frame progression are verified in results.json."
+  },
+  {
+    "original": "stun-run-browserstack-android-rejoined.png",
+    "sha256": "12faa3a3340b44ba60faba8c2e486e03b42ff4505ec8dbf25c2a54035e346570",
+    "run": "stun-run",
+    "cropped": "stun-run-browserstack-android-rejoined-crop.png",
+    "crop": [
+      0,
+      0,
+      1080,
+      1120
+    ],
+    "review": "Reviewed ready, playing, stopped or rejoined controls and expected video state; decoded audio and frame progression are verified in results.json."
+  },
+  {
+    "original": "stun-run-browserstack-android-stopped.png",
+    "sha256": "f40c3b14284e8f397e37b450d6bc61d2de5ad1dac2649e81fd92d8df446b14ed",
+    "run": "stun-run",
+    "cropped": "stun-run-browserstack-android-stopped-crop.png",
+    "crop": [
+      0,
+      0,
+      1080,
+      1120
+    ],
+    "review": "Reviewed ready, playing, stopped or rejoined controls and expected video state; decoded audio and frame progression are verified in results.json."
+  },
+  {
+    "original": "stun-run-browserstack-ios-playing.png",
+    "sha256": "a34e972e4e2fb9df6994aa209381174a883bcefa49c5ad18ae3f169164628b47",
+    "run": "stun-run",
+    "cropped": "stun-run-browserstack-ios-playing-crop.png",
+    "crop": [
+      0,
+      150,
+      1290,
+      1480
+    ],
+    "review": "Reviewed ready, playing, stopped or rejoined controls and expected video state; decoded audio and frame progression are verified in results.json."
+  },
+  {
+    "original": "stun-run-browserstack-ios-ready.png",
+    "sha256": "3c8e2a1517c83ab446e38a694e68e68089eb3d3d1bd663f606a9cb5bab7d1223",
+    "run": "stun-run",
+    "cropped": "stun-run-browserstack-ios-ready-crop.png",
+    "crop": [
+      0,
+      150,
+      1290,
+      1480
+    ],
+    "review": "Reviewed ready, playing, stopped or rejoined controls and expected video state; decoded audio and frame progression are verified in results.json."
+  },
+  {
+    "original": "stun-run-browserstack-ios-rejoined.png",
+    "sha256": "dafdc049d827976112e10b2475fa042ef1d6442567ad625999d0093f0f882642",
+    "run": "stun-run",
+    "cropped": "stun-run-browserstack-ios-rejoined-crop.png",
+    "crop": [
+      0,
+      150,
+      1290,
+      1480
+    ],
+    "review": "Reviewed ready, playing, stopped or rejoined controls and expected video state; decoded audio and frame progression are verified in results.json."
+  },
+  {
+    "original": "stun-run-browserstack-ios-stopped.png",
+    "sha256": "b8cb93519b5d4c0bbb1f099d1491166a0711ba7d505ae42b56ce94dc9a0f5c1e",
+    "run": "stun-run",
+    "cropped": "stun-run-browserstack-ios-stopped-crop.png",
+    "crop": [
+      0,
+      150,
+      1290,
+      1480
+    ],
+    "review": "Reviewed ready, playing, stopped or rejoined controls and expected video state; decoded audio and frame progression are verified in results.json."
+  },
+  {
+    "original": "stun-run-browserstack-win-chrome-playing.png",
+    "sha256": "734347d633c385995bb50a2d9b63396c402ed584b4bef520a47d5c193c999d6d",
+    "run": "stun-run",
+    "cropped": "stun-run-browserstack-win-chrome-playing-crop.png",
+    "crop": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "review": "Reviewed ready, playing, stopped or rejoined controls and expected video state; decoded audio and frame progression are verified in results.json."
+  },
+  {
+    "original": "stun-run-browserstack-win-chrome-ready.png",
+    "sha256": "14730a4cbbe9e71d11701a0204550c9f8b30303f79fa2f4b40d5dc6aa434ef0a",
+    "run": "stun-run",
+    "cropped": "stun-run-browserstack-win-chrome-ready-crop.png",
+    "crop": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "review": "Reviewed ready, playing, stopped or rejoined controls and expected video state; decoded audio and frame progression are verified in results.json."
+  },
+  {
+    "original": "stun-run-browserstack-win-chrome-rejoined.png",
+    "sha256": "734347d633c385995bb50a2d9b63396c402ed584b4bef520a47d5c193c999d6d",
+    "run": "stun-run",
+    "cropped": "stun-run-browserstack-win-chrome-rejoined-crop.png",
+    "crop": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "review": "Reviewed ready, playing, stopped or rejoined controls and expected video state; decoded audio and frame progression are verified in results.json."
+  },
+  {
+    "original": "stun-run-browserstack-win-chrome-stopped.png",
+    "sha256": "e9d7d4a727bc109b66f5506a6ed9d26ee94737141db9a4aca49a8654c7baaaac",
+    "run": "stun-run",
+    "cropped": "stun-run-browserstack-win-chrome-stopped-crop.png",
+    "crop": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "review": "Reviewed ready, playing, stopped or rejoined controls and expected video state; decoded audio and frame progression are verified in results.json."
+  },
+  {
+    "original": "desktop-run-browserstack-mac-chrome-playing.png",
+    "sha256": "b7b8d4b335aefadfcc64e1b520a9ace312c7638f81ac4cbc7d1e45efbb996aa6",
+    "run": "desktop-run",
+    "cropped": "desktop-run-browserstack-mac-chrome-playing-crop.png",
+    "crop": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "review": "Reviewed ready, playing, stopped or rejoined controls and expected video state; decoded audio and frame progression are verified in results.json."
+  },
+  {
+    "original": "desktop-run-browserstack-mac-chrome-ready.png",
+    "sha256": "4b0683705f15e046c35743fe19486dcce718ee8a7579a77d028a6d4a93b809ce",
+    "run": "desktop-run",
+    "cropped": "desktop-run-browserstack-mac-chrome-ready-crop.png",
+    "crop": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "review": "Reviewed ready, playing, stopped or rejoined controls and expected video state; decoded audio and frame progression are verified in results.json."
+  },
+  {
+    "original": "desktop-run-browserstack-mac-chrome-rejoined.png",
+    "sha256": "b7b8d4b335aefadfcc64e1b520a9ace312c7638f81ac4cbc7d1e45efbb996aa6",
+    "run": "desktop-run",
+    "cropped": "desktop-run-browserstack-mac-chrome-rejoined-crop.png",
+    "crop": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "review": "Reviewed ready, playing, stopped or rejoined controls and expected video state; decoded audio and frame progression are verified in results.json."
+  },
+  {
+    "original": "desktop-run-browserstack-mac-chrome-stopped.png",
+    "sha256": "15a9a0a18aa8596f5dedeae7fde5f7254f78861ef084977dc32570096786bd0e",
+    "run": "desktop-run",
+    "cropped": "desktop-run-browserstack-mac-chrome-stopped-crop.png",
+    "crop": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "review": "Reviewed ready, playing, stopped or rejoined controls and expected video state; decoded audio and frame progression are verified in results.json."
+  },
+  {
+    "original": "desktop-run-browserstack-win-firefox-failure.png",
+    "sha256": "ec3721723228b6c1785bc2494b0c5f8e52467b853609cb9f39df3457bc469dc4",
+    "run": "desktop-run"
+  },
+  {
+    "original": "desktop-run-browserstack-win-firefox-ready.png",
+    "sha256": "4d299ad9ce4826fcf4984193ceb1f6195c550e6c8c89b3acaabc4b7556391ae6",
+    "run": "desktop-run"
+  },
+  {
+    "original": "native-desktop-run-browserstack-mac-safari-playing.png",
+    "sha256": "3ccc2afc3d90802ddf6f7c3159101e5f85c2d64783c0a1c0adb0ec1693901efb",
+    "run": "native-desktop-run",
+    "cropped": "native-desktop-run-browserstack-mac-safari-playing-crop.png",
+    "crop": [
+      0,
+      0,
+      1324,
+      968
+    ],
+    "review": "Reviewed ready, playing, stopped or rejoined controls and expected video state; decoded audio and frame progression are verified in results.json."
+  },
+  {
+    "original": "native-desktop-run-browserstack-mac-safari-ready.png",
+    "sha256": "5f5003e732055d0bd55eabca35b9a1c2b37ae29a3a14ee9c739b43f872c3edfb",
+    "run": "native-desktop-run",
+    "cropped": "native-desktop-run-browserstack-mac-safari-ready-crop.png",
+    "crop": [
+      0,
+      0,
+      1324,
+      968
+    ],
+    "review": "Reviewed ready, playing, stopped or rejoined controls and expected video state; decoded audio and frame progression are verified in results.json."
+  },
+  {
+    "original": "native-desktop-run-browserstack-mac-safari-rejoined.png",
+    "sha256": "3ccc2afc3d90802ddf6f7c3159101e5f85c2d64783c0a1c0adb0ec1693901efb",
+    "run": "native-desktop-run",
+    "cropped": "native-desktop-run-browserstack-mac-safari-rejoined-crop.png",
+    "crop": [
+      0,
+      0,
+      1324,
+      968
+    ],
+    "review": "Reviewed ready, playing, stopped or rejoined controls and expected video state; decoded audio and frame progression are verified in results.json."
+  },
+  {
+    "original": "native-desktop-run-browserstack-mac-safari-stopped.png",
+    "sha256": "f1275fa2cacada52d12758fcf2c955e0f89fafea167269b08e82f08ae8317484",
+    "run": "native-desktop-run",
+    "cropped": "native-desktop-run-browserstack-mac-safari-stopped-crop.png",
+    "crop": [
+      0,
+      0,
+      1324,
+      968
+    ],
+    "review": "Reviewed ready, playing, stopped or rejoined controls and expected video state; decoded audio and frame progression are verified in results.json."
+  },
+  {
+    "original": "native-desktop-run-browserstack-win-firefox-native-failure.png",
+    "sha256": "8a8a009a3dccd4e6e7fb783b4c3ccd5280bfce3225216e1aac9c2ce7693c2248",
+    "run": "native-desktop-run"
+  },
+  {
+    "original": "native-desktop-run-browserstack-win-firefox-native-ready.png",
+    "sha256": "7839bf781e2ed49354fdfae2361e57d99a15416ce2d2a14da765ddb9bb35043c",
+    "run": "native-desktop-run"
+  }
+]

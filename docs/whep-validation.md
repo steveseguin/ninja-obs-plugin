@@ -76,8 +76,9 @@ navigation, and `scripts/whep-host-ui-check.py --obs-review artifacts/<copy>
 --output artifacts/<new-result> --expected-version 1.1.84` for the full live flow.
 
 Release follow-up completed in v1.1.84: CI, downloaded Windows package,
-third-party player checks, and updated guide captures. Remote/mobile paths and
-macOS/Linux UI/runtime remain outside this Windows audit.
+third-party player checks, and updated guide captures. Subsequent BrowserStack
+remote-viewer results appear below; cellular/TURN and macOS/Linux OBS publishing
+remain unqualified.
 
 Only the plugin repository changed. No edits or deployment were made to
 VDO.Ninja, `whip_private`, or the signaling service. The older prototype remains
@@ -269,6 +270,69 @@ samples and UI assertions. [Capture provenance](../media-assets/whep-1.1.84/mani
 retains original screenshots and guide crop coordinates. The guide now shows the
 short copy button and the **Publish → Advanced Settings** key-management route.
 
-This qualifies Windows on one machine with the public signaling service. It does
-not qualify remote/mobile media paths, every WHEP player, or macOS/Linux runtime.
+This initial package check used Windows on one machine with the public signaling
+service. Remote-viewer qualification follows below. It does not certify every
+WHEP player or macOS/Linux OBS publishing.
 The parked unfinished branch and the VDO.Ninja/server repositories were unchanged.
+
+## BrowserStack remote viewers — 2026-11-01
+
+The downloaded v1.1.84 Windows DLL above published synthetic 1280×720/30 H.264
+and an Opus 440 Hz tone to remote BrowserStack browsers. Its loaded path and hash
+were checked for every run. OBS used its existing default STUN configuration;
+no custom TURN, firewall changes, BrowserStack Local tunnel, VDO.Ninja page/API,
+or server changes were used.
+
+| Remote receiver | Playback, audio, stop and rejoin | Selected route, receiver → publisher |
+| --- | --- | --- |
+| Windows 11 / Chrome 156 | Passed | `srflx` → `srflx`, UDP |
+| Pixel 9 / Android 16 / Chrome | Passed | `srflx` → `srflx`, UDP |
+| iPhone 15 Pro Max / iOS 26.6 / Safari | Passed | `srflx` → `srflx`, UDP |
+| macOS Sequoia / Chrome 156 | Passed | `host` → `srflx`, UDP |
+| macOS Sequoia / Safari 18.4 | Passed | `host` → `srflx`, UDP |
+| Windows / BrowserStack Playwright Firefox 155 and regular Firefox 159 | Not qualified: neither image advertised an H.264 decoder | No WHEP offer sent |
+
+Each successful receiver decoded 300–309 additional frames in each roughly
+ten-second sample, before and after rejoining. Pixel checks matched the orange
+source; Web Audio measured the decoded tone at about 445 Hz (FFT bin resolution)
+and RMS 0.172. A real Play/Enable audio click enabled unmuted playback. Standard
+POST returned 201 and DELETE returned 200. Selected candidate pairs came from
+receiver `getStats()`, not from OBS logs. BrowserStack's API independently
+confirmed the devices and that all ten automation runs were closed; five passed,
+three were the diagnostic no-STUN baseline, and two lacked H.264 capability.
+
+The initial basic receiver had no STUN servers and failed ICE on Windows and
+both phones. Adding Google/Cloudflare STUN discovery to **the test player** made
+those same browser/device profiles pass. The plugin binary and its ICE settings did
+not change. The fixture now includes those STUN defaults, simple Play/audio/Stop
+controls, and receiver statistics. No plugin release was needed for this work.
+
+Automation loads the fixture into an isolated HTTPS document on the plugin docs
+origin using WebDriver/Playwright; it does not publish or replace the real guide.
+The receiver itself uses standard HTTP and RTCPeerConnection only. Fixture
+snapshots and hashes for the successful runs are retained. BrowserStack credentials were read from the
+existing external `chunkcast/.secrets` file and were not copied into this repo.
+
+[Results and capability failures](../media-assets/whep-browserstack/results.json)
+and [original/cropped screenshots](../media-assets/whep-browserstack/manifest.json)
+retain each ready, playing, stopped and rejoined stage. The screenshots were
+visually reviewed. Raw logs and account-specific automation identifiers remain
+under `artifacts/whep-browserstack/`.
+
+Reproduce on this machine:
+
+```powershell
+python scripts/whep-host-native-e2e.py --install-prefix artifacts/release-package-1.1.84/unpacked --obs-review artifacts/whep-remote-obs --output artifacts/whep-remote-new --broker hosted --cycles 1 --browserstack
+```
+
+Default profiles are Windows Chrome, Android Chrome and iPhone Safari. Set
+`WHEP_BROWSERSTACK_PROFILES=mac-chrome,mac-safari` for the additional desktop
+checks. The runner reuses the existing BrowserStack transport helpers under
+`../obsninja/tests/playwright/browserstack`; override that path with
+`VDO_BROWSERSTACK_FIXTURES` if needed. It reads those helpers without modifying
+the VDO.Ninja checkout.
+
+These are short, sequential receiver tests on BrowserStack's network, not a
+cellular or sustained-load qualification. TURN-only networks and macOS/Linux
+OBS publishing remain untested. BrowserStack Firefox H.264 remains unverified;
+the earlier local Firefox/OpenH264 results remain valid.
