@@ -51,6 +51,16 @@ An early fixture reused input names before OBS completed asynchronous removal;
 test inputs now have unique names. These were harness corrections, not server
 or player-protocol changes.
 
+The first Arch package run failed the new native close check's five-second
+deadline. The regression now waits for both peers to connect and allows up to
+45 seconds for ICE consent expiry if the close notification is not delivered.
+It still requires the closed viewer to retire while the other stays connected.
+The Windows repeat observed closure in 5 ms; the complete Arch native suite,
+package install/reinstall and OBS initialization then passed in
+https://github.com/steveseguin/ninja-obs-plugin/actions/runs/41257162367.
+No production cleanup code or server behavior was changed to satisfy the test.
+The v1.1.81 build was cancelled before publication; the delivery target is v1.1.82.
+
 ## Existing server limits
 
 - The service stores one ETag/ICE state per stream. An overlapping POST can
@@ -60,7 +70,8 @@ or player-protocol changes.
 - DELETE notifications contain a fresh HTTP callback and the stream key, but no
   reference to the originating viewer. The plugin acknowledges DELETE and retires
   viewers through DTLS/ICE closure. A player that sends DELETE while leaving its
-  peer connection open is not guaranteed immediate cleanup.
+  peer connection open is not guaranteed immediate cleanup. Even after a close,
+  a lost close notification can leave its viewer slot occupied until ICE times out.
 - A signaling connection loss currently disconnects that host's WHEP viewers
   before retrying the service. Seamless playback across that outage is not promised.
 - The current implementation accompanies the main plugin publishing output; it

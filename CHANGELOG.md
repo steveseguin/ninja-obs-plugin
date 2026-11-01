@@ -7,8 +7,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [1.1.81] - 2026-10-31
-
 ### Added
 - Publish the OBS program to independent WHEP players through the existing `whep.vdo.ninja` service. In VDO.Ninja Studio's Publish tab, click **Enable WHEP / Copy Link** before **Go Live**, then paste the endpoint into a compatible player. WHEP viewers share the output's viewer limit. No VDO.Ninja player, new server protocol fields or server changes are required.
 - Add a short [WHEP setup guide](https://steveseguin.github.io/ninja-obs-plugin/whep.html) and repeatable independent-player checks.
@@ -16,6 +14,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Validation
 - Windows portable OBS: H.264/Opus playback passed in Chromium and Firefox against both the unchanged local server and the live endpoint, including decoded video pixels and audio, simultaneous joins, three viewers, capacity rejection, replacement, restart and clean shutdown. Native tests cover H.264/HEVC/AV1 negotiation and RTP plus the existing server's callback and disconnect behavior. HEVC/AV1 browser playback, remote-network WHEP paths and macOS/Linux WHEP runtime remain unqualified.
 - Existing server compatibility limits remain: it stores one ICE ETag per stream, so overlapping trickle requests may conflict; use players that gather candidates before POST for simultaneous joins. DELETE alone does not identify a viewer; players must close their WebRTC connection when stopping. This plugin release does not change the server or add ICE-restart support.
+
+### Fixed
+- Wait for both peers to connect and allow ICE consent expiry in the native WHEP viewer-close regression. The test still requires the closed viewer to retire while the other viewer stays connected.
+
+## [1.1.81] - 2026-10-31
+
+- Publication was held during validation; no downloadable release was published from this tag.
 
 ## [1.1.80] - 2026-10-31
 

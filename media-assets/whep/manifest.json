@@ -37,5 +37,40 @@
     "step": "05-stopped",
     "original": "05-stopped.png",
     "review": "Owned portable OBS window captured and reviewed. Expected stop-first, live or stopped controls."
+  },
+  {
+    "step": "cycle-1-chrome",
+    "original": "cycle-1-chrome.png",
+    "review": "Final live-endpoint run: orange decoded image and H.264/Opus title visually checked; movement and audio verified by recorded browser measurements."
+  },
+  {
+    "step": "cycle-1-firefox",
+    "original": "cycle-1-firefox.png",
+    "review": "Final live-endpoint run: orange decoded image and H.264/Opus title visually checked; movement and audio verified by recorded browser measurements."
+  },
+  {
+    "step": "third-viewer",
+    "original": "third-viewer.png",
+    "review": "Final live-endpoint run: orange decoded image and H.264/Opus title visually checked; movement and audio verified by recorded browser measurements."
+  },
+  {
+    "step": "surviving-viewer",
+    "original": "surviving-viewer.png",
+    "review": "Final live-endpoint run: orange decoded image and H.264/Opus title visually checked; movement and audio verified by recorded browser measurements."
+  },
+  {
+    "step": "replacement-viewer",
+    "original": "replacement-viewer.png",
+    "review": "Final live-endpoint run: orange decoded image and H.264/Opus title visually checked; movement and audio verified by recorded browser measurements."
+  },
+  {
+    "step": "cycle-2-chrome",
+    "original": "cycle-2-chrome.png",
+    "review": "Final live-endpoint run: orange decoded image and H.264/Opus title visually checked; movement and audio verified by recorded browser measurements."
+  },
+  {
+    "step": "cycle-2-firefox",
+    "original": "cycle-2-firefox.png",
+    "review": "Final live-endpoint run: orange decoded image and H.264/Opus title visually checked; movement and audio verified by recorded browser measurements."
   }
 ]
