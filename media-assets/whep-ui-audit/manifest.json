@@ -1,0 +1,642 @@
+{
+  "status": "unreleased development builds after v1.1.83",
+  "captures": [
+    {
+      "image": "de-DE-publish.png",
+      "original": "de-DE-publish-full.png",
+      "dockCrop": [
+        8,
+        0,
+        272,
+        892
+      ],
+      "run": "artifacts\\whep-ui-audit\\final-review-de-DE",
+      "stage": "05-narrow",
+      "sha256": "16141d744099305f79489475d7d234a6ff1a4b514bd003a223aa56d10bcc4f8c"
+    },
+    {
+      "image": "de-DE-return.png",
+      "original": "de-DE-return-full.png",
+      "dockCrop": [
+        8,
+        0,
+        272,
+        892
+      ],
+      "run": "artifacts\\whep-ui-audit\\final-review-de-DE",
+      "stage": "06-guest-return",
+      "sha256": "15e3e8cf8ac1d09b8f6105f36af0dcceb31d14a9cb6026489fba266ea1fe592a"
+    },
+    {
+      "image": "de-DE-advanced.png",
+      "original": "de-DE-advanced-full.png",
+      "dockCrop": [
+        8,
+        0,
+        352,
+        952
+      ],
+      "run": "artifacts\\whep-ui-audit\\final-review-de-DE",
+      "stage": "02-advanced-keyboard",
+      "sha256": "e152747ba5ebc25fe315752e9dd4d8588af76f0bb5524ad89df6717a15ebf055"
+    },
+    {
+      "image": "en-GB-publish.png",
+      "original": "en-GB-publish-full.png",
+      "dockCrop": [
+        8,
+        0,
+        272,
+        892
+      ],
+      "run": "artifacts\\whep-ui-audit\\checked-en-GB",
+      "stage": "05-narrow",
+      "sha256": "c8e52c68407a29c6f4d51080851f20a4218ffc12dbbac2c14e2f1287ac7a7bea"
+    },
+    {
+      "image": "en-GB-return.png",
+      "original": "en-GB-return-full.png",
+      "dockCrop": [
+        8,
+        0,
+        272,
+        892
+      ],
+      "run": "artifacts\\whep-ui-audit\\checked-en-GB",
+      "stage": "06-guest-return",
+      "sha256": "c0cbfc079d3c81db581c2a6eb86fc1b332acce44f04db8cf665f966800953aad"
+    },
+    {
+      "image": "en-US-publish.png",
+      "original": "en-US-publish-full.png",
+      "dockCrop": [
+        8,
+        0,
+        272,
+        892
+      ],
+      "run": "artifacts\\whep-ui-audit\\final-review-en-US",
+      "stage": "05-narrow",
+      "sha256": "869ca994dc5af7493edb2842b66e554eed1e7f26db210c07a866359ea834b29d"
+    },
+    {
+      "image": "en-US-return.png",
+      "original": "en-US-return-full.png",
+      "dockCrop": [
+        8,
+        0,
+        272,
+        892
+      ],
+      "run": "artifacts\\whep-ui-audit\\final-review-en-US",
+      "stage": "06-guest-return",
+      "sha256": "c05763ce0d790ea6e120b3b203ffefae8f60fe5b45e683f59221528d1a2ca3f0"
+    },
+    {
+      "image": "en-US-advanced.png",
+      "original": "en-US-advanced-full.png",
+      "dockCrop": [
+        8,
+        0,
+        352,
+        952
+      ],
+      "run": "artifacts\\whep-ui-audit\\final-review-en-US",
+      "stage": "02-advanced-keyboard",
+      "sha256": "3da451a6b4983ef0fd4dac24c5779717da05eb1ab8af6edb4e0039a4bc89fc27"
+    },
+    {
+      "image": "en-publish.png",
+      "original": "en-publish-full.png",
+      "dockCrop": [
+        8,
+        0,
+        272,
+        892
+      ],
+      "run": "artifacts\\whep-ui-audit\\checked-en",
+      "stage": "05-narrow",
+      "sha256": "c8e52c68407a29c6f4d51080851f20a4218ffc12dbbac2c14e2f1287ac7a7bea"
+    },
+    {
+      "image": "en-return.png",
+      "original": "en-return-full.png",
+      "dockCrop": [
+        8,
+        0,
+        272,
+        892
+      ],
+      "run": "artifacts\\whep-ui-audit\\checked-en",
+      "stage": "06-guest-return",
+      "sha256": "c0cbfc079d3c81db581c2a6eb86fc1b332acce44f04db8cf665f966800953aad"
+    },
+    {
+      "image": "es-ES-publish.png",
+      "original": "es-ES-publish-full.png",
+      "dockCrop": [
+        8,
+        0,
+        272,
+        892
+      ],
+      "run": "artifacts\\whep-ui-audit\\final-es-ES",
+      "stage": "05-narrow",
+      "sha256": "18e8932747e6236d48f16415b03c7493f11304c956644dd49665e6e1bb94b8f0"
+    },
+    {
+      "image": "es-ES-return.png",
+      "original": "es-ES-return-full.png",
+      "dockCrop": [
+        8,
+        0,
+        272,
+        892
+      ],
+      "run": "artifacts\\whep-ui-audit\\final-es-ES",
+      "stage": "06-guest-return",
+      "sha256": "5278bbb3593ed0edc2df5d01b1f213385d9fa428f98410a03aa201d3ea1783fd"
+    },
+    {
+      "image": "fr-FR-publish.png",
+      "original": "fr-FR-publish-full.png",
+      "dockCrop": [
+        8,
+        0,
+        272,
+        892
+      ],
+      "run": "artifacts\\whep-ui-audit\\final-fr-FR",
+      "stage": "05-narrow",
+      "sha256": "1efe0f0fcee44ae2ae42c2ae9f9b83f1046aa4d57afc0223a5cbdd576f53fdef"
+    },
+    {
+      "image": "fr-FR-return.png",
+      "original": "fr-FR-return-full.png",
+      "dockCrop": [
+        8,
+        0,
+        272,
+        892
+      ],
+      "run": "artifacts\\whep-ui-audit\\final-fr-FR",
+      "stage": "06-guest-return",
+      "sha256": "34b8d77666503493a40cf40cc8ff54bb96903c248166eebbce46b403fbbcf725"
+    },
+    {
+      "image": "it-IT-publish.png",
+      "original": "it-IT-publish-full.png",
+      "dockCrop": [
+        8,
+        0,
+        272,
+        892
+      ],
+      "run": "artifacts\\whep-ui-audit\\final-it-IT",
+      "stage": "05-narrow",
+      "sha256": "4b263f7201314010669544152323045673a3030d9db313ed5570cb035dad9592"
+    },
+    {
+      "image": "it-IT-return.png",
+      "original": "it-IT-return-full.png",
+      "dockCrop": [
+        8,
+        0,
+        272,
+        892
+      ],
+      "run": "artifacts\\whep-ui-audit\\final-it-IT",
+      "stage": "06-guest-return",
+      "sha256": "7476bd42269cca3847fe842e39ba5847fc4ff1870ec480aba13b7319284b8e2c"
+    },
+    {
+      "image": "ja-JP-publish.png",
+      "original": "ja-JP-publish-full.png",
+      "dockCrop": [
+        8,
+        0,
+        272,
+        892
+      ],
+      "run": "artifacts\\whep-ui-audit\\final-review-ja-JP",
+      "stage": "05-narrow",
+      "sha256": "8ad25dc3ca98161385a5112fbcb0cf000b1cdeda28bba2dde7b985907470d50a"
+    },
+    {
+      "image": "ja-JP-return.png",
+      "original": "ja-JP-return-full.png",
+      "dockCrop": [
+        8,
+        0,
+        272,
+        892
+      ],
+      "run": "artifacts\\whep-ui-audit\\final-review-ja-JP",
+      "stage": "06-guest-return",
+      "sha256": "1140461445c1293f66f9b4b10394cdded8a9bda03ee0aaa0fc67f9af9a30d1ce"
+    },
+    {
+      "image": "ja-JP-advanced.png",
+      "original": "ja-JP-advanced-full.png",
+      "dockCrop": [
+        8,
+        0,
+        352,
+        952
+      ],
+      "run": "artifacts\\whep-ui-audit\\final-review-ja-JP",
+      "stage": "02-advanced-keyboard",
+      "sha256": "415ecdbbb2da752b0ac51288cdfd0a2ba7114110f1a277394a8985f6a49b40ee"
+    },
+    {
+      "image": "ko-KR-publish.png",
+      "original": "ko-KR-publish-full.png",
+      "dockCrop": [
+        8,
+        0,
+        272,
+        892
+      ],
+      "run": "artifacts\\whep-ui-audit\\checked-ko-KR",
+      "stage": "05-narrow",
+      "sha256": "074c11536d7289c575687b0ff3aede617a60cd50c478e7adcc6752c707f8e018"
+    },
+    {
+      "image": "ko-KR-return.png",
+      "original": "ko-KR-return-full.png",
+      "dockCrop": [
+        8,
+        0,
+        272,
+        892
+      ],
+      "run": "artifacts\\whep-ui-audit\\checked-ko-KR",
+      "stage": "06-guest-return",
+      "sha256": "d26409c7ad255490fbccd15b92f47308c344f1ced1ba81872434f50cc7595e42"
+    },
+    {
+      "image": "nl-NL-publish.png",
+      "original": "nl-NL-publish-full.png",
+      "dockCrop": [
+        8,
+        0,
+        272,
+        892
+      ],
+      "run": "artifacts\\whep-ui-audit\\checked-nl-NL",
+      "stage": "05-narrow",
+      "sha256": "d844ed7f9e7182d4ce797ceac444d7504fe8a2c7b02bb0107256c0ffbab6a458"
+    },
+    {
+      "image": "nl-NL-return.png",
+      "original": "nl-NL-return-full.png",
+      "dockCrop": [
+        8,
+        0,
+        272,
+        892
+      ],
+      "run": "artifacts\\whep-ui-audit\\checked-nl-NL",
+      "stage": "06-guest-return",
+      "sha256": "fedd6187aa9a9cf559c6ea436b56ce0e0bd64175940a189a274b0eb8ec8253cc"
+    },
+    {
+      "image": "pl-PL-publish.png",
+      "original": "pl-PL-publish-full.png",
+      "dockCrop": [
+        8,
+        0,
+        272,
+        892
+      ],
+      "run": "artifacts\\whep-ui-audit\\checked-pl-PL",
+      "stage": "05-narrow",
+      "sha256": "84bea870186d8305c1d7f98b06eb9f6ddc20d2b82928840f3d5657301b87c5b0"
+    },
+    {
+      "image": "pl-PL-return.png",
+      "original": "pl-PL-return-full.png",
+      "dockCrop": [
+        8,
+        0,
+        272,
+        892
+      ],
+      "run": "artifacts\\whep-ui-audit\\checked-pl-PL",
+      "stage": "06-guest-return",
+      "sha256": "dc9ae13c8faf5be99917d990622c2d208c3efdd48a299d6bda792894f55bbe86"
+    },
+    {
+      "image": "pt-BR-publish.png",
+      "original": "pt-BR-publish-full.png",
+      "dockCrop": [
+        8,
+        0,
+        272,
+        892
+      ],
+      "run": "artifacts\\whep-ui-audit\\checked-pt-BR",
+      "stage": "05-narrow",
+      "sha256": "fb3f166c6b2ea4b3e14f4afeaa91fd178999700848f0755a4df9fb69a57dcad2"
+    },
+    {
+      "image": "pt-BR-return.png",
+      "original": "pt-BR-return-full.png",
+      "dockCrop": [
+        8,
+        0,
+        272,
+        892
+      ],
+      "run": "artifacts\\whep-ui-audit\\checked-pt-BR",
+      "stage": "06-guest-return",
+      "sha256": "be6070dfd52294f26b25e1554e5fa5174000275b0452427d374402f0366ecc2a"
+    },
+    {
+      "image": "ru-RU-publish.png",
+      "original": "ru-RU-publish-full.png",
+      "dockCrop": [
+        8,
+        0,
+        272,
+        892
+      ],
+      "run": "artifacts\\whep-ui-audit\\final-review-ru-RU",
+      "stage": "05-narrow",
+      "sha256": "71260c84f3c4591bd59c5a907ae20320dff0d89e3f9593ae211d2853ae69041e"
+    },
+    {
+      "image": "ru-RU-return.png",
+      "original": "ru-RU-return-full.png",
+      "dockCrop": [
+        8,
+        0,
+        272,
+        892
+      ],
+      "run": "artifacts\\whep-ui-audit\\final-review-ru-RU",
+      "stage": "06-guest-return",
+      "sha256": "bd64ae79d5a987037f40f6e78ff8fa3721d8b7913dde7a0d44f717b5dcdb53b0"
+    },
+    {
+      "image": "ru-RU-advanced.png",
+      "original": "ru-RU-advanced-full.png",
+      "dockCrop": [
+        8,
+        0,
+        352,
+        952
+      ],
+      "run": "artifacts\\whep-ui-audit\\final-review-ru-RU",
+      "stage": "02-advanced-keyboard",
+      "sha256": "5791c7946973c51afd5fb8fe0f12370f3f1cb03f1f5034ff6eac4cfeaefd622f"
+    },
+    {
+      "image": "tr-TR-publish.png",
+      "original": "tr-TR-publish-full.png",
+      "dockCrop": [
+        8,
+        0,
+        272,
+        892
+      ],
+      "run": "artifacts\\whep-ui-audit\\checked-tr-TR",
+      "stage": "05-narrow",
+      "sha256": "dd26f628da2a7acc1f5a4870f2836f051da619b196f52790a1e4cd5097e925b0"
+    },
+    {
+      "image": "tr-TR-return.png",
+      "original": "tr-TR-return-full.png",
+      "dockCrop": [
+        8,
+        0,
+        272,
+        892
+      ],
+      "run": "artifacts\\whep-ui-audit\\checked-tr-TR",
+      "stage": "06-guest-return",
+      "sha256": "27c9186e1b5e223574b3d6d35d0b98c7da4bc49a33292630878b1735c20a37d2"
+    },
+    {
+      "image": "zh-CN-publish.png",
+      "original": "zh-CN-publish-full.png",
+      "dockCrop": [
+        8,
+        0,
+        272,
+        892
+      ],
+      "run": "artifacts\\whep-ui-audit\\final-review-zh-CN",
+      "stage": "05-narrow",
+      "sha256": "d3b08315383a4ef4008343edb6f054c44a1eed44243d485d77087181e8a82a57"
+    },
+    {
+      "image": "zh-CN-return.png",
+      "original": "zh-CN-return-full.png",
+      "dockCrop": [
+        8,
+        0,
+        272,
+        892
+      ],
+      "run": "artifacts\\whep-ui-audit\\final-review-zh-CN",
+      "stage": "06-guest-return",
+      "sha256": "94d34656731bf5f2a5bfa545834e6952702697a3b8870aaccf7438e673cd68c5"
+    },
+    {
+      "image": "zh-CN-advanced.png",
+      "original": "zh-CN-advanced-full.png",
+      "dockCrop": [
+        8,
+        0,
+        352,
+        952
+      ],
+      "run": "artifacts\\whep-ui-audit\\final-review-zh-CN",
+      "stage": "02-advanced-keyboard",
+      "sha256": "edbcb437c69b708350b6296bbbe066a782038df33cbd352868d5ccbf2d995052"
+    },
+    {
+      "image": "00-stopped.png",
+      "original": "00-stopped-full.png",
+      "dockCrop": [
+        8,
+        0,
+        268,
+        930
+      ],
+      "run": "artifacts\\whep-ui-audit\\live-keyboard-accepted",
+      "stage": "00-stopped",
+      "sha256": "0697b070fa000b5cc67190704956b53f6bc6601938ef7cce0cda30ecf5ece5b7"
+    },
+    {
+      "image": "01-stop-first.png",
+      "original": "01-stop-first-full.png",
+      "dockCrop": [
+        8,
+        0,
+        268,
+        930
+      ],
+      "run": "artifacts\\whep-ui-audit\\live-keyboard-accepted",
+      "stage": "01-stop-first",
+      "sha256": "b87a3b4d80b91e5dfe1c9a0b905f6cda13e265f8113dde7827ffeef55b70e381"
+    },
+    {
+      "image": "02-link-ready.png",
+      "original": "02-link-ready-full.png",
+      "dockCrop": [
+        8,
+        0,
+        268,
+        930
+      ],
+      "run": "artifacts\\whep-ui-audit\\live-keyboard-accepted",
+      "stage": "02-link-ready",
+      "sha256": "02bf8e24a9b85f3298108cbaff259d5279f3abd1cf35ce14c00817c931dff5c6"
+    },
+    {
+      "image": "03-live.png",
+      "original": "03-live-full.png",
+      "dockCrop": [
+        8,
+        0,
+        268,
+        930
+      ],
+      "run": "artifacts\\whep-ui-audit\\live-keyboard-accepted",
+      "stage": "03-live",
+      "sha256": "531efb58bfcf11bca730d652ad95f51c5a8c6376ec6c5f5ee04f2cbed89a325e"
+    },
+    {
+      "image": "04-copy-live.png",
+      "original": "04-copy-live-full.png",
+      "dockCrop": [
+        8,
+        0,
+        268,
+        930
+      ],
+      "run": "artifacts\\whep-ui-audit\\live-keyboard-accepted",
+      "stage": "04-copy-live",
+      "sha256": "b08880a93778a2b04e98e1062b61a2da3524e332af66dc0539d01cf001ad9301"
+    },
+    {
+      "image": "05-stopped.png",
+      "original": "05-stopped-full.png",
+      "dockCrop": [
+        8,
+        0,
+        268,
+        930
+      ],
+      "run": "artifacts\\whep-ui-audit\\live-keyboard-accepted",
+      "stage": "05-stopped",
+      "sha256": "1b4e11d2d54604269492dbe5262527ab96a567c837602c4ac1ea3c0830a7c9b0"
+    },
+    {
+      "image": "06-after-reopen.png",
+      "original": "06-after-reopen-full.png",
+      "dockCrop": [
+        8,
+        0,
+        268,
+        930
+      ],
+      "run": "artifacts\\whep-ui-audit\\live-keyboard-accepted",
+      "stage": "06-after-reopen",
+      "sha256": "361384bd324811eb6a898be2e90ec1dbf4f01eb44474e4dcc62117f6eff1dc5b"
+    },
+    {
+      "image": "07-disabled.png",
+      "original": "07-disabled-full.png",
+      "dockCrop": [
+        8,
+        0,
+        268,
+        930
+      ],
+      "run": "artifacts\\whep-ui-audit\\live-keyboard-accepted",
+      "stage": "07-disabled",
+      "sha256": "aee31e46be98f059dce7801220f3535f8785a8c36c9397f229053cdcb494786e"
+    },
+    {
+      "image": "08-disabled-while-live.png",
+      "original": "08-disabled-while-live-full.png",
+      "dockCrop": [
+        8,
+        0,
+        268,
+        930
+      ],
+      "run": "artifacts\\whep-ui-audit\\live-keyboard-accepted",
+      "stage": "08-disabled-while-live",
+      "sha256": "6472f8e6d7ead0c9f7ff38cc7cb8a070cf2d9b5292ab1d8b90e08399513997ef"
+    },
+    {
+      "image": "09-replacement-link.png",
+      "original": "09-replacement-link-full.png",
+      "dockCrop": [
+        8,
+        0,
+        268,
+        930
+      ],
+      "run": "artifacts\\whep-ui-audit\\live-keyboard-accepted",
+      "stage": "09-replacement-link",
+      "sha256": "2697b40b867d20f574d16c2a859d6d119a272ceded9be990158260237d78fd02"
+    },
+    {
+      "image": "10-replacement-after-reopen.png",
+      "original": "10-replacement-after-reopen-full.png",
+      "dockCrop": [
+        8,
+        0,
+        268,
+        930
+      ],
+      "run": "artifacts\\whep-ui-audit\\live-keyboard-accepted",
+      "stage": "10-replacement-after-reopen",
+      "sha256": "11c4dbcdfd4cd48c5b7d54bb81e4014b2e3484766b6be5942d247483bbdee17a"
+    },
+    {
+      "image": "before-publish.png",
+      "original": "before-publish-full.png",
+      "dockCrop": [
+        8,
+        0,
+        312,
+        892
+      ],
+      "run": "artifacts\\whep-ui-audit\\before",
+      "stage": "publish",
+      "sha256": "a31b4679352ab8988a776505a39fa928832a0d4cc2505132dc40507ad3f97223"
+    },
+    {
+      "image": "before-return.png",
+      "original": "before-return-full.png",
+      "dockCrop": [
+        8,
+        0,
+        312,
+        892
+      ],
+      "run": "artifacts\\whep-ui-audit\\before",
+      "stage": "guest-return",
+      "sha256": "630c05721c5f88679183ee2c3f058257a60b6587e5cb740ef6e0685999d331ab"
+    },
+    {
+      "image": "publish-normal.png",
+      "original": "publish-normal-full.png",
+      "dockCrop": [
+        8,
+        0,
+        352,
+        952
+      ],
+      "run": "artifacts\\whep-ui-audit\\final-review-en-US",
+      "stage": "01-publish",
+      "sha256": "f927dece753feecdf6680c3f66033a3140077ac60b1bdf7534cd7f77618ef7fb"
+    }
+  ]
+}

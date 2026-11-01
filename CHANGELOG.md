@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Keep link-copy feedback beside the link buttons so it never replaces LIVE. Shorten WHEP and setup text, and put detailed return-audio guidance in a tooltip.
+- Make the existing WHEP key available in Studio's collapsed Advanced Settings. Clear it while stopped to disable WHEP; copying again creates a replacement link. The normal OBS Stream screen does not expose this field.
+- Improve narrow dock layouts, field accessibility labels and keyboard access to advanced settings. Supply the changed text in all 15 locale files.
+- Bound WHEP input sizes and queued bytes; reject oversized or NUL-containing offers/candidates. Add production-parser fuzzing, malformed-wire tests and a locale check to CI.
+
 ## [1.1.83] - 2026-10-31
 
 ### Fixed

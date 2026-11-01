@@ -27,7 +27,7 @@ GuestReturnWidget::GuestReturnWidget(QWidget *parent) : QGroupBox(obs_module_tex
 {
 	setObjectName("VDONinjaGuestReturn");
 	auto *layout = new QVBoxLayout(this);
-	auto *help = new QLabel(obs_module_text("GuestReturn.Help"), this);
+	auto *help = new QLabel(obs_module_text("GuestReturn.Intro"), this);
 	help->setWordWrap(true);
 	layout->addWidget(help);
 	settingsPanel_ = new QWidget(this);
@@ -46,6 +46,8 @@ GuestReturnWidget::GuestReturnWidget(QWidget *parent) : QGroupBox(obs_module_tex
 	track_->setObjectName("GuestReturnAudioTrack");
 	track_->setRange(1, 6);
 	track_->setValue(2);
+	track_->setToolTip(obs_module_text("GuestReturn.Help"));
+	track_->setAccessibleDescription(obs_module_text("GuestReturn.Help"));
 	encoder_ = new QComboBox(settingsPanel_);
 	encoder_->setObjectName("GuestReturnEncoder");
 	encoder_->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
@@ -55,6 +57,9 @@ GuestReturnWidget::GuestReturnWidget(QWidget *parent) : QGroupBox(obs_module_tex
 	bitrate_->setRange(100, 50000);
 	bitrate_->setSingleStep(100);
 	bitrate_->setSuffix(" kbps");
+	// OBS themes set a spin-box minimum in QSS, overriding setMinimumWidth().
+	// Reserve room for the suffix and arrows so narrow translated forms wrap.
+	bitrate_->setStyleSheet("min-width: 140px;");
 	maxViewers_ = new QSpinBox(settingsPanel_);
 	maxViewers_->setObjectName("GuestReturnMaxViewers");
 	maxViewers_->setRange(1, 50);
@@ -107,6 +112,17 @@ GuestReturnWidget::GuestReturnWidget(QWidget *parent) : QGroupBox(obs_module_tex
 	advanced->addRow(obs_module_text("Salt"), salt_);
 	advanced->addRow(obs_module_text("CustomICEServers"), iceServers_);
 	advanced->addRow(forceTurn_);
+	// Expose the field label, rather than its current value, to accessibility APIs.
+	for (auto *fields : {form, advanced}) {
+		for (int row = 0; row < fields->rowCount(); ++row) {
+			auto *labelItem = fields->itemAt(row, QFormLayout::LabelRole);
+			auto *fieldItem = fields->itemAt(row, QFormLayout::FieldRole);
+			if (!labelItem || !fieldItem || !fieldItem->widget())
+				continue;
+			if (auto *label = qobject_cast<QLabel *>(labelItem->widget()))
+				fieldItem->widget()->setAccessibleName(label->text());
+		}
+	}
 	auto *networkHelp = new QLabel(obs_module_text("GuestReturn.NetworkHelp"), advancedPanel_);
 	networkHelp->setWordWrap(true);
 	advanced->addRow(networkHelp);

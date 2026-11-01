@@ -1029,11 +1029,8 @@ static obs_properties_t *vdoninja_service_properties(void *)
 	obs_properties_t *props = obs_properties_create();
 	obs_property_t *serviceHint = obs_properties_add_text(
 	    props, "service_hint",
-	    tr("ServiceSetupHint",
-	       "Tip: Use Tools -> VDO.Ninja Studio for full setup (stream ID, password, room, salt, signaling). "
-	       "VDO.Ninja publishing uses OBS Start Streaming and cannot run in parallel with another stream destination. "
-	       "Signaling Server and Salt are optional; leave blank for defaults. "
-	       "If the default signaling server has routing issues, try wss://proxywss.rtc.ninja:443."),
+	    tr("ServiceSetupHint", "Use Tools -> VDO.Ninja Studio for setup and links. "
+	                           "To send a return while streaming elsewhere, use its Guest Return tab."),
 	    OBS_TEXT_INFO);
 	obs_property_text_set_info_type(serviceHint, OBS_TEXT_INFO_NORMAL);
 	obs_property_text_set_info_word_wrap(serviceHint, true);

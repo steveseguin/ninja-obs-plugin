@@ -100,13 +100,22 @@ void VDONinjaDock::setupUi()
 	// Credentials Group
 	QGroupBox *grpCreds = new QGroupBox(obs_module_text_vdo("VDONinja.Dock.SessionSetup"), container);
 	QFormLayout *form = new QFormLayout(grpCreds);
+	form->setRowWrapPolicy(QFormLayout::WrapLongRows);
 
 	editStreamId = new QLineEdit(grpCreds);
 	editRoomId = new QLineEdit(grpCreds);
 	editPassword = new QLineEdit(grpCreds);
 	editPassword->setEchoMode(QLineEdit::PasswordEchoOnEdit);
+	editStreamId->setObjectName("PublishStreamID");
+	editRoomId->setObjectName("PublishRoomID");
+	editPassword->setObjectName("PublishPassword");
+	editStreamId->setAccessibleName(obs_module_text_vdo("StreamID"));
+	editRoomId->setAccessibleName(obs_module_text_vdo("RoomID"));
+	editPassword->setAccessibleName(obs_module_text_vdo("Password"));
 
 	spinMaxViewers = new QSpinBox(grpCreds);
+	spinMaxViewers->setObjectName("PublishMaxViewers");
+	spinMaxViewers->setAccessibleName(obs_module_text_vdo("VDONinja.Dock.MaxViewers"));
 	spinMaxViewers->setRange(1, 50);
 	spinMaxViewers->setValue(10);
 	spinMaxViewers->setMinimumWidth(60);
@@ -119,7 +128,7 @@ void VDONinjaDock::setupUi()
 	form->addRow(obs_module_text_vdo("RoomID"), editRoomId);
 	form->addRow(obs_module_text_vdo("Password"), editPassword);
 	form->addRow(obs_module_text_vdo("VDONinja.Dock.MaxViewers"), spinMaxViewers);
-	form->addRow("", btnGenerateId);
+	form->addRow(btnGenerateId);
 
 	for (auto *edit : {editStreamId, editRoomId, editPassword}) {
 		connect(edit, &QLineEdit::textEdited, this, [this]() { editsPending_ = true; });
@@ -145,6 +154,8 @@ void VDONinjaDock::setupUi()
 	layout->addWidget(grpOptions);
 
 	auto *advancedToggle = new QToolButton(container);
+	advancedToggle->setObjectName("PublishAdvanced");
+	advancedToggle->setFocusPolicy(Qt::StrongFocus);
 	advancedToggle->setText(obs_module_text_vdo("AdvancedSettings"));
 	advancedToggle->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
 	advancedToggle->setCheckable(true);
@@ -152,12 +163,21 @@ void VDONinjaDock::setupUi()
 	layout->addWidget(advancedToggle);
 	auto *advanced = new QWidget(container);
 	auto *advancedLayout = new QFormLayout(advanced);
+	advancedLayout->setRowWrapPolicy(QFormLayout::WrapLongRows);
+	editWhepToken = new QLineEdit(advanced);
+	editWhepToken->setObjectName("PublishWhepKey");
+	editWhepToken->setEchoMode(QLineEdit::Password);
+	editWhepToken->setAccessibleName(obs_module_text_vdo("WhepToken"));
+	advancedLayout->addRow(obs_module_text_vdo("WhepToken"), editWhepToken);
+	connect(editWhepToken, &QLineEdit::textEdited, this, [this]() { editsPending_ = true; });
+	connect(editWhepToken, &QLineEdit::editingFinished, this, &VDONinjaDock::onSettingsChanged);
 	editUdpPorts = new QLineEdit(advanced);
 	editUdpPorts->setObjectName("VDONinjaUdpPorts");
+	editUdpPorts->setAccessibleName(obs_module_text_vdo("UDPPorts"));
 	editUdpPorts->setPlaceholderText(obs_module_text_vdo("UDPPorts.Auto"));
 	editUdpPorts->setToolTip(obs_module_text_vdo("UDPPorts.Help"));
 	advancedLayout->addRow(obs_module_text_vdo("UDPPorts"), editUdpPorts);
-	auto *portHelp = new QLabel(obs_module_text_vdo("UDPPorts.Help"), advanced);
+	auto *portHelp = new QLabel(obs_module_text_vdo("UDPPorts.Summary"), advanced);
 	portHelp->setWordWrap(true);
 	advancedLayout->addRow(portHelp);
 	layout->addWidget(advanced);
@@ -168,7 +188,7 @@ void VDONinjaDock::setupUi()
 	});
 	connect(editUdpPorts, &QLineEdit::textChanged, this, [portHelp](const QString &text) {
 		const bool valid = parseUdpPortRange(text.toStdString()).has_value();
-		portHelp->setText(obs_module_text_vdo(valid ? "UDPPorts.Help" : "UDPPorts.Invalid"));
+		portHelp->setText(obs_module_text_vdo(valid ? "UDPPorts.Summary" : "UDPPorts.Invalid"));
 		portHelp->setStyleSheet(valid ? "" : "color: #ff6666;");
 	});
 	connect(editUdpPorts, &QLineEdit::textEdited, this, [this]() { editsPending_ = true; });
@@ -179,11 +199,13 @@ void VDONinjaDock::setupUi()
 	QHBoxLayout *actionLayout = new QHBoxLayout(grpActions);
 
 	btnGoLive = new QPushButton(obs_module_text_vdo("VDONinja.Dock.GoLive"), grpActions);
+	btnGoLive->setObjectName("PublishStart");
 	btnGoLive->setProperty("themeID", "success"); // OBS standard theme property for green buttons
 	btnGoLive->setMinimumHeight(35);
 	connect(btnGoLive, &QPushButton::clicked, this, &VDONinjaDock::onGoLiveClicked);
 
 	btnStop = new QPushButton(obs_module_text_vdo("Stop"), grpActions);
+	btnStop->setObjectName("PublishStop");
 	btnStop->setProperty("themeID", "error"); // OBS standard theme property for red buttons
 	btnStop->setMinimumHeight(35);
 	connect(btnStop, &QPushButton::clicked, this, &VDONinjaDock::onStopClicked);
@@ -206,8 +228,16 @@ void VDONinjaDock::setupUi()
 	linkLayout->addWidget(btnView);
 	linkLayout->addWidget(btnPush);
 	auto *btnWhep = new QPushButton(obs_module_text_vdo("VDONinja.Dock.CopyWhepLink"), grpLinks);
+	btnWhep->setObjectName("PublishCopyWhep");
+	btnWhep->setToolTip(obs_module_text_vdo("VDONinja.Dock.WhepHelp"));
+	btnWhep->setAccessibleDescription(obs_module_text_vdo("VDONinja.Dock.WhepHelp"));
 	connect(btnWhep, &QPushButton::clicked, this, &VDONinjaDock::onCopyWhepLink);
 	linkLayout->addWidget(btnWhep);
+	lblLinkMessage = new QLabel(grpLinks);
+	lblLinkMessage->setObjectName("PublishLinkFeedback");
+	lblLinkMessage->setWordWrap(true);
+	lblLinkMessage->setVisible(false);
+	linkLayout->addWidget(lblLinkMessage);
 
 	layout->addWidget(grpLinks);
 
@@ -216,6 +246,7 @@ void VDONinjaDock::setupUi()
 	QVBoxLayout *statusLayout = new QVBoxLayout(grpStatus);
 
 	lblStatus = new QLabel(obs_module_text_vdo("Ready"), grpStatus);
+	lblStatus->setObjectName("PublishStatus");
 	lblStatus->setWordWrap(true);
 	lblStatus->setAlignment(Qt::AlignCenter);
 	lblStatus->setStyleSheet("font-weight: bold; font-size: 14px;");
@@ -330,6 +361,8 @@ void VDONinjaDock::loadSettings()
 	editPassword->setText(pass ? pass : "");
 	const char *udpPorts = config_get_string(config, "VDONinja", "UDPPorts");
 	editUdpPorts->setText(udpPorts ? udpPorts : "auto");
+	const char *whepToken = config_get_string(config, "VDONinja", "WhepToken");
+	editWhepToken->setText(whepToken ? whepToken : "");
 
 	int maxV = static_cast<int>(config_get_int(config, "VDONinja", "MaxViewers"));
 	if (maxV >= 1 && maxV <= 50)
@@ -361,6 +394,7 @@ void VDONinjaDock::saveSettings()
 	config_set_string(config, "VDONinja", "Password", editPassword->text().toUtf8().constData());
 	config_set_int(config, "VDONinja", "MaxViewers", spinMaxViewers->value());
 	config_set_string(config, "VDONinja", "UDPPorts", editUdpPorts->text().toUtf8().constData());
+	config_set_string(config, "VDONinja", "WhepToken", editWhepToken->text().trimmed().toUtf8().constData());
 	config_set_bool(config, "VDONinja", "AutoAddFeeds", chkAutoAddFeeds->isChecked());
 	config_save(config);
 }
@@ -382,6 +416,7 @@ bool VDONinjaDock::loadFromServiceSettings(obs_data_t *serviceSettings)
 	editRoomId->setText(QString::fromUtf8(obs_data_get_string(serviceSettings, "room_id")).trimmed());
 	const QString servicePassword = QString::fromUtf8(obs_data_get_string(serviceSettings, "password"));
 	editPassword->setText(servicePassword);
+	editWhepToken->setText(QString::fromUtf8(obs_data_get_string(serviceSettings, "whep_token")));
 	// The common Stream dialog can rebuild a key-only service. Retain the
 	// profile's selection when that service has no port field of its own.
 	if (obs_data_has_user_value(serviceSettings, "udp_port_range"))
@@ -453,6 +488,7 @@ bool VDONinjaDock::applySettingsToService(bool activate)
 	writePublishIdentity(settings, identity);
 	obs_data_set_int(settings, "max_viewers", spinMaxViewers->value());
 	obs_data_set_string(settings, "udp_port_range", editUdpPorts->text().trimmed().toUtf8().constData());
+	obs_data_set_string(settings, "whep_token", editWhepToken->text().trimmed().toUtf8().constData());
 	const bool autoInbound = chkAutoAddFeeds->isChecked() && !identity.roomId.empty();
 	obs_data_set_bool(settings, "auto_inbound_enabled", autoInbound);
 	if (autoInbound) {
@@ -506,7 +542,7 @@ void VDONinjaDock::onCopyViewLink()
 	QString url = buildUrl(false);
 	if (!url.isEmpty()) {
 		QApplication::clipboard()->setText(url);
-		lblStatus->setText(obs_module_text_vdo("VDONinja.Dock.LinkCopied"));
+		showLinkMessage("VDONinja.Dock.LinkCopied");
 	}
 }
 
@@ -519,13 +555,14 @@ void VDONinjaDock::onCopyPushLink()
 	QString url = buildUrl(true);
 	if (!url.isEmpty()) {
 		QApplication::clipboard()->setText(url);
-		lblStatus->setText(obs_module_text_vdo("VDONinja.Dock.LinkCopied"));
+		showLinkMessage("VDONinja.Dock.LinkCopied");
 	}
 }
 
 void VDONinjaDock::showLinkMessage(const char *key)
 {
-	lblStatus->setText(obs_module_text_vdo(key));
+	lblLinkMessage->setText(obs_module_text_vdo(key));
+	lblLinkMessage->setVisible(true);
 	linkMessageStreaming_ = obs_frontend_streaming_active();
 	linkMessageTimer_.start();
 }
@@ -561,9 +598,11 @@ void VDONinjaDock::onCopyWhepLink()
 			obs_frontend_save_streaming_service();
 		}
 		obs_data_release(settings);
+		editWhepToken->setText(QString::fromStdString(token));
+		saveSettings();
 	}
 	QApplication::clipboard()->setText(QString::fromStdString("https://whep.vdo.ninja/" + urlEncode(token)));
-	showLinkMessage("VDONinja.Dock.WhepCopied");
+	showLinkMessage(obs_frontend_streaming_active() ? "VDONinja.Dock.LinkCopied" : "VDONinja.Dock.WhepCopied");
 }
 
 void VDONinjaDock::onGoLiveClicked()
@@ -639,15 +678,16 @@ void VDONinjaDock::updateStats()
 	editRoomId->setEnabled(!streaming);
 	editPassword->setEnabled(!streaming);
 	editUdpPorts->setEnabled(!streaming);
+	editWhepToken->setEnabled(!streaming);
 	spinMaxViewers->setEnabled(!streaming);
 	chkAutoAddFeeds->setEnabled(!streaming);
 
-	// Give link instructions time to be read instead of erasing them at the
-	// next one-second stats tick. A stream state change takes priority.
+	// Keep copy feedback beside the links; never replace the live indicator.
 	if (!linkMessageTimer_.isValid() || linkMessageTimer_.hasExpired(8000) || streaming != linkMessageStreaming_) {
 		linkMessageTimer_.invalidate();
-		lblStatus->setText(streaming ? "LIVE" : obs_module_text_vdo("Stopped"));
+		lblLinkMessage->setVisible(false);
 	}
+	lblStatus->setText(obs_module_text_vdo(streaming ? "VDONinja.Dock.Live" : "Stopped"));
 	if (streaming) {
 		lblStatus->setStyleSheet("font-weight: bold; font-size: 14px; color: #ff3333;");
 	} else {
@@ -731,6 +771,9 @@ void VDONinjaDock::onSettingsChanged()
 {
 	if (loadingSettings_)
 		return;
+	// A copied link may no longer describe the edited settings or cleared key.
+	linkMessageTimer_.invalidate();
+	lblLinkMessage->setVisible(false);
 	editsPending_ = true;
 	saveSettings();
 	if (!obs_frontend_streaming_active())

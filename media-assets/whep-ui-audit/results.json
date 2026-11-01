@@ -1,0 +1,1486 @@
+{
+  "status": "unreleased",
+  "parserFuzz": {
+    "executions": 2361669,
+    "durationSeconds": 181,
+    "sanitizers": [
+      "ASan",
+      "UBSan"
+    ],
+    "compiler": "Clang 18.1.3 / WSL",
+    "additionalCiSmokeExecutions": 100000,
+    "boundarySeedMaxBytes": 2097152,
+    "findings": 0
+  },
+  "nativeWire": {
+    "malformedMutations": 1000,
+    "malformedOrOversizedOffers": 4,
+    "burstMiB": 16,
+    "invalidAndAmbiguousTrickle": true,
+    "normalPlayersAfterwards": 2,
+    "passed": true
+  },
+  "unitCasesPassed": 805,
+  "nativeCasesPassed": 92,
+  "liveKeyboard": {
+    "expectedVersion": "1.1.83",
+    "loadedModule": "C:\\Users\\Steve\\code\\ninja-plugin\\artifacts\\whep-ui-audit\\obs-media-final\\obs-plugins\\64bit\\obs-vdoninja.dll",
+    "pluginSha256": "b8104456f49ab7feca32c6e341553c5bd5b38f24f5d67bcd3da1f6651fb96ced",
+    "stopFirstMessage": true,
+    "liveStatusAlwaysVisible": true,
+    "generatedAndSaved": true,
+    "liveCopyUsesSameLink": true,
+    "sameLinkAfterObsRestart": true,
+    "disablePersistsAndAppliesOnStart": true,
+    "replacementLinkPersists": true,
+    "ok": true
+  },
+  "browserPlayback": {
+    "pluginSha256": "8d07a09c2c064bab34ea59a1ba1253c00728843d2aac253c11ffbcaf400110e2",
+    "plugin": "C:\\Users\\Steve\\code\\ninja-plugin\\artifacts\\whep-ui-audit\\obs-media-final\\obs-plugins\\64bit\\obs-vdoninja.dll",
+    "obsExe": "C:\\Users\\Steve\\code\\ninja-plugin\\artifacts\\whep-ui-audit\\obs-media-final\\bin\\64bit\\obs64.exe",
+    "cycles": 2,
+    "broker": "hosted",
+    "brokerBase": "https://whep.vdo.ninja",
+    "loadedModule": "C:\\Users\\Steve\\code\\ninja-plugin\\artifacts\\whep-ui-audit\\obs-media-final\\obs-plugins\\64bit\\obs-vdoninja.dll",
+    "workflow": {
+      "streamId": "whepobsfb1d77c9ff63",
+      "endpoint": "https://whep.vdo.ninja/513c9181-c5d3-417a-84df-ba20a9ca7168",
+      "cycles": [
+        {
+          "cycle": 1,
+          "startMs": 2770,
+          "chrome": {
+            "state": "connected",
+            "frames": 144,
+            "audioPackets": 240,
+            "videoCodec": "video/H264",
+            "audioCodec": "audio/opus",
+            "pixel": [
+              255,
+              127,
+              48,
+              255
+            ],
+            "rms": 0.17253371093554934,
+            "peakHz": 445.3125,
+            "width": 1280,
+            "height": 720,
+            "currentTime": 4.759,
+            "framesDelta": 61,
+            "requests": [
+              {
+                "method": "POST",
+                "status": 201
+              },
+              {
+                "method": "PATCH",
+                "status": 204
+              }
+            ],
+            "screenshot": "cycle-1-chrome.png"
+          },
+          "firefox": {
+            "state": "connected",
+            "frames": 143,
+            "audioPackets": 270,
+            "videoCodec": "video/H264",
+            "audioCodec": "audio/opus",
+            "pixel": [
+              255,
+              127,
+              48,
+              255
+            ],
+            "rms": 0.1724153971241476,
+            "peakHz": 445.3125,
+            "width": 1280,
+            "height": 720,
+            "currentTime": 4.752,
+            "framesDelta": 61,
+            "requests": [
+              {
+                "method": "POST",
+                "status": 201
+              },
+              {
+                "method": "PATCH",
+                "status": 204
+              }
+            ],
+            "screenshot": "cycle-1-firefox.png"
+          },
+          "third": {
+            "state": "connected",
+            "frames": 80,
+            "audioPackets": 163,
+            "videoCodec": "video/H264",
+            "audioCodec": "audio/opus",
+            "pixel": [
+              255,
+              127,
+              48,
+              255
+            ],
+            "rms": 0.1723980219178045,
+            "peakHz": 445.3125,
+            "width": 1280,
+            "height": 720,
+            "currentTime": 2.66,
+            "framesDelta": 60,
+            "requests": [
+              {
+                "method": "POST",
+                "status": 201
+              }
+            ],
+            "screenshot": "third-viewer.png"
+          },
+          "viewerLimitEnforced": true,
+          "survivor": {
+            "state": "connected",
+            "frames": 380,
+            "audioPackets": 666,
+            "videoCodec": "video/H264",
+            "audioCodec": "audio/opus",
+            "pixel": [
+              255,
+              127,
+              48,
+              255
+            ],
+            "rms": 0.17238355533234076,
+            "peakHz": 445.3125,
+            "width": 1280,
+            "height": 720,
+            "currentTime": 12.68,
+            "framesDelta": 59,
+            "requests": [
+              {
+                "method": "POST",
+                "status": 201
+              },
+              {
+                "method": "PATCH",
+                "status": 204
+              }
+            ],
+            "screenshot": "surviving-viewer.png"
+          },
+          "replacement": {
+            "state": "connected",
+            "frames": 80,
+            "audioPackets": 161,
+            "videoCodec": "video/H264",
+            "audioCodec": "audio/opus",
+            "pixel": [
+              255,
+              127,
+              48,
+              255
+            ],
+            "rms": 0.17220142848497802,
+            "peakHz": 445.3125,
+            "width": 1280,
+            "height": 720,
+            "currentTime": 3.172,
+            "framesDelta": 60,
+            "requests": [
+              {
+                "method": "POST",
+                "status": 201
+              }
+            ],
+            "screenshot": "replacement-viewer.png"
+          },
+          "stopMs": 264,
+          "playerDroppedAfterStop": true
+        },
+        {
+          "cycle": 2,
+          "startMs": 2765,
+          "chrome": {
+            "state": "connected",
+            "frames": 83,
+            "audioPackets": 234,
+            "videoCodec": "video/H264",
+            "audioCodec": "audio/opus",
+            "pixel": [
+              255,
+              127,
+              48,
+              255
+            ],
+            "rms": 0.17231548396806656,
+            "peakHz": 445.3125,
+            "width": 1280,
+            "height": 720,
+            "currentTime": 2.718,
+            "framesDelta": 62,
+            "requests": [
+              {
+                "method": "POST",
+                "status": 201
+              }
+            ],
+            "screenshot": "cycle-2-chrome.png"
+          },
+          "firefox": {
+            "state": "connected",
+            "frames": 142,
+            "audioPackets": 298,
+            "videoCodec": "video/H264",
+            "audioCodec": "audio/opus",
+            "pixel": [
+              255,
+              127,
+              48,
+              255
+            ],
+            "rms": 0.1725605685241821,
+            "peakHz": 445.3125,
+            "width": 1280,
+            "height": 720,
+            "currentTime": 4.72,
+            "framesDelta": 61,
+            "requests": [
+              {
+                "method": "POST",
+                "status": 201
+              }
+            ],
+            "screenshot": "cycle-2-firefox.png"
+          },
+          "stopMs": 253,
+          "playerDroppedAfterStop": true
+        }
+      ],
+      "players": "Independent HTTP/RTCPeerConnection fixture",
+      "obs": {
+        "availableRequests": [
+          "GetHotkeyList",
+          "OpenInputInteractDialog",
+          "SaveSourceScreenshot",
+          "GetVersion",
+          "SetInputName",
+          "SetSceneName",
+          "GetStats",
+          "TriggerStudioModeTransition",
+          "SetInputAudioSyncOffset",
+          "GetSceneCollectionList",
+          "BroadcastCustomEvent",
+          "Sleep",
+          "SetSceneSceneTransitionOverride",
+          "CallVendorRequest",
+          "CreateSceneCollection",
+          "SetStudioModeEnabled",
+          "TriggerHotkeyByName",
+          "OpenVideoMixProjector",
+          "TriggerHotkeyByKeySequence",
+          "GetPersistentData",
+          "SetSceneItemIndex",
+          "SetPersistentData",
+          "SetCurrentSceneCollection",
+          "SetInputMute",
+          "SetCurrentPreviewScene",
+          "SetCurrentProgramScene",
+          "OpenSourceProjector",
+          "GetProfileList",
+          "SetCurrentProfile",
+          "RemoveProfile",
+          "CreateProfile",
+          "GetProfileParameter",
+          "SetProfileParameter",
+          "GetInputAudioBalance",
+          "GetStreamServiceSettings",
+          "GetVideoSettings",
+          "SetVideoSettings",
+          "SetInputAudioBalance",
+          "SetInputVolume",
+          "GetSceneItemSource",
+          "SetStreamServiceSettings",
+          "GetInputDefaultSettings",
+          "GetSpecialInputs",
+          "GetInputKindList",
+          "GetCanvasList",
+          "GetRecordDirectory",
+          "SetSourceFilterEnabled",
+          "SetRecordDirectory",
+          "GetInputList",
+          "GetSceneList",
+          "GetInputMute",
+          "GetCurrentPreviewScene",
+          "GetReplayBufferStatus",
+          "GetSourceActive",
+          "GetSourceScreenshot",
+          "GetSourcePrivateSettings",
+          "SetSourcePrivateSettings",
+          "GetGroupList",
+          "SetInputSettings",
+          "GetCurrentProgramScene",
+          "GetSceneItemId",
+          "RemoveScene",
+          "CreateScene",
+          "GetSceneSceneTransitionOverride",
+          "RemoveInput",
+          "CreateInput",
+          "GetSceneItemLocked",
+          "GetInputSettings",
+          "ToggleInputMute",
+          "SetCurrentSceneTransition",
+          "GetInputVolume",
+          "GetInputAudioSyncOffset",
+          "GetInputAudioMonitorType",
+          "SetInputAudioMonitorType",
+          "StartVirtualCam",
+          "GetInputAudioTracks",
+          "SetInputAudioTracks",
+          "PauseRecord",
+          "GetInputDeinterlaceMode",
+          "SetInputDeinterlaceMode",
+          "GetInputDeinterlaceFieldOrder",
+          "SetInputDeinterlaceFieldOrder",
+          "GetInputPropertiesListPropertyItems",
+          "PressInputPropertiesButton",
+          "GetTransitionKindList",
+          "GetSceneItemTransform",
+          "GetSceneTransitionList",
+          "GetVirtualCamStatus",
+          "GetCurrentSceneTransition",
+          "SetCurrentSceneTransitionDuration",
+          "SetCurrentSceneTransitionSettings",
+          "GetCurrentSceneTransitionCursor",
+          "SetTBarPosition",
+          "GetSourceFilterKindList",
+          "StopOutput",
+          "ToggleOutput",
+          "GetSourceFilterList",
+          "GetSourceFilterDefaultSettings",
+          "CreateSourceFilter",
+          "RemoveSourceFilter",
+          "SetSourceFilterName",
+          "GetSourceFilter",
+          "StopRecord",
+          "ToggleRecord",
+          "SetSourceFilterIndex",
+          "SetSourceFilterSettings",
+          "SetSceneItemTransform",
+          "GetSceneItemList",
+          "GetGroupSceneItemList",
+          "CreateSceneItem",
+          "RemoveSceneItem",
+          "DuplicateSceneItem",
+          "GetSceneItemEnabled",
+          "SetSceneItemEnabled",
+          "SetSceneItemLocked",
+          "GetSceneItemIndex",
+          "StartReplayBuffer",
+          "GetSceneItemBlendMode",
+          "SetSceneItemBlendMode",
+          "GetSceneItemPrivateSettings",
+          "SetSceneItemPrivateSettings",
+          "StopVirtualCam",
+          "ToggleVirtualCam",
+          "StopReplayBuffer",
+          "ToggleReplayBuffer",
+          "SaveReplayBuffer",
+          "GetLastReplayBufferReplay",
+          "GetOutputList",
+          "GetOutputStatus",
+          "StartOutput",
+          "GetOutputSettings",
+          "SetOutputSettings",
+          "GetStreamStatus",
+          "StopStream",
+          "ToggleStream",
+          "StartStream",
+          "SendStreamCaption",
+          "GetRecordStatus",
+          "StartRecord",
+          "ToggleRecordPause",
+          "ResumeRecord",
+          "SplitRecordFile",
+          "CreateRecordChapter",
+          "SetMediaInputCursor",
+          "GetMediaInputStatus",
+          "OffsetMediaInputCursor",
+          "TriggerMediaInputAction",
+          "GetStudioModeEnabled",
+          "OpenInputPropertiesDialog",
+          "OpenInputFiltersDialog",
+          "GetMonitorList"
+        ],
+        "obsVersion": "32.2.2",
+        "obsWebSocketVersion": "5.7.4",
+        "platform": "windows",
+        "platformDescription": "Windows 11 Version 25H2",
+        "rpcVersion": 1,
+        "supportedImageFormats": [
+          "bmp",
+          "cur",
+          "icns",
+          "ico",
+          "jfif",
+          "jpeg",
+          "jpg",
+          "pbm",
+          "pgm",
+          "png",
+          "ppm",
+          "tif",
+          "tiff",
+          "wbmp",
+          "webp",
+          "xbm",
+          "xpm"
+        ]
+      },
+      "browsers": [
+        "145.0.7632.6",
+        "146.0.1"
+      ],
+      "immediateStopMs": 577,
+      "ok": true
+    },
+    "obsExitCode": 0,
+    "cleanExit": true,
+    "obsLogMarkers": {
+      "whepHostingConnected": 3,
+      "outputStopped": 3,
+      "whepOfferRejected": 0,
+      "whepHostConnectionEnded": 0,
+      "startThreadCrashed": 0,
+      "warnings": 0
+    },
+    "ok": true
+  },
+  "locales": {
+    "de-DE": {
+      "run": "final-review-de-DE",
+      "locale": "de-DE",
+      "focusOrder": [
+        {
+          "id": "PublishStreamID",
+          "name": "whepobs8bbdb5376542"
+        },
+        {
+          "id": "PublishRoomID",
+          "name": "reviewRelease166Sep05"
+        },
+        {
+          "id": "PublishPassword",
+          "name": "●●●●●●●●●●●●●●●●"
+        },
+        {
+          "id": "PublishMaxViewers",
+          "name": "3"
+        },
+        {
+          "id": "QPushButton",
+          "name": "Generate New ID"
+        },
+        {
+          "id": "QCheckBox",
+          "name": "Auto-add room feeds to scene"
+        },
+        {
+          "id": "PublishAdvanced",
+          "name": "Erweiterte Einstellungen"
+        },
+        {
+          "id": "PublishStart",
+          "name": "Go Live"
+        },
+        {
+          "id": "QPushButton",
+          "name": "Copy View Link (for producer)"
+        },
+        {
+          "id": "QPushButton",
+          "name": "Copy Push Link (for guests)"
+        },
+        {
+          "id": "PublishCopyWhep",
+          "name": "WHEP-Link kopieren"
+        }
+      ],
+      "module": "C:\\Users\\Steve\\code\\ninja-plugin\\artifacts\\whep-ui-audit\\obs\\obs-plugins\\64bit\\obs-vdoninja.dll",
+      "sha256": "2ce024e469df273a545d22892cae75645810bd0cb54dfbf023d007aa1bb2d5bc",
+      "guestReturnKeyboardFields": [
+        "GuestReturnAdvanced",
+        "GuestReturnAudioTrack",
+        "GuestReturnBitrate",
+        "GuestReturnCopyLink",
+        "GuestReturnEncoder",
+        "GuestReturnFrameRate",
+        "GuestReturnMaxViewers",
+        "GuestReturnPassword",
+        "GuestReturnRoomID",
+        "GuestReturnSize",
+        "GuestReturnStart",
+        "GuestReturnStreamID"
+      ],
+      "keyboardPassed": true,
+      "ok": true
+    },
+    "en-GB": {
+      "run": "checked-en-GB",
+      "locale": "en-GB",
+      "focusOrder": [
+        {
+          "id": "PublishStreamID",
+          "name": "whepobs8bbdb5376542"
+        },
+        {
+          "id": "PublishRoomID",
+          "name": "reviewRelease166Sep05"
+        },
+        {
+          "id": "PublishPassword",
+          "name": "●●●●●●●●●●●●●●●●"
+        },
+        {
+          "id": "PublishMaxViewers",
+          "name": "3"
+        },
+        {
+          "id": "QPushButton",
+          "name": "Generate New ID"
+        },
+        {
+          "id": "QCheckBox",
+          "name": "Auto-add room feeds to scene"
+        },
+        {
+          "id": "PublishAdvanced",
+          "name": "Advanced Settings"
+        },
+        {
+          "id": "PublishStart",
+          "name": "Go Live"
+        },
+        {
+          "id": "QPushButton",
+          "name": "Copy View Link (for producer)"
+        },
+        {
+          "id": "QPushButton",
+          "name": "Copy Push Link (for guests)"
+        },
+        {
+          "id": "PublishCopyWhep",
+          "name": "Copy WHEP Link"
+        }
+      ],
+      "module": "C:\\Users\\Steve\\code\\ninja-plugin\\artifacts\\whep-ui-audit\\obs\\obs-plugins\\64bit\\obs-vdoninja.dll",
+      "sha256": "54fe5e18f47d5c525f2cbcd5e129c456fc88eb9efab814f3ecf1a77ba7b54b66",
+      "guestReturnKeyboardFields": [
+        "GuestReturnAdvanced",
+        "GuestReturnAudioTrack",
+        "GuestReturnBitrate",
+        "GuestReturnCopyLink",
+        "GuestReturnEncoder",
+        "GuestReturnFrameRate",
+        "GuestReturnMaxViewers",
+        "GuestReturnPassword",
+        "GuestReturnRoomID",
+        "GuestReturnSize",
+        "GuestReturnStart",
+        "GuestReturnStreamID"
+      ],
+      "keyboardPassed": true,
+      "ok": true
+    },
+    "en-US": {
+      "run": "final-review-en-US",
+      "locale": "en-US",
+      "focusOrder": [
+        {
+          "id": "PublishStreamID",
+          "name": "whepobs8bbdb5376542"
+        },
+        {
+          "id": "PublishRoomID",
+          "name": "reviewRelease166Sep05"
+        },
+        {
+          "id": "PublishPassword",
+          "name": "●●●●●●●●●●●●●●●●"
+        },
+        {
+          "id": "PublishMaxViewers",
+          "name": "3"
+        },
+        {
+          "id": "QPushButton",
+          "name": "Generate New ID"
+        },
+        {
+          "id": "QCheckBox",
+          "name": "Auto-add room feeds to scene"
+        },
+        {
+          "id": "PublishAdvanced",
+          "name": "Advanced Settings"
+        },
+        {
+          "id": "PublishStart",
+          "name": "Go Live"
+        },
+        {
+          "id": "QPushButton",
+          "name": "Copy Viewer Link"
+        },
+        {
+          "id": "QPushButton",
+          "name": "Copy Push Link (for guests)"
+        },
+        {
+          "id": "PublishCopyWhep",
+          "name": "Copy WHEP Link"
+        }
+      ],
+      "module": "C:\\Users\\Steve\\code\\ninja-plugin\\artifacts\\whep-ui-audit\\obs\\obs-plugins\\64bit\\obs-vdoninja.dll",
+      "sha256": "2ce024e469df273a545d22892cae75645810bd0cb54dfbf023d007aa1bb2d5bc",
+      "guestReturnKeyboardFields": [
+        "GuestReturnAdvanced",
+        "GuestReturnAudioTrack",
+        "GuestReturnBitrate",
+        "GuestReturnCopyLink",
+        "GuestReturnEncoder",
+        "GuestReturnFrameRate",
+        "GuestReturnMaxViewers",
+        "GuestReturnPassword",
+        "GuestReturnRoomID",
+        "GuestReturnSize",
+        "GuestReturnStart",
+        "GuestReturnStreamID"
+      ],
+      "keyboardPassed": true,
+      "ok": true
+    },
+    "en": {
+      "run": "checked-en",
+      "locale": "en",
+      "focusOrder": [
+        {
+          "id": "PublishStreamID",
+          "name": "whepobs8bbdb5376542"
+        },
+        {
+          "id": "PublishRoomID",
+          "name": "reviewRelease166Sep05"
+        },
+        {
+          "id": "PublishPassword",
+          "name": "●●●●●●●●●●●●●●●●"
+        },
+        {
+          "id": "PublishMaxViewers",
+          "name": "3"
+        },
+        {
+          "id": "QPushButton",
+          "name": "Generate New ID"
+        },
+        {
+          "id": "QCheckBox",
+          "name": "Auto-add room feeds to scene"
+        },
+        {
+          "id": "PublishAdvanced",
+          "name": "Advanced Settings"
+        },
+        {
+          "id": "PublishStart",
+          "name": "Go Live"
+        },
+        {
+          "id": "QPushButton",
+          "name": "Copy View Link (for producer)"
+        },
+        {
+          "id": "QPushButton",
+          "name": "Copy Push Link (for guests)"
+        },
+        {
+          "id": "PublishCopyWhep",
+          "name": "Copy WHEP Link"
+        }
+      ],
+      "module": "C:\\Users\\Steve\\code\\ninja-plugin\\artifacts\\whep-ui-audit\\obs\\obs-plugins\\64bit\\obs-vdoninja.dll",
+      "sha256": "54fe5e18f47d5c525f2cbcd5e129c456fc88eb9efab814f3ecf1a77ba7b54b66",
+      "guestReturnKeyboardFields": [
+        "GuestReturnAdvanced",
+        "GuestReturnAudioTrack",
+        "GuestReturnBitrate",
+        "GuestReturnCopyLink",
+        "GuestReturnEncoder",
+        "GuestReturnFrameRate",
+        "GuestReturnMaxViewers",
+        "GuestReturnPassword",
+        "GuestReturnRoomID",
+        "GuestReturnSize",
+        "GuestReturnStart",
+        "GuestReturnStreamID"
+      ],
+      "keyboardPassed": true,
+      "ok": true
+    },
+    "es-ES": {
+      "run": "final-es-ES",
+      "locale": "es-ES",
+      "focusOrder": [
+        {
+          "id": "PublishStreamID",
+          "name": "whepobs8bbdb5376542"
+        },
+        {
+          "id": "PublishRoomID",
+          "name": "reviewRelease166Sep05"
+        },
+        {
+          "id": "PublishPassword",
+          "name": "●●●●●●●●●●●●●●●●"
+        },
+        {
+          "id": "PublishMaxViewers",
+          "name": "3"
+        },
+        {
+          "id": "QPushButton",
+          "name": "Generate New ID"
+        },
+        {
+          "id": "QCheckBox",
+          "name": "Auto-add room feeds to scene"
+        },
+        {
+          "id": "PublishAdvanced",
+          "name": "Configuracion avanzada"
+        },
+        {
+          "id": "PublishStart",
+          "name": "Go Live"
+        },
+        {
+          "id": "QPushButton",
+          "name": "Copy View Link (for producer)"
+        },
+        {
+          "id": "QPushButton",
+          "name": "Copy Push Link (for guests)"
+        },
+        {
+          "id": "PublishCopyWhep",
+          "name": "Copiar enlace WHEP"
+        }
+      ],
+      "module": "C:\\Users\\Steve\\code\\ninja-plugin\\artifacts\\whep-ui-audit\\obs\\obs-plugins\\64bit\\obs-vdoninja.dll",
+      "sha256": "87c317e393b25a39402105e09fbb966f25abbdcaa55819f9e262879b1dc399e9",
+      "guestReturnKeyboardFields": [
+        "GuestReturnAdvanced",
+        "GuestReturnAudioTrack",
+        "GuestReturnBitrate",
+        "GuestReturnCopyLink",
+        "GuestReturnEncoder",
+        "GuestReturnFrameRate",
+        "GuestReturnMaxViewers",
+        "GuestReturnPassword",
+        "GuestReturnRoomID",
+        "GuestReturnSize",
+        "GuestReturnStart",
+        "GuestReturnStreamID"
+      ],
+      "keyboardPassed": true,
+      "ok": true
+    },
+    "fr-FR": {
+      "run": "final-fr-FR",
+      "locale": "fr-FR",
+      "focusOrder": [
+        {
+          "id": "PublishStreamID",
+          "name": "whepobs8bbdb5376542"
+        },
+        {
+          "id": "PublishRoomID",
+          "name": "reviewRelease166Sep05"
+        },
+        {
+          "id": "PublishPassword",
+          "name": "●●●●●●●●●●●●●●●●"
+        },
+        {
+          "id": "PublishMaxViewers",
+          "name": "3"
+        },
+        {
+          "id": "QPushButton",
+          "name": "Generate New ID"
+        },
+        {
+          "id": "QCheckBox",
+          "name": "Auto-add room feeds to scene"
+        },
+        {
+          "id": "PublishAdvanced",
+          "name": "Parametres avances"
+        },
+        {
+          "id": "PublishStart",
+          "name": "Go Live"
+        },
+        {
+          "id": "QPushButton",
+          "name": "Copy View Link (for producer)"
+        },
+        {
+          "id": "QPushButton",
+          "name": "Copy Push Link (for guests)"
+        },
+        {
+          "id": "PublishCopyWhep",
+          "name": "Copier le lien WHEP"
+        }
+      ],
+      "module": "C:\\Users\\Steve\\code\\ninja-plugin\\artifacts\\whep-ui-audit\\obs\\obs-plugins\\64bit\\obs-vdoninja.dll",
+      "sha256": "87c317e393b25a39402105e09fbb966f25abbdcaa55819f9e262879b1dc399e9",
+      "guestReturnKeyboardFields": [
+        "GuestReturnAdvanced",
+        "GuestReturnAudioTrack",
+        "GuestReturnBitrate",
+        "GuestReturnCopyLink",
+        "GuestReturnEncoder",
+        "GuestReturnFrameRate",
+        "GuestReturnMaxViewers",
+        "GuestReturnPassword",
+        "GuestReturnRoomID",
+        "GuestReturnSize",
+        "GuestReturnStart",
+        "GuestReturnStreamID"
+      ],
+      "keyboardPassed": true,
+      "ok": true
+    },
+    "it-IT": {
+      "run": "final-it-IT",
+      "locale": "it-IT",
+      "focusOrder": [
+        {
+          "id": "PublishStreamID",
+          "name": "whepobs8bbdb5376542"
+        },
+        {
+          "id": "PublishRoomID",
+          "name": "reviewRelease166Sep05"
+        },
+        {
+          "id": "PublishPassword",
+          "name": "●●●●●●●●●●●●●●●●"
+        },
+        {
+          "id": "PublishMaxViewers",
+          "name": "3"
+        },
+        {
+          "id": "QPushButton",
+          "name": "Generate New ID"
+        },
+        {
+          "id": "QCheckBox",
+          "name": "Auto-add room feeds to scene"
+        },
+        {
+          "id": "PublishAdvanced",
+          "name": "Impostazioni avanzate"
+        },
+        {
+          "id": "PublishStart",
+          "name": "Go Live"
+        },
+        {
+          "id": "QPushButton",
+          "name": "Copy View Link (for producer)"
+        },
+        {
+          "id": "QPushButton",
+          "name": "Copy Push Link (for guests)"
+        },
+        {
+          "id": "PublishCopyWhep",
+          "name": "Copia link WHEP"
+        }
+      ],
+      "module": "C:\\Users\\Steve\\code\\ninja-plugin\\artifacts\\whep-ui-audit\\obs\\obs-plugins\\64bit\\obs-vdoninja.dll",
+      "sha256": "87c317e393b25a39402105e09fbb966f25abbdcaa55819f9e262879b1dc399e9",
+      "guestReturnKeyboardFields": [
+        "GuestReturnAdvanced",
+        "GuestReturnAudioTrack",
+        "GuestReturnBitrate",
+        "GuestReturnCopyLink",
+        "GuestReturnEncoder",
+        "GuestReturnFrameRate",
+        "GuestReturnMaxViewers",
+        "GuestReturnPassword",
+        "GuestReturnRoomID",
+        "GuestReturnSize",
+        "GuestReturnStart",
+        "GuestReturnStreamID"
+      ],
+      "keyboardPassed": true,
+      "ok": true
+    },
+    "ja-JP": {
+      "run": "final-review-ja-JP",
+      "locale": "ja-JP",
+      "focusOrder": [
+        {
+          "id": "PublishStreamID",
+          "name": "whepobs8bbdb5376542"
+        },
+        {
+          "id": "PublishRoomID",
+          "name": "reviewRelease166Sep05"
+        },
+        {
+          "id": "PublishPassword",
+          "name": "●●●●●●●●●●●●●●●●"
+        },
+        {
+          "id": "PublishMaxViewers",
+          "name": "3"
+        },
+        {
+          "id": "QPushButton",
+          "name": "Generate New ID"
+        },
+        {
+          "id": "QCheckBox",
+          "name": "Auto-add room feeds to scene"
+        },
+        {
+          "id": "PublishAdvanced",
+          "name": "詳細設定"
+        },
+        {
+          "id": "PublishStart",
+          "name": "Go Live"
+        },
+        {
+          "id": "QPushButton",
+          "name": "Copy View Link (for producer)"
+        },
+        {
+          "id": "QPushButton",
+          "name": "Copy Push Link (for guests)"
+        },
+        {
+          "id": "PublishCopyWhep",
+          "name": "WHEPリンクをコピー"
+        }
+      ],
+      "module": "C:\\Users\\Steve\\code\\ninja-plugin\\artifacts\\whep-ui-audit\\obs\\obs-plugins\\64bit\\obs-vdoninja.dll",
+      "sha256": "2ce024e469df273a545d22892cae75645810bd0cb54dfbf023d007aa1bb2d5bc",
+      "guestReturnKeyboardFields": [
+        "GuestReturnAdvanced",
+        "GuestReturnAudioTrack",
+        "GuestReturnBitrate",
+        "GuestReturnCopyLink",
+        "GuestReturnEncoder",
+        "GuestReturnFrameRate",
+        "GuestReturnMaxViewers",
+        "GuestReturnPassword",
+        "GuestReturnRoomID",
+        "GuestReturnSize",
+        "GuestReturnStart",
+        "GuestReturnStreamID"
+      ],
+      "keyboardPassed": true,
+      "ok": true
+    },
+    "ko-KR": {
+      "run": "checked-ko-KR",
+      "locale": "ko-KR",
+      "focusOrder": [
+        {
+          "id": "PublishStreamID",
+          "name": "whepobs8bbdb5376542"
+        },
+        {
+          "id": "PublishRoomID",
+          "name": "reviewRelease166Sep05"
+        },
+        {
+          "id": "PublishPassword",
+          "name": "●●●●●●●●●●●●●●●●"
+        },
+        {
+          "id": "PublishMaxViewers",
+          "name": "3"
+        },
+        {
+          "id": "QPushButton",
+          "name": "Generate New ID"
+        },
+        {
+          "id": "QCheckBox",
+          "name": "Auto-add room feeds to scene"
+        },
+        {
+          "id": "PublishAdvanced",
+          "name": "고급 설정"
+        },
+        {
+          "id": "PublishStart",
+          "name": "Go Live"
+        },
+        {
+          "id": "QPushButton",
+          "name": "Copy View Link (for producer)"
+        },
+        {
+          "id": "QPushButton",
+          "name": "Copy Push Link (for guests)"
+        },
+        {
+          "id": "PublishCopyWhep",
+          "name": "WHEP 링크 복사"
+        }
+      ],
+      "module": "C:\\Users\\Steve\\code\\ninja-plugin\\artifacts\\whep-ui-audit\\obs\\obs-plugins\\64bit\\obs-vdoninja.dll",
+      "sha256": "54fe5e18f47d5c525f2cbcd5e129c456fc88eb9efab814f3ecf1a77ba7b54b66",
+      "guestReturnKeyboardFields": [
+        "GuestReturnAdvanced",
+        "GuestReturnAudioTrack",
+        "GuestReturnBitrate",
+        "GuestReturnCopyLink",
+        "GuestReturnEncoder",
+        "GuestReturnFrameRate",
+        "GuestReturnMaxViewers",
+        "GuestReturnPassword",
+        "GuestReturnRoomID",
+        "GuestReturnSize",
+        "GuestReturnStart",
+        "GuestReturnStreamID"
+      ],
+      "keyboardPassed": true,
+      "ok": true
+    },
+    "nl-NL": {
+      "run": "checked-nl-NL",
+      "locale": "nl-NL",
+      "focusOrder": [
+        {
+          "id": "PublishStreamID",
+          "name": "whepobs8bbdb5376542"
+        },
+        {
+          "id": "PublishRoomID",
+          "name": "reviewRelease166Sep05"
+        },
+        {
+          "id": "PublishPassword",
+          "name": "●●●●●●●●●●●●●●●●"
+        },
+        {
+          "id": "PublishMaxViewers",
+          "name": "3"
+        },
+        {
+          "id": "QPushButton",
+          "name": "Generate New ID"
+        },
+        {
+          "id": "QCheckBox",
+          "name": "Auto-add room feeds to scene"
+        },
+        {
+          "id": "PublishAdvanced",
+          "name": "Geavanceerde instellingen"
+        },
+        {
+          "id": "PublishStart",
+          "name": "Go Live"
+        },
+        {
+          "id": "QPushButton",
+          "name": "Copy View Link (for producer)"
+        },
+        {
+          "id": "QPushButton",
+          "name": "Copy Push Link (for guests)"
+        },
+        {
+          "id": "PublishCopyWhep",
+          "name": "WHEP-link kopiëren"
+        }
+      ],
+      "module": "C:\\Users\\Steve\\code\\ninja-plugin\\artifacts\\whep-ui-audit\\obs\\obs-plugins\\64bit\\obs-vdoninja.dll",
+      "sha256": "54fe5e18f47d5c525f2cbcd5e129c456fc88eb9efab814f3ecf1a77ba7b54b66",
+      "guestReturnKeyboardFields": [
+        "GuestReturnAdvanced",
+        "GuestReturnAudioTrack",
+        "GuestReturnBitrate",
+        "GuestReturnCopyLink",
+        "GuestReturnEncoder",
+        "GuestReturnFrameRate",
+        "GuestReturnMaxViewers",
+        "GuestReturnPassword",
+        "GuestReturnRoomID",
+        "GuestReturnSize",
+        "GuestReturnStart",
+        "GuestReturnStreamID"
+      ],
+      "keyboardPassed": true,
+      "ok": true
+    },
+    "pl-PL": {
+      "run": "checked-pl-PL",
+      "locale": "pl-PL",
+      "focusOrder": [
+        {
+          "id": "PublishStreamID",
+          "name": "whepobs8bbdb5376542"
+        },
+        {
+          "id": "PublishRoomID",
+          "name": "reviewRelease166Sep05"
+        },
+        {
+          "id": "PublishPassword",
+          "name": "●●●●●●●●●●●●●●●●"
+        },
+        {
+          "id": "PublishMaxViewers",
+          "name": "3"
+        },
+        {
+          "id": "QPushButton",
+          "name": "Generate New ID"
+        },
+        {
+          "id": "QCheckBox",
+          "name": "Auto-add room feeds to scene"
+        },
+        {
+          "id": "PublishAdvanced",
+          "name": "Ustawienia zaawansowane"
+        },
+        {
+          "id": "PublishStart",
+          "name": "Go Live"
+        },
+        {
+          "id": "QPushButton",
+          "name": "Copy View Link (for producer)"
+        },
+        {
+          "id": "QPushButton",
+          "name": "Copy Push Link (for guests)"
+        },
+        {
+          "id": "PublishCopyWhep",
+          "name": "Kopiuj link WHEP"
+        }
+      ],
+      "module": "C:\\Users\\Steve\\code\\ninja-plugin\\artifacts\\whep-ui-audit\\obs\\obs-plugins\\64bit\\obs-vdoninja.dll",
+      "sha256": "54fe5e18f47d5c525f2cbcd5e129c456fc88eb9efab814f3ecf1a77ba7b54b66",
+      "guestReturnKeyboardFields": [
+        "GuestReturnAdvanced",
+        "GuestReturnAudioTrack",
+        "GuestReturnBitrate",
+        "GuestReturnCopyLink",
+        "GuestReturnEncoder",
+        "GuestReturnFrameRate",
+        "GuestReturnMaxViewers",
+        "GuestReturnPassword",
+        "GuestReturnRoomID",
+        "GuestReturnSize",
+        "GuestReturnStart",
+        "GuestReturnStreamID"
+      ],
+      "keyboardPassed": true,
+      "ok": true
+    },
+    "pt-BR": {
+      "run": "checked-pt-BR",
+      "locale": "pt-BR",
+      "focusOrder": [
+        {
+          "id": "PublishStreamID",
+          "name": "whepobs8bbdb5376542"
+        },
+        {
+          "id": "PublishRoomID",
+          "name": "reviewRelease166Sep05"
+        },
+        {
+          "id": "PublishPassword",
+          "name": "●●●●●●●●●●●●●●●●"
+        },
+        {
+          "id": "PublishMaxViewers",
+          "name": "3"
+        },
+        {
+          "id": "QPushButton",
+          "name": "Generate New ID"
+        },
+        {
+          "id": "QCheckBox",
+          "name": "Auto-add room feeds to scene"
+        },
+        {
+          "id": "PublishAdvanced",
+          "name": "Configuracoes avancadas"
+        },
+        {
+          "id": "PublishStart",
+          "name": "Go Live"
+        },
+        {
+          "id": "QPushButton",
+          "name": "Copy View Link (for producer)"
+        },
+        {
+          "id": "QPushButton",
+          "name": "Copy Push Link (for guests)"
+        },
+        {
+          "id": "PublishCopyWhep",
+          "name": "Copiar link WHEP"
+        }
+      ],
+      "module": "C:\\Users\\Steve\\code\\ninja-plugin\\artifacts\\whep-ui-audit\\obs\\obs-plugins\\64bit\\obs-vdoninja.dll",
+      "sha256": "54fe5e18f47d5c525f2cbcd5e129c456fc88eb9efab814f3ecf1a77ba7b54b66",
+      "guestReturnKeyboardFields": [
+        "GuestReturnAdvanced",
+        "GuestReturnAudioTrack",
+        "GuestReturnBitrate",
+        "GuestReturnCopyLink",
+        "GuestReturnEncoder",
+        "GuestReturnFrameRate",
+        "GuestReturnMaxViewers",
+        "GuestReturnPassword",
+        "GuestReturnRoomID",
+        "GuestReturnSize",
+        "GuestReturnStart",
+        "GuestReturnStreamID"
+      ],
+      "keyboardPassed": true,
+      "ok": true
+    },
+    "ru-RU": {
+      "run": "final-review-ru-RU",
+      "locale": "ru-RU",
+      "focusOrder": [
+        {
+          "id": "PublishStreamID",
+          "name": "whepobs8bbdb5376542"
+        },
+        {
+          "id": "PublishRoomID",
+          "name": "reviewRelease166Sep05"
+        },
+        {
+          "id": "PublishPassword",
+          "name": "●●●●●●●●●●●●●●●●"
+        },
+        {
+          "id": "PublishMaxViewers",
+          "name": "3"
+        },
+        {
+          "id": "QPushButton",
+          "name": "Generate New ID"
+        },
+        {
+          "id": "QCheckBox",
+          "name": "Auto-add room feeds to scene"
+        },
+        {
+          "id": "PublishAdvanced",
+          "name": "Расширенные настройки"
+        },
+        {
+          "id": "PublishStart",
+          "name": "Go Live"
+        },
+        {
+          "id": "QPushButton",
+          "name": "Copy View Link (for producer)"
+        },
+        {
+          "id": "QPushButton",
+          "name": "Copy Push Link (for guests)"
+        },
+        {
+          "id": "PublishCopyWhep",
+          "name": "Копировать ссылку WHEP"
+        }
+      ],
+      "module": "C:\\Users\\Steve\\code\\ninja-plugin\\artifacts\\whep-ui-audit\\obs\\obs-plugins\\64bit\\obs-vdoninja.dll",
+      "sha256": "2ce024e469df273a545d22892cae75645810bd0cb54dfbf023d007aa1bb2d5bc",
+      "guestReturnKeyboardFields": [
+        "GuestReturnAdvanced",
+        "GuestReturnAudioTrack",
+        "GuestReturnBitrate",
+        "GuestReturnCopyLink",
+        "GuestReturnEncoder",
+        "GuestReturnFrameRate",
+        "GuestReturnMaxViewers",
+        "GuestReturnPassword",
+        "GuestReturnRoomID",
+        "GuestReturnSize",
+        "GuestReturnStart",
+        "GuestReturnStreamID"
+      ],
+      "keyboardPassed": true,
+      "ok": true
+    },
+    "tr-TR": {
+      "run": "checked-tr-TR",
+      "locale": "tr-TR",
+      "focusOrder": [
+        {
+          "id": "PublishStreamID",
+          "name": "whepobs8bbdb5376542"
+        },
+        {
+          "id": "PublishRoomID",
+          "name": "reviewRelease166Sep05"
+        },
+        {
+          "id": "PublishPassword",
+          "name": "●●●●●●●●●●●●●●●●"
+        },
+        {
+          "id": "PublishMaxViewers",
+          "name": "3"
+        },
+        {
+          "id": "QPushButton",
+          "name": "Generate New ID"
+        },
+        {
+          "id": "QCheckBox",
+          "name": "Auto-add room feeds to scene"
+        },
+        {
+          "id": "PublishAdvanced",
+          "name": "Gelismis ayarlar"
+        },
+        {
+          "id": "PublishStart",
+          "name": "Go Live"
+        },
+        {
+          "id": "QPushButton",
+          "name": "Copy View Link (for producer)"
+        },
+        {
+          "id": "QPushButton",
+          "name": "Copy Push Link (for guests)"
+        },
+        {
+          "id": "PublishCopyWhep",
+          "name": "WHEP bağlantısını kopyala"
+        }
+      ],
+      "module": "C:\\Users\\Steve\\code\\ninja-plugin\\artifacts\\whep-ui-audit\\obs\\obs-plugins\\64bit\\obs-vdoninja.dll",
+      "sha256": "54fe5e18f47d5c525f2cbcd5e129c456fc88eb9efab814f3ecf1a77ba7b54b66",
+      "guestReturnKeyboardFields": [
+        "GuestReturnAdvanced",
+        "GuestReturnAudioTrack",
+        "GuestReturnBitrate",
+        "GuestReturnCopyLink",
+        "GuestReturnEncoder",
+        "GuestReturnFrameRate",
+        "GuestReturnMaxViewers",
+        "GuestReturnPassword",
+        "GuestReturnRoomID",
+        "GuestReturnSize",
+        "GuestReturnStart",
+        "GuestReturnStreamID"
+      ],
+      "keyboardPassed": true,
+      "ok": true
+    },
+    "zh-CN": {
+      "run": "final-review-zh-CN",
+      "locale": "zh-CN",
+      "focusOrder": [
+        {
+          "id": "PublishStreamID",
+          "name": "whepobs8bbdb5376542"
+        },
+        {
+          "id": "PublishRoomID",
+          "name": "reviewRelease166Sep05"
+        },
+        {
+          "id": "PublishPassword",
+          "name": "●●●●●●●●●●●●●●●●"
+        },
+        {
+          "id": "PublishMaxViewers",
+          "name": "3"
+        },
+        {
+          "id": "QPushButton",
+          "name": "Generate New ID"
+        },
+        {
+          "id": "QCheckBox",
+          "name": "Auto-add room feeds to scene"
+        },
+        {
+          "id": "PublishAdvanced",
+          "name": "高级设置"
+        },
+        {
+          "id": "PublishStart",
+          "name": "Go Live"
+        },
+        {
+          "id": "QPushButton",
+          "name": "Copy View Link (for producer)"
+        },
+        {
+          "id": "QPushButton",
+          "name": "Copy Push Link (for guests)"
+        },
+        {
+          "id": "PublishCopyWhep",
+          "name": "复制 WHEP 链接"
+        }
+      ],
+      "module": "C:\\Users\\Steve\\code\\ninja-plugin\\artifacts\\whep-ui-audit\\obs\\obs-plugins\\64bit\\obs-vdoninja.dll",
+      "sha256": "2ce024e469df273a545d22892cae75645810bd0cb54dfbf023d007aa1bb2d5bc",
+      "guestReturnKeyboardFields": [
+        "GuestReturnAdvanced",
+        "GuestReturnAudioTrack",
+        "GuestReturnBitrate",
+        "GuestReturnCopyLink",
+        "GuestReturnEncoder",
+        "GuestReturnFrameRate",
+        "GuestReturnMaxViewers",
+        "GuestReturnPassword",
+        "GuestReturnRoomID",
+        "GuestReturnSize",
+        "GuestReturnStart",
+        "GuestReturnStreamID"
+      ],
+      "keyboardPassed": true,
+      "ok": true
+    }
+  },
+  "limitations": [
+    "No third-party WHEP product tested",
+    "No remote/mobile network qualification",
+    "No macOS/Linux UI runtime test",
+    "No screen-reader certification",
+    "Legacy untranslated labels retain English fallback"
+  ]
+}

@@ -3,13 +3,20 @@
 Checks readable feedback, stream-state priority, clipboard URLs, and persistence
 across OBS restart. Captures only the owned process and restores text clipboard
 contents. Never point this at your everyday OBS installation.
+Run clipboard checks serially: the Windows clipboard is shared across OBS processes.
 """
 
 import argparse
-import json, subprocess, time, hashlib
+import json
+import subprocess
+import time
+import hashlib
 from pathlib import Path
-import psutil, win32clipboard
+import psutil
+import win32clipboard
+import win32gui
 from pywinauto import Application
+from pywinauto.controls.hwndwrapper import HwndWrapper
 
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("--obs-review", type=Path, required=True)
@@ -53,8 +60,11 @@ def run(*args):
             if c.window_text() == args[1]
         )
         assert control.is_enabled()
-        control.invoke()
-        time.sleep(2.1 if args[1] == "Enable WHEP / Copy Link" else 0.4)
+        handle = focus_control(control)
+        # Synchronous key messages avoid racing a floating window's activation.
+        win32gui.SendMessage(handle, 0x100, 0x20, 1 | (0x39 << 16))
+        win32gui.SendMessage(handle, 0x101, 0x20, 1 | (0x39 << 16) | (3 << 30))
+        time.sleep(2.1 if args[1] == "Copy WHEP Link" else 0.4)
         return ""
     r = subprocess.run(
         ["python", str(helper), str(out), *args],
@@ -139,6 +149,31 @@ def capture(name):
     run("capture", name, "VDONinjaStudioDock")
 
 
+def dock_control(identifier):
+    app = Application(backend="uia").connect(process=state["pid"])
+    return next(
+        c
+        for w in app.windows()
+        for c in w.descendants()
+        if c.element_info.automation_id.split(".")[-1] == identifier
+    )
+
+
+def keypress(identifier, keys):
+    handle = focus_control(dock_control(identifier))
+    HwndWrapper(handle).send_keystrokes(keys)
+    time.sleep(0.3)
+
+
+def focus_control(control):
+    handle = dock_control("VDONinjaStudioDock").handle
+    win32gui.SendMessage(handle, 0x06, 1, 0)  # WM_ACTIVATE / WA_ACTIVE
+    control.set_focus()
+    time.sleep(0.2)
+    assert control.has_keyboard_focus(), "Keyboard focus did not reach the target"
+    return handle
+
+
 try:
     original = clipboard()
     launch()
@@ -146,8 +181,9 @@ try:
     run("click-name", "Go Live", "Button")
     waitlog("VDO.Ninja output started successfully")
     time.sleep(2)
-    run("click-name", "Enable WHEP / Copy Link", "Button")
-    assert "Stop streaming before enabling WHEP" in run("dump")
+    run("click-name", "Copy WHEP Link", "Button")
+    assert "Stop streaming to enable WHEP." in run("dump")
+    assert "Text 'LIVE'" in run("dump")
     assert not json.loads(service.read_text(encoding="utf-8-sig"))["settings"].get(
         "whep_token"
     )
@@ -155,10 +191,10 @@ try:
     report["stopFirstMessage"] = True
     time.sleep(7.2)
     assert "Text 'LIVE'" in run("dump")
-    report["statusReturnsToLive"] = True
+    report["liveStatusAlwaysVisible"] = True
     run("click-name", "Stop", "Button")
     time.sleep(2)
-    run("click-name", "Enable WHEP / Copy Link", "Button")
+    run("click-name", "Copy WHEP Link", "Button")
     first = clipboard()
     token = json.loads(service.read_text(encoding="utf-8-sig"))["settings"][
         "whep_token"
@@ -170,8 +206,9 @@ try:
     waitlog("WHEP link hosting connected to wss://whep.vdo.ninja")
     time.sleep(3)
     capture("03-live")
-    run("click-name", "Enable WHEP / Copy Link", "Button")
+    run("click-name", "Copy WHEP Link", "Button")
     assert clipboard() == first
+    assert "Text 'LIVE'" in run("dump")
     report["liveCopyUsesSameLink"] = True
     capture("04-copy-live")
     run("click-name", "Stop", "Button")
@@ -180,10 +217,44 @@ try:
     run("close")
     assert obs.wait(timeout=30) == 0
     launch()
-    run("click-name", "Enable WHEP / Copy Link", "Button")
+    run("click-name", "Copy WHEP Link", "Button")
     assert clipboard() == first
     report["sameLinkAfterObsRestart"] = True
     capture("06-after-reopen")
+    keypress("PublishAdvanced", "{SPACE}")
+    assert dock_control("PublishWhepKey").element_info.element.CurrentIsPassword
+    keypress("PublishWhepKey", "{HOME}" + "{DELETE}" * 80 + "{TAB}")
+    assert not json.loads(service.read_text(encoding="utf-8-sig"))["settings"].get(
+        "whep_token"
+    )
+    capture("07-disabled")
+    assert "Link copied. Go live to watch." not in run("dump")
+    run("click-name", "Go Live", "Button")
+    time.sleep(3)
+    assert not dock_control("PublishWhepKey").is_enabled()
+    run("click-name", "Copy WHEP Link", "Button")
+    assert "Stop streaming to enable WHEP." in run("dump")
+    assert "Text 'LIVE'" in run("dump")
+    capture("08-disabled-while-live")
+    report["disablePersistsAndAppliesOnStart"] = True
+    run("click-name", "Stop", "Button")
+    time.sleep(2)
+    keypress("PublishAdvanced", "{SPACE}")
+    run("click-name", "Copy WHEP Link", "Button")
+    replacement = clipboard()
+    assert (
+        replacement
+        and replacement != first
+        and replacement.startswith("https://whep.vdo.ninja/")
+    )
+    capture("09-replacement-link")
+    run("close")
+    assert obs.wait(timeout=30) == 0
+    launch()
+    run("click-name", "Copy WHEP Link", "Button")
+    assert clipboard() == replacement
+    report["replacementLinkPersists"] = True
+    capture("10-replacement-after-reopen")
     run("close")
     assert obs.wait(timeout=30) == 0
     report["ok"] = True

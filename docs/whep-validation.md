@@ -7,6 +7,82 @@ service and sends the program directly to each player. The receiver uses WHEP
 HTTP requests and WebRTC; it does not need VDO.Ninja JavaScript or its client API.
 This is separate from Matt's group-room Guest Return.
 
+## UI and input audit after v1.1.83 (unreleased)
+
+This audit fixes problems found in the actual Windows OBS interface. The
+development builds still display v1.1.83; their DLL hashes in the evidence
+distinguish them from the published package. These changes are not yet a release.
+
+| Finding | Change |
+| --- | --- |
+| Copy feedback hid LIVE and read like a warning paragraph | Short feedback beside the links; LIVE remains visible. One **Copy WHEP Link** button. |
+| Guest Return opened with a large instruction block | Two short sentences retain the guest-microphone warning. Detailed routing advice remains in the audio-track tooltip. |
+| Narrow forms clipped Generate New ID and the bitrate suffix | Full-width ID button; wrapping forms; a bitrate minimum that survives OBS theme overrides. |
+| Field accessibility names could be unclear | Explicit translated names, keyboard-focusable advanced toggle, and verified Tab/Shift+Tab/Space/arrow-key behavior. |
+| New WHEP text existed only in English | Ten reviewed strings supplied and checked in every shipped locale file. |
+| The documented disable route was absent from OBS's normal Stream screen | Existing masked WHEP key added to **Studio → Publish → Advanced Settings**. Clearing it disables WHEP; copying again replaces the link. |
+| Input queue limited messages but had no explicit byte budget | 2 MiB WebSocket frame limit, 8 MiB queued-byte budget, bounded candidates/MIDs, NUL rejection and stop checks between queued requests. |
+
+Validation:
+
+- Clang 18 / WSL, ASan + UBSan: **2,361,669** production JSON/SDP parser fuzz
+  executions over 181 seconds, plus a fresh 100,000-execution CI smoke run.
+  No sanitizer finding, crash or timeout. Separate boundary seeds cover a
+  2 MiB input, deeply nested JSON, many SDP media sections and a huge number.
+- Real Windows WebSocket worker: 1,000 malformed message mutations, four
+  malformed/oversized offers, a 16 MiB burst, malformed and ambiguous trickle,
+  then two connected viewers, independent close and cleanup. Passed.
+- **805 unit tests and 92 native media tests passed**. The additional burst
+  regression also passed all four WHEP native cases.
+- Actual portable OBS controls: copy, start, stop, copy while live, restart,
+  clear the key, start with WHEP disabled, replace the key and restart again.
+  The disabled key remains disabled while live; the replacement persists.
+- All 15 locale files were rendered and keyboard-tested during the audit.
+  Final advanced-key layout checks include English, German, Russian, Japanese
+  and Chinese. Existing untranslated legacy labels still use the English
+  fallback; this does not claim a complete native-language review of the plugin.
+- Chromium and Firefox use the standalone HTTP/WebRTC fixture, not a
+  third-party player product. Playback, audio, capacity, replacement and output
+  restart are rechecked against the live endpoint; fuzz traffic is loopback only.
+
+The [audit evidence](../media-assets/whep-ui-audit/results.json) records each
+run's DLL hash and exact scope. [Capture provenance](../media-assets/whep-ui-audit/manifest.json)
+retains original images and crop coordinates for future guides. Raw logs and
+all locale captures remain in `artifacts/whep-ui-audit/`.
+
+Keyboard tests deliver Windows key events to the owned Qt window and inspect
+actual focus and resulting state through UI Automation. They do not substitute
+button invocation for keyboard activation. Run clipboard checks serially because
+the Windows clipboard is shared. This is basic Windows keyboard/accessibility
+validation, not a screen-reader or macOS/Linux accessibility certification.
+
+Reproduce parser fuzzing on Linux/WSL:
+
+```sh
+cmake -S . -B build-whep-fuzz -DBUILD_PLUGIN=OFF -DBUILD_WHEP_FUZZER=ON \
+  -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
+cmake --build build-whep-fuzz --target vdoninja-whep-fuzz
+cp -r tests/fuzz-corpus/whep /tmp/whep-corpus
+UBSAN_OPTIONS=halt_on_error=1 build-whep-fuzz/vdoninja-whep-fuzz \
+  /tmp/whep-corpus -max_total_time=180 -max_len=65536 -timeout=5
+python3 scripts/check-whep-locales.py
+```
+
+Windows UI checks use a disposable OBS copy prepared by
+`scripts/whep-host-native-e2e.py`. Run `scripts/plugin-ui-audit.py --obs-review
+artifacts/<copy> --output artifacts/<new-result> --locale de-DE` for layouts and
+navigation, and `scripts/whep-host-ui-check.py --obs-review artifacts/<copy>
+--output artifacts/<new-result> --expected-version 1.1.83` for the full live flow.
+
+Release follow-up: cut through `scripts/release.ps1` after cross-platform CI,
+qualify the downloaded package, then update `whep.html` and its crops to the
+new button label and **Studio → Publish → Advanced Settings** disable route.
+The v1.1.83 guide's incorrect Settings-to-Stream disable instruction has been
+removed from the source guide. Replace its stop-only note with the tested key
+management steps when the new UI is released.
+Third-party WHEP players, remote/mobile paths, and macOS/Linux UI/runtime remain
+outside this Windows audit.
+
 Only the plugin repository changed. No edits or deployment were made to
 VDO.Ninja, `whip_private`, or the signaling service. The older prototype remains
 on `work/parked-unfinished-features` and was not merged wholesale.

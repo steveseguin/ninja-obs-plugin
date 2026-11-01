@@ -63,6 +63,7 @@ private:
 	QLineEdit *editPassword;
 	QSpinBox *spinMaxViewers;
 	QLineEdit *editUdpPorts;
+	QLineEdit *editWhepToken;
 	QPushButton *btnGenerateId;
 
 	// Actions
@@ -74,6 +75,7 @@ private:
 
 	// Status
 	QLabel *lblStatus;
+	QLabel *lblLinkMessage;
 	QLabel *lblTally;
 	QLabel *lblStats;
 	QLabel *lblSystemCpu;

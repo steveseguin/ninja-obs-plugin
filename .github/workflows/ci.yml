@@ -7,6 +7,24 @@ on:
     branches: [main]
 
 jobs:
+  whep-input:
+    name: WHEP input fuzzing and locales
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check reviewed UI translations
+        run: python3 scripts/check-whep-locales.py
+      - name: Build production parser fuzzer
+        run: |
+          cmake -S . -B build-whep-fuzz -DBUILD_PLUGIN=OFF -DBUILD_WHEP_FUZZER=ON -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
+          cmake --build build-whep-fuzz --target vdoninja-whep-fuzz --parallel 2
+      - name: Fuzz JSON and SDP with ASan and UBSan
+        env:
+          UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+        run: |
+          cp -r tests/fuzz-corpus/whep "$RUNNER_TEMP/whep-corpus"
+          build-whep-fuzz/vdoninja-whep-fuzz "$RUNNER_TEMP/whep-corpus" -runs=100000 -max_len=65536 -timeout=5 -rss_limit_mb=1024
+
   windows-installer:
     name: Windows Installer
     runs-on: windows-latest
