@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.83] - 2026-10-31
+
 ### Fixed
 - Keep WHEP copy confirmations and stop-first instructions visible for eight seconds instead of erasing them at the next status refresh. Starting or stopping the stream immediately restores the appropriate live/stopped status.
 
