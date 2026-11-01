@@ -59,7 +59,17 @@ The Windows repeat observed closure in 5 ms; the complete Arch native suite,
 package install/reinstall and OBS initialization then passed in
 https://github.com/steveseguin/ninja-obs-plugin/actions/runs/41257162367.
 No production cleanup code or server behavior was changed to satisfy the test.
-The v1.1.81 build was cancelled before publication; the delivery target is v1.1.82.
+The v1.1.81 build was cancelled before publication. All v1.1.82 platform packages
+subsequently passed, and all seven published package checksums were verified.
+The packaged Windows DLL (`a77ba3adfa4e6ef52d0c9dd91fa360f88b4be21eeb266cc995c2046dd67c6ce1`)
+passed the two-cycle live-endpoint browser test with clean OBS shutdown.
+
+The subsequent packaged UI check exposed a real feedback problem: the one-second
+stats refresh could erase a WHEP instruction before it was read. The v1.1.83
+follow-up holds that message for eight seconds, while stream-state changes take
+priority. Local UI validation passed delayed reading, return to LIVE, copying
+while live, and keeping the same link after an OBS restart. Media and signaling
+code are unchanged from v1.1.82. Final packaged UI evidence is recorded below.
 
 ## Existing server limits
 

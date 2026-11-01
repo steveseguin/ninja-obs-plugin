@@ -523,6 +523,13 @@ void VDONinjaDock::onCopyPushLink()
 	}
 }
 
+void VDONinjaDock::showLinkMessage(const char *key)
+{
+	lblStatus->setText(obs_module_text_vdo(key));
+	linkMessageStreaming_ = obs_frontend_streaming_active();
+	linkMessageTimer_.start();
+}
+
 void VDONinjaDock::onCopyWhepLink()
 {
 	std::string token;
@@ -536,7 +543,7 @@ void VDONinjaDock::onCopyWhepLink()
 		if (output)
 			obs_output_release(output);
 		if (token.empty()) {
-			lblStatus->setText(obs_module_text_vdo("VDONinja.Dock.WhepStopFirst"));
+			showLinkMessage("VDONinja.Dock.WhepStopFirst");
 			return;
 		}
 	} else {
@@ -556,11 +563,12 @@ void VDONinjaDock::onCopyWhepLink()
 		obs_data_release(settings);
 	}
 	QApplication::clipboard()->setText(QString::fromStdString("https://whep.vdo.ninja/" + urlEncode(token)));
-	lblStatus->setText(obs_module_text_vdo("VDONinja.Dock.WhepCopied"));
+	showLinkMessage("VDONinja.Dock.WhepCopied");
 }
 
 void VDONinjaDock::onGoLiveClicked()
 {
+	linkMessageTimer_.invalidate();
 	if (obs_frontend_streaming_active()) {
 		lblStatus->setText(obs_module_text_vdo("VDONinja.Dock.AlreadyLive"));
 		return;
@@ -590,6 +598,7 @@ void VDONinjaDock::onGoLiveClicked()
 
 void VDONinjaDock::onStopClicked()
 {
+	linkMessageTimer_.invalidate();
 	obs_frontend_streaming_stop();
 	lblStatus->setText(obs_module_text_vdo("VDONinja.Dock.Stopping"));
 }
@@ -633,11 +642,15 @@ void VDONinjaDock::updateStats()
 	spinMaxViewers->setEnabled(!streaming);
 	chkAutoAddFeeds->setEnabled(!streaming);
 
+	// Give link instructions time to be read instead of erasing them at the
+	// next one-second stats tick. A stream state change takes priority.
+	if (!linkMessageTimer_.isValid() || linkMessageTimer_.hasExpired(8000) || streaming != linkMessageStreaming_) {
+		linkMessageTimer_.invalidate();
+		lblStatus->setText(streaming ? "LIVE" : obs_module_text_vdo("Stopped"));
+	}
 	if (streaming) {
-		lblStatus->setText("LIVE");
 		lblStatus->setStyleSheet("font-weight: bold; font-size: 14px; color: #ff3333;");
 	} else {
-		lblStatus->setText(obs_module_text_vdo("Stopped"));
 		lblStatus->setStyleSheet("font-weight: bold; font-size: 14px; color: #888888;");
 		lblTally->setVisible(false);
 	}

@@ -4,6 +4,7 @@
 
 #include <QCheckBox>
 #include <QDockWidget>
+#include <QElapsedTimer>
 #include <QGroupBox>
 #include <QLabel>
 #include <QLineEdit>
@@ -49,6 +50,7 @@ private slots:
 private:
 	void setupUi();
 	void updateVersionStatus();
+	void showLinkMessage(const char *key);
 	void loadSettings();
 	void saveSettings();
 	bool applySettingsToService(bool activate);
@@ -77,6 +79,8 @@ private:
 	QLabel *lblSystemCpu;
 	QLabel *lblChat;
 	QLabel *lblVersion;
+	QElapsedTimer linkMessageTimer_;
+	bool linkMessageStreaming_ = false;
 	VDONinjaUpdateChecker *updateChecker_ = nullptr;
 	GuestReturnWidget *guestReturn_ = nullptr;
 
