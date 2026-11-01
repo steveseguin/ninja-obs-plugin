@@ -2539,6 +2539,7 @@ void testWhepExistingBrokerProtocol()
 	rtc::WebSocketServer::Configuration config{};
 	config.port = 0;
 	config.bindAddress = "127.0.0.1";
+	config.maxMessageSize = 2 * 1024 * 1024;
 	rtc::WebSocketServer server(config);
 	server.onClient([weakBroker](std::shared_ptr<rtc::WebSocket> socket) {
 		if (auto state = weakBroker.lock()) {
@@ -2592,6 +2593,50 @@ void testWhepExistingBrokerProtocol()
 		    "existing get/callback was not answered", 10s);
 		return result;
 	};
+	// Deterministic wire fuzzing exercises the real worker and WebSocket queue,
+	// not a duplicate parser. A valid request afterwards must still work.
+	uint32_t mutation = 0x57484550;
+	const std::vector<std::string> malformed = {
+	    "",
+	    "{",
+	    "[]",
+	    "null",
+	    "{\"type\":[]}",
+	    "{\"type\":\"post\",\"get\":{},\"streamID\":\"wrong\",\"sdp\":null}",
+	    "{\"type\":\"candidate\",\"streamID\":\"existing%20whep%2fkey\",\"candidate\":[]}",
+	    "{\"type\":\"post\",\"get\":\"invalid\",\"streamID\":\"existing%20whep%2fkey\",\"sdp\":\"bad\"}"};
+	for (int i = 0; i < 1000; ++i) {
+		auto message = malformed[i % malformed.size()];
+		if (i % 2 && !message.empty()) {
+			mutation = mutation * 1664525u + 1013904223u;
+			message[mutation % message.size()] = static_cast<char>(mutation >> 24);
+		}
+		socket->send(message);
+		if (i % 50 == 0)
+			std::this_thread::sleep_for(30ms);
+	}
+	for (const auto &sdp : {std::string("v=0\r\n"), std::string("v=0\0bad", 7),
+	                        std::string("v=0\r\nm=video 999999999999999999 UDP/TLS/RTP/SAVPF -1\r\n"),
+	                        std::string("v=0") + std::string(1024 * 1024, 'x')}) {
+		const auto request = "reject-" + std::to_string(sdp.size());
+		socket->send(JsonBuilder()
+		                 .add("type", "post")
+		                 .add("get", request)
+		                 .add("streamID", "existing%20whep%2fkey")
+		                 .add("sdp", sdp)
+		                 .build());
+		require(callback(request).empty(), "malformed/oversized WHEP offer was accepted");
+	}
+	require(manager.getViewerCount() == 0, "invalid WHEP requests consumed viewer slots");
+	const auto burst = JsonBuilder().add("streamID", "wrong").add("padding", std::string(1024 * 1024, 'x')).build();
+	for (int i = 0; i < 16; ++i)
+		socket->send(burst);
+	// Allow the bounded inbox to drain, then require an ordinary transaction.
+	std::this_thread::sleep_for(500ms);
+	socket->send(
+	    JsonBuilder().add("type", "delete").add("get", "after-burst").add("streamID", "existing%20whep%2fkey").build());
+	require(callback("after-burst").empty(), "WHEP host failed to recover after an input burst");
+	std::cout << "WHEP wire mutations: 1000; malformed/oversized offers: 4; input burst: 16 MiB\n";
 	std::vector<std::shared_ptr<rtc::PeerConnection>> players;
 	std::vector<std::shared_ptr<rtc::Track>> tracks;
 	for (int index = 0; index < 2; ++index) {
@@ -2620,6 +2665,25 @@ void testWhepExistingBrokerProtocol()
 		           players[1]->state() == rtc::PeerConnection::State::Connected;
 	    },
 	    "both independent WHEP requests connect", 15s);
+	// Invalid and ambiguous trickle must not evict either connected player.
+	const std::string playerOffer = *players[0]->localDescription();
+	const auto ufragStart = playerOffer.find("a=ice-ufrag:");
+	require(ufragStart != std::string::npos, "player offer has no ICE username");
+	const auto ufragEnd = playerOffer.find('\n', ufragStart);
+	const auto playerUfrag = trim(playerOffer.substr(ufragStart + 12, ufragEnd - ufragStart - 12));
+	for (const auto &candidate :
+	     {std::string("not a candidate"), std::string(8192, 'x'), std::string("candidate:\0bad", 14)}) {
+		for (const auto &ufrag : {std::string(), playerUfrag})
+			socket->send(JsonBuilder()
+			                 .add("type", "candidate")
+			                 .add("streamID", "existing%20whep%2fkey")
+			                 .addRaw("candidate", JsonBuilder()
+			                                          .add("candidate", candidate)
+			                                          .add("sdpMid", "video")
+			                                          .add("usernameFragment", ufrag)
+			                                          .build())
+			                 .build());
+	}
 	socket->send(JsonBuilder()
 	                 .add("type", "delete")
 	                 .add("get", "delete-request")

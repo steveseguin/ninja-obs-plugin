@@ -60,6 +60,7 @@ void VDONinjaWhepHost::run(std::string token, std::string endpoint)
 	struct Inbox {
 		std::mutex mutex;
 		std::deque<std::string> messages;
+		size_t bytes = 0;
 	};
 	struct Viewer {
 		std::string uuid;
@@ -75,6 +76,8 @@ void VDONinjaWhepHost::run(std::string token, std::string endpoint)
 		try {
 			rtc::WebSocket::Configuration config{};
 			config.disableTlsVerification = false;
+			// Bound memory before parsing or queueing untrusted player input.
+			config.maxMessageSize = 2 * 1024 * 1024;
 			const auto &caFile = VDONinjaSignaling::getCaCertificateFile();
 			if (!caFile.empty())
 				config.caCertificatePemFile = caFile;
@@ -82,11 +85,13 @@ void VDONinjaWhepHost::run(std::string token, std::string endpoint)
 			socket->onMessage([weakInbox](rtc::message_variant message) {
 				const auto queue = weakInbox.lock();
 				const auto text = std::get_if<std::string>(&message);
-				if (!queue || !text)
+				if (!queue || !text || text->size() > 2 * 1024 * 1024)
 					return;
 				std::lock_guard<std::mutex> lock(queue->mutex);
-				if (queue->messages.size() < 256)
+				if (queue->messages.size() < 256 && queue->bytes + text->size() <= 8 * 1024 * 1024) {
 					queue->messages.push_back(*text);
+					queue->bytes += text->size();
+				}
 			});
 			socket->open(endpoint);
 			const auto connecting = currentTimeMs();
@@ -101,8 +106,11 @@ void VDONinjaWhepHost::run(std::string token, std::string endpoint)
 				{
 					std::lock_guard<std::mutex> lock(inbox->mutex);
 					messages.swap(inbox->messages);
+					inbox->bytes = 0;
 				}
 				for (const auto &message : messages) {
+					if (stopping_)
+						break;
 					const JsonParser data(message);
 					const auto type = data.getString("type");
 					if (data.getString("streamID") != token)
@@ -124,7 +132,8 @@ void VDONinjaWhepHost::run(std::string token, std::string endpoint)
 						if (callback.empty() || callback.size() > 128 || viewers.count(callback))
 							continue;
 						const auto offer = data.getString("sdp");
-						if (offer.size() > 1024 * 1024 || offer.rfind("v=0", 0) != 0) {
+						if (offer.size() > 1024 * 1024 || offer.rfind("v=0", 0) != 0 ||
+						    offer.find('\0') != std::string::npos) {
 							reply("");
 							continue;
 						}
@@ -158,10 +167,13 @@ void VDONinjaWhepHost::run(std::string token, std::string endpoint)
 						if (!target)
 							continue;
 						auto line = candidate.getString("candidate");
+						const auto mid = candidate.getString("sdpMid");
+						if (line.size() > 4096 || mid.size() > 256 || line.find('\0') != std::string::npos)
+							continue;
 						if (line.rfind("a=", 0) == 0)
 							line.erase(0, 2);
 						try {
-							manager_.addWhepCandidate(target->uuid, line, candidate.getString("sdpMid"));
+							manager_.addWhepCandidate(target->uuid, line, mid);
 						} catch (const std::exception &) {
 							logWarning("Ignoring an invalid WHEP ICE candidate");
 						}

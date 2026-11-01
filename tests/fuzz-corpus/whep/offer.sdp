@@ -1,0 +1,15 @@
+v=0
+o=- 1 1 IN IP4 127.0.0.1
+s=-
+t=0 0
+a=group:BUNDLE video audio
+a=ice-ufrag:abcd
+m=video 9 UDP/TLS/RTP/SAVPF 102
+a=mid:video
+a=recvonly
+a=rtpmap:102 H264/90000
+a=fmtp:102 packetization-mode=1;profile-level-id=42e01f
+m=audio 0 UDP/TLS/RTP/SAVPF 109
+a=bundle-only
+a=mid:audio
+a=rtpmap:109 opus/48000/2
