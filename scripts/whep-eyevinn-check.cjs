@@ -65,7 +65,8 @@ async function verify(page, output, label) {
   assert.equal(after.videoCodec.toLowerCase(), 'video/h264');
   assert.equal(after.audioCodec.toLowerCase(), 'audio/opus');
   await page.screenshot({ path: path.join(output, label + '.png') });
-  return { ...after, framesDelta: after.frames - before.frames, screenshot: label + '.png' };
+  return { ...after, decodedFramesDelta: after.decodedFrames - before.decodedFrames,
+    playbackSecondsDelta: after.time - before.time, screenshot: label + '.png' };
 }
 
 async function checkEyevinn(browsers, endpoint, output) {

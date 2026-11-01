@@ -13,6 +13,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Improve narrow dock layouts, field accessibility labels and keyboard access to advanced settings. Supply the changed text in all 15 locale files.
 - Bound WHEP input sizes and queued bytes; reject oversized or NUL-containing offers/candidates. Add production-parser fuzzing, malformed-wire tests and a locale check to CI.
 
+### Validation
+- Exercise Eyevinn's public WebRTC Player in WHEP mode, without changing its adapter: H.264 video, decoded Opus audio, independent viewer stop and rejoin passed in Chromium and Firefox on Windows. The media peers were on one machine; remote/mobile networks remain unqualified.
+
 ## [1.1.83] - 2026-10-31
 
 ### Fixed
