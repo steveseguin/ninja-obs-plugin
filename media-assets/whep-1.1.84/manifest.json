@@ -1,0 +1,302 @@
+[
+  {
+    "release": "v1.1.84",
+    "step": "00-stopped",
+    "original": "00-stopped-full.png",
+    "crop": [
+      8,
+      0,
+      268,
+      930
+    ],
+    "cropped": "00-stopped.png",
+    "originalSha256": "8f17bccd8436eb4e9cf784d4132530bd63cf3e955d5e3e876c5b62117920c001",
+    "review": "Packaged OBS v1.1.84; reviewed the controls, feedback, live/stopped state and version footer for this stage."
+  },
+  {
+    "release": "v1.1.84",
+    "step": "01-stop-first",
+    "original": "01-stop-first-full.png",
+    "crop": [
+      8,
+      0,
+      268,
+      930
+    ],
+    "cropped": "01-stop-first.png",
+    "originalSha256": "f2929b11a082471b4c426ecb53ce81bbea4586bb52dc5c7ef807a54494da7249",
+    "review": "Packaged OBS v1.1.84; reviewed the controls, feedback, live/stopped state and version footer for this stage."
+  },
+  {
+    "release": "v1.1.84",
+    "step": "02-link-ready",
+    "original": "02-link-ready-full.png",
+    "crop": [
+      8,
+      0,
+      268,
+      930
+    ],
+    "cropped": "02-link-ready.png",
+    "originalSha256": "b0b14b34ed93540af5746b62650aa86aa3a8a5469b060bbce611deff8646da3d",
+    "review": "Packaged OBS v1.1.84; reviewed the controls, feedback, live/stopped state and version footer for this stage."
+  },
+  {
+    "release": "v1.1.84",
+    "step": "03-live",
+    "original": "03-live-full.png",
+    "crop": [
+      8,
+      0,
+      268,
+      930
+    ],
+    "cropped": "03-live.png",
+    "originalSha256": "0b5d961ed7aa285605463a3bb6da31d4c0e645d6a8732ed548285ede2b8234d0",
+    "review": "Packaged OBS v1.1.84; reviewed the controls, feedback, live/stopped state and version footer for this stage."
+  },
+  {
+    "release": "v1.1.84",
+    "step": "04-copy-live",
+    "original": "04-copy-live-full.png",
+    "crop": [
+      8,
+      0,
+      268,
+      930
+    ],
+    "cropped": "04-copy-live.png",
+    "originalSha256": "6eb6e3c78f6a5bfba8a478d2bdb33c671a99f27392e893601628a87a7f86cdc6",
+    "review": "Packaged OBS v1.1.84; reviewed the controls, feedback, live/stopped state and version footer for this stage."
+  },
+  {
+    "release": "v1.1.84",
+    "step": "05-stopped",
+    "original": "05-stopped-full.png",
+    "crop": [
+      8,
+      0,
+      268,
+      930
+    ],
+    "cropped": "05-stopped.png",
+    "originalSha256": "1fd3243468dd9efede597f0220b13692a974cdd77fa321aed8e1e6f9c75fd17c",
+    "review": "Packaged OBS v1.1.84; reviewed the controls, feedback, live/stopped state and version footer for this stage."
+  },
+  {
+    "release": "v1.1.84",
+    "step": "06-after-reopen",
+    "original": "06-after-reopen-full.png",
+    "crop": [
+      8,
+      0,
+      268,
+      930
+    ],
+    "cropped": "06-after-reopen.png",
+    "originalSha256": "5492e7dcf1ada9f38ff6dfea4c6deb2a15225bc1cc9a8e603133d1d312d44a5b",
+    "review": "Packaged OBS v1.1.84; reviewed the controls, feedback, live/stopped state and version footer for this stage."
+  },
+  {
+    "release": "v1.1.84",
+    "step": "07-disabled",
+    "original": "07-disabled-full.png",
+    "crop": [
+      8,
+      0,
+      268,
+      930
+    ],
+    "cropped": "07-disabled.png",
+    "originalSha256": "552e5d34958a0e00df19deb9afa7e34a96610ccfe7247114edf097e566fbe4b9",
+    "review": "Packaged OBS v1.1.84; reviewed the controls, feedback, live/stopped state and version footer for this stage."
+  },
+  {
+    "release": "v1.1.84",
+    "step": "08-disabled-while-live",
+    "original": "08-disabled-while-live-full.png",
+    "crop": [
+      8,
+      0,
+      268,
+      930
+    ],
+    "cropped": "08-disabled-while-live.png",
+    "originalSha256": "1eea9a213ec1419ca8ca192a7f8c817503b7b964df0fd29a421a0d41c11dc050",
+    "review": "Packaged OBS v1.1.84; reviewed the controls, feedback, live/stopped state and version footer for this stage."
+  },
+  {
+    "release": "v1.1.84",
+    "step": "09-replacement-link",
+    "original": "09-replacement-link-full.png",
+    "crop": [
+      8,
+      0,
+      268,
+      930
+    ],
+    "cropped": "09-replacement-link.png",
+    "originalSha256": "cfae3d34cfd955b5b65bc5b0dd3bd01723a1b81eff9038127b49bc7c50c572fc",
+    "review": "Packaged OBS v1.1.84; reviewed the controls, feedback, live/stopped state and version footer for this stage."
+  },
+  {
+    "release": "v1.1.84",
+    "step": "10-replacement-after-reopen",
+    "original": "10-replacement-after-reopen-full.png",
+    "crop": [
+      8,
+      0,
+      268,
+      930
+    ],
+    "cropped": "10-replacement-after-reopen.png",
+    "originalSha256": "5492e7dcf1ada9f38ff6dfea4c6deb2a15225bc1cc9a8e603133d1d312d44a5b",
+    "review": "Packaged OBS v1.1.84; reviewed the controls, feedback, live/stopped state and version footer for this stage."
+  },
+  {
+    "release": "v1.1.84",
+    "original": "cycle-1-chrome.png",
+    "originalSha256": "55362dd864e3b8591fb0c1fd428138975da23154ee0f727c263049c91b93daaf",
+    "review": "Reviewed the expected orange video or ready-player controls; decoded media measurements are recorded separately."
+  },
+  {
+    "release": "v1.1.84",
+    "original": "cycle-1-firefox.png",
+    "originalSha256": "22ca0822321e764b53321b2e020859b2361bc3e654cb98a08c35fa6b5569503c",
+    "review": "Reviewed the expected orange video or ready-player controls; decoded media measurements are recorded separately."
+  },
+  {
+    "release": "v1.1.84",
+    "original": "cycle-2-chrome.png",
+    "originalSha256": "55362dd864e3b8591fb0c1fd428138975da23154ee0f727c263049c91b93daaf",
+    "review": "Reviewed the expected orange video or ready-player controls; decoded media measurements are recorded separately."
+  },
+  {
+    "release": "v1.1.84",
+    "original": "cycle-2-firefox.png",
+    "originalSha256": "22ca0822321e764b53321b2e020859b2361bc3e654cb98a08c35fa6b5569503c",
+    "review": "Reviewed the expected orange video or ready-player controls; decoded media measurements are recorded separately."
+  },
+  {
+    "release": "v1.1.84",
+    "original": "eyevinn-0-playing.png",
+    "originalSha256": "39ea226496e5058152ac4693e01040a6dc9225946510b862fcafe099d5cd6ba7",
+    "review": "Reviewed the expected orange video or ready-player controls; decoded media measurements are recorded separately."
+  },
+  {
+    "release": "v1.1.84",
+    "original": "eyevinn-0-ready.png",
+    "originalSha256": "0cb64b9d3e7c374dbb7659fba0c54e5c04d5fa27d80d63b8c019616308786f40",
+    "review": "Reviewed the expected orange video or ready-player controls; decoded media measurements are recorded separately."
+  },
+  {
+    "release": "v1.1.84",
+    "original": "eyevinn-1-playing.png",
+    "originalSha256": "3aee40fa6bdc433f0734802f2cbdabb15b9dab3ea794bf27c830590b239d1ba5",
+    "review": "Reviewed the expected orange video or ready-player controls; decoded media measurements are recorded separately."
+  },
+  {
+    "release": "v1.1.84",
+    "original": "eyevinn-1-ready.png",
+    "originalSha256": "2a3d548b2d1ca32817688ba824c9008a84740f7245914ef461264e801365778c",
+    "review": "Reviewed the expected orange video or ready-player controls; decoded media measurements are recorded separately."
+  },
+  {
+    "release": "v1.1.84",
+    "original": "eyevinn-rejoined.png",
+    "originalSha256": "9210ca125bd05fb8c6d464ab0897d4b1109ebe954d0fbc07dce0412616e51735",
+    "review": "Reviewed the expected orange video or ready-player controls; decoded media measurements are recorded separately."
+  },
+  {
+    "release": "v1.1.84",
+    "original": "eyevinn-survivor.png",
+    "originalSha256": "1a4ea66efe60d7a74e89d1369b6415fbe07e63ada8efcd9eaf8882b3af85ab19",
+    "review": "Reviewed the expected orange video or ready-player controls; decoded media measurements are recorded separately."
+  },
+  {
+    "release": "v1.1.84",
+    "original": "replacement-viewer.png",
+    "originalSha256": "55362dd864e3b8591fb0c1fd428138975da23154ee0f727c263049c91b93daaf",
+    "review": "Reviewed the expected orange video or ready-player controls; decoded media measurements are recorded separately."
+  },
+  {
+    "release": "v1.1.84",
+    "original": "surviving-viewer.png",
+    "originalSha256": "22ca0822321e764b53321b2e020859b2361bc3e654cb98a08c35fa6b5569503c",
+    "review": "Reviewed the expected orange video or ready-player controls; decoded media measurements are recorded separately."
+  },
+  {
+    "release": "v1.1.84",
+    "original": "third-viewer.png",
+    "originalSha256": "55362dd864e3b8591fb0c1fd428138975da23154ee0f727c263049c91b93daaf",
+    "review": "Reviewed the expected orange video or ready-player controls; decoded media measurements are recorded separately."
+  },
+  {
+    "original": "02-link-ready-full.png",
+    "guideImage": "docs\\assets\\whep\\enable.png",
+    "guideCrop": [
+      17,
+      421,
+      247,
+      829
+    ],
+    "review": "Reviewed final crop and its desktop/mobile guide layout; relevant controls are readable without partial labels.",
+    "guideImageSha256": "4f25de2d50c3c0476a2e17bcafa210fbc952cb10336ed9dcec7b2f7aa0826b9a"
+  },
+  {
+    "original": "03-live-full.png",
+    "guideImage": "docs\\assets\\whep\\live.png",
+    "guideCrop": [
+      17,
+      421,
+      247,
+      805
+    ],
+    "review": "Reviewed final crop and its desktop/mobile guide layout; relevant controls are readable without partial labels.",
+    "guideImageSha256": "d315386dfab28039af6475d50663a17f43528e14324d82776c83530cb2c3a068"
+  },
+  {
+    "original": "07-disabled-full.png",
+    "guideImage": "docs\\assets\\whep\\disable.png",
+    "guideCrop": [
+      17,
+      421,
+      247,
+      501
+    ],
+    "review": "Reviewed final crop and its desktop/mobile guide layout; relevant controls are readable without partial labels.",
+    "guideImageSha256": "d22811da5b8fee1bb5e5665cc40d1bc5a96469396907447fc255a6363817bff1"
+  },
+  {
+    "original": "eyevinn-0-playing.png",
+    "guideImage": "docs\\assets\\whep\\player.png",
+    "guideCrop": [
+      13,
+      64,
+      289,
+      384
+    ],
+    "review": "Reviewed final crop and its desktop/mobile guide layout; relevant controls are readable without partial labels.",
+    "guideImageSha256": "48d751158fb1c6ef96ed8841e453e7595bbc87ceb9161b38444cd0c7314117dd"
+  },
+  {
+    "original": "guide-desktop-expanded.png",
+    "sha256": "bdc3fa871ff8d8c111e843c853ef7de587da0e4778ca75d70d08a2a143e85bfc",
+    "review": "Reviewed responsive layout, keyboard disclosure, image loading and absence of horizontal overflow."
+  },
+  {
+    "original": "guide-desktop.png",
+    "sha256": "faa6c4b5c0c6770f9993956973d7de459db2a66e9b9a3faaf19df6213f0aa900",
+    "review": "Reviewed responsive layout, keyboard disclosure, image loading and absence of horizontal overflow."
+  },
+  {
+    "original": "guide-mobile-expanded.png",
+    "sha256": "3e03373d00a46736220b52c5284e8249beec23de05c8a5a10ce6c781b503429d",
+    "review": "Reviewed responsive layout, keyboard disclosure, image loading and absence of horizontal overflow."
+  },
+  {
+    "original": "guide-mobile.png",
+    "sha256": "a2201357bb88aeae0b641e746bf5965fbceb1bce02154cd03350dd6b651fd3eb",
+    "review": "Reviewed responsive layout, keyboard disclosure, image loading and absence of horizontal overflow."
+  }
+]

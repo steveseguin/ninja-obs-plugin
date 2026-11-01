@@ -1,0 +1,859 @@
+{
+  "release": "v1.1.84",
+  "releaseBuild": "https://github.com/steveseguin/ninja-obs-plugin/actions/runs/41270030989",
+  "packageMetadata": {
+    "Signatures": [
+      {
+        "File": "obs-vdoninja-windows-x64-setup.exe",
+        "Status": "UnknownError",
+        "Signer": "2A1A1E2DF3AA142BDE1AB98AE1DBACCA2745B431",
+        "Message": "A certificate chain processed, but terminated in a root certificate which is not trusted by the trust provider"
+      },
+      {
+        "File": "obs-vdoninja-windows-x64-obs32.0-32.1-setup.exe",
+        "Status": "UnknownError",
+        "Signer": "2A1A1E2DF3AA142BDE1AB98AE1DBACCA2745B431",
+        "Message": "A certificate chain processed, but terminated in a root certificate which is not trusted by the trust provider"
+      },
+      {
+        "File": "unpacked/obs-plugins/64bit/obs-vdoninja.dll",
+        "Status": "UnknownError",
+        "Signer": "2A1A1E2DF3AA142BDE1AB98AE1DBACCA2745B431",
+        "Message": "A certificate chain processed, but terminated in a root certificate which is not trusted by the trust provider"
+      }
+    ],
+    "Locales": [
+      {
+        "Locale": "de-DE.ini",
+        "SHA256": "1C80A705DF735AF21309D1F9C84E285A327E50FF701315F43616BD0058E8939A",
+        "TextMatches": true,
+        "LineEndingsNormalized": true
+      },
+      {
+        "Locale": "en-GB.ini",
+        "SHA256": "12F7FE4287E0A396D63124E85F4DB719701141B4478C65188D33CA52FDB0CBD5",
+        "TextMatches": true,
+        "LineEndingsNormalized": true
+      },
+      {
+        "Locale": "en-US.ini",
+        "SHA256": "CF44152ECA54D6B0D809BC18351BFE2D7DD64E2E9B44A9DB33DB1D37BCBF32B1",
+        "TextMatches": true,
+        "LineEndingsNormalized": true
+      },
+      {
+        "Locale": "en.ini",
+        "SHA256": "F5BE1C499B33DF3BFF7E4F92AB4029FB0FBD040779EDFC40DC4144B9145AA480",
+        "TextMatches": true,
+        "LineEndingsNormalized": true
+      },
+      {
+        "Locale": "es-ES.ini",
+        "SHA256": "00EC9A337B334DA08C00C1ED1EF911D2C290E920AEB23A493893C99BD5FA0B68",
+        "TextMatches": true,
+        "LineEndingsNormalized": true
+      },
+      {
+        "Locale": "fr-FR.ini",
+        "SHA256": "015BD3E32686CB3BBF40E0AFCA4C7AE9A1DC0AFFF5EFC6A40F5B8BF8E7A10ABD",
+        "TextMatches": true,
+        "LineEndingsNormalized": true
+      },
+      {
+        "Locale": "it-IT.ini",
+        "SHA256": "4D02E8BFE0C8917F21F0B9753B9CE46690B41050B2A7F807356195AF936582FC",
+        "TextMatches": true,
+        "LineEndingsNormalized": true
+      },
+      {
+        "Locale": "ja-JP.ini",
+        "SHA256": "A868787BC90BB17B5EFBCBAD055123F96C992D91D0A56A88B9A0BD1FB6A9575A",
+        "TextMatches": true,
+        "LineEndingsNormalized": true
+      },
+      {
+        "Locale": "ko-KR.ini",
+        "SHA256": "197F7A8D9550DDD27575877542875E6AFE07D78C83952C53B015E94054138184",
+        "TextMatches": true,
+        "LineEndingsNormalized": true
+      },
+      {
+        "Locale": "nl-NL.ini",
+        "SHA256": "6B22A73EA7854079C884FBFFAC6D65B4B34DB1D136B5201B803B8FDD6211729E",
+        "TextMatches": true,
+        "LineEndingsNormalized": true
+      },
+      {
+        "Locale": "pl-PL.ini",
+        "SHA256": "DFFF7BB243C10EA30797FED200320ECC5AFD655D7952B4A610A54320852FE370",
+        "TextMatches": true,
+        "LineEndingsNormalized": true
+      },
+      {
+        "Locale": "pt-BR.ini",
+        "SHA256": "640FFBCFCDC9ABDF9E4BCB136E7E674F358FF4979899DD5EB913F170C0DD356C",
+        "TextMatches": true,
+        "LineEndingsNormalized": true
+      },
+      {
+        "Locale": "ru-RU.ini",
+        "SHA256": "E8EF1959B25B91E3E64D7152DE649C25CB9A0DBC5B8FF0593B80503838AE15CC",
+        "TextMatches": true,
+        "LineEndingsNormalized": true
+      },
+      {
+        "Locale": "tr-TR.ini",
+        "SHA256": "4D0A02C02376474C7EDF982F6F6F69B947DD9F523D115D3DDAEBFD195CFCE816",
+        "TextMatches": true,
+        "LineEndingsNormalized": true
+      },
+      {
+        "Locale": "zh-CN.ini",
+        "SHA256": "41698AACFAEEC191A692EA566DA3E4713EBA8EF53A1F28ABE96A3EFACBEC541C",
+        "TextMatches": true,
+        "LineEndingsNormalized": true
+      }
+    ]
+  },
+  "packageChecksums": [
+    {
+      "file": "obs-vdoninja-macos-arm64.zip",
+      "sha256": "1fcbe98e873648d4eb648298fb1f71815c2403e85cef8da248b03ee77122901e",
+      "matches": true
+    },
+    {
+      "file": "obs-vdoninja-windows-x64-obs32.0-32.1.zip",
+      "sha256": "6314c1e3c3a3fcdc3dd1040ec1dc5091e83fe65709f79d4968ad9d68334bdfd5",
+      "matches": true
+    },
+    {
+      "file": "obs-vdoninja-windows-x64.zip",
+      "sha256": "71ffef5ab3081983654828faa577f7dc94393427b737726a950b50ad10050a78",
+      "matches": true
+    },
+    {
+      "file": "obs-vdoninja-linux-x86_64.tar.gz",
+      "sha256": "e3a8097c12b59e9bdcfb0da0b7ddfff766d6fbda0a401cf89c5801b4babf7feb",
+      "matches": true
+    },
+    {
+      "file": "obs-vdoninja-windows-x64-obs32.0-32.1-setup.exe",
+      "sha256": "5585d1894eba0ec4d3251ece7c1158c78552359ea021713b99e39143f853aeb8",
+      "matches": true
+    },
+    {
+      "file": "obs-vdoninja-windows-x64-setup.exe",
+      "sha256": "65b925eefdff224d26f5e90dae130a59416798c79acdc2fc284c5c78a76f899a",
+      "matches": true
+    },
+    {
+      "file": "obs-vdoninja-macos-arm64.pkg",
+      "sha256": "b873aa3fed2eecf546d72de92392322947e2309fe836f5558dd6a702856deecd",
+      "matches": true
+    }
+  ],
+  "playback": {
+    "pluginSha256": "ce56856a412e7f79507a18f191ec4ef3375964ded848c289d7cfc0e42f2d2c29",
+    "plugin": "C:\\Users\\Steve\\code\\ninja-plugin\\artifacts\\whep-release-1.1.84\\package-obs\\obs-plugins\\64bit\\obs-vdoninja.dll",
+    "obsExe": "C:\\Users\\Steve\\code\\ninja-plugin\\artifacts\\whep-release-1.1.84\\package-obs\\bin\\64bit\\obs64.exe",
+    "cycles": 2,
+    "broker": "hosted",
+    "brokerBase": "https://whep.vdo.ninja",
+    "loadedModule": "C:\\Users\\Steve\\code\\ninja-plugin\\artifacts\\whep-release-1.1.84\\package-obs\\obs-plugins\\64bit\\obs-vdoninja.dll",
+    "workflow": {
+      "streamId": "whepobs8a9cbdd94472",
+      "endpoint": "https://whep.vdo.ninja/b0c0e947-4207-4fae-8407-3e9835a6ff05",
+      "cycles": [
+        {
+          "cycle": 1,
+          "startMs": 2759,
+          "chrome": {
+            "state": "connected",
+            "frames": 148,
+            "audioPackets": 252,
+            "videoCodec": "video/H264",
+            "audioCodec": "audio/opus",
+            "pixel": [
+              255,
+              127,
+              48,
+              255
+            ],
+            "rms": 0.17250685991411338,
+            "peakHz": 445.3125,
+            "width": 1280,
+            "height": 720,
+            "currentTime": 4.932,
+            "framesDelta": 60,
+            "requests": [
+              {
+                "method": "POST",
+                "status": 201
+              },
+              {
+                "method": "PATCH",
+                "status": 204
+              }
+            ],
+            "screenshot": "cycle-1-chrome.png"
+          },
+          "firefox": {
+            "state": "connected",
+            "frames": 148,
+            "audioPackets": 284,
+            "videoCodec": "video/H264",
+            "audioCodec": "audio/opus",
+            "pixel": [
+              255,
+              127,
+              48,
+              255
+            ],
+            "rms": 0.17232339590046325,
+            "peakHz": 445.3125,
+            "width": 1280,
+            "height": 720,
+            "currentTime": 4.92,
+            "framesDelta": 61,
+            "requests": [
+              {
+                "method": "POST",
+                "status": 201
+              },
+              {
+                "method": "PATCH",
+                "status": 204
+              }
+            ],
+            "screenshot": "cycle-1-firefox.png"
+          },
+          "third": {
+            "state": "connected",
+            "frames": 86,
+            "audioPackets": 164,
+            "videoCodec": "video/H264",
+            "audioCodec": "audio/opus",
+            "pixel": [
+              255,
+              127,
+              48,
+              255
+            ],
+            "rms": 0.17245436257274244,
+            "peakHz": 445.3125,
+            "width": 1280,
+            "height": 720,
+            "currentTime": 2.816,
+            "framesDelta": 60,
+            "requests": [
+              {
+                "method": "POST",
+                "status": 201
+              }
+            ],
+            "screenshot": "third-viewer.png"
+          },
+          "viewerLimitEnforced": true,
+          "survivor": {
+            "state": "connected",
+            "frames": 385,
+            "audioPackets": 680,
+            "videoCodec": "video/H264",
+            "audioCodec": "audio/opus",
+            "pixel": [
+              255,
+              127,
+              48,
+              255
+            ],
+            "rms": 0.17251325667673356,
+            "peakHz": 445.3125,
+            "width": 1280,
+            "height": 720,
+            "currentTime": 12.84,
+            "framesDelta": 60,
+            "requests": [
+              {
+                "method": "POST",
+                "status": 201
+              },
+              {
+                "method": "PATCH",
+                "status": 204
+              }
+            ],
+            "screenshot": "surviving-viewer.png"
+          },
+          "replacement": {
+            "state": "connected",
+            "frames": 83,
+            "audioPackets": 164,
+            "videoCodec": "video/H264",
+            "audioCodec": "audio/opus",
+            "pixel": [
+              255,
+              127,
+              48,
+              255
+            ],
+            "rms": 0.1724207222353147,
+            "peakHz": 445.3125,
+            "width": 1280,
+            "height": 720,
+            "currentTime": 2.75,
+            "framesDelta": 60,
+            "requests": [
+              {
+                "method": "POST",
+                "status": 201
+              }
+            ],
+            "screenshot": "replacement-viewer.png"
+          },
+          "stopMs": 255,
+          "playerDroppedAfterStop": true
+        },
+        {
+          "cycle": 2,
+          "startMs": 2764,
+          "chrome": {
+            "state": "connected",
+            "frames": 86,
+            "audioPackets": 241,
+            "videoCodec": "video/H264",
+            "audioCodec": "audio/opus",
+            "pixel": [
+              255,
+              127,
+              48,
+              255
+            ],
+            "rms": 0.17228486029545959,
+            "peakHz": 445.3125,
+            "width": 1280,
+            "height": 720,
+            "currentTime": 2.819,
+            "framesDelta": 60,
+            "requests": [
+              {
+                "method": "POST",
+                "status": 201
+              }
+            ],
+            "screenshot": "cycle-2-chrome.png"
+          },
+          "firefox": {
+            "state": "connected",
+            "frames": 146,
+            "audioPackets": 302,
+            "videoCodec": "video/H264",
+            "audioCodec": "audio/opus",
+            "pixel": [
+              255,
+              127,
+              48,
+              255
+            ],
+            "rms": 0.1724007077476023,
+            "peakHz": 445.3125,
+            "width": 1280,
+            "height": 720,
+            "currentTime": 4.84,
+            "framesDelta": 60,
+            "requests": [
+              {
+                "method": "POST",
+                "status": 201
+              }
+            ],
+            "screenshot": "cycle-2-firefox.png"
+          },
+          "stopMs": 252,
+          "playerDroppedAfterStop": true
+        }
+      ],
+      "players": "Independent HTTP/RTCPeerConnection fixture",
+      "obs": {
+        "availableRequests": [
+          "GetHotkeyList",
+          "OpenInputInteractDialog",
+          "SaveSourceScreenshot",
+          "GetVersion",
+          "SetInputName",
+          "SetSceneName",
+          "GetStats",
+          "TriggerStudioModeTransition",
+          "SetInputAudioSyncOffset",
+          "GetSceneCollectionList",
+          "BroadcastCustomEvent",
+          "Sleep",
+          "SetSceneSceneTransitionOverride",
+          "CallVendorRequest",
+          "CreateSceneCollection",
+          "SetStudioModeEnabled",
+          "TriggerHotkeyByName",
+          "OpenVideoMixProjector",
+          "TriggerHotkeyByKeySequence",
+          "GetPersistentData",
+          "SetSceneItemIndex",
+          "SetPersistentData",
+          "SetCurrentSceneCollection",
+          "SetInputMute",
+          "SetCurrentPreviewScene",
+          "SetCurrentProgramScene",
+          "OpenSourceProjector",
+          "GetProfileList",
+          "SetCurrentProfile",
+          "RemoveProfile",
+          "CreateProfile",
+          "GetProfileParameter",
+          "SetProfileParameter",
+          "GetInputAudioBalance",
+          "GetStreamServiceSettings",
+          "GetVideoSettings",
+          "SetVideoSettings",
+          "SetInputAudioBalance",
+          "SetInputVolume",
+          "GetSceneItemSource",
+          "SetStreamServiceSettings",
+          "GetInputDefaultSettings",
+          "GetSpecialInputs",
+          "GetInputKindList",
+          "GetCanvasList",
+          "GetRecordDirectory",
+          "SetSourceFilterEnabled",
+          "SetRecordDirectory",
+          "GetInputList",
+          "GetSceneList",
+          "GetInputMute",
+          "GetCurrentPreviewScene",
+          "GetReplayBufferStatus",
+          "GetSourceActive",
+          "GetSourceScreenshot",
+          "GetSourcePrivateSettings",
+          "SetSourcePrivateSettings",
+          "GetGroupList",
+          "SetInputSettings",
+          "GetCurrentProgramScene",
+          "GetSceneItemId",
+          "RemoveScene",
+          "CreateScene",
+          "GetSceneSceneTransitionOverride",
+          "RemoveInput",
+          "CreateInput",
+          "GetSceneItemLocked",
+          "GetInputSettings",
+          "ToggleInputMute",
+          "SetCurrentSceneTransition",
+          "GetInputVolume",
+          "GetInputAudioSyncOffset",
+          "GetInputAudioMonitorType",
+          "SetInputAudioMonitorType",
+          "StartVirtualCam",
+          "GetInputAudioTracks",
+          "SetInputAudioTracks",
+          "PauseRecord",
+          "GetInputDeinterlaceMode",
+          "SetInputDeinterlaceMode",
+          "GetInputDeinterlaceFieldOrder",
+          "SetInputDeinterlaceFieldOrder",
+          "GetInputPropertiesListPropertyItems",
+          "PressInputPropertiesButton",
+          "GetTransitionKindList",
+          "GetSceneItemTransform",
+          "GetSceneTransitionList",
+          "GetVirtualCamStatus",
+          "GetCurrentSceneTransition",
+          "SetCurrentSceneTransitionDuration",
+          "SetCurrentSceneTransitionSettings",
+          "GetCurrentSceneTransitionCursor",
+          "SetTBarPosition",
+          "GetSourceFilterKindList",
+          "StopOutput",
+          "ToggleOutput",
+          "GetSourceFilterList",
+          "GetSourceFilterDefaultSettings",
+          "CreateSourceFilter",
+          "RemoveSourceFilter",
+          "SetSourceFilterName",
+          "GetSourceFilter",
+          "StopRecord",
+          "ToggleRecord",
+          "SetSourceFilterIndex",
+          "SetSourceFilterSettings",
+          "SetSceneItemTransform",
+          "GetSceneItemList",
+          "GetGroupSceneItemList",
+          "CreateSceneItem",
+          "RemoveSceneItem",
+          "DuplicateSceneItem",
+          "GetSceneItemEnabled",
+          "SetSceneItemEnabled",
+          "SetSceneItemLocked",
+          "GetSceneItemIndex",
+          "StartReplayBuffer",
+          "GetSceneItemBlendMode",
+          "SetSceneItemBlendMode",
+          "GetSceneItemPrivateSettings",
+          "SetSceneItemPrivateSettings",
+          "StopVirtualCam",
+          "ToggleVirtualCam",
+          "StopReplayBuffer",
+          "ToggleReplayBuffer",
+          "SaveReplayBuffer",
+          "GetLastReplayBufferReplay",
+          "GetOutputList",
+          "GetOutputStatus",
+          "StartOutput",
+          "GetOutputSettings",
+          "SetOutputSettings",
+          "GetStreamStatus",
+          "StopStream",
+          "ToggleStream",
+          "StartStream",
+          "SendStreamCaption",
+          "GetRecordStatus",
+          "StartRecord",
+          "ToggleRecordPause",
+          "ResumeRecord",
+          "SplitRecordFile",
+          "CreateRecordChapter",
+          "SetMediaInputCursor",
+          "GetMediaInputStatus",
+          "OffsetMediaInputCursor",
+          "TriggerMediaInputAction",
+          "GetStudioModeEnabled",
+          "OpenInputPropertiesDialog",
+          "OpenInputFiltersDialog",
+          "GetMonitorList"
+        ],
+        "obsVersion": "32.2.2",
+        "obsWebSocketVersion": "5.7.4",
+        "platform": "windows",
+        "platformDescription": "Windows 11 Version 25H2",
+        "rpcVersion": 1,
+        "supportedImageFormats": [
+          "bmp",
+          "cur",
+          "icns",
+          "ico",
+          "jfif",
+          "jpeg",
+          "jpg",
+          "pbm",
+          "pgm",
+          "png",
+          "ppm",
+          "tif",
+          "tiff",
+          "wbmp",
+          "webp",
+          "xbm",
+          "xpm"
+        ]
+      },
+      "browsers": [
+        "145.0.7632.6",
+        "146.0.1"
+      ],
+      "immediateStopMs": 566,
+      "thirdParty": {
+        "player": "Eyevinn WebRTC Player",
+        "url": "https://webrtc.player.eyevinn.technology/",
+        "adapter": "whep",
+        "requests": [
+          {
+            "browser": 0,
+            "method": "POST",
+            "status": 201
+          },
+          {
+            "browser": 1,
+            "method": "POST",
+            "status": 201
+          },
+          {
+            "browser": 0,
+            "method": "DELETE",
+            "status": 200
+          },
+          {
+            "browser": 0,
+            "method": "POST",
+            "status": 201
+          }
+        ],
+        "assets": [
+          {
+            "url": "https://webrtc.player.eyevinn.technology/demo.359e0925.js",
+            "sha256": "9a7d24f726b9742eeb719c6181a4f05f19e29f60570bbb269b6cbb1348cc9eb5"
+          },
+          {
+            "url": "https://webrtc.player.eyevinn.technology/demo.359e0925.js",
+            "sha256": "9a7d24f726b9742eeb719c6181a4f05f19e29f60570bbb269b6cbb1348cc9eb5"
+          }
+        ],
+        "samples": {
+          "chromium": {
+            "state": "connected",
+            "frames": 87,
+            "width": 1280,
+            "height": 720,
+            "time": 2.88,
+            "paused": false,
+            "visibility": "visible",
+            "audioPackets": 146,
+            "audioCodec": "audio/opus",
+            "decodedFrames": 87,
+            "videoCodec": "video/H264",
+            "pixel": [
+              255,
+              127,
+              48,
+              255
+            ],
+            "rms": 0.17261635430340064,
+            "peakHz": 445.3125,
+            "decodedFramesDelta": 66,
+            "playbackSecondsDelta": 2.258,
+            "screenshot": "eyevinn-0-playing.png"
+          },
+          "firefox": {
+            "state": "connected",
+            "frames": 0,
+            "width": 1280,
+            "height": 720,
+            "time": 2.898666,
+            "paused": false,
+            "visibility": "visible",
+            "decodedFrames": 88,
+            "videoCodec": "video/H264",
+            "audioPackets": 211,
+            "audioCodec": "audio/opus",
+            "pixel": [
+              255,
+              127,
+              48,
+              255
+            ],
+            "rms": 0.1725984938985893,
+            "peakHz": 445.3125,
+            "decodedFramesDelta": 67,
+            "playbackSecondsDelta": 2.229333,
+            "screenshot": "eyevinn-1-playing.png"
+          },
+          "survivor": {
+            "state": "connected",
+            "frames": 0,
+            "width": 1280,
+            "height": 720,
+            "time": 6.709333,
+            "paused": false,
+            "visibility": "visible",
+            "decodedFrames": 202,
+            "videoCodec": "video/H264",
+            "audioPackets": 402,
+            "audioCodec": "audio/opus",
+            "pixel": [
+              255,
+              127,
+              48,
+              255
+            ],
+            "rms": 0.17269513279073245,
+            "peakHz": 445.3125,
+            "decodedFramesDelta": 67,
+            "playbackSecondsDelta": 2.2293329999999996,
+            "screenshot": "eyevinn-survivor.png"
+          },
+          "rejoined": {
+            "state": "connected",
+            "frames": 89,
+            "width": 1280,
+            "height": 720,
+            "time": 3.215,
+            "paused": false,
+            "visibility": "visible",
+            "audioPackets": 163,
+            "audioCodec": "audio/opus",
+            "decodedFrames": 89,
+            "videoCodec": "video/H264",
+            "pixel": [
+              255,
+              127,
+              48,
+              255
+            ],
+            "rms": 0.17262334336558938,
+            "peakHz": 445.3125,
+            "decodedFramesDelta": 66,
+            "playbackSecondsDelta": 2.2779999999999996,
+            "screenshot": "eyevinn-rejoined.png"
+          }
+        },
+        "ok": true
+      },
+      "ok": true
+    },
+    "obsExitCode": 0,
+    "cleanExit": true,
+    "obsLogMarkers": {
+      "whepHostingConnected": 4,
+      "outputStopped": 4,
+      "whepOfferRejected": 0,
+      "whepHostConnectionEnded": 0,
+      "startThreadCrashed": 0,
+      "warnings": 0
+    },
+    "ok": true
+  },
+  "ui": {
+    "expectedVersion": "1.1.84",
+    "loadedModule": "C:\\Users\\Steve\\code\\ninja-plugin\\artifacts\\whep-release-1.1.84\\package-obs\\obs-plugins\\64bit\\obs-vdoninja.dll",
+    "pluginSha256": "ce56856a412e7f79507a18f191ec4ef3375964ded848c289d7cfc0e42f2d2c29",
+    "stopFirstMessage": true,
+    "liveStatusAlwaysVisible": true,
+    "generatedAndSaved": true,
+    "liveCopyUsesSameLink": true,
+    "sameLinkAfterObsRestart": true,
+    "disablePersistsAndAppliesOnStart": true,
+    "replacementLinkPersists": true,
+    "ok": true
+  },
+  "eyevinn": {
+    "player": "Eyevinn WebRTC Player",
+    "url": "https://webrtc.player.eyevinn.technology/",
+    "adapter": "whep",
+    "requests": [
+      {
+        "browser": 0,
+        "method": "POST",
+        "status": 201
+      },
+      {
+        "browser": 1,
+        "method": "POST",
+        "status": 201
+      },
+      {
+        "browser": 0,
+        "method": "DELETE",
+        "status": 200
+      },
+      {
+        "browser": 0,
+        "method": "POST",
+        "status": 201
+      }
+    ],
+    "assets": [
+      {
+        "url": "https://webrtc.player.eyevinn.technology/demo.359e0925.js",
+        "sha256": "9a7d24f726b9742eeb719c6181a4f05f19e29f60570bbb269b6cbb1348cc9eb5"
+      },
+      {
+        "url": "https://webrtc.player.eyevinn.technology/demo.359e0925.js",
+        "sha256": "9a7d24f726b9742eeb719c6181a4f05f19e29f60570bbb269b6cbb1348cc9eb5"
+      }
+    ],
+    "samples": {
+      "chromium": {
+        "state": "connected",
+        "frames": 87,
+        "width": 1280,
+        "height": 720,
+        "time": 2.88,
+        "paused": false,
+        "visibility": "visible",
+        "audioPackets": 146,
+        "audioCodec": "audio/opus",
+        "decodedFrames": 87,
+        "videoCodec": "video/H264",
+        "pixel": [
+          255,
+          127,
+          48,
+          255
+        ],
+        "rms": 0.17261635430340064,
+        "peakHz": 445.3125,
+        "decodedFramesDelta": 66,
+        "playbackSecondsDelta": 2.258,
+        "screenshot": "eyevinn-0-playing.png"
+      },
+      "firefox": {
+        "state": "connected",
+        "frames": 0,
+        "width": 1280,
+        "height": 720,
+        "time": 2.898666,
+        "paused": false,
+        "visibility": "visible",
+        "decodedFrames": 88,
+        "videoCodec": "video/H264",
+        "audioPackets": 211,
+        "audioCodec": "audio/opus",
+        "pixel": [
+          255,
+          127,
+          48,
+          255
+        ],
+        "rms": 0.1725984938985893,
+        "peakHz": 445.3125,
+        "decodedFramesDelta": 67,
+        "playbackSecondsDelta": 2.229333,
+        "screenshot": "eyevinn-1-playing.png"
+      },
+      "survivor": {
+        "state": "connected",
+        "frames": 0,
+        "width": 1280,
+        "height": 720,
+        "time": 6.709333,
+        "paused": false,
+        "visibility": "visible",
+        "decodedFrames": 202,
+        "videoCodec": "video/H264",
+        "audioPackets": 402,
+        "audioCodec": "audio/opus",
+        "pixel": [
+          255,
+          127,
+          48,
+          255
+        ],
+        "rms": 0.17269513279073245,
+        "peakHz": 445.3125,
+        "decodedFramesDelta": 67,
+        "playbackSecondsDelta": 2.2293329999999996,
+        "screenshot": "eyevinn-survivor.png"
+      },
+      "rejoined": {
+        "state": "connected",
+        "frames": 89,
+        "width": 1280,
+        "height": 720,
+        "time": 3.215,
+        "paused": false,
+        "visibility": "visible",
+        "audioPackets": 163,
+        "audioCodec": "audio/opus",
+        "decodedFrames": 89,
+        "videoCodec": "video/H264",
+        "pixel": [
+          255,
+          127,
+          48,
+          255
+        ],
+        "rms": 0.17262334336558938,
+        "peakHz": 445.3125,
+        "decodedFramesDelta": 66,
+        "playbackSecondsDelta": 2.2779999999999996,
+        "screenshot": "eyevinn-rejoined.png"
+      }
+    },
+    "ok": true
+  }
+}

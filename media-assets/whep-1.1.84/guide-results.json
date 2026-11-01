@@ -1,0 +1,19 @@
+{
+  "ok": true,
+  "results": [
+    {
+      "name": "desktop",
+      "width": 1440,
+      "imagesLoaded": true,
+      "noHorizontalOverflow": true,
+      "keyboardDisclosure": true
+    },
+    {
+      "name": "mobile",
+      "width": 390,
+      "imagesLoaded": true,
+      "noHorizontalOverflow": true,
+      "keyboardDisclosure": true
+    }
+  ]
+}

@@ -7,11 +7,12 @@ service and sends the program directly to each player. The receiver uses WHEP
 HTTP requests and WebRTC; it does not need VDO.Ninja JavaScript or its client API.
 This is separate from Matt's group-room Guest Return.
 
-## UI and input audit after v1.1.83 (unreleased)
+## UI and input audit shipped in v1.1.84
 
 This audit fixes problems found in the actual Windows OBS interface. The
-development builds still display v1.1.83; their DLL hashes in the evidence
-distinguish them from the published package. These changes are not yet a release.
+audited development builds display v1.1.83; their DLL hashes in the evidence
+distinguish them from the published package. The same changes are shipped in
+v1.1.84; downloaded-package results appear below.
 
 | Finding | Change |
 | --- | --- |
@@ -72,16 +73,11 @@ Windows UI checks use a disposable OBS copy prepared by
 `scripts/whep-host-native-e2e.py`. Run `scripts/plugin-ui-audit.py --obs-review
 artifacts/<copy> --output artifacts/<new-result> --locale de-DE` for layouts and
 navigation, and `scripts/whep-host-ui-check.py --obs-review artifacts/<copy>
---output artifacts/<new-result> --expected-version 1.1.83` for the full live flow.
+--output artifacts/<new-result> --expected-version 1.1.84` for the full live flow.
 
-Release follow-up: cut through `scripts/release.ps1` after cross-platform CI,
-qualify the downloaded package, then update `whep.html` and its crops to the
-new button label and **Studio → Publish → Advanced Settings** disable route.
-The v1.1.83 guide's incorrect Settings-to-Stream disable instruction has been
-removed from the source guide. Replace its stop-only note with the tested key
-management steps when the new UI is released.
-Third-party WHEP players, remote/mobile paths, and macOS/Linux UI/runtime remain
-outside this Windows audit.
+Release follow-up completed in v1.1.84: CI, downloaded Windows package,
+third-party player checks, and updated guide captures. Remote/mobile paths and
+macOS/Linux UI/runtime remain outside this Windows audit.
 
 Only the plugin repository changed. No edits or deployment were made to
 VDO.Ninja, `whip_private`, or the signaling service. The older prototype remains
@@ -163,8 +159,9 @@ code are unchanged from v1.1.82. Final packaged UI evidence is recorded below.
 - The current implementation accompanies the main plugin publishing output; it
   is not a separate WHEP-only OBS output and is not a media redistribution server.
 - Browser media checks ran on this Windows machine. The public endpoint was
-  remote, but the media peers were local. Cross-network/mobile/TURN paths,
-  macOS/Linux WHEP runtime, and third-party player products remain unqualified.
+  remote, but the media peers were local. Cross-network/mobile/TURN paths
+  and macOS/Linux WHEP runtime remain unqualified. Eyevinn qualification is
+  recorded separately below.
 
 These boundaries are documented in the guide. None were addressed by changing
 the server, adding protocol fields, or silently disconnecting every viewer.
@@ -178,7 +175,7 @@ $env:PATH = "$pwd/_obs-portable/bin/64bit;$env:PATH"
 & ./build-plugin-release-validation/RelWithDebInfo/vdoninja-native-media-linked-gate.exe WHEP
 python scripts/whep-host-native-e2e.py --install-prefix artifacts/whep-install --obs-review artifacts/whep-obs --output artifacts/whep-local --broker local --cycles 2
 python scripts/whep-host-native-e2e.py --install-prefix artifacts/whep-install --obs-review artifacts/whep-obs --output artifacts/whep-hosted --broker hosted --cycles 2
-python scripts/whep-host-ui-check.py --obs-review artifacts/whep-obs --output artifacts/whep-ui --expected-version 1.1.83
+python scripts/whep-host-ui-check.py --obs-review artifacts/whep-obs --output artifacts/whep-ui --expected-version 1.1.84
 ```
 
 Use a new output directory for each run. The default local server source is
@@ -193,9 +190,9 @@ review under `artifacts/`, clears that review's WHEP key, and starts its own OBS
 process. It checks messages after multiple stats refreshes, normal status
 restoration, link generation, copying while live, and persistence after restart.
 `scripts/guest-return-room-ui.py` captures only the process listed in its
-`state.json`. Qt button invocation is used; raw mouse-message automation did not
-activate these floating-dock buttons reliably. Existing text clipboard contents
-are restored after the check.
+`state.json`. Focused Windows keyboard events activate the controls. Raw
+mouse-message automation did not activate these floating-dock buttons reliably.
+Existing text clipboard contents are restored after the check.
 
 ## Published v1.1.83 qualification
 
@@ -219,7 +216,7 @@ and package hashes were checked. This is not a claim of public-CA trust.
 Full macOS/Linux WHEP browser playback and remote-network paths remain outside
 this qualification; package and native-suite success do not replace those tests.
 
-## Screenshots and evidence
+## Archived v1.1.83 screenshots and evidence
 
 The [screenshot manifest](../media-assets/whep/manifest.json) records original
 captures and exact guide crops. All UI stages and seven playback screenshots
@@ -230,8 +227,48 @@ are verified separately by browser statistics, pixel sampling and Web Audio.
 [Compact machine-readable results](../media-assets/whep/validation-results.json)
 include DLL hashes, browser versions, response codes, media samples and timings.
 Full local logs are under `artifacts/whep-existing-protocol/`; they are not public
-release assets. The published guide images and original/cropped UI captures use
+release assets. The archived guide images and original/cropped UI captures use
 the actual v1.1.83 package and a synthetic stream. Guide crops focus on actions
 and status; the originals retain the installed version footer.
 
 The user guide is https://steveseguin.github.io/ninja-obs-plugin/whep.html.
+
+## Published v1.1.84 qualification
+
+https://github.com/steveseguin/ninja-obs-plugin/releases/tag/v1.1.84
+
+All platform release jobs passed:
+https://github.com/steveseguin/ninja-obs-plugin/actions/runs/41270030989
+
+All seven release packages matched the published SHA-256 checksums. The loaded
+Windows 32.2.x DLL was verified as
+`ce56856a412e7f79507a18f191ec4ef3375964ded848c289d7cfc0e42f2d2c29`.
+That exact downloaded DLL passed two hosted-endpoint cycles, capacity rejection,
+viewer replacement, immediate stop, clean OBS shutdown, and the complete eleven
+stage keyboard-operated UI flow, including disable/replacement and persistence.
+All 15 packaged locale files match the reviewed source text after normalizing
+the release checkout's CRLF line endings.
+
+The actual public Eyevinn WebRTC Player also passed in Chromium and Firefox:
+https://webrtc.player.eyevinn.technology/
+
+The test selected **WHEP**, pasted the endpoint, and used the application's own
+Play/Stop controls. No fetch, SDP, ICE, or adapter implementation was replaced.
+An observer records peer statistics; a silent Web Audio probe measures decoded
+audio. H.264 decoded frames and playback time advanced, orange pixels matched,
+and Opus decoded a 440 Hz test tone. One viewer stopped while the other continued;
+the stopped viewer rejoined successfully. Vendor script hashes are retained.
+Firefox's video-element frame counter returned zero despite healthy decoding;
+the assertion therefore uses inbound decoded frames and advancing playback time.
+
+Run the hosted wrapper with `--third-party` to include this check. The flag
+requires `--broker hosted`; fuzz traffic remains confined to loopback.
+
+[Package results](../media-assets/whep-1.1.84/results.json) retain hashes, media
+samples and UI assertions. [Capture provenance](../media-assets/whep-1.1.84/manifest.json)
+retains original screenshots and guide crop coordinates. The guide now shows the
+short copy button and the **Publish → Advanced Settings** key-management route.
+
+This qualifies Windows on one machine with the public signaling service. It does
+not qualify remote/mobile media paths, every WHEP player, or macOS/Linux runtime.
+The parked unfinished branch and the VDO.Ninja/server repositories were unchanged.
