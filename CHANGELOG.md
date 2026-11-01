@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.82] - 2026-10-31
+
 ### Added
 - Publish the OBS program to independent WHEP players through the existing `whep.vdo.ninja` service. In VDO.Ninja Studio's Publish tab, click **Enable WHEP / Copy Link** before **Go Live**, then paste the endpoint into a compatible player. WHEP viewers share the output's viewer limit. No VDO.Ninja player, new server protocol fields or server changes are required.
 - Add a short [WHEP setup guide](https://steveseguin.github.io/ninja-obs-plugin/whep.html) and repeatable independent-player checks.
