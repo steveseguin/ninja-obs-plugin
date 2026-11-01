@@ -695,12 +695,489 @@
         "146.0.1"
       ],
       "immediateStopMs": 559
+    },
+    "release-1.1.82": {
+      "ok": true,
+      "pluginSha256": "a77ba3adfa4e6ef52d0c9dd91fa360f88b4be21eeb266cc995c2046dd67c6ce1",
+      "broker": "hosted",
+      "cleanExit": true,
+      "obsLogMarkers": {
+        "whepHostingConnected": 3,
+        "outputStopped": 3,
+        "whepOfferRejected": 0,
+        "whepHostConnectionEnded": 0,
+        "startThreadCrashed": 0,
+        "warnings": 0
+      },
+      "browsers": [
+        "145.0.7632.6",
+        "146.0.1"
+      ],
+      "cycles": [
+        {
+          "cycle": 1,
+          "startMs": 2773,
+          "chrome": {
+            "state": "connected",
+            "frames": 148,
+            "audioPackets": 246,
+            "videoCodec": "video/H264",
+            "audioCodec": "audio/opus",
+            "pixel": [
+              255,
+              127,
+              48,
+              255
+            ],
+            "rms": 0.17269649963554148,
+            "peakHz": 445.3125,
+            "width": 1280,
+            "height": 720,
+            "currentTime": 4.922,
+            "framesDelta": 61,
+            "requests": [
+              {
+                "method": "POST",
+                "status": 201
+              },
+              {
+                "method": "PATCH",
+                "status": 204
+              }
+            ],
+            "screenshot": "cycle-1-chrome.png"
+          },
+          "firefox": {
+            "state": "connected",
+            "frames": 149,
+            "audioPackets": 284,
+            "videoCodec": "video/H264",
+            "audioCodec": "audio/opus",
+            "pixel": [
+              255,
+              127,
+              48,
+              255
+            ],
+            "rms": 0.1727147603268657,
+            "peakHz": 445.3125,
+            "width": 1280,
+            "height": 720,
+            "currentTime": 4.952,
+            "framesDelta": 60,
+            "requests": [
+              {
+                "method": "POST",
+                "status": 201
+              },
+              {
+                "method": "PATCH",
+                "status": 204
+              }
+            ],
+            "screenshot": "cycle-1-firefox.png"
+          },
+          "third": {
+            "state": "connected",
+            "frames": 85,
+            "audioPackets": 166,
+            "videoCodec": "video/H264",
+            "audioCodec": "audio/opus",
+            "pixel": [
+              255,
+              127,
+              48,
+              255
+            ],
+            "rms": 0.1726727255289087,
+            "peakHz": 445.3125,
+            "width": 1280,
+            "height": 720,
+            "currentTime": 2.822,
+            "framesDelta": 60,
+            "requests": [
+              {
+                "method": "POST",
+                "status": 201
+              }
+            ],
+            "screenshot": "third-viewer.png"
+          },
+          "viewerLimitEnforced": true,
+          "survivor": {
+            "state": "connected",
+            "frames": 387,
+            "audioPackets": 681,
+            "videoCodec": "video/H264",
+            "audioCodec": "audio/opus",
+            "pixel": [
+              255,
+              127,
+              48,
+              255
+            ],
+            "rms": 0.17249945733166183,
+            "peakHz": 445.3125,
+            "width": 1280,
+            "height": 720,
+            "currentTime": 12.890666,
+            "framesDelta": 60,
+            "requests": [
+              {
+                "method": "POST",
+                "status": 201
+              },
+              {
+                "method": "PATCH",
+                "status": 204
+              }
+            ],
+            "screenshot": "surviving-viewer.png"
+          },
+          "replacement": {
+            "state": "connected",
+            "frames": 83,
+            "audioPackets": 164,
+            "videoCodec": "video/H264",
+            "audioCodec": "audio/opus",
+            "pixel": [
+              255,
+              127,
+              48,
+              255
+            ],
+            "rms": 0.17258600473534508,
+            "peakHz": 445.3125,
+            "width": 1280,
+            "height": 720,
+            "currentTime": 2.722,
+            "framesDelta": 60,
+            "requests": [
+              {
+                "method": "POST",
+                "status": 201
+              }
+            ],
+            "screenshot": "replacement-viewer.png"
+          },
+          "stopMs": 252,
+          "playerDroppedAfterStop": true
+        },
+        {
+          "cycle": 2,
+          "startMs": 2773,
+          "chrome": {
+            "state": "connected",
+            "frames": 90,
+            "audioPackets": 246,
+            "videoCodec": "video/H264",
+            "audioCodec": "audio/opus",
+            "pixel": [
+              255,
+              127,
+              48,
+              255
+            ],
+            "rms": 0.172515933597733,
+            "peakHz": 445.3125,
+            "width": 1280,
+            "height": 720,
+            "currentTime": 2.989,
+            "framesDelta": 60,
+            "requests": [
+              {
+                "method": "POST",
+                "status": 201
+              }
+            ],
+            "screenshot": "cycle-2-chrome.png"
+          },
+          "firefox": {
+            "state": "connected",
+            "frames": 149,
+            "audioPackets": 312,
+            "videoCodec": "video/H264",
+            "audioCodec": "audio/opus",
+            "pixel": [
+              255,
+              127,
+              48,
+              255
+            ],
+            "rms": 0.1724251237852766,
+            "peakHz": 445.3125,
+            "width": 1280,
+            "height": 720,
+            "currentTime": 4.96,
+            "framesDelta": 60,
+            "requests": [
+              {
+                "method": "POST",
+                "status": 201
+              }
+            ],
+            "screenshot": "cycle-2-firefox.png"
+          },
+          "stopMs": 257,
+          "playerDroppedAfterStop": true
+        }
+      ],
+      "immediateStopMs": 578,
+      "loadedModuleVerified": true
+    },
+    "release-1.1.83": {
+      "ok": true,
+      "pluginSha256": "a09108b69b9e3634c05ea740eb12c7cb3796bca1f19f0ba270a40958be268544",
+      "broker": "hosted",
+      "cleanExit": true,
+      "obsLogMarkers": {
+        "whepHostingConnected": 3,
+        "outputStopped": 3,
+        "whepOfferRejected": 0,
+        "whepHostConnectionEnded": 0,
+        "startThreadCrashed": 0,
+        "warnings": 0
+      },
+      "browsers": [
+        "145.0.7632.6",
+        "146.0.1"
+      ],
+      "cycles": [
+        {
+          "cycle": 1,
+          "startMs": 2768,
+          "chrome": {
+            "state": "connected",
+            "frames": 146,
+            "audioPackets": 337,
+            "videoCodec": "video/H264",
+            "audioCodec": "audio/opus",
+            "pixel": [
+              255,
+              127,
+              48,
+              255
+            ],
+            "rms": 0.1730284741119023,
+            "peakHz": 445.3125,
+            "width": 1280,
+            "height": 720,
+            "currentTime": 4.834,
+            "framesDelta": 61,
+            "requests": [
+              {
+                "method": "POST",
+                "status": 201
+              },
+              {
+                "method": "PATCH",
+                "status": 204
+              }
+            ],
+            "screenshot": "cycle-1-chrome.png"
+          },
+          "firefox": {
+            "state": "connected",
+            "frames": 146,
+            "audioPackets": 274,
+            "videoCodec": "video/H264",
+            "audioCodec": "audio/opus",
+            "pixel": [
+              255,
+              127,
+              48,
+              255
+            ],
+            "rms": 0.17329178734489217,
+            "peakHz": 445.3125,
+            "width": 1280,
+            "height": 720,
+            "currentTime": 4.850666,
+            "framesDelta": 60,
+            "requests": [
+              {
+                "method": "POST",
+                "status": 201
+              },
+              {
+                "method": "PATCH",
+                "status": 204
+              }
+            ],
+            "screenshot": "cycle-1-firefox.png"
+          },
+          "third": {
+            "state": "connected",
+            "frames": 86,
+            "audioPackets": 163,
+            "videoCodec": "video/H264",
+            "audioCodec": "audio/opus",
+            "pixel": [
+              255,
+              127,
+              48,
+              255
+            ],
+            "rms": 0.1732169159773499,
+            "peakHz": 445.3125,
+            "width": 1280,
+            "height": 720,
+            "currentTime": 3.197,
+            "framesDelta": 61,
+            "requests": [
+              {
+                "method": "POST",
+                "status": 201
+              }
+            ],
+            "screenshot": "third-viewer.png"
+          },
+          "viewerLimitEnforced": true,
+          "survivor": {
+            "state": "connected",
+            "frames": 387,
+            "audioPackets": 675,
+            "videoCodec": "video/H264",
+            "audioCodec": "audio/opus",
+            "pixel": [
+              255,
+              127,
+              48,
+              255
+            ],
+            "rms": 0.17305493162408908,
+            "peakHz": 445.3125,
+            "width": 1280,
+            "height": 720,
+            "currentTime": 12.901333,
+            "framesDelta": 60,
+            "requests": [
+              {
+                "method": "POST",
+                "status": 201
+              },
+              {
+                "method": "PATCH",
+                "status": 204
+              }
+            ],
+            "screenshot": "surviving-viewer.png"
+          },
+          "replacement": {
+            "state": "connected",
+            "frames": 83,
+            "audioPackets": 160,
+            "videoCodec": "video/H264",
+            "audioCodec": "audio/opus",
+            "pixel": [
+              255,
+              127,
+              48,
+              255
+            ],
+            "rms": 0.1732001705447928,
+            "peakHz": 445.3125,
+            "width": 1280,
+            "height": 720,
+            "currentTime": 3.156,
+            "framesDelta": 60,
+            "requests": [
+              {
+                "method": "POST",
+                "status": 201
+              }
+            ],
+            "screenshot": "replacement-viewer.png"
+          },
+          "stopMs": 258,
+          "playerDroppedAfterStop": true
+        },
+        {
+          "cycle": 2,
+          "startMs": 2770,
+          "chrome": {
+            "state": "connected",
+            "frames": 89,
+            "audioPackets": 245,
+            "videoCodec": "video/H264",
+            "audioCodec": "audio/opus",
+            "pixel": [
+              255,
+              127,
+              48,
+              255
+            ],
+            "rms": 0.17244455628425487,
+            "peakHz": 445.3125,
+            "width": 1280,
+            "height": 720,
+            "currentTime": 2.905,
+            "framesDelta": 60,
+            "requests": [
+              {
+                "method": "POST",
+                "status": 201
+              }
+            ],
+            "screenshot": "cycle-2-chrome.png"
+          },
+          "firefox": {
+            "state": "connected",
+            "frames": 148,
+            "audioPackets": 309,
+            "videoCodec": "video/H264",
+            "audioCodec": "audio/opus",
+            "pixel": [
+              255,
+              127,
+              48,
+              255
+            ],
+            "rms": 0.17248617060808807,
+            "peakHz": 445.3125,
+            "width": 1280,
+            "height": 720,
+            "currentTime": 4.909333,
+            "framesDelta": 60,
+            "requests": [
+              {
+                "method": "POST",
+                "status": 201
+              }
+            ],
+            "screenshot": "cycle-2-firefox.png"
+          },
+          "stopMs": 254,
+          "playerDroppedAfterStop": true
+        }
+      ],
+      "immediateStopMs": 562,
+      "loadedModuleVerified": true
     }
   },
   "ui": {
+    "expectedVersion": "1.1.83",
+    "pluginSha256": "a09108b69b9e3634c05ea740eb12c7cb3796bca1f19f0ba270a40958be268544",
     "stopFirstMessage": true,
+    "statusReturnsToLive": true,
     "generatedAndSaved": true,
     "liveCopyUsesSameLink": true,
-    "ok": true
+    "sameLinkAfterObsRestart": true,
+    "ok": true,
+    "loadedModuleVerified": true
+  },
+  "release": "v1.1.83",
+  "publication": {
+    "url": "https://github.com/steveseguin/ninja-obs-plugin/releases/tag/v1.1.83",
+    "workflow": "https://github.com/steveseguin/ninja-obs-plugin/actions/runs/41259152687",
+    "verifiedChecksums": {
+      "obs-vdoninja-macos-arm64.zip": "74aa104c9a74b37232cf4c390db390499e8adb24b62cf0156cc43883142c3110",
+      "obs-vdoninja-windows-x64-obs32.0-32.1.zip": "f67a85cbe0d8e53e33b9b6277ed162bc31859a574e0bbc4ee638b6e8c2a10aeb",
+      "obs-vdoninja-windows-x64.zip": "3c6f9a2a2ec732e7e5ac008aaabffe6fa20dc3d1702d9c20d33f017800d64d99",
+      "obs-vdoninja-linux-x86_64.tar.gz": "aec2829bb5751693278df5ac72d962b248396cad9e38047c7461590915f27bd7",
+      "obs-vdoninja-windows-x64-obs32.0-32.1-setup.exe": "36871bb15d030031eb34a37e0a3ad879064eece16cb2a85dc86827912e75a28d",
+      "obs-vdoninja-windows-x64-setup.exe": "7e6739c8a2c01ddc1a47bfba2b3161a5880883fb5a1b7c43cbc130f71fec47f1",
+      "obs-vdoninja-macos-arm64.pkg": "305a4ebb85742eca87151239d60836b10fdb1a78491be494bc7166b5e3f26de9"
+    }
   }
 }

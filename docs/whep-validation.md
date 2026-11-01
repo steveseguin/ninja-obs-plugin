@@ -102,6 +102,7 @@ $env:PATH = "$pwd/_obs-portable/bin/64bit;$env:PATH"
 & ./build-plugin-release-validation/RelWithDebInfo/vdoninja-native-media-linked-gate.exe WHEP
 python scripts/whep-host-native-e2e.py --install-prefix artifacts/whep-install --obs-review artifacts/whep-obs --output artifacts/whep-local --broker local --cycles 2
 python scripts/whep-host-native-e2e.py --install-prefix artifacts/whep-install --obs-review artifacts/whep-obs --output artifacts/whep-hosted --broker hosted --cycles 2
+python scripts/whep-host-ui-check.py --obs-review artifacts/whep-obs --output artifacts/whep-ui --expected-version 1.1.83
 ```
 
 Use a new output directory for each run. The default local server source is
@@ -111,10 +112,36 @@ key and performs no server deployment. The Python wrapper creates a separate
 portable OBS copy, replaces only that copy's plugin/configuration, generates
 synthetic video/audio, and checks the loaded module path and clean exit.
 
-For UI review, `scripts/guest-return-room-ui.py` captures only the OBS process
-listed in the review's `state.json`. Qt button invocation was used for the WHEP
-walkthrough; raw mouse-message automation did not activate these floating-dock
-buttons reliably. Clipboard contents were restored after the check.
+For UI review, `scripts/whep-host-ui-check.py` operates a stopped disposable
+review under `artifacts/`, clears that review's WHEP key, and starts its own OBS
+process. It checks messages after multiple stats refreshes, normal status
+restoration, link generation, copying while live, and persistence after restart.
+`scripts/guest-return-room-ui.py` captures only the process listed in its
+`state.json`. Qt button invocation is used; raw mouse-message automation did not
+activate these floating-dock buttons reliably. Existing text clipboard contents
+are restored after the check.
+
+## Published v1.1.83 qualification
+
+https://github.com/steveseguin/ninja-obs-plugin/releases/tag/v1.1.83
+
+All platform release jobs passed:
+https://github.com/steveseguin/ninja-obs-plugin/actions/runs/41259152687.
+All seven downloaded package hashes match the published checksum file.
+
+The Windows 32.2.x package's loaded DLL was verified as SHA-256
+`a09108b69b9e3634c05ea740eb12c7cb3796bca1f19f0ba270a40958be268544`.
+That exact DLL passed the two-cycle live-endpoint browser workflow and the full
+UI walkthrough: stopped, stop-first instructions, enable/copy, live, copy while
+live, stop, and reopen with the same saved link. Feedback was checked after
+multiple status-refresh ticks and also checked to return to LIVE afterward.
+OBS exited cleanly, with no WHEP host errors or start-thread failures.
+
+The Windows installer uses the existing signing certificate. This machine reports
+an untrusted root for that certificate, as it did for v1.1.80; signer continuity
+and package hashes were checked. This is not a claim of public-CA trust.
+Full macOS/Linux WHEP browser playback and remote-network paths remain outside
+this qualification; package and native-suite success do not replace those tests.
 
 ## Screenshots and evidence
 
@@ -127,7 +154,8 @@ are verified separately by browser statistics, pixel sampling and Web Audio.
 [Compact machine-readable results](../media-assets/whep/validation-results.json)
 include DLL hashes, browser versions, response codes, media samples and timings.
 Full local logs are under `artifacts/whep-existing-protocol/`; they are not public
-release assets. Development screenshots use a synthetic stream and exclude the
-old version footer from guide crops.
+release assets. The published guide images and original/cropped UI captures use
+the actual v1.1.83 package and a synthetic stream. Guide crops focus on actions
+and status; the originals retain the installed version footer.
 
 The user guide is https://steveseguin.github.io/ninja-obs-plugin/whep.html.

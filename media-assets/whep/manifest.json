@@ -1,5 +1,97 @@
 [
   {
+    "release": "v1.1.83",
+    "step": "00-stopped",
+    "original": "00-stopped-full.png",
+    "crop": [
+      8,
+      0,
+      268,
+      930
+    ],
+    "cropped": "00-stopped.png",
+    "review": "Owned packaged OBS window. Button state and readable feedback checked; version footer identifies v1.1.83."
+  },
+  {
+    "release": "v1.1.83",
+    "step": "01-stop-first",
+    "original": "01-stop-first-full.png",
+    "crop": [
+      8,
+      0,
+      268,
+      930
+    ],
+    "cropped": "01-stop-first.png",
+    "review": "Owned packaged OBS window. Button state and readable feedback checked; version footer identifies v1.1.83."
+  },
+  {
+    "release": "v1.1.83",
+    "step": "02-link-ready",
+    "original": "02-link-ready-full.png",
+    "crop": [
+      8,
+      0,
+      268,
+      930
+    ],
+    "cropped": "02-link-ready.png",
+    "review": "Owned packaged OBS window. Button state and readable feedback checked; version footer identifies v1.1.83."
+  },
+  {
+    "release": "v1.1.83",
+    "step": "03-live",
+    "original": "03-live-full.png",
+    "crop": [
+      8,
+      0,
+      268,
+      930
+    ],
+    "cropped": "03-live.png",
+    "review": "Owned packaged OBS window. Button state and readable feedback checked; version footer identifies v1.1.83."
+  },
+  {
+    "release": "v1.1.83",
+    "step": "04-copy-live",
+    "original": "04-copy-live-full.png",
+    "crop": [
+      8,
+      0,
+      268,
+      930
+    ],
+    "cropped": "04-copy-live.png",
+    "review": "Owned packaged OBS window. Button state and readable feedback checked; version footer identifies v1.1.83."
+  },
+  {
+    "release": "v1.1.83",
+    "step": "05-stopped",
+    "original": "05-stopped-full.png",
+    "crop": [
+      8,
+      0,
+      268,
+      930
+    ],
+    "cropped": "05-stopped.png",
+    "review": "Owned packaged OBS window. Button state and readable feedback checked; version footer identifies v1.1.83."
+  },
+  {
+    "release": "v1.1.83",
+    "step": "06-after-reopen",
+    "original": "06-after-reopen-full.png",
+    "crop": [
+      8,
+      0,
+      268,
+      930
+    ],
+    "cropped": "06-after-reopen.png",
+    "review": "Owned packaged OBS window. Button state and readable feedback checked; version footer identifies v1.1.83."
+  },
+  {
+    "release": "v1.1.83",
     "step": "enable",
     "original": "02-link-ready.png",
     "crop": [
@@ -9,9 +101,10 @@
       860
     ],
     "guide": "../../docs/assets/whep/enable.png",
-    "review": "Button labels and status readable. Synthetic stream; development build footer excluded from guide crop."
+    "review": "Actions, WHEP button and status preserved. Unrelated session fields and footer excluded from guide crop."
   },
   {
+    "release": "v1.1.83",
     "step": "live",
     "original": "03-live.png",
     "crop": [
@@ -21,56 +114,48 @@
       860
     ],
     "guide": "../../docs/assets/whep/live.png",
-    "review": "Button labels and status readable. Synthetic stream; development build footer excluded from guide crop."
+    "review": "Actions, WHEP button and status preserved. Unrelated session fields and footer excluded from guide crop."
   },
   {
-    "step": "01-stop-first",
-    "original": "01-stop-first.png",
-    "review": "Owned portable OBS window captured and reviewed. Expected stop-first, live or stopped controls."
-  },
-  {
-    "step": "04-copy-live",
-    "original": "04-copy-live.png",
-    "review": "Owned portable OBS window captured and reviewed. Expected stop-first, live or stopped controls."
-  },
-  {
-    "step": "05-stopped",
-    "original": "05-stopped.png",
-    "review": "Owned portable OBS window captured and reviewed. Expected stop-first, live or stopped controls."
-  },
-  {
+    "release": "v1.1.83",
     "step": "cycle-1-chrome",
     "original": "cycle-1-chrome.png",
-    "review": "Final live-endpoint run: orange decoded image and H.264/Opus title visually checked; movement and audio verified by recorded browser measurements."
+    "review": "Decoded orange image and H.264/Opus title visually reviewed; frame progression, pixel values and audio verified in browser measurements."
   },
   {
+    "release": "v1.1.83",
     "step": "cycle-1-firefox",
     "original": "cycle-1-firefox.png",
-    "review": "Final live-endpoint run: orange decoded image and H.264/Opus title visually checked; movement and audio verified by recorded browser measurements."
+    "review": "Decoded orange image and H.264/Opus title visually reviewed; frame progression, pixel values and audio verified in browser measurements."
   },
   {
-    "step": "third-viewer",
-    "original": "third-viewer.png",
-    "review": "Final live-endpoint run: orange decoded image and H.264/Opus title visually checked; movement and audio verified by recorded browser measurements."
-  },
-  {
-    "step": "surviving-viewer",
-    "original": "surviving-viewer.png",
-    "review": "Final live-endpoint run: orange decoded image and H.264/Opus title visually checked; movement and audio verified by recorded browser measurements."
-  },
-  {
-    "step": "replacement-viewer",
-    "original": "replacement-viewer.png",
-    "review": "Final live-endpoint run: orange decoded image and H.264/Opus title visually checked; movement and audio verified by recorded browser measurements."
-  },
-  {
+    "release": "v1.1.83",
     "step": "cycle-2-chrome",
     "original": "cycle-2-chrome.png",
-    "review": "Final live-endpoint run: orange decoded image and H.264/Opus title visually checked; movement and audio verified by recorded browser measurements."
+    "review": "Decoded orange image and H.264/Opus title visually reviewed; frame progression, pixel values and audio verified in browser measurements."
   },
   {
+    "release": "v1.1.83",
     "step": "cycle-2-firefox",
     "original": "cycle-2-firefox.png",
-    "review": "Final live-endpoint run: orange decoded image and H.264/Opus title visually checked; movement and audio verified by recorded browser measurements."
+    "review": "Decoded orange image and H.264/Opus title visually reviewed; frame progression, pixel values and audio verified in browser measurements."
+  },
+  {
+    "release": "v1.1.83",
+    "step": "replacement-viewer",
+    "original": "replacement-viewer.png",
+    "review": "Decoded orange image and H.264/Opus title visually reviewed; frame progression, pixel values and audio verified in browser measurements."
+  },
+  {
+    "release": "v1.1.83",
+    "step": "surviving-viewer",
+    "original": "surviving-viewer.png",
+    "review": "Decoded orange image and H.264/Opus title visually reviewed; frame progression, pixel values and audio verified in browser measurements."
+  },
+  {
+    "release": "v1.1.83",
+    "step": "third-viewer",
+    "original": "third-viewer.png",
+    "review": "Decoded orange image and H.264/Opus title visually reviewed; frame progression, pixel values and audio verified in browser measurements."
   }
 ]
