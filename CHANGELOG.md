@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.84] - 2026-10-31
+
 ### Fixed
 - Keep link-copy feedback beside the link buttons so it never replaces LIVE. Shorten WHEP and setup text, and put detailed return-audio guidance in a tooltip.
 - Make the existing WHEP key available in Studio's collapsed Advanced Settings. Clear it while stopped to disable WHEP; copying again creates a replacement link. The normal OBS Stream screen does not expose this field.
