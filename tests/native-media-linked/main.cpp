@@ -2614,7 +2614,12 @@ void testWhepExistingBrokerProtocol()
 	}
 	for (int index = 0; index < 2; ++index)
 		players[index]->setRemoteDescription(rtc::Description(callback("request-" + std::to_string(index)), "answer"));
-	requireEventually([&] { return manager.getViewerCount() == 2; }, "both independent WHEP requests connect", 15s);
+	requireEventually(
+	    [&] {
+		    return manager.getViewerCount() == 2 && players[0]->state() == rtc::PeerConnection::State::Connected &&
+		           players[1]->state() == rtc::PeerConnection::State::Connected;
+	    },
+	    "both independent WHEP requests connect", 15s);
 	socket->send(JsonBuilder()
 	                 .add("type", "delete")
 	                 .add("get", "delete-request")
@@ -2624,7 +2629,15 @@ void testWhepExistingBrokerProtocol()
 	require(callback("delete-request").empty(), "stream DELETE callback was not acknowledged");
 	require(manager.getViewerCount() == 2, "ambiguous stream DELETE disconnected active viewers");
 	players[0]->close();
-	requireEventually([&] { return manager.getViewerCount() == 1; }, "closed player's connection was not retired");
+	// Some RTC backends close the UDP transport before the asynchronous DTLS
+	// close notification is delivered. Allow ICE consent expiry in that case;
+	// the stream-wide HTTP DELETE cannot identify this particular connection.
+	const auto closing = std::chrono::steady_clock::now();
+	requireEventually([&] { return manager.getViewerCount() == 1; }, "closed player's connection was not retired", 45s);
+	std::cout
+	    << "WHEP viewer close observed after "
+	    << std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - closing).count()
+	    << " ms\n";
 	require(players[1]->state() == rtc::PeerConnection::State::Connected, "closing one player disconnected another");
 	host.stop();
 	require(manager.getViewerCount() == 0, "host stop left a WHEP viewer registered");
