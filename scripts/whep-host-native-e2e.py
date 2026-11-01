@@ -30,10 +30,12 @@ def main():
     parser.add_argument('--obs-review', type=Path, default=Path('_obs-portable-whep-review'))
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--cycles', type=int, default=2)
+    parser.add_argument('--third-party', action='store_true', help='Also test the unmodified hosted Eyevinn WHEP player')
     parser.add_argument('--broker', choices=['local', 'hosted'], default='local')
     parser.add_argument('--broker-source', type=Path, default=Path('../whip_private'),
                         help='whip_private checkout whose tests/server-fixture.cjs starts the loopback broker')
     args = parser.parse_args()
+    assert not args.third_party or args.broker == 'hosted', 'Third-party hosted player needs the public HTTPS endpoint'
     output = args.output.resolve(); output.mkdir(parents=True, exist_ok=False)
     with wave.open(str(output / 'tone.wav'), 'wb') as tone:
         tone.setnchannels(2); tone.setsampwidth(2); tone.setframerate(48000)
@@ -132,7 +134,8 @@ def main():
         assert len(modules) == 1 and Path(modules[0]).resolve() == target_dll.resolve(), modules
         report['loadedModule'] = modules[0]
         node = subprocess.run(['node', str(Path(__file__).with_name('whep-host-check.cjs')),
-            'ws://127.0.0.1:' + str(port), str(output), str(args.cycles), broker_base],
+            'ws://127.0.0.1:' + str(port), str(output), str(args.cycles), broker_base,
+            'eyevinn' if args.third_party else ''],
             env=dict(os.environ, OBS_WEBSOCKET_PASSWORD=password), capture_output=True, text=True, timeout=600)
         (output / 'driver.log').write_text(node.stdout + node.stderr)
         workflow_path = output / 'whep-workflow.json'

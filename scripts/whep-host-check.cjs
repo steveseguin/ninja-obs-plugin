@@ -6,7 +6,7 @@ const assert = require('node:assert/strict');
 const crypto = require('node:crypto');
 const { chromium, firefox } = require('playwright');
 const { ObsWebSocketClient } = require('./obs-websocket-vdoninja-source-check.cjs');
-const [url, output, cyclesArg, brokerArg] = process.argv.slice(2);
+const [url, output, cyclesArg, brokerArg, thirdParty] = process.argv.slice(2);
 const cycles = Math.max(1, Number(cyclesArg || 2));
 const broker = (brokerArg || 'https://whep.vdo.ninja').replace(/\/$/, '');
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -145,6 +145,11 @@ async function until(fn, label, timeout = 40000) {
         await client.request('StopStream'); await until(async () => !await active(), 'immediate stop');
         report.immediateStopMs = Date.now() - begin; assert(report.immediateStopMs < 20000); await sleep(1000);
       }
+    }
+    if (thirdParty === 'eyevinn') {
+      await start();
+      report.thirdParty = await require('./whep-eyevinn-check.cjs').checkEyevinn(browsers, endpoint, output);
+      await stop();
     }
     report.ok = true;
   } catch (error) { report.error = String(error.stack || error); throw error; }
