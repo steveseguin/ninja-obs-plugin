@@ -358,6 +358,7 @@ if(BUILD_PLUGIN)
         src/vdoninja-layout.cpp
         src/vdoninja-module-lifecycle.cpp
         src/vdoninja-peer-manager.cpp
+        src/vdoninja-whep-host.cpp
         src/vdoninja-data-channel.cpp
         src/vdoninja-system-cpu.cpp
         src/vdoninja-utils.cpp
@@ -859,6 +860,7 @@ if(BUILD_NATIVE_MEDIA_LINKED_GATE)
         src/vdoninja-signaling-protocol.cpp
         src/vdoninja-layout.cpp
         src/vdoninja-peer-manager.cpp
+        src/vdoninja-whep-host.cpp
         src/vdoninja-data-channel.cpp
         src/vdoninja-system-cpu.cpp
         src/vdoninja-utils.cpp

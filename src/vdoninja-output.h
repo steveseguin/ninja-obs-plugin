@@ -23,6 +23,7 @@
 #include "vdoninja-peer-manager.h"
 #include "vdoninja-rtp-utils.h"
 #include "vdoninja-signaling.h"
+#include "vdoninja-whep-host.h"
 
 namespace vdoninja
 {
@@ -76,6 +77,7 @@ private:
 
 	// Start/stop thread functions
 	void startThread(OutputSettings settingsSnap);
+	void stopWhepHost();
 	void stopThread();
 
 	// Handle encoding
@@ -132,6 +134,9 @@ private:
 	// Components
 	std::unique_ptr<VDONinjaSignaling> signaling_;
 	std::unique_ptr<VDONinjaPeerManager> peerManager_;
+	// Created by the start thread, taken over by stop() (protected by whepHostMutex_).
+	std::unique_ptr<VDONinjaWhepHost> whepHost_;
+	std::mutex whepHostMutex_;
 	std::unique_ptr<VDOAutoSceneManager> autoSceneManager_;
 	VDONinjaDataChannel dataChannel_;
 	std::shared_ptr<AsyncCallbackState<VDONinjaOutput>> callbackState_;

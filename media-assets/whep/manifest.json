@@ -1,0 +1,41 @@
+[
+  {
+    "step": "enable",
+    "original": "02-link-ready.png",
+    "crop": [
+      10,
+      450,
+      250,
+      860
+    ],
+    "guide": "../../docs/assets/whep/enable.png",
+    "review": "Button labels and status readable. Synthetic stream; development build footer excluded from guide crop."
+  },
+  {
+    "step": "live",
+    "original": "03-live.png",
+    "crop": [
+      10,
+      450,
+      250,
+      860
+    ],
+    "guide": "../../docs/assets/whep/live.png",
+    "review": "Button labels and status readable. Synthetic stream; development build footer excluded from guide crop."
+  },
+  {
+    "step": "01-stop-first",
+    "original": "01-stop-first.png",
+    "review": "Owned portable OBS window captured and reviewed. Expected stop-first, live or stopped controls."
+  },
+  {
+    "step": "04-copy-live",
+    "original": "04-copy-live.png",
+    "review": "Owned portable OBS window captured and reviewed. Expected stop-first, live or stopped controls."
+  },
+  {
+    "step": "05-stopped",
+    "original": "05-stopped.png",
+    "review": "Owned portable OBS window captured and reviewed. Expected stop-first, live or stopped controls."
+  }
+]

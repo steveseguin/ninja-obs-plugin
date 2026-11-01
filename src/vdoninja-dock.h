@@ -42,6 +42,7 @@ private slots:
 	void onGenerateIdClicked();
 	void onCopyViewLink();
 	void onCopyPushLink();
+	void onCopyWhepLink();
 	void updateStats();
 	void onSettingsChanged();
 

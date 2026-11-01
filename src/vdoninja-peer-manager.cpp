@@ -1617,20 +1617,80 @@ bool VDONinjaPeerManager::setPeerMediaSendEnabled(const std::string &uuid, bool 
 	return true;
 }
 
+bool VDONinjaPeerManager::acceptWhepViewer(const std::string &uuid, const std::string &offer)
+{
+	if (!isPublishing() || uuid.empty() || offer.empty())
+		return false;
+	if (getPublisherSlotCount() >= maxViewers_)
+		return false;
+	{
+		std::lock_guard<std::mutex> lock(peersMutex_);
+		if (peers_.count(uuid))
+			return false;
+	}
+	try {
+		auto peer = createPublisherConnection(uuid, "", nullptr, true, offer);
+		peer->pc->setRemoteDescription(rtc::Description(offer, "offer"));
+		peer->remoteDescriptionSet.store(true);
+		peer->pc->setLocalDescription(rtc::Description::Type::Answer);
+		return true;
+	} catch (const std::exception &e) {
+		logWarning("WHEP offer rejected: %s", e.what());
+		disconnectPeer(uuid);
+		return false;
+	}
+}
+
+std::string VDONinjaPeerManager::getWhepAnswer(const std::string &uuid, bool allowIncompleteGathering) const
+{
+	std::shared_ptr<PeerInfo> peer;
+	{
+		std::lock_guard<std::mutex> lock(peersMutex_);
+		auto it = peers_.find(uuid);
+		if (it == peers_.end())
+			return "";
+		peer = it->second;
+	}
+	if (!peer->whepPublisher ||
+	    (!allowIncompleteGathering && peer->pc->gatheringState() != rtc::PeerConnection::GatheringState::Complete))
+		return "";
+	auto answer = peer->pc->localDescription();
+	return answer && !answer->candidates().empty() ? std::string(*answer) : "";
+}
+
+void VDONinjaPeerManager::addWhepCandidate(const std::string &uuid, const std::string &candidate,
+                                           const std::string &mid)
+{
+	std::shared_ptr<PeerInfo> peer;
+	{
+		std::lock_guard<std::mutex> lock(peersMutex_);
+		auto it = peers_.find(uuid);
+		if (it == peers_.end())
+			return;
+		peer = it->second;
+	}
+	if (peer->whepPublisher && !candidate.empty())
+		peer->pc->addRemoteCandidate(rtc::Candidate(candidate, mid));
+}
+
 std::shared_ptr<PeerInfo> VDONinjaPeerManager::createPublisherConnection(const std::string &uuid,
                                                                          const std::string &session,
                                                                          const PublisherMediaState *initialMediaState,
-                                                                         bool registerPeer)
+                                                                         bool registerPeer,
+                                                                         const std::string &whepOffer)
 {
 	pruneRetiredPeers(kRetiredPeerCleanupDelayMs);
 
 	auto config = getRtcConfig();
+	if (!whepOffer.empty())
+		config.disableAutoNegotiation = true;
 	auto pc = std::make_shared<rtc::PeerConnection>(config);
 
 	auto peer = std::make_shared<PeerInfo>();
 	peer->uuid = uuid;
 	peer->generation = nextPeerGeneration_.fetch_add(1);
 	peer->type = ConnectionType::Publisher;
+	peer->whepPublisher = !whepOffer.empty();
 	peer->session = session.empty() ? generateSessionId() : session;
 	peer->pc = pc;
 	if (initialMediaState) {
@@ -1655,8 +1715,9 @@ std::shared_ptr<PeerInfo> VDONinjaPeerManager::createPublisherConnection(const s
 
 	try {
 		setupPeerConnectionCallbacks(peer);
-		installLocalDescriptionCallback(peer);
-		setupPublisherTracks(peer);
+		if (!peer->whepPublisher)
+			installLocalDescriptionCallback(peer);
+		setupPublisherTracks(peer, whepOffer);
 	} catch (...) {
 		peer->cleanupRetired.store(true);
 		clearPeerCallbacks(peer);
@@ -1944,7 +2005,7 @@ void VDONinjaPeerManager::setupPeerConnectionCallbacks(std::shared_ptr<PeerInfo>
 				return;
 			}
 			auto peer = weakPeer.lock();
-			if (!peer)
+			if (!peer || peer->whepPublisher)
 				return;
 			// Send each newly gathered candidate promptly. VDO.Ninja accepts the
 			// individual candidate envelope and early trickle avoids waiting for
@@ -1984,7 +2045,7 @@ void VDONinjaPeerManager::setupPeerConnectionCallbacks(std::shared_ptr<PeerInfo>
 			    if (state == rtc::PeerConnection::GatheringState::Complete) {
 				    logInfo("ICE gathering complete for %s", uuid.c_str());
 				    auto peer = weakPeer.lock();
-				    if (peer) {
+				    if (peer && !peer->whepPublisher) {
 					    manager->bundleAndSendCandidates(peer);
 				    }
 			    }
@@ -3277,14 +3338,14 @@ void VDONinjaPeerManager::clearTrackSlots(const std::shared_ptr<PeerInfo> &peer)
 	}
 }
 
-void VDONinjaPeerManager::setupPublisherTracks(std::shared_ptr<PeerInfo> peer)
+void VDONinjaPeerManager::setupPublisherTracks(std::shared_ptr<PeerInfo> peer, const std::string &whepOffer)
 {
 	const auto ownerSession = ownerSession_;
 	const std::weak_ptr<PeerManagerOwnerSession> weakOwnerSession = ownerSession;
 	auto weakPeer = std::weak_ptr<PeerInfo>(peer);
-	const std::string videoMid = "video", audioMid = "audio";
+	std::string videoMid = "video", audioMid = "audio", videoFmtp;
 	int videoPayload = kH264PayloadType, audioPayload = kOpusPayloadType;
-	uint8_t colorExtensionId = 1;
+	uint8_t colorExtensionId = whepOffer.empty() ? 1 : 0;
 	std::string encodedFormat;
 	if (videoCodec_ != VideoCodec::H264) {
 		std::unique_lock<std::mutex> lock(codecMutex_);
@@ -3295,7 +3356,37 @@ void VDONinjaPeerManager::setupPublisherTracks(std::shared_ptr<PeerInfo> peer)
 		if (encodedFormat.empty())
 			throw std::runtime_error("Video encoder sequence header is not ready; reconnect the viewer");
 	}
-	{
+	if (!whepOffer.empty()) {
+		videoPayload = -1;
+		audioPayload = -1;
+		for (const auto &section : parseOfferedMediaSections(whepOffer)) {
+			// Port 0 rejects a section unless the offer bundles it (JSEP max-bundle).
+			if ((section.port == 0 && !section.bundleOnly) || section.direction == "sendonly" ||
+			    section.direction == "inactive")
+				continue;
+			if (section.type == "video" && videoPayload < 0) {
+				const auto *codec = findCompatiblePublishCodec(section, videoCodec_, encodedFormat);
+				if (!codec ||
+				    (videoCodec_ == VideoCodec::H264 &&
+				     codecNameLower(codec->formatParameters).find("packetization-mode=1") == std::string::npos))
+					throw std::runtime_error("Viewer does not support the active publishing video codec");
+				videoMid = section.mid;
+				videoPayload = codec->payloadType;
+				videoFmtp = codec->formatParameters;
+				colorExtensionId = receivingColorExtensionId(section);
+			}
+			if (section.type == "audio" && audioPayload < 0) {
+				const auto *codec = findPreferredOfferedCodec(section, "opus");
+				if (!codec || codec->clockRate != 48000)
+					throw std::runtime_error("WHEP audio requires Opus");
+				audioMid = section.mid;
+				audioPayload = codec->payloadType;
+			}
+		}
+		if (videoPayload < 0 && audioPayload < 0)
+			throw std::runtime_error("WHEP requires compatible video or Opus audio");
+	}
+	if (videoPayload >= 0) {
 		// Set up video track
 		rtc::Description::Video videoDesc(videoMid, rtc::Description::Direction::SendOnly);
 		std::string h264ProfileLevelId;
@@ -3310,8 +3401,10 @@ void VDONinjaPeerManager::setupPublisherTracks(std::shared_ptr<PeerInfo> peer)
 			videoDesc.addH265Codec(videoPayload, encodedFormat);
 		else if (videoCodec_ == VideoCodec::AV1)
 			videoDesc.addAV1Codec(videoPayload, encodedFormat);
-		else
+		else if (videoFmtp.empty())
 			videoDesc.addH264Codec(videoPayload);
+		else
+			videoDesc.addH264Codec(videoPayload, videoFmtp);
 		videoDesc.addSSRC(videoSsrc_, "video-stream");
 		{
 			std::lock_guard<std::mutex> lock(codecMutex_);
@@ -3325,7 +3418,7 @@ void VDONinjaPeerManager::setupPublisherTracks(std::shared_ptr<PeerInfo> peer)
 			std::lock_guard<std::mutex> mediaLock(peer->mediaMutex);
 			peer->videoTrack = videoTrack;
 			// Normal offers must wait for the answer to accept the extension.
-			peer->videoColorExtensionId = 0;
+			peer->videoColorExtensionId = whepOffer.empty() ? 0 : colorExtensionId;
 		}
 		peer->videoRtpConfig =
 		    std::make_shared<rtc::RtpPacketizationConfig>(videoSsrc_, "video-stream", videoPayload, kVideoClockRate);
@@ -3453,10 +3546,11 @@ void VDONinjaPeerManager::setupPublisherTracks(std::shared_ptr<PeerInfo> peer)
 			        static_cast<long long>(duplicationConfig.maxAge.count()));
 		}
 	}
-	{
+	if (audioPayload >= 0) {
 		// Set up audio track
 		rtc::Description::Audio audioDesc(audioMid, rtc::Description::Direction::SendOnly);
-		if (audioRedEnabled_.load(std::memory_order_acquire) && audioCodec_ == AudioCodec::Opus) {
+		if (!peer->whepPublisher && audioRedEnabled_.load(std::memory_order_acquire) &&
+		    audioCodec_ == AudioCodec::Opus) {
 			audioDesc.addAudioCodec(kAudioRedPayloadType, "red", "111/111");
 		}
 		audioDesc.addOpusCodec(audioPayload);
@@ -3496,7 +3590,7 @@ void VDONinjaPeerManager::setupPublisherTracks(std::shared_ptr<PeerInfo> peer)
 	peer->useVideoPacketizer = false;
 
 	// Create data channel if enabled
-	if (enableDataChannel_) {
+	if (enableDataChannel_ && !peer->whepPublisher) {
 		// VDO.Ninja expects publisher data channels to use "sendChannel".
 		auto dc = peer->pc->createDataChannel("sendChannel");
 		handleIncomingDataChannel(peer, dc, true);
@@ -4230,7 +4324,7 @@ bool VDONinjaPeerManager::sendAudioFrameToPeer(const std::string &uuid, const st
 			peer->audioTimestamp = ts + 960; // 48kHz, 20ms frames
 
 			std::vector<uint8_t> payload;
-			uint8_t payloadType = kOpusPayloadType;
+			uint8_t payloadType = peer->audioRtpConfig ? peer->audioRtpConfig->payloadType : kOpusPayloadType;
 			if (peer->useAudioRed) {
 				const AudioRedPayload redPayload = buildAudioRedPayload(
 				    data, size, ts, peer->hasPreviousOpusPayload ? peer->previousOpusPayload.data() : nullptr,

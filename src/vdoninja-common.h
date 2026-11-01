@@ -82,6 +82,7 @@ struct PeerInfo {
 	uint64_t generation = 0;
 	std::atomic<uint64_t> nextEventSequence{0};
 	ConnectionType type;
+	bool whepPublisher = false;
 	std::atomic<ConnectionState> state{ConnectionState::New};
 	std::atomic<int64_t> terminalStateTimeMs{0};
 	std::atomic<bool> disconnectNotified{false};
@@ -231,6 +232,7 @@ struct AutoInboundSettings {
 
 // Plugin output settings
 struct OutputSettings {
+	std::string whepToken;
 	std::optional<UdpPortRange> udpPortRange = UdpPortRange{};
 	std::string videoRateControl;
 	int nominalVideoBitrate = 0; // Zero for quality-based modes without a bitrate target.

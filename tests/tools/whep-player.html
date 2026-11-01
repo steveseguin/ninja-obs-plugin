@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>WHEP playback test</title>
+<style>
+  body { margin: 0; background: #111827; color: #e5e7eb; font: 18px system-ui; }
+  header { padding: 18px 28px; }
+  video { width: 100%; max-height: 80vh; background: black; display: block; }
+</style>
+<header>WHEP playback <span id="status">— ready</span></header>
+<video autoplay playsinline muted></video>
+<script>
+// Independent WHEP receiver: standard HTTP + RTCPeerConnection only.
+// No VDO.Ninja page, SDK, signaling connection or data channel is used.
+const video = document.querySelector('video');
+let pc, resource, etag, audioContext, analyser;
+window.requests = [];
+async function request(url, options) {
+  const response = await fetch(url, options);
+  requests.push({ method: options.method, status: response.status });
+  return response;
+}
+function gathered(connection) {
+  if (connection.iceGatheringState === 'complete') return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(Error('ICE gathering timed out')), 12000);
+    connection.addEventListener('icegatheringstatechange', () => {
+      if (connection.iceGatheringState === 'complete') { clearTimeout(timer); resolve(); }
+    });
+  });
+}
+window.startPlayback = async (endpoint, trickle = false, videoCodec = 'H264') => {
+  pc = new RTCPeerConnection({ bundlePolicy: 'max-bundle' });
+  const stream = new MediaStream();
+  pc.ontrack = event => {
+    stream.addTrack(event.track);
+    video.srcObject = stream;
+    video.play().catch(() => {});
+    if (event.track.kind === 'audio') {
+      audioContext = new AudioContext();
+      analyser = audioContext.createAnalyser();
+      analyser.fftSize = 4096;
+      audioContext.createMediaStreamSource(new MediaStream([event.track])).connect(analyser);
+      const silent = audioContext.createGain(); silent.gain.value = 0;
+      analyser.connect(silent).connect(audioContext.destination);
+      audioContext.resume();
+    }
+  };
+  const transceiver = pc.addTransceiver('video', { direction: 'recvonly' });
+  const codecs = RTCRtpReceiver.getCapabilities('video').codecs.filter(
+    codec => codec.mimeType.toLowerCase() === 'video/' + videoCodec.toLowerCase());
+  if (!codecs.length) throw Error('This browser has no ' + videoCodec + ' decoder');
+  transceiver.setCodecPreferences(codecs);
+  pc.addTransceiver('audio', { direction: 'recvonly' });
+  await pc.setLocalDescription(await pc.createOffer());
+  if (!trickle) await gathered(pc);
+  const response = await request(endpoint, { method: 'POST',
+    headers: { 'Content-Type': 'application/sdp' }, body: pc.localDescription.sdp });
+  if (response.status !== 201) throw Error('WHEP POST returned ' + response.status);
+  const answer = await response.text();
+  if (!answer.startsWith('v=0')) throw Error('Publisher rejected the offer');
+  resource = new URL(response.headers.get('Location'), endpoint).href;
+  etag = response.headers.get('ETag');
+  await pc.setRemoteDescription({ type: 'answer', sdp: answer });
+  if (trickle) {
+    await gathered(pc);
+    // Keep the original media order and ICE credentials in the standard SDP fragment.
+    const fragment = pc.localDescription.sdp.split(/\r?\n/).filter(line =>
+      /^(m=|a=mid:|a=ice-ufrag:|a=ice-pwd:|a=candidate:|a=end-of-candidates)/.test(line)).join('\r\n') + '\r\n';
+    const patch = await request(resource, { method: 'PATCH', headers: {
+      'Content-Type': 'application/trickle-ice-sdpfrag', ...(etag ? { 'If-Match': etag } : {})
+    }, body: fragment });
+    if (patch.status !== 204) throw Error('WHEP PATCH returned ' + patch.status);
+  }
+  document.querySelector('#status').textContent = '— ' + videoCodec + ' + Opus';
+  return { answer, resource, etag };
+};
+window.playbackStats = async () => {
+  const stats = [...(await pc.getStats()).values()];
+  const incoming = kind => stats.find(s => s.type === 'inbound-rtp' && s.kind === kind);
+  const v = incoming('video'), a = incoming('audio');
+  const canvas = document.createElement('canvas'); canvas.width = canvas.height = 1;
+  const ctx = canvas.getContext('2d');
+  if (video.videoWidth) ctx.drawImage(video, 0, 0, 1, 1);
+  let rms = 0, peakHz = 0;
+  if (analyser) {
+    const samples = new Float32Array(analyser.fftSize);
+    analyser.getFloatTimeDomainData(samples);
+    rms = Math.sqrt(samples.reduce((sum, x) => sum + x * x, 0) / samples.length);
+    const bins = new Float32Array(analyser.frequencyBinCount); analyser.getFloatFrequencyData(bins);
+    let peak = 1; for (let i = 2; i < bins.length; ++i) if (bins[i] > bins[peak]) peak = i;
+    peakHz = peak * audioContext.sampleRate / analyser.fftSize;
+  }
+  return { state: pc.connectionState, frames: v?.framesDecoded || 0, audioPackets: a?.packetsReceived || 0,
+    videoCodec: stats.find(s => s.id === v?.codecId)?.mimeType,
+    audioCodec: stats.find(s => s.id === a?.codecId)?.mimeType,
+    pixel: [...ctx.getImageData(0, 0, 1, 1).data], rms, peakHz,
+    width: video.videoWidth, height: video.videoHeight, currentTime: video.currentTime };
+};
+window.stopPlayback = async () => {
+  // A normal player closes its media connection as well as its HTTP resource.
+  pc?.close();
+  await audioContext?.close();
+  if (resource) {
+    const response = await request(resource, { method: 'DELETE' });
+    if (![200, 204].includes(response.status)) throw Error('WHEP DELETE returned ' + response.status);
+  }
+};
+</script>
+</html>

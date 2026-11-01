@@ -9,7 +9,9 @@ The later, separate six-channel receiver release is covered by the
 [native 5.1 audio guide](https://steveseguin.github.io/ninja-obs-plugin/six-channel-audio.html).
 The alpha test-harness cleanup has since returned to main; its checks are described
 in [Windows alpha validation](windows-obs32-build-and-validation.md#alpha-validation).
-WHEP hosting remains parked. These follow-ups do not change Matt's Guest Return setup.
+WHEP hosting was subsequently reworked against the unchanged server protocol;
+see its separate [validation record](whep-validation.md). The original prototype
+remains on the parked branch. These follow-ups do not change Matt's Guest Return setup.
 Historical v1.1.78 binaries and tags remain unchanged.
 The delivery release is v1.1.79; its checks are recorded separately below.
 No VDO.Ninja client, broker, signaling service or API changes are authorized.

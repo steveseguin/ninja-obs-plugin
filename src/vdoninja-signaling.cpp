@@ -529,6 +529,11 @@ void logSignalingConnectDiagnostic(const std::string &host, const std::string &e
 
 } // namespace
 
+const std::string &VDONinjaSignaling::getCaCertificateFile()
+{
+	return resolveCaCertificateFile();
+}
+
 VDONinjaSignaling::VDONinjaSignaling()
 {
 	localUUID_ = generateUUID();
