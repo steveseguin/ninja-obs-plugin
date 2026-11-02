@@ -1002,6 +1002,17 @@ if(BUILD_NATIVE_MEDIA_LINKED_GATE)
         LABELS "native-media-linked;release-linked"
         TIMEOUT 600)
 
+    # Fresh processes exercise the TCP send/poll lock ordering under backpressure.
+    # A single successful full-suite run can miss the dependency's timing race.
+    foreach(burst_iteration RANGE 1 5)
+        add_test(NAME vdoninja-native-media-linked-whep-burst-${burst_iteration}
+            COMMAND $<TARGET_FILE:vdoninja-native-media-linked-gate>
+                "WHEP existing broker callback")
+        set_tests_properties(vdoninja-native-media-linked-whep-burst-${burst_iteration} PROPERTIES
+            LABELS "native-media-linked;whep-burst;release-linked"
+            TIMEOUT 45)
+    endforeach()
+
     message(STATUS "OBS/FFmpeg-linked native receiver media gate enabled")
 endif()
 

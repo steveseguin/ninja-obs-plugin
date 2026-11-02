@@ -144,13 +144,20 @@ def main():
         workflow_path = output / 'whep-workflow.json'
         report['workflow'] = json.loads(workflow_path.read_text()) if workflow_path.exists() else None
         assert node.returncode == 0, node.stderr[-4000:]
-        # WM_CLOSE lets OBS finalize its own state and tear down the plugin.
+        # Close only the main window. Closing hidden Qt/tool windows as well can
+        # destroy the preview after obs_shutdown (also reproducible without the plugin).
         callback = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
+        main_windows = []
         def close(hwnd, _):
             pid = ctypes.c_ulong(); ctypes.windll.user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
-            if pid.value == obs.pid: ctypes.windll.user32.PostMessageW(hwnd, 0x0010, 0, 0)
+            if pid.value == obs.pid:
+                title = ctypes.create_unicode_buffer(512)
+                ctypes.windll.user32.GetWindowTextW(hwnd, title, len(title))
+                if title.value.startswith('OBS '): main_windows.append(hwnd)
             return True
         ctypes.windll.user32.EnumWindows(callback(close), 0)
+        assert len(main_windows) == 1, f'Expected one OBS main window, found {len(main_windows)}'
+        ctypes.windll.user32.PostMessageW(main_windows[0], 0x0010, 0, 0)
         report['obsExitCode'] = obs.wait(timeout=30)
         report['cleanExit'] = report['obsExitCode'] == 0
         new_logs = sorted(set(logs_dir.glob('*.txt')) - before, key=lambda p: p.stat().st_mtime)

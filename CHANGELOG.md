@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Apply the TCP send-lock backport to all libdatachannel builds and run poll callbacks outside the poll mutex, preventing queue corruption and lock-order deadlocks during large WebSocket bursts. Require five additional burst checks in every linked release gate.
+- Close only the OBS main window in Windows media validation. Closing every hidden tool window could crash OBS 32.1.2 during preview cleanup, including without the plugin installed.
+
 ## [1.1.85] - 2026-11-01
 
 ### Added

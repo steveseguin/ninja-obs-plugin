@@ -145,11 +145,16 @@ server under `/home/ubuntu/ninja-flatpak-validation/v1.1.85/`.
 The existing WHEP burst test exposed concurrent TCP queue draining in
 libdatachannel 0.20.2: the writable-event handler called `trySendQueue()` without
 its required send mutex. Payload bytes could then be interpreted as WebSocket
-frames. The Flatpak build backports the one-line lock used upstream and retains
-the stress test, with five additional repetitions. Tests were not weakened.
+frames. All dependency builds now backport the send lock together with the
+upstream poll-callback fix. The latter invokes callbacks after releasing the poll
+mutex; without it, a sender holding the TCP mutex and the poll thread can deadlock.
+A Windows debugger trace reproduced that lock inversion during the 16 MiB burst.
+The linked release gate retains the full stress test and adds five separate-process
+repetitions for native and Flatpak packages. Tests were not weakened.
 
 Upstream source:
 https://github.com/paullouisageneau/libdatachannel/blob/master/src/impl/tcptransport.cpp
+https://github.com/paullouisageneau/libdatachannel/commit/408e5f4d9c1b65a3ea0b9ddc2f67de5a59988498
 
 ## Remaining work
 
@@ -160,9 +165,7 @@ https://github.com/paullouisageneau/libdatachannel/blob/master/src/impl/tcptrans
    lifecycle checks and the synthetic Guest Return room above are complete.
 2. Keep the GitHub Flatpak workflow green for each release. Its installed-OBS
    check is a release dependency and the bundle is included in release checksums.
-3. Evaluate the TCP send-lock backport in native Windows/macOS/Linux dependency
-   builds and run their network regression tests.
-4. Optional: submit a Flathub extension for automatic plugin updates. Direct
+3. Optional: submit a Flathub extension for automatic plugin updates. Direct
    bundle installation works without a Flathub listing.
 
 Reproduction and installation:
