@@ -1,6 +1,9 @@
 # Flatpak validation — 2026-11-01
 
-Release qualification: v1.1.85. Distribution is a direct Flatpak bundle; there is no Flathub listing.
+[v1.1.85 is published](https://github.com/steveseguin/ninja-obs-plugin/releases/tag/v1.1.85).
+Distribution is a direct Flatpak bundle; there is no Flathub listing. All nine
+packages were downloaded and matched `checksums.txt` and GitHub asset digests.
+[Release verification](assets/flatpak/release-v1.1.85-verification.json).
 
 | Item | Result |
 | --- | --- |
@@ -53,6 +56,25 @@ STUN servers, gathering completed in 130 ms. The full lifecycle retest explicitl
 used `WHEP_PLAYER_ICE_SERVERS_JSON='[]'`; this is recorded in the evidence and is
 not a passing result for the default-STUN workflow.
 
+A later browser-only control allowed up to 90 seconds. All public-STUN cases
+completed at approximately 40 seconds, with server-reflexive candidates available
+within 120 ms and additional STUN binding requests ending with error 701. The
+host-only control completed in 191 ms. The fixture's unchanged default is 12
+seconds; `WHEP_ICE_GATHER_TIMEOUT_MS=60000` explicitly extends that deadline for
+network qualification without changing media/lifecycle assertions.
+[Control results](assets/flatpak/stun-gathering-control.json).
+
+With that explicit 60-second deadline, the updated CI bundle passed both WHEP
+cycles using the default STUN servers: Chromium/Firefox audio/video, three
+viewers, fourth-viewer rejection, independent close/replacement, stop and clean
+shutdown. Immediate stop now waits for OBS to report active first, because the
+OBS WebSocket API rejects `StopStream` during asynchronous startup; startup and
+stop durations are recorded separately (251 ms each in the successful retest).
+An earlier attempt passed the first media cycle but hit that harness timing
+error. The successful run is not a passing result for the original 12-second
+gathering deadline and does not qualify WAN/TURN.
+[Default-STUN results](assets/flatpak/default-stun-validation.json).
+
 Firefox initially lacked an H.264 decoder. The retest supplied Cisco OpenH264
 2.6.0 through `MOZ_GMP_PATH`, with its download SHA-512 checked against
 [Mozilla's published metadata](https://bugzilla.mozilla.org/show_bug.cgi?id=1953427#c0).
@@ -84,6 +106,40 @@ qualify physical cameras/microphones, WAN/TURN routes or extended sessions.
 
 Evidence: [Guest Return results](assets/flatpak/guest-return-validation.json).
 
+## NVIDIA encoding check
+
+The updated pre-release CI bundle (`40a7ee4`, artifact `13114261277`) passed a
+two-minute 720p30 H.264/Opus publishing check using the GTX 750 Ti and NVIDIA
+580.178.04 driver. NVIDIA's process monitor confirmed OBS was using the encoder
+engine. Under Xvfb software rendering, OBS selected NVENC's system-memory path.
+This qualifies hardware encoding on this GPU, not GPU rendering/texture sharing.
+
+The browser decoded 29.991 fps with zero reported drops, loss or freezes, and the
+simultaneous native receiver decoded both audio and video. OBS reported zero
+render/output skips; there were zero new audio concealment samples/events.
+Shutdown was clean. [Sanitized results](assets/flatpak/nvenc-validation.json).
+
+## Tests after publication
+
+The released Flatpak bundle (SHA-256
+`f71b4b92605b1f148662a05a8b97f25e9760410ba14231b2a904aeff7c7f6e28`)
+was downloaded, installed, and confirmed to load plugin **1.1.85** in OBS 33.0.1.
+A five-minute 720p30 NVENC H.264/Opus test passed with simultaneous browser and
+native audio/video reception: 29.993 decoded fps, zero reported video drops,
+packet loss, freezes, OBS render/output skips or new audio concealment. Shutdown
+was clean. [Published-bundle results](assets/flatpak/published-v1.1.85-validation.json).
+
+The first fresh-profile attempt timed out on `CreateScene` before streaming.
+The same failure reproduced once in five plain OBS 33 controls with the plugin
+absent; its screenshot showed that the main window had not appeared. The harness
+now waits for a visible OBS main window before frontend edits, in addition to
+WebSocket readiness. Five plain-OBS controls and three released-Flatpak startup
+checks then passed, including normal shutdown. Failed attempts are retained,
+not counted as passes. [Startup controls](assets/flatpak/startup-readiness-control.json).
+
+Release downloads, logs, screenshots and scripts are retained on the validation
+server under `/home/ubuntu/ninja-flatpak-validation/v1.1.85/`.
+
 ## Why the dependency patch is included
 
 The existing WHEP burst test exposed concurrent TCP queue draining in
@@ -98,9 +154,9 @@ https://github.com/paullouisageneau/libdatachannel/blob/master/src/impl/tcptrans
 ## Remaining work
 
 1. Test real guest devices on a Linux desktop, including
-   microphone/camera access, hardware encoding, cross-NAT/TURN connectivity and a
-   long session. Resolve or characterize the default-STUN gathering delay on the
-   intended network. Server publishing/native reception and host-candidate WHEP
+   microphone/camera access, other hardware encoders/GPU rendering, cross-NAT/TURN connectivity and a
+   long session. Check full ICE gathering on the intended network; the server
+   delay has been characterized above. Server publishing/native reception and host-candidate WHEP
    lifecycle checks and the synthetic Guest Return room above are complete.
 2. Keep the GitHub Flatpak workflow green for each release. Its installed-OBS
    check is a release dependency and the bundle is included in release checksums.

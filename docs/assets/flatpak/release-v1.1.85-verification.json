@@ -1,0 +1,60 @@
+{
+  "tag": "v1.1.85",
+  "commit": "909f64b815a0b06b3dbdcc44a7e2ce797038fb14",
+  "url": "https://github.com/steveseguin/ninja-obs-plugin/releases/tag/v1.1.85",
+  "publishedAt": "2026-11-02T03:53:48Z",
+  "assets": [
+    {
+      "name": "checksums.txt",
+      "size": 918,
+      "digest": "sha256:e2f3694215706b1d1221c777726f50d0beda861c403744fa255704be153905e9"
+    },
+    {
+      "name": "obs-vdoninja-linux-x86_64-ubuntu26.04.tar.gz",
+      "size": 2346253,
+      "digest": "sha256:307d456123d378f89a8606ae426718d55faa6b8bbcfcb693ea95b4cc6d8b64b5"
+    },
+    {
+      "name": "obs-vdoninja-linux-x86_64.flatpak",
+      "size": 20129368,
+      "digest": "sha256:f71b4b92605b1f148662a05a8b97f25e9760410ba14231b2a904aeff7c7f6e28"
+    },
+    {
+      "name": "obs-vdoninja-linux-x86_64.tar.gz",
+      "size": 2236692,
+      "digest": "sha256:5732aa820811289b94934a79f6501f73e7032099b018be9ae9792a18408192cc"
+    },
+    {
+      "name": "obs-vdoninja-macos-arm64.pkg",
+      "size": 4376669,
+      "digest": "sha256:b70cd5e8129dcb2194fb4f9ec55b8208108784c8bbfb7a1b1dc45f66333540aa"
+    },
+    {
+      "name": "obs-vdoninja-macos-arm64.zip",
+      "size": 4323900,
+      "digest": "sha256:52c8cb4add0ae148b6298267844fb09c23a3d713d49f936e32e0953ac7484564"
+    },
+    {
+      "name": "obs-vdoninja-windows-x64-obs32.0-32.1-setup.exe",
+      "size": 4393024,
+      "digest": "sha256:684641918e7eb82488bb994db2373a0279bc66e6aaf3b4d4ad6cfdfafb3ba247"
+    },
+    {
+      "name": "obs-vdoninja-windows-x64-obs32.0-32.1.zip",
+      "size": 3123183,
+      "digest": "sha256:8b7d2f6d88cf0b05461b00e395f6c1373bf4601a07b0a9a404dd7e5224eb40cd"
+    },
+    {
+      "name": "obs-vdoninja-windows-x64-setup.exe",
+      "size": 4393312,
+      "digest": "sha256:7d8bf51b78e238653286aa43f99d65c75ce3399b900fd64b5823e7f85b3457d0"
+    },
+    {
+      "name": "obs-vdoninja-windows-x64.zip",
+      "size": 3123621,
+      "digest": "sha256:41cc34815e38bf81137229c46ca4c5336d80e7254b982da362e9955e562cce09"
+    }
+  ],
+  "allAssetsDownloadedAndVerified": true,
+  "nativeObs33TestedArchiveMatchesPublishedBytes": true
+}

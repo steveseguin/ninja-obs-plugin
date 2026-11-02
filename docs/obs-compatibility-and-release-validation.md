@@ -57,6 +57,22 @@ Flatpak users should update to **33.0.1**, whose upstream fixes include Flatpak
 plugin loading. The native archives are not Flatpak extensions; use the separate
 `.flatpak` bundle. See [installed Flatpak media results](flatpak-validation.md).
 
+## OBS 33 installed-package media check
+
+The Ubuntu 26.04 archive from [v1.1.85 tag CI](https://github.com/steveseguin/ninja-obs-plugin/actions/runs/41383844594)
+(commit `909f64b`, artifact `13114667296`) was installed into the official OBS
+33.0.1 on Ubuntu 26.04.1. After publication, the release archive was downloaded
+and confirmed byte-for-byte identical to that tested artifact. The loaded module
+path was verified, three native
+sources were created/removed, and the Studio UI opened correctly.
+
+A 60-second 720p30 H.264/Opus publishing check passed with both a browser viewer
+and simultaneous native audio/video reception: 29.982 decoded fps, zero reported
+video drops, packet loss, freezes, OBS render/output skips or new audio
+concealment. OBS shut down cleanly. This used synthetic media, software rendering
+and peers on the same server; physical capture and WAN/TURN remain unqualified.
+[Sanitized results](assets/native-obs33-validation.json).
+
 ## Validation performed
 
 The **same plugin built with OBS 32.2.0** was tested against libobs and the frontend

@@ -1,0 +1,348 @@
+{
+  "cycles": [
+    {
+      "cycle": 1,
+      "startMs": 2756,
+      "chrome": {
+        "state": "connected",
+        "iceState": "connected",
+        "gathering": "complete",
+        "localCandidates": [
+          "host",
+          "srflx",
+          "host",
+          "host",
+          "host"
+        ],
+        "remoteCandidates": [
+          "srflx",
+          "host",
+          "host",
+          "host",
+          "host"
+        ],
+        "frames": 144,
+        "audioPackets": 327,
+        "audioEnergy": 0,
+        "audioSamples": 304800,
+        "audioState": "running",
+        "muted": true,
+        "paused": false,
+        "route": {
+          "local": "host",
+          "remote": "host",
+          "protocol": "udp"
+        },
+        "videoCodec": "video/H264",
+        "audioCodec": "audio/opus",
+        "pixel": [
+          255,
+          127,
+          48,
+          255
+        ],
+        "rms": 0.06250918055108443,
+        "peakHz": 445.3125,
+        "width": 1280,
+        "height": 720,
+        "currentTime": 4.768,
+        "framesDelta": 60
+      },
+      "firefox": {
+        "state": "connected",
+        "iceState": "connected",
+        "gathering": "complete",
+        "localCandidates": [
+          "host",
+          "srflx",
+          "host",
+          "host",
+          "host"
+        ],
+        "remoteCandidates": [
+          "host",
+          "host",
+          "host",
+          "host",
+          "srflx"
+        ],
+        "frames": 145,
+        "audioPackets": 262,
+        "audioEnergy": 0.0403194189193833,
+        "audioSamples": 250560,
+        "audioState": "running",
+        "muted": true,
+        "paused": false,
+        "route": {
+          "local": "host",
+          "remote": "host",
+          "protocol": "udp"
+        },
+        "videoCodec": "video/H264",
+        "audioCodec": "audio/opus",
+        "pixel": [
+          255,
+          127,
+          48,
+          255
+        ],
+        "rms": 0.062477594739003633,
+        "peakHz": 445.3125,
+        "width": 1280,
+        "height": 720,
+        "currentTime": 4.832,
+        "framesDelta": 60
+      },
+      "third": {
+        "state": "connected",
+        "iceState": "connected",
+        "gathering": "complete",
+        "localCandidates": [
+          "host",
+          "host",
+          "host",
+          "host",
+          "srflx"
+        ],
+        "remoteCandidates": [
+          "host",
+          "host",
+          "host",
+          "srflx",
+          "host"
+        ],
+        "frames": 87,
+        "audioPackets": 173,
+        "audioEnergy": 0,
+        "audioSamples": 166560,
+        "audioState": "running",
+        "muted": true,
+        "paused": false,
+        "route": {
+          "local": "host",
+          "remote": "host",
+          "protocol": "udp"
+        },
+        "videoCodec": "video/H264",
+        "audioCodec": "audio/opus",
+        "pixel": [
+          255,
+          127,
+          48,
+          255
+        ],
+        "rms": 0.06251789554753445,
+        "peakHz": 445.3125,
+        "width": 1280,
+        "height": 720,
+        "currentTime": 3.447,
+        "framesDelta": 61
+      },
+      "viewerLimitEnforced": true,
+      "survivor": {
+        "state": "connected",
+        "iceState": "connected",
+        "gathering": "complete",
+        "localCandidates": [
+          "host",
+          "srflx",
+          "host",
+          "host",
+          "host"
+        ],
+        "remoteCandidates": [
+          "host",
+          "host",
+          "host",
+          "host",
+          "srflx"
+        ],
+        "frames": 2789,
+        "audioPackets": 4669,
+        "audioEnergy": 0.7350031471358185,
+        "audioSamples": 4481280,
+        "audioState": "running",
+        "muted": true,
+        "paused": false,
+        "route": {
+          "local": "host",
+          "remote": "host",
+          "protocol": "udp"
+        },
+        "videoCodec": "video/H264",
+        "audioCodec": "audio/opus",
+        "pixel": [
+          255,
+          127,
+          48,
+          255
+        ],
+        "rms": 0.06245728787602972,
+        "peakHz": 445.3125,
+        "width": 1280,
+        "height": 720,
+        "currentTime": 92.970666,
+        "framesDelta": 60
+      },
+      "replacement": {
+        "state": "connected",
+        "iceState": "connected",
+        "gathering": "complete",
+        "localCandidates": [
+          "host",
+          "host",
+          "srflx",
+          "host",
+          "host"
+        ],
+        "remoteCandidates": [
+          "srflx",
+          "host",
+          "host",
+          "host",
+          "host"
+        ],
+        "frames": 87,
+        "audioPackets": 176,
+        "audioEnergy": 0,
+        "audioSamples": 168000,
+        "audioState": "running",
+        "muted": true,
+        "paused": false,
+        "route": {
+          "local": "host",
+          "remote": "host",
+          "protocol": "udp"
+        },
+        "videoCodec": "video/H264",
+        "audioCodec": "audio/opus",
+        "pixel": [
+          255,
+          127,
+          48,
+          255
+        ],
+        "rms": 0.06244584664525425,
+        "peakHz": 445.3125,
+        "width": 1280,
+        "height": 720,
+        "currentTime": 2.885,
+        "framesDelta": 60
+      },
+      "stopMs": 252,
+      "playerDroppedAfterStop": true
+    },
+    {
+      "cycle": 2,
+      "startMs": 2751,
+      "chrome": {
+        "state": "connected",
+        "iceState": "connected",
+        "gathering": "complete",
+        "localCandidates": [
+          "host",
+          "host",
+          "host",
+          "srflx",
+          "host"
+        ],
+        "remoteCandidates": [
+          "host",
+          "host",
+          "srflx",
+          "host",
+          "host"
+        ],
+        "frames": 80,
+        "audioPackets": 226,
+        "audioEnergy": 0,
+        "audioSamples": 216000,
+        "audioState": "running",
+        "muted": true,
+        "paused": false,
+        "route": {
+          "local": "host",
+          "remote": "host",
+          "protocol": "udp"
+        },
+        "videoCodec": "video/H264",
+        "audioCodec": "audio/opus",
+        "pixel": [
+          255,
+          127,
+          48,
+          255
+        ],
+        "rms": 0.06252488925246419,
+        "peakHz": 445.3125,
+        "width": 1280,
+        "height": 720,
+        "currentTime": 2.654,
+        "framesDelta": 60
+      },
+      "firefox": {
+        "state": "connected",
+        "iceState": "connected",
+        "gathering": "complete",
+        "localCandidates": [
+          "host",
+          "srflx",
+          "host",
+          "host",
+          "host"
+        ],
+        "remoteCandidates": [
+          "host",
+          "host",
+          "host",
+          "host",
+          "srflx",
+          "prflx",
+          "prflx"
+        ],
+        "frames": 1342,
+        "audioPackets": 2269,
+        "audioEnergy": 0.3590496541551087,
+        "audioSamples": 2178240,
+        "audioState": "running",
+        "muted": true,
+        "paused": false,
+        "route": {
+          "local": "host",
+          "remote": "host",
+          "protocol": "udp"
+        },
+        "videoCodec": "video/H264",
+        "audioCodec": "audio/opus",
+        "pixel": [
+          255,
+          127,
+          48,
+          255
+        ],
+        "rms": 0.06244856147221164,
+        "peakHz": 445.3125,
+        "width": 1280,
+        "height": 720,
+        "currentTime": 45.376,
+        "framesDelta": 60
+      },
+      "stopMs": 251,
+      "playerDroppedAfterStop": true
+    }
+  ],
+  "players": "Independent HTTP/RTCPeerConnection fixture",
+  "playerIceGatherTimeoutMs": 60000,
+  "playerIceConfiguration": "default STUN",
+  "browsers": [
+    "145.0.7632.6",
+    "146.0.1"
+  ],
+  "immediateStartMs": 251,
+  "immediateStopMs": 251,
+  "ok": true,
+  "cleanShutdown": true,
+  "bundleSha256": "00cb790c06c81eb785184e8cc541a3a31fe1a9eaf50e706aaa146ab8c99793ab",
+  "peerLocation": "same server",
+  "qualification": "Default STUN with explicit 60-second gathering deadline; no WAN/TURN qualification"
+}

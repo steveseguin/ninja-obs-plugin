@@ -1,0 +1,81 @@
+{
+  "artifactId": 13114667296,
+  "commit": "909f64b815a0b06b3dbdcc44a7e2ce797038fb14",
+  "packageSha256": "307d456123d378f89a8606ae426718d55faa6b8bbcfcb693ea95b4cc6d8b64b5",
+  "obsVersion": "33.0.1",
+  "platform": "Ubuntu 26.04.1 LTS",
+  "buildSdk": "32.2.0",
+  "loadedModule": "/usr/local/lib/x86_64-linux-gnu/obs-plugins/obs-vdoninja.so",
+  "sourceCycles": 3,
+  "cleanShutdown": true,
+  "ok": true,
+  "media": {
+    "ok": true,
+    "soakMs": 60000,
+    "videoContinuityAnalysis": {
+      "ok": true,
+      "failures": [],
+      "expectedFps": 30,
+      "durationSeconds": 60.002,
+      "playbackSeconds": 60.00600000000001,
+      "framesReceived": 1800,
+      "framesDecoded": 1799,
+      "framesDropped": 0,
+      "packetsLost": 0,
+      "packetLossCounter": {
+        "first": 0,
+        "last": 0,
+        "minimum": 0,
+        "maximum": 0,
+        "negativeSamples": 0,
+        "decreasingIntervals": 0,
+        "interpretation": "Reported cumulative counter delta; not proof of permanent packet loss."
+      },
+      "freezeCount": 0,
+      "totalFreezesDuration": 0,
+      "averageReceivedFps": 29.99900003333222,
+      "averageDecodedFps": 29.982333922202592,
+      "averageFpsRatio": 0.9994111307400864,
+      "minimumIntervalDecodedFps": 28.82703777335984,
+      "p05IntervalDecodedFps": 28.884462151394423,
+      "p95IntervalDecodedFps": 30.90727816550349,
+      "maximumObservedFrameStallMs": 0,
+      "meanInterFrameDelayMs": 33.377987770983886,
+      "interFrameStddevMs": 5.477782114692157,
+      "maximumObservedVideoJitterMs": 4,
+      "thresholds": {
+        "minimumAverageFpsRatio": 0.95,
+        "maximumFrameStallMs": 500,
+        "maximumInterFrameStddevMs": 20,
+        "maximumVideoJitterMs": 100,
+        "maximumDroppedFrames": 0,
+        "maximumLostPackets": 0
+      }
+    },
+    "obsPerformanceAnalysis": {
+      "ok": true,
+      "failures": [],
+      "durationSeconds": 60.047,
+      "renderFrames": 1801,
+      "renderSkippedFrames": 0,
+      "renderSkippedPercent": 0,
+      "outputFrames": 1800,
+      "outputSkippedFrames": 0,
+      "outputFps": 29.97651839392476,
+      "averageRenderTimeMs": 10.938809661290327,
+      "p95RenderTimeMs": 11.2923
+    },
+    "newConcealedSamples": 0,
+    "newConcealmentEvents": 0,
+    "nativeReceiverDecodedAudioVideo": true
+  },
+  "limitations": [
+    "Synthetic media and same-server peers",
+    "Software rendering/encoding",
+    "Physical capture and WAN/TURN not qualified"
+  ],
+  "pluginVersion": "1.1.85",
+  "harnessNote": "Initial frontend request exceeded the temporary runner\u2019s 3-second receive timeout; retest used a bounded 15-second timeout. No plugin change was needed.",
+  "publishedArchiveVerified": true,
+  "releaseUrl": "https://github.com/steveseguin/ninja-obs-plugin/releases/tag/v1.1.85"
+}

@@ -1,0 +1,63 @@
+{
+  "obsVersion": "33.0.1",
+  "baselinePluginInstalled": false,
+  "beforeReadinessGate": [
+    {
+      "ok": true,
+      "cleanShutdown": true
+    },
+    {
+      "ok": true,
+      "cleanShutdown": true
+    },
+    {
+      "ok": false,
+      "error": "Connection timed out"
+    },
+    {
+      "ok": true,
+      "cleanShutdown": true
+    },
+    {
+      "ok": true,
+      "cleanShutdown": true
+    }
+  ],
+  "afterReadinessGate": [
+    {
+      "ok": true,
+      "cleanShutdown": true
+    },
+    {
+      "ok": true,
+      "cleanShutdown": true
+    },
+    {
+      "ok": true,
+      "cleanShutdown": true
+    },
+    {
+      "ok": true,
+      "cleanShutdown": true
+    },
+    {
+      "ok": true,
+      "cleanShutdown": true
+    }
+  ],
+  "publishedFlatpakAfterReadinessGate": [
+    {
+      "ok": true,
+      "cleanShutdown": true
+    },
+    {
+      "ok": true,
+      "cleanShutdown": true
+    },
+    {
+      "ok": true,
+      "cleanShutdown": true
+    }
+  ],
+  "observation": "The failing plain-OBS control had no visible main window. Wait for the main window before issuing frontend editing requests; WebSocket readiness alone is insufficient in this isolated startup harness."
+}

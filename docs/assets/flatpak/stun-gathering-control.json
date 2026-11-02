@@ -1,0 +1,147 @@
+[
+  {
+    "name": "host-only",
+    "complete": true,
+    "elapsedMs": 191,
+    "candidates": [
+      {
+        "ms": 79,
+        "type": "host",
+        "protocol": "udp"
+      },
+      {
+        "ms": 82,
+        "type": "host",
+        "protocol": "udp"
+      }
+    ],
+    "errors": []
+  },
+  {
+    "name": "google",
+    "complete": true,
+    "elapsedMs": 39987,
+    "candidates": [
+      {
+        "ms": 89,
+        "type": "host",
+        "protocol": "udp"
+      },
+      {
+        "ms": 90,
+        "type": "host",
+        "protocol": "udp"
+      },
+      {
+        "ms": 116,
+        "type": "srflx",
+        "protocol": "udp"
+      },
+      {
+        "ms": 120,
+        "type": "srflx",
+        "protocol": "udp"
+      }
+    ],
+    "errors": [
+      {
+        "ms": 39987,
+        "code": 701,
+        "text": "STUN binding request timed out."
+      },
+      {
+        "ms": 39987,
+        "code": 701,
+        "text": "STUN binding request timed out."
+      }
+    ]
+  },
+  {
+    "name": "cloudflare",
+    "complete": true,
+    "elapsedMs": 39971,
+    "candidates": [
+      {
+        "ms": 82,
+        "type": "host",
+        "protocol": "udp"
+      },
+      {
+        "ms": 82,
+        "type": "host",
+        "protocol": "udp"
+      },
+      {
+        "ms": 101,
+        "type": "srflx",
+        "protocol": "udp"
+      },
+      {
+        "ms": 101,
+        "type": "srflx",
+        "protocol": "udp"
+      }
+    ],
+    "errors": [
+      {
+        "ms": 39971,
+        "code": 701,
+        "text": "STUN binding request timed out."
+      },
+      {
+        "ms": 39971,
+        "code": 701,
+        "text": "STUN binding request timed out."
+      }
+    ]
+  },
+  {
+    "name": "both",
+    "complete": true,
+    "elapsedMs": 39986,
+    "candidates": [
+      {
+        "ms": 84,
+        "type": "host",
+        "protocol": "udp"
+      },
+      {
+        "ms": 86,
+        "type": "host",
+        "protocol": "udp"
+      },
+      {
+        "ms": 100,
+        "type": "srflx",
+        "protocol": "udp"
+      },
+      {
+        "ms": 103,
+        "type": "srflx",
+        "protocol": "udp"
+      }
+    ],
+    "errors": [
+      {
+        "ms": 39970,
+        "code": 701,
+        "text": "STUN binding request timed out."
+      },
+      {
+        "ms": 39970,
+        "code": 701,
+        "text": "STUN binding request timed out."
+      },
+      {
+        "ms": 39986,
+        "code": 701,
+        "text": "STUN binding request timed out."
+      },
+      {
+        "ms": 39986,
+        "code": 701,
+        "text": "STUN binding request timed out."
+      }
+    ]
+  }
+]

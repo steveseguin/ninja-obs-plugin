@@ -12,6 +12,9 @@ const broker = (brokerArg || 'https://whep.vdo.ninja').replace(/\/$/, '');
 const playerIceServers = process.env.WHEP_PLAYER_ICE_SERVERS_JSON
   ? JSON.parse(process.env.WHEP_PLAYER_ICE_SERVERS_JSON) : null;
 assert(playerIceServers === null || Array.isArray(playerIceServers), 'WHEP_PLAYER_ICE_SERVERS_JSON must be an array');
+const playerIceGatherTimeoutMs = Number(process.env.WHEP_ICE_GATHER_TIMEOUT_MS || 12000);
+assert(Number.isFinite(playerIceGatherTimeoutMs) && playerIceGatherTimeoutMs >= 1000 && playerIceGatherTimeoutMs <= 120000,
+  'WHEP_ICE_GATHER_TIMEOUT_MS must be between 1000 and 120000');
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 async function until(fn, label, timeout = 40000) {
   const end = Date.now() + timeout;
@@ -23,6 +26,7 @@ async function until(fn, label, timeout = 40000) {
   const token = crypto.randomUUID();
   const report = { streamId: 'whepobs' + crypto.randomBytes(6).toString('hex'),
     endpoint: broker + '/' + token, cycles: [], players: 'Independent HTTP/RTCPeerConnection fixture',
+    playerIceGatherTimeoutMs,
     playerIceConfiguration: playerIceServers === null ? 'default STUN' :
       playerIceServers.length === 0 ? 'host candidates only' : 'custom ICE servers' };
   const browsers = [], pages = [];
@@ -102,6 +106,7 @@ async function until(fn, label, timeout = 40000) {
       const page = await browsers[browserIndex].newPage({ viewport: { width: 1280, height: 800 } }); pages.push(page);
       if (playerIceServers !== null)
         await page.addInitScript(servers => { window.playerIceServers = servers; }, playerIceServers);
+      await page.addInitScript(timeout => { window.playerIceGatherTimeoutMs = timeout; }, playerIceGatherTimeoutMs);
       await page.goto(fixtureUrl); await page.locator('header').click();
       await page.evaluate(args => startPlayback(...args), [endpoint, trickle, codec]);
       await until(async () => (await page.evaluate(() => playbackStats())).frames >= 20, 'decoded WHEP frames');
@@ -148,9 +153,14 @@ async function until(fn, label, timeout = 40000) {
       entry.playerDroppedAfterStop = true;
       for (const page of pages.splice(0)) if (!page.isClosed()) await page.close();
       if (cycle === 1) {
-        const begin = Date.now(); await client.request('StartStream'); await sleep(300);
+        const begin = Date.now(); await client.request('StartStream');
+        // obs-websocket rejects StopStream while asynchronous startup is pending.
+        // Measure stopping immediately after activation separately from connection time.
+        await until(active, 'immediate-stop output becomes active');
+        report.immediateStartMs = Date.now() - begin;
+        const activeAt = Date.now();
         await client.request('StopStream'); await until(async () => !await active(), 'immediate stop');
-        report.immediateStopMs = Date.now() - begin; assert(report.immediateStopMs < 20000); await sleep(1000);
+        report.immediateStopMs = Date.now() - activeAt; assert(report.immediateStopMs < 20000); await sleep(1000);
       }
     }
     if (thirdParty === 'eyevinn') {

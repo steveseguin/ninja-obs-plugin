@@ -22,6 +22,19 @@ def run(*args, **kwargs):
     return subprocess.check_output(args, text=True, **kwargs).strip()
 
 
+def wait_for_obs_window(process):
+    """The WebSocket server can become ready before OBS's frontend event loop."""
+    deadline = time.monotonic() + 30
+    while time.monotonic() < deadline:
+        assert process.poll() is None, 'OBS exited before showing its main window'
+        visible = subprocess.run(['xdotool', 'search', '--onlyvisible', '--name', '^OBS [0-9]'],
+                                 capture_output=True, text=True)
+        if visible.returncode == 0 and visible.stdout.strip():
+            return
+        time.sleep(.1)
+    raise RuntimeError('OBS main window did not appear; see obs.log')
+
+
 def check_media(output, port, password, soak_seconds, checks, report):
     """Exercise the installed output/receiver with real browser peers and synthetic media."""
     scripts = Path(__file__).resolve().parent
@@ -140,6 +153,8 @@ def main():
             client.send(json.dumps({'op': 1, 'd': {'rpcVersion': 1, 'authentication': response,
                                                   'eventSubscriptions': 0}}))
             assert json.loads(client.recv())['op'] == 2
+            # Startup accepts WebSocket clients before queued frontend work settles.
+            client.settimeout(15)
 
             def request(name, data=None):
                 deadline = time.monotonic() + 15
@@ -158,6 +173,7 @@ def main():
 
             report['version'] = request('GetVersion')
             report['inputKinds'] = request('GetInputKindList')['inputKinds']
+            wait_for_obs_window(process)
             assert 'vdoninja_source' in report['inputKinds'], 'VDO.Ninja source not registered'
             scene = 'Flatpak validation'
             request('CreateScene', {'sceneName': scene})

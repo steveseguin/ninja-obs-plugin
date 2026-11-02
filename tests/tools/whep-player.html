@@ -28,7 +28,7 @@ async function request(url, options) {
 function gathered(connection) {
   if (connection.iceGatheringState === 'complete') return Promise.resolve();
   return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(Error('ICE gathering timed out')), 12000);
+    const timer = setTimeout(() => reject(Error('ICE gathering timed out')), window.playerIceGatherTimeoutMs || 12000);
     connection.addEventListener('icegatheringstatechange', () => {
       if (connection.iceGatheringState === 'complete') { clearTimeout(timer); resolve(); }
     });

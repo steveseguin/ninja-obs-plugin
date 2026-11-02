@@ -81,6 +81,12 @@ report records this setting and the selected candidate types; this mode does
 not qualify connectivity across NAT or through TURN. The default keeps the
 player's Google and Cloudflare STUN servers.
 
+If the browser produces candidates but full ICE gathering exceeds the fixture's
+12-second default, `WHEP_ICE_GATHER_TIMEOUT_MS=60000` allows a bounded 60-second
+wait. The report records this setting. On the validation server, browser-only
+controls completed after roughly 40 seconds as additional STUN requests timed
+out; this option does not bypass gathering or relax media assertions.
+
 The manifest pins the SDK and libdatachannel source, including our existing relay
 policy patch. Building fails if OBS switches SDKs, so a runtime change receives
 review rather than silently producing a mismatched package. The native release
