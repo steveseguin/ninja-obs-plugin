@@ -545,7 +545,8 @@ $changesBody
 | --- | --- | --- |
 | Windows | 32.2.x | [Installer]($downloadBase/obs-vdoninja-windows-x64-setup.exe) / [ZIP]($downloadBase/obs-vdoninja-windows-x64.zip) |
 | Windows | 32.0.x-32.1.x | [Installer]($downloadBase/obs-vdoninja-windows-x64-obs32.0-32.1-setup.exe) / [ZIP]($downloadBase/obs-vdoninja-windows-x64-obs32.0-32.1.zip) |
-| Linux | 32.2.x | [TAR.GZ]($downloadBase/obs-vdoninja-linux-x86_64.tar.gz) |
+| Linux (native Ubuntu) | 32.2.x | [TAR.GZ]($downloadBase/obs-vdoninja-linux-x86_64.tar.gz) |
+| Linux (OBS Flatpak, x86-64) | Current Flathub stable, SDK 26.08 | [Flatpak bundle]($downloadBase/obs-vdoninja-linux-x86_64.flatpak) |
 | macOS (Apple silicon) | 32.2.x | [Installer]($downloadBase/obs-vdoninja-macos-arm64.pkg) / [ZIP]($downloadBase/obs-vdoninja-macos-arm64.zip) |
 
 [Install guide](https://github.com/steveseguin/ninja-obs-plugin/blob/main/INSTALL.md) | [Checksums]($downloadBase/checksums.txt)

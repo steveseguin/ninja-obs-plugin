@@ -113,6 +113,29 @@ Remove plugin + data:
 
 <a id="install-linux"></a>
 
+## Linux: OBS Flatpak
+
+**Test build:** Flatpak support is implemented but not yet in a published plugin release.
+Use the supplied test bundle, or build it with `scripts/build-flatpak.sh`.
+
+Keep your Flatpak OBS installation. Use the separate **`obs-vdoninja-linux-x86_64.flatpak`**
+bundle for current Flathub stable OBS on x86-64 Linux (OBS 33.0.1 / Freedesktop 26.08).
+Close OBS, then run in the folder containing the bundle:
+
+```bash
+flatpak update com.obsproject.Studio
+flatpak install --user ./obs-vdoninja-linux-x86_64.flatpak
+flatpak run com.obsproject.Studio
+```
+
+Open **Docks → VDO.Ninja Studio**, or add a **VDO.Ninja** source.
+Install a newer downloaded bundle with the same command to update the plugin;
+it is not yet listed on Flathub. No pacman/native OBS installation is required.
+
+Guide: https://steveseguin.github.io/ninja-obs-plugin/flatpak.html
+
+Build and test instructions: https://github.com/steveseguin/ninja-obs-plugin/tree/main/packaging/flatpak
+
 ## Linux (`obs-vdoninja-linux-x86_64.tar.gz`)
 
 New to Linux? See the [illustrated installation and troubleshooting guide](https://steveseguin.github.io/ninja-obs-plugin/linux-installation.html).

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="addon">
+  <id>com.obsproject.Studio.Plugin.VDONinja</id>
+  <extends>com.obsproject.Studio</extends>
+  <name>VDO.Ninja</name>
+  <summary>Send and receive live video with VDO.Ninja</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>AGPL-3.0-only</project_license>
+  <description>
+    <p>Connect OBS to VDO.Ninja guests, share a return feed, and publish video to WHEP players.</p>
+  </description>
+  <url type="homepage">https://vdo.ninja</url>
+  <url type="help">https://steveseguin.github.io/ninja-obs-plugin/</url>
+  <url type="bugtracker">https://github.com/steveseguin/ninja-obs-plugin/issues</url>
+</component>

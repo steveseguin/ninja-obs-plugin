@@ -73,6 +73,11 @@ jobs:
     needs: validate-release-metadata
     uses: ./.github/workflows/linux.yml
 
+  build-flatpak:
+    name: OBS Flatpak (current Flathub runtime)
+    needs: validate-release-metadata
+    uses: ./.github/workflows/flatpak.yml
+
   build-macos:
     name: macOS
     # OBS 32.2 requires the macOS 26.5 SDK / Xcode 26.5.
@@ -893,7 +898,7 @@ jobs:
   release:
     name: Create Release
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [build-linux, build-macos, build-windows]
+    needs: [build-linux, build-flatpak, build-macos, build-windows]
     runs-on: ubuntu-latest
     env:
       VT_API_KEY: ${{ secrets.VT_API_KEY }}
@@ -920,13 +925,14 @@ jobs:
       - name: Generate Checksums
         run: |
           cd artifacts
-          find . -type f \( -name "*.zip" -o -name "*.tar.gz" -o -name "*.exe" -o -name "*.pkg" \) -exec mv {} . \;
+          find . -type f \( -name "*.zip" -o -name "*.tar.gz" -o -name "*.exe" -o -name "*.pkg" -o -name "*.flatpak" \) -exec mv {} . \;
           required=(
             "obs-vdoninja-windows-x64-setup.exe"
             "obs-vdoninja-windows-x64.zip"
             "obs-vdoninja-windows-x64-obs32.0-32.1-setup.exe"
             "obs-vdoninja-windows-x64-obs32.0-32.1.zip"
             "obs-vdoninja-linux-x86_64.tar.gz"
+            "obs-vdoninja-linux-x86_64.flatpak"
             "obs-vdoninja-macos-arm64.pkg"
             "obs-vdoninja-macos-arm64.zip"
           )
@@ -937,7 +943,7 @@ jobs:
             fi
           done
           shopt -s nullglob
-          files=( *.zip *.tar.gz *.exe *.pkg )
+          files=( *.zip *.tar.gz *.exe *.pkg *.flatpak )
           if [ ${#files[@]} -eq 0 ]; then
             echo "No release files found for checksum generation."
             exit 1
@@ -951,7 +957,7 @@ jobs:
         run: |
           cd artifacts
           shopt -s nullglob
-          files=( *.zip *.tar.gz *.exe *.pkg )
+          files=( *.zip *.tar.gz *.exe *.pkg *.flatpak )
           if [ ${#files[@]} -eq 0 ]; then
             echo "No release files found for VirusTotal submission."
             exit 1
@@ -998,6 +1004,7 @@ jobs:
             artifacts/*.tar.gz
             artifacts/*.exe
             artifacts/*.pkg
+            artifacts/*.flatpak
             artifacts/checksums.txt
           )
 

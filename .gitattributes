@@ -1,0 +1,2 @@
+# Unified diff context intentionally contains a space before source tabs.
+packaging/flatpak/*.patch -whitespace

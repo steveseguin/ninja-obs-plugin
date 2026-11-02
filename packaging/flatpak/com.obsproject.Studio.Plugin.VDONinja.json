@@ -1,0 +1,73 @@
+{
+  "id": "com.obsproject.Studio.Plugin.VDONinja",
+  "branch": "stable",
+  "runtime": "com.obsproject.Studio",
+  "runtime-version": "stable",
+  "sdk": "org.freedesktop.Sdk//26.08",
+  "build-extension": true,
+  "separate-locales": false,
+  "build-options": {
+    "prefix": "/app/plugins/VDONinja",
+    "env": {
+      "CMAKE_PREFIX_PATH": "/app/plugins/VDONinja:/app"
+    }
+  },
+  "modules": [
+    {
+      "name": "libdatachannel",
+      "buildsystem": "cmake-ninja",
+      "builddir": true,
+      "config-opts": [
+        "-DCMAKE_BUILD_TYPE=Release",
+        "-DCMAKE_C_STANDARD=11",
+        "-DCMAKE_INSTALL_LIBDIR=lib",
+        "-DNO_EXAMPLES=ON",
+        "-DNO_TESTS=ON",
+        "-DUSE_GNUTLS=OFF",
+        "-DUSE_NICE=OFF",
+        "-DCMAKE_POLICY_VERSION_MINIMUM=3.5"
+      ],
+      "sources": [
+        {
+          "type": "git",
+          "url": "https://github.com/paullouisageneau/libdatachannel.git",
+          "tag": "v0.20.2",
+          "commit": "615e039e5a4fab5fd54a1ad132da50e5a9ade420"
+        },
+        { "type": "file", "path": "../../scripts/patch-libdatachannel-relay.py" },
+        { "type": "patch", "path": "libdatachannel-tcp-send-lock.patch" },
+        { "type": "shell", "commands": ["python3 patch-libdatachannel-relay.py ."] }
+      ],
+      "post-install": [
+        "install -Dm644 ${FLATPAK_BUILDER_BUILDDIR}/LICENSE ${FLATPAK_DEST}/share/licenses/obs-vdoninja/libdatachannel.txt",
+        "for dep in libjuice libsrtp plog; do install -Dm644 ${FLATPAK_BUILDER_BUILDDIR}/deps/$dep/LICENSE ${FLATPAK_DEST}/share/licenses/obs-vdoninja/$dep.txt; done",
+        "install -Dm644 ${FLATPAK_BUILDER_BUILDDIR}/deps/usrsctp/LICENSE.md ${FLATPAK_DEST}/share/licenses/obs-vdoninja/usrsctp.txt"
+      ]
+    },
+    {
+      "name": "obs-vdoninja",
+      "build-options": { "test-args": ["--share=network"] },
+      "buildsystem": "cmake-ninja",
+      "builddir": true,
+      "config-opts": [
+        "-DCMAKE_BUILD_TYPE=Release",
+        "-DCMAKE_INSTALL_LIBDIR=lib",
+        "-DBUILD_TESTS=OFF",
+        "-DBUILD_NATIVE_MEDIA_LINKED_GATE=ON",
+        "-DBUNDLE_LINUX_RUNTIME=OFF"
+      ],
+      "run-tests": true,
+      "test-rule": "",
+      "test-commands": [
+        "ctest --output-on-failure -L release-linked --no-tests=error",
+        "for attempt in 1 2 3 4 5; do ./vdoninja-native-media-linked-gate 'WHEP existing broker callback and independent close' || exit 1; done"
+      ],
+      "sources": [{ "type": "dir", "path": "source" }],
+      "post-install": [
+        "install -Dm644 ${FLATPAK_BUILDER_BUILDDIR}/LICENSE ${FLATPAK_DEST}/share/licenses/obs-vdoninja/LICENSE",
+        "install -Dm644 ${FLATPAK_BUILDER_BUILDDIR}/packaging/flatpak/com.obsproject.Studio.Plugin.VDONinja.metainfo.xml ${FLATPAK_DEST}/share/metainfo/com.obsproject.Studio.Plugin.VDONinja.metainfo.xml"
+      ]
+    }
+  ],
+  "cleanup": ["/include", "/lib/cmake", "/lib/pkgconfig", "*.a"]
+}

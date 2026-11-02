@@ -1,0 +1,46 @@
+name: Flatpak Build and Validation
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+  workflow_call:
+
+jobs:
+  flatpak:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install build and test tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y flatpak flatpak-builder xvfb xauth xdotool imagemagick python3-websocket
+          # Ubuntu's restricted user namespaces otherwise prevent bubblewrap on CI.
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          flatpak remote-add --user --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+          flatpak install --user -y --noninteractive flathub com.obsproject.Studio org.freedesktop.Sdk//26.08
+      - name: Build extension and run linked media tests
+        run: bash scripts/build-flatpak.sh "$RUNNER_TEMP/ninja-flatpak"
+      - name: Install and exercise OBS Flatpak
+        run: |
+          xvfb-run -a -s '-screen 0 1440x900x24' dbus-run-session -- \
+            python3 scripts/validate-flatpak.py \
+            "$RUNNER_TEMP/ninja-flatpak/obs-vdoninja-linux-x86_64.flatpak" \
+            "$RUNNER_TEMP/flatpak-validation"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: obs-vdoninja-flatpak-x86_64
+          path: ${{ runner.temp }}/ninja-flatpak/obs-vdoninja-linux-x86_64.flatpak
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: flatpak-validation
+          path: |
+            ${{ runner.temp }}/flatpak-validation/obs.log
+            ${{ runner.temp }}/flatpak-validation/obs-flatpak.png
+            ${{ runner.temp }}/flatpak-validation/obs-tools-menu.png
+            ${{ runner.temp }}/flatpak-validation/result.json
