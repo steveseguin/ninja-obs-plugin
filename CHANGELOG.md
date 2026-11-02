@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.85] - 2026-11-01
+
 ### Added
 - Build a separate x86-64 Flatpak extension for the current Flathub OBS runtime (OBS 33.0.1 / Freedesktop 26.08). Flatpak users can keep their OBS installation. Native Linux packages retain their OBS 32.2 baseline.
 - Include the Flatpak bundle in release checksums and require linked media tests plus installation/loading in actual OBS Flatpak before publishing it.
