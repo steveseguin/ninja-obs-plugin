@@ -1,0 +1,355 @@
+{
+  "date": "2026-11-01",
+  "commit": "a475a888c808817c7ae39986162354f80dd333c8",
+  "bundle": "GitHub Actions artifact 13111453716",
+  "bundleSha256": "736df900031e6a8c46f190ea25055295d155ba036abd45cf71ed06da0035a337",
+  "obsVersion": "33.0.1",
+  "obsCommit": "28b32b8f9e50b4fc6564266312cce8af79d22b72a2f39ba1556c7cbb516563ec",
+  "extensionCommit": "86a0f412e00fc4b15f3d2fe4f8077f6b6490ea95790f36cd3c83a45d36508f77",
+  "loadedModule": "/app/plugins/VDONinja/lib/obs-plugins/obs-vdoninja.so",
+  "ci": {
+    "url": "https://github.com/steveseguin/ninja-obs-plugin/actions/runs/41377448639",
+    "conclusion": "success",
+    "ctestRegistrationsPassed": 9,
+    "additionalBurstPasses": 5
+  },
+  "publishing": {
+    "video": {
+      "ok": true,
+      "failures": [],
+      "expectedFps": 30,
+      "durationSeconds": 120.005,
+      "playbackSeconds": 119.994,
+      "framesReceived": 3600,
+      "framesDecoded": 3598,
+      "framesDropped": 0,
+      "packetsLost": 0,
+      "packetLossCounter": {
+        "first": 0,
+        "last": 0,
+        "minimum": 0,
+        "maximum": 0,
+        "negativeSamples": 0,
+        "decreasingIntervals": 0,
+        "interpretation": "Reported cumulative counter delta; not proof of permanent packet loss."
+      },
+      "freezeCount": 0,
+      "totalFreezesDuration": 0,
+      "averageReceivedFps": 29.998750052081164,
+      "averageDecodedFps": 29.98208407983001,
+      "averageFpsRatio": 0.9994028026610003,
+      "minimumIntervalDecodedFps": 28.91326021934198,
+      "p05IntervalDecodedFps": 29.821073558648113,
+      "p95IntervalDecodedFps": 30.87649402390438,
+      "maximumObservedFrameStallMs": 0,
+      "meanInterFrameDelayMs": 33.34769316286826,
+      "interFrameStddevMs": 5.0104403465447165,
+      "maximumObservedVideoJitterMs": 5,
+      "thresholds": {
+        "minimumAverageFpsRatio": 0.95,
+        "maximumFrameStallMs": 500,
+        "maximumInterFrameStddevMs": 20,
+        "maximumVideoJitterMs": 100,
+        "maximumDroppedFrames": 0,
+        "maximumLostPackets": 0
+      }
+    },
+    "obsPerformance": {
+      "ok": true,
+      "failures": [],
+      "durationSeconds": 120.007,
+      "renderFrames": 3600,
+      "renderSkippedFrames": 0,
+      "renderSkippedPercent": 0,
+      "outputFrames": 3601,
+      "outputSkippedFrames": 0,
+      "outputFps": 30.006582949327953,
+      "averageRenderTimeMs": 9.956279614754099,
+      "p95RenderTimeMs": 10.229065
+    },
+    "newConcealedSamples": 0,
+    "newConcealmentEvents": 0
+  },
+  "nativeReceiver": {
+    "ok": true,
+    "source": "Codex Native Viewer 1793586819224",
+    "meanPixelDifference": 8.2733203125,
+    "screenshots": [
+      "native-receiver-0.png",
+      "native-receiver-1.png"
+    ]
+  },
+  "whep": {
+    "ok": true,
+    "browsers": [
+      "145.0.7632.6",
+      "146.0.1"
+    ],
+    "playerIceConfiguration": "host candidates only",
+    "immediateStopMs": 552,
+    "cycles": [
+      {
+        "cycle": 1,
+        "startMs": 2752,
+        "stopMs": 253,
+        "playerDroppedAfterStop": true,
+        "viewerLimitEnforced": true,
+        "chrome": {
+          "framesDelta": 60,
+          "audioPackets": 340,
+          "rms": 0.062429259905097734,
+          "peakHz": 445.3125,
+          "pixel": [
+            255,
+            127,
+            48,
+            255
+          ],
+          "videoCodec": "video/H264",
+          "audioCodec": "audio/opus",
+          "route": {
+            "local": "host",
+            "remote": "host",
+            "protocol": "udp"
+          },
+          "requests": [
+            {
+              "method": "POST",
+              "status": 201
+            },
+            {
+              "method": "PATCH",
+              "status": 204
+            }
+          ]
+        },
+        "firefox": {
+          "framesDelta": 61,
+          "audioPackets": 263,
+          "rms": 0.06253236486176611,
+          "peakHz": 445.3125,
+          "pixel": [
+            255,
+            127,
+            48,
+            255
+          ],
+          "videoCodec": "video/H264",
+          "audioCodec": "audio/opus",
+          "route": {
+            "local": "host",
+            "remote": "host",
+            "protocol": "udp"
+          },
+          "requests": [
+            {
+              "method": "POST",
+              "status": 201
+            },
+            {
+              "method": "PATCH",
+              "status": 204
+            }
+          ]
+        },
+        "third": {
+          "framesDelta": 60,
+          "audioPackets": 150,
+          "rms": 0.06250973267948894,
+          "peakHz": 445.3125,
+          "pixel": [
+            255,
+            127,
+            48,
+            255
+          ],
+          "videoCodec": "video/H264",
+          "audioCodec": "audio/opus",
+          "route": {
+            "local": "host",
+            "remote": "host",
+            "protocol": "udp"
+          },
+          "requests": [
+            {
+              "method": "POST",
+              "status": 201
+            }
+          ]
+        },
+        "survivor": {
+          "framesDelta": 60,
+          "audioPackets": 674,
+          "rms": 0.06253887288184469,
+          "peakHz": 445.3125,
+          "pixel": [
+            255,
+            127,
+            48,
+            255
+          ],
+          "videoCodec": "video/H264",
+          "audioCodec": "audio/opus",
+          "route": {
+            "local": "host",
+            "remote": "host",
+            "protocol": "udp"
+          },
+          "requests": [
+            {
+              "method": "POST",
+              "status": 201
+            },
+            {
+              "method": "PATCH",
+              "status": 204
+            }
+          ]
+        },
+        "replacement": {
+          "framesDelta": 60,
+          "audioPackets": 239,
+          "rms": 0.06249215525817999,
+          "peakHz": 445.3125,
+          "pixel": [
+            255,
+            127,
+            48,
+            255
+          ],
+          "videoCodec": "video/H264",
+          "audioCodec": "audio/opus",
+          "route": {
+            "local": "host",
+            "remote": "host",
+            "protocol": "udp"
+          },
+          "requests": [
+            {
+              "method": "POST",
+              "status": 201
+            }
+          ]
+        }
+      },
+      {
+        "cycle": 2,
+        "startMs": 2752,
+        "stopMs": 251,
+        "playerDroppedAfterStop": true,
+        "chrome": {
+          "framesDelta": 60,
+          "audioPackets": 226,
+          "rms": 0.06246703968040515,
+          "peakHz": 445.3125,
+          "pixel": [
+            255,
+            127,
+            48,
+            255
+          ],
+          "videoCodec": "video/H264",
+          "audioCodec": "audio/opus",
+          "route": {
+            "local": "host",
+            "remote": "host",
+            "protocol": "udp"
+          },
+          "requests": [
+            {
+              "method": "POST",
+              "status": 201
+            }
+          ]
+        },
+        "firefox": {
+          "framesDelta": 61,
+          "audioPackets": 285,
+          "rms": 0.06244996691768753,
+          "peakHz": 445.3125,
+          "pixel": [
+            255,
+            127,
+            48,
+            255
+          ],
+          "videoCodec": "video/H264",
+          "audioCodec": "audio/opus",
+          "route": {
+            "local": "host",
+            "remote": "host",
+            "protocol": "udp"
+          },
+          "requests": [
+            {
+              "method": "POST",
+              "status": 201
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "cleanShutdown": true,
+  "browserOnlyIceControl": [
+    {
+      "urls": [],
+      "candidates": [
+        "host"
+      ],
+      "errors": [],
+      "state": "complete",
+      "durationMs": 129.70000004768372
+    },
+    {
+      "urls": [
+        "stun:stun.l.google.com:19302"
+      ],
+      "candidates": [
+        "host",
+        "srflx"
+      ],
+      "errors": [],
+      "state": "gathering",
+      "durationMs": 25003.5
+    },
+    {
+      "urls": [
+        "stun:stun.cloudflare.com:3478"
+      ],
+      "candidates": [
+        "host",
+        "srflx"
+      ],
+      "errors": [],
+      "state": "gathering",
+      "durationMs": 25003.099999904633
+    },
+    {
+      "urls": [
+        "stun:stun.l.google.com:19302",
+        "stun:stun.cloudflare.com:3478"
+      ],
+      "candidates": [
+        "host",
+        "srflx"
+      ],
+      "errors": [],
+      "state": "gathering",
+      "durationMs": 25002.700000047684
+    }
+  ],
+  "limitations": [
+    "Synthetic media; Xvfb/software rendering",
+    "Media peers on the same Ubuntu host; hosted signaling and WHEP broker",
+    "Default-STUN WHEP full-offer gathering timed out twice before the third viewer sent its offer; same delay reproduced without OBS",
+    "No Guest Return room, physical camera/microphone, hardware encoding, cross-NAT/TURN or multi-hour soak qualification"
+  ],
+  "finalHarnessRetest": {
+    "outputUnderHostTmp": true,
+    "soakSeconds": 30,
+    "ok": true,
+    "cleanShutdown": true,
+    "nativeReceiverDecodedAudioVideo": true
+  }
+}

@@ -48,8 +48,26 @@ else
   exit 1
 fi
 
+# Package metadata keeps the native Ubuntu/FFmpeg runtime bands distinct.
+OBS_BANDS=(32.2)
+if [[ -f "$PKG_ROOT/obs-version.txt" ]]; then
+  mapfile -t OBS_BANDS < "$PKG_ROOT/obs-version.txt"
+fi
+OBS_SUPPORTED=""
+for band in "${OBS_BANDS[@]}"; do
+  if [[ "$band" != '32.2' && "$band" != '33.0' ]]; then
+    echo "Unsupported package OBS band: $band" >&2
+    exit 1
+  fi
+  OBS_SUPPORTED+="${OBS_SUPPORTED:+ / }$band.x"
+done
+if [[ -z "$OBS_SUPPORTED" ]]; then
+  echo 'Empty package OBS compatibility metadata' >&2
+  exit 1
+fi
+
 if ! command -v obs >/dev/null 2>&1; then
-  echo "Native OBS Studio 32.2.x is required. This installer does not install into Snap or Flatpak." >&2
+  echo "Native OBS Studio $OBS_SUPPORTED is required. This installer does not install into Snap or Flatpak." >&2
   exit 1
 fi
 OBS_PATH="$(readlink -f "$(command -v obs)")"
@@ -63,8 +81,14 @@ OBS_VERSION_TEXT="$(obs --version 2>&1)" || {
   echo "Could not determine the native OBS version: $OBS_VERSION_TEXT" >&2
   exit 1
 }
-if [[ ! "$OBS_VERSION_TEXT" =~ OBS[[:space:]]+Studio[[:space:]]+(-[[:space:]]+)?32\.2\.[0-9]+([^0-9]|$) ]]; then
-  echo "This package requires OBS Studio 32.2.x; detected: $OBS_VERSION_TEXT" >&2
+OBS_MATCH=false
+if [[ "$OBS_VERSION_TEXT" =~ OBS[[:space:]]+Studio[[:space:]]+(-[[:space:]]+)?([0-9]+)\.([0-9]+)\.[0-9]+([^0-9]|$) ]]; then
+  for band in "${OBS_BANDS[@]}"; do
+    if [[ "${BASH_REMATCH[2]}.${BASH_REMATCH[3]}" == "$band" ]]; then OBS_MATCH=true; fi
+  done
+fi
+if [[ "$OBS_MATCH" != true ]]; then
+  echo "This package requires OBS Studio $OBS_SUPPORTED; detected: $OBS_VERSION_TEXT" >&2
   exit 1
 fi
 

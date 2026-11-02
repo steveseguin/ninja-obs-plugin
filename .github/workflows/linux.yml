@@ -17,8 +17,30 @@ env:
 
 jobs:
   build-linux:
-    name: Linux
-    runs-on: ubuntu-24.04
+    name: Linux (OBS ${{ matrix.obs_band }}, Ubuntu ${{ matrix.ubuntu }})
+    runs-on: ubuntu-${{ matrix.ubuntu }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - ubuntu: '24.04'
+            obs_version: 32.2.0
+            obs_band: '32.2'
+            supported_bands: '32.2'
+            runtime_versions: '32.2.0 32.2.1 32.2.2 32.1.2 32.0.4'
+            gui_version: 32.2.2
+            asset_suffix: ''
+          - ubuntu: '26.04'
+            obs_version: 32.2.0
+            obs_band: '32.2 / 33.0'
+            supported_bands: '32.2 33.0'
+            runtime_versions: '32.2.0 33.0.0 33.0.1'
+            gui_version: 33.0.1
+            asset_suffix: '-ubuntu26.04'
+    env:
+      OBS_VERSION: ${{ matrix.obs_version }}
+      OBS_SOURCE_REF: ${{ matrix.obs_version }}
+      OBS_SOURCE_TAG: ${{ matrix.obs_version }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -222,12 +244,13 @@ jobs:
           cp README.md install/
           cp THIRD_PARTY_LICENSES.md install/
           cp RELEASE_COMPLIANCE.md install/
+          printf '%s\n' ${{ matrix.supported_bands }} > install/obs-version.txt
           cp scripts/install-package-linux.sh install/install.sh
           cp scripts/uninstall-package-linux.sh install/uninstall.sh
           chmod +x install/install.sh
           chmod +x install/uninstall.sh
           cd install
-          tar -czvf ../${{ env.PLUGIN_NAME }}-linux-x86_64.tar.gz .
+          tar -czvf ../${{ env.PLUGIN_NAME }}-linux-x86_64${{ matrix.asset_suffix }}.tar.gz .
 
       - name: Test Linux installer and uninstaller
         run: sudo python3 tests/test-linux-package.py
@@ -238,7 +261,7 @@ jobs:
         run: |
           package_check_dir="$(mktemp -d)"
           trap 'rm -rf "$package_check_dir"' EXIT
-          tar -xzf "${{ env.PLUGIN_NAME }}-linux-x86_64.tar.gz" -C "$package_check_dir"
+          tar -xzf "${{ env.PLUGIN_NAME }}-linux-x86_64${{ matrix.asset_suffix }}.tar.gz" -C "$package_check_dir"
           mapfile -t plugins < <(find "$package_check_dir" -name obs-vdoninja.so -type f)
           test "${#plugins[@]}" -eq 1
           python3 scripts/validate-linux-package.py "${plugins[0]}" --obs-version "${{ env.OBS_VERSION }}"
@@ -248,21 +271,21 @@ jobs:
           compatibility_dir="$(mktemp -d)"
           trap 'rm -rf "$compatibility_dir"' EXIT
           mkdir "$compatibility_dir/plugin"
-          tar -xzf "${{ env.PLUGIN_NAME }}-linux-x86_64.tar.gz" -C "$compatibility_dir/plugin"
+          tar -xzf "${{ env.PLUGIN_NAME }}-linux-x86_64${{ matrix.asset_suffix }}.tar.gz" -C "$compatibility_dir/plugin"
           mapfile -t plugins < <(find "$compatibility_dir/plugin" -name obs-vdoninja.so -type f)
           test "${#plugins[@]}" -eq 1
-          # Test patch upgrades with the same 32.2.0-built binary. Keep older
-          # runtimes as negative controls; do not silently widen support.
-          for version in 32.2.0 32.2.1 32.2.2 32.1.2 32.0.4; do
+          # Keep each package at the oldest SDK in its runtime/dependency band.
+          # The Ubuntu 24.04 package also retains older negative controls.
+          for version in ${{ matrix.runtime_versions }}; do
             runtime_dir="$compatibility_dir/$version"
             mkdir "$runtime_dir"
             curl --fail --location --retry 3 \
-              "https://github.com/obsproject/obs-studio/releases/download/$version/OBS-Studio-$version-Ubuntu-24.04-x86_64.deb" \
+              "https://github.com/obsproject/obs-studio/releases/download/$version/OBS-Studio-$version-Ubuntu-${{ matrix.ubuntu }}-x86_64.deb" \
               --output "$runtime_dir/obs.deb"
             dpkg-deb --extract "$runtime_dir/obs.deb" "$runtime_dir"
             expect=incompatible
             initialization_args=()
-            if [[ "$version" == 32.2.* ]]; then
+            if [[ " ${{ matrix.supported_bands }} " == *" ${version%.*} "* ]]; then
               expect=compatible
               initialization_args=(--initialize --clock-fixture "$GITHUB_WORKSPACE/build/vdoninja-clock-fixture.so")
             fi
@@ -276,14 +299,14 @@ jobs:
       - name: Test installer with a fully installed Ubuntu OBS
         run: |
           curl --fail --location --retry 3 \
-            https://github.com/obsproject/obs-studio/releases/download/32.2.2/OBS-Studio-32.2.2-Ubuntu-24.04-x86_64.deb \
+            https://github.com/obsproject/obs-studio/releases/download/${{ matrix.gui_version }}/OBS-Studio-${{ matrix.gui_version }}-Ubuntu-${{ matrix.ubuntu }}-x86_64.deb \
             --output obs-runtime.deb
-          docker run --rm -v "${{ github.workspace }}:/repo:ro" ubuntu:24.04 \
+          docker run --rm -v "${{ github.workspace }}:/repo:ro" ubuntu:${{ matrix.ubuntu }} \
             bash /repo/tests/test-ubuntu-package.sh \
-            /repo/${{ env.PLUGIN_NAME }}-linux-x86_64.tar.gz /repo/obs-runtime.deb
+            /repo/${{ env.PLUGIN_NAME }}-linux-x86_64${{ matrix.asset_suffix }}.tar.gz /repo/obs-runtime.deb
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ env.PLUGIN_NAME }}-linux-x86_64
-          path: ${{ env.PLUGIN_NAME }}-linux-x86_64.tar.gz
+          name: ${{ env.PLUGIN_NAME }}-linux-x86_64${{ matrix.asset_suffix }}
+          path: ${{ env.PLUGIN_NAME }}-linux-x86_64${{ matrix.asset_suffix }}.tar.gz

@@ -12,6 +12,7 @@ env:
   # OBS 32.2 moved from FFmpeg 7 to FFmpeg 8, changing the runtime DLL names
   # imported by the plugin. Current Linux/macOS packages target the oldest
   # 32.2 release; Windows additionally ships a labeled 32.0-32.1 legacy build.
+  # linux.yml also builds for Ubuntu 26.04 / OBS 32.2-33.0 (different FFmpeg sonames).
   OBS_VERSION: 32.2.0
   OBS_SOURCE_REF: 32.2.0
   OBS_SOURCE_TAG: 32.2.0
@@ -451,6 +452,27 @@ jobs:
           cd install
           zip -r ../${{ env.PLUGIN_NAME }}-macos-${{ matrix.arch }}.zip .
 
+      - name: Check packaged module against official OBS 32.2 and 33 runtimes
+        timeout-minutes: 15
+        run: |
+          # Use official app dependencies, never the SDK/Homebrew libraries.
+          for version in 32.2.0 33.0.0 33.0.1; do
+            runtime="$RUNNER_TEMP/obs-$version"
+            mkdir -p "$runtime/mount" "$runtime/extracted"
+            curl --fail --location --retry 3 \
+              "https://github.com/obsproject/obs-studio/releases/download/$version/OBS-Studio-$version-macOS-Apple.dmg" \
+              --output "$runtime/obs.dmg"
+            hdiutil attach "$runtime/obs.dmg" -nobrowse -readonly -mountpoint "$runtime/mount"
+            cp -R "$runtime/mount/OBS.app" "$runtime/extracted/OBS.app"
+            hdiutil detach "$runtime/mount"
+            frameworks="$runtime/extracted/OBS.app/Contents/Frameworks"
+            DYLD_FRAMEWORK_PATH="$frameworks" DYLD_LIBRARY_PATH="$frameworks" \
+              python3 scripts/validate-obs-module.py \
+              install/lib/obs-plugins/obs-vdoninja.so install/share/obs/obs-plugins/obs-vdoninja \
+              --obs-library "$frameworks/libobs.framework/libobs" \
+              --runtime-version "$version" --build-version "${{ env.OBS_VERSION }}"
+          done
+
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
@@ -887,6 +909,28 @@ jobs:
             }
           }
 
+      - name: Check packaged module against official OBS runtimes
+        shell: pwsh
+        timeout-minutes: 20
+        run: |
+          $versions = if ("${{ matrix.obs_version }}" -eq "32.2.0") {
+            @("32.2.0", "33.0.0", "33.0.1")
+          } else {
+            @("32.0.4", "32.1.2")
+          }
+          foreach ($version in $versions) {
+            $runtime = Join-Path $env:RUNNER_TEMP "obs-runtime-$version"
+            New-Item -ItemType Directory -Force $runtime | Out-Null
+            $archive = Join-Path $runtime "obs.zip"
+            Invoke-WebRequest "https://github.com/obsproject/obs-studio/releases/download/$version/OBS-Studio-$version-Windows-x64.zip" -OutFile $archive
+            Expand-Archive $archive -DestinationPath $runtime
+            python scripts/validate-obs-module.py `
+              install/obs-plugins/64bit/obs-vdoninja.dll install/data/obs-plugins/obs-vdoninja `
+              --obs-library "$runtime/bin/64bit/obs.dll" `
+              --runtime-version $version --build-version "${{ matrix.obs_version }}"
+            if ($LASTEXITCODE -ne 0) { throw "OBS $version module compatibility check failed" }
+          }
+
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
@@ -932,6 +976,7 @@ jobs:
             "obs-vdoninja-windows-x64-obs32.0-32.1-setup.exe"
             "obs-vdoninja-windows-x64-obs32.0-32.1.zip"
             "obs-vdoninja-linux-x86_64.tar.gz"
+            "obs-vdoninja-linux-x86_64-ubuntu26.04.tar.gz"
             "obs-vdoninja-linux-x86_64.flatpak"
             "obs-vdoninja-macos-arm64.pkg"
             "obs-vdoninja-macos-arm64.zip"

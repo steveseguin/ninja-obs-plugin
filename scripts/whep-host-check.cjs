@@ -9,6 +9,9 @@ const { ObsWebSocketClient } = require('./obs-websocket-vdoninja-source-check.cj
 const [url, output, cyclesArg, brokerArg, thirdParty, remote] = process.argv.slice(2);
 const cycles = Math.max(1, Number(cyclesArg || 2));
 const broker = (brokerArg || 'https://whep.vdo.ninja').replace(/\/$/, '');
+const playerIceServers = process.env.WHEP_PLAYER_ICE_SERVERS_JSON
+  ? JSON.parse(process.env.WHEP_PLAYER_ICE_SERVERS_JSON) : null;
+assert(playerIceServers === null || Array.isArray(playerIceServers), 'WHEP_PLAYER_ICE_SERVERS_JSON must be an array');
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 async function until(fn, label, timeout = 40000) {
   const end = Date.now() + timeout;
@@ -19,7 +22,9 @@ async function until(fn, label, timeout = 40000) {
   const client = new ObsWebSocketClient(url);
   const token = crypto.randomUUID();
   const report = { streamId: 'whepobs' + crypto.randomBytes(6).toString('hex'),
-    endpoint: broker + '/' + token, cycles: [], players: 'Independent HTTP/RTCPeerConnection fixture' };
+    endpoint: broker + '/' + token, cycles: [], players: 'Independent HTTP/RTCPeerConnection fixture',
+    playerIceConfiguration: playerIceServers === null ? 'default STUN' :
+      playerIceServers.length === 0 ? 'host candidates only' : 'custom ICE servers' };
   const browsers = [], pages = [];
   let server;
   try {
@@ -95,6 +100,8 @@ async function until(fn, label, timeout = 40000) {
     }
     async function newPlayer(browserIndex, trickle = false, codec = 'H264') {
       const page = await browsers[browserIndex].newPage({ viewport: { width: 1280, height: 800 } }); pages.push(page);
+      if (playerIceServers !== null)
+        await page.addInitScript(servers => { window.playerIceServers = servers; }, playerIceServers);
       await page.goto(fixtureUrl); await page.locator('header').click();
       await page.evaluate(args => startPlayback(...args), [endpoint, trickle, codec]);
       await until(async () => (await page.evaluate(() => playbackStats())).frames >= 20, 'decoded WHEP frames');

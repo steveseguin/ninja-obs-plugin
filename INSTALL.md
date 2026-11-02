@@ -16,12 +16,14 @@ Platform quick links:
 
 | Platform | OBS version | Package to download |
 | --- | --- | --- |
-| Windows | `32.2.x` | `obs-vdoninja-windows-x64-setup.exe` or the matching ZIP |
+| Windows | `32.2.x` or `33.0.x` | `obs-vdoninja-windows-x64-setup.exe` or the matching ZIP |
 | Windows | `32.0.x` or `32.1.x` | `obs-vdoninja-windows-x64-obs32.0-32.1-setup.exe` or the matching legacy ZIP |
-| Linux | `32.2.x` | `obs-vdoninja-linux-x86_64.tar.gz` |
-| macOS (Apple silicon) | `32.2.x` | `obs-vdoninja-macos-arm64.pkg` or the matching ZIP |
+| Linux (Ubuntu 24.04) | `32.2.x` | `obs-vdoninja-linux-x86_64.tar.gz` |
+| Linux (Ubuntu 26.04) | `32.2.x` or `33.0.x` | `obs-vdoninja-linux-x86_64-ubuntu26.04.tar.gz` |
+| Linux (Flatpak, x86-64) | Flathub OBS `33.0.1`, SDK `26.08` | `obs-vdoninja-linux-x86_64.flatpak` |
+| macOS (Apple silicon) | `32.2.x` or `33.0.x` | `obs-vdoninja-macos-arm64.pkg` or the matching ZIP |
 
-Do not mix the two Windows builds: OBS 32.2 uses FFmpeg 8, while OBS 32.0-32.1 use FFmpeg 7. This release has no prebuilt package for OBS 31.x or older and makes no compatibility promise for future OBS versions beyond 32.2.x.
+Do not mix the two Windows builds: OBS 32.2 uses FFmpeg 8, while OBS 32.0-32.1 use FFmpeg 7. This release has no prebuilt package for OBS 31.x or older and makes no compatibility promise for future OBS versions beyond 33.0.x.
 
 ## Windows
 
@@ -38,7 +40,7 @@ Recommended (new users):
 
 Use the existing OBS root (for example, `D:\Custom OBS`), not its `bin`, `bin\64bit`, or `obs-plugins` subfolder. If several OBS copies are installed, select the one you intend to run. Detection is only a suggestion; the folder page also appears on updates.
 
-The primary Windows downloads target OBS `32.2.x`. OBS `32.0.x-32.1.x` users must instead download `obs-vdoninja-windows-x64-obs32.0-32.1-setup.exe` or the matching legacy ZIP.
+The primary Windows downloads target OBS `32.2.x` and `33.0.x`. OBS `32.0.x-32.1.x` users must instead download `obs-vdoninja-windows-x64-obs32.0-32.1-setup.exe` or the matching legacy ZIP.
 
 ZIP fallback (`obs-vdoninja-windows-x64.zip`):
 
@@ -140,7 +142,10 @@ Build and test instructions: https://github.com/steveseguin/ninja-obs-plugin/tre
 
 New to Linux? See the [illustrated installation and troubleshooting guide](https://steveseguin.github.io/ninja-obs-plugin/linux-installation.html).
 
-This package is for **native x86-64 OBS Studio 32.2.x** on Ubuntu 24.04.
+Choose the native archive for your Ubuntu version. **Ubuntu 24.04 / OBS 32.2.x**
+uses `obs-vdoninja-linux-x86_64.tar.gz`. **Ubuntu 26.04 / OBS 32.2.x or 33.0.x**
+uses `obs-vdoninja-linux-x86_64-ubuntu26.04.tar.gz`. The latter uses newer FFmpeg
+shared libraries; the two native archives are not interchangeable.
 Ubuntu 24.04's stock OBS 30.0.2 package is too old. Check `obs --version` before
 installing; see the [OBS Linux installation guide](https://obsproject.com/kb/linux-installation)
 for native installation options, and verify the installed version matches this package.
@@ -192,7 +197,7 @@ An OBS scene collection can also retain references to a removed VDO.Ninja source
 
 ## macOS (`obs-vdoninja-macos-arm64.pkg` or `.zip`)
 
-Current Apple silicon packages target OBS 32.2.x on macOS 13 or later. Bundled
+Current Apple silicon packages target OBS 32.2.x and 33.0.x on macOS 13 or later. Bundled
 dependencies are checked against that minimum.
 
 `obs-vdoninja-macos-arm64.pkg` is for native Apple Silicon OBS. Intel Macs, and Apple Silicon Macs running Intel OBS under Rosetta, need an `x86_64` or universal package.

@@ -1,6 +1,7 @@
 # OBS compatibility and release validation
 
-Reviewed on 2026-09-05. Latest stable OBS: [32.2.2](https://github.com/obsproject/obs-studio/releases/tag/32.2.2).
+Updated on 2026-11-01 for OBS [33.0.1](https://github.com/obsproject/obs-studio/releases/tag/33.0.1).
+The earlier runtime results below were collected on 2026-09-05.
 
 ## How upgrades are handled
 
@@ -10,15 +11,18 @@ the loader rejects a plugin built for a newer major/minor OBS version; it ignore
 the patch portion of that check. See the
 [OBS module loader](https://github.com/obsproject/obs-studio/blob/32.2.2/libobs/obs-module.c).
 
-Keep the release SDK at **32.2.0**, and test the resulting binary on later 32.2
-patch releases. Do not raise the SDK baseline to 32.2.2 merely because it is newer.
+Keep the release SDK at **32.2.0**, and test the resulting binary on later supported
+OBS releases. Do not raise the SDK baseline to 32.2.2 merely because it is newer.
 Passing the API check is necessary but not sufficient: shared libraries, exported
 symbols, CPU architecture, and platform runtime requirements must also match.
 
 | Plugin package | Supported OBS band | Build SDK |
 | --- | --- | --- |
-| Linux native x86-64, macOS Apple silicon, primary Windows x64 | 32.2.x | 32.2.0 |
+| Linux native Ubuntu 24.04 x86-64 | 32.2.x | 32.2.0 |
+| Linux native Ubuntu 26.04 x86-64 | 32.2.x / 33.0.x | 32.2.0 |
+| macOS Apple silicon, primary Windows x64 | 32.2.x / 33.0.x | 32.2.0 |
 | Windows x64 legacy (`obs32.0-32.1` filenames) | 32.0.x–32.1.x | 32.0.4 |
+| OBS Flatpak x86-64 | Current Flathub stable, tested 33.0.1 | Current Flathub OBS / SDK 26.08 |
 
 The Windows split is necessary because OBS 32.2 moved from FFmpeg 7 to FFmpeg 8,
 changing the DLLs imported by the plugin. Linux and macOS do not currently have
@@ -30,6 +34,28 @@ OBS 32.2.2 includes a Windows fix for plugins not loading on the first start aft
 an OBS upgrade. OBS 32.2 also changes macOS support and may migrate Intel OBS on
 Apple silicon to native OBS, which requires matching Apple silicon plugins. See
 [upstream release notes](https://github.com/obsproject/obs-studio/releases/tag/32.2.2).
+
+## OBS 33 release gates
+
+The native Linux archive built on Ubuntu 24.04 cannot be reused on a clean
+Ubuntu 26.04 OBS 33 installation: the real loader rejected its missing
+`libavcodec.so.60` dependency. The separate `-ubuntu26.04` archive uses that
+platform's newer FFmpeg runtime while retaining SDK 32.2.0. Package metadata
+restricts each installer to its supported OBS bands. CI initializes the actual
+plugin on 32.2.0, 33.0.0 and 33.0.1 for Ubuntu 26.04; the original Ubuntu 24.04
+matrix and its older-version negative controls remain required.
+
+Windows and macOS release jobs use the official 32.2.0, 33.0.0 and 33.0.1 runtime
+downloads to resolve the packaged plugin's dependencies and call the actual OBS
+module loader. Legacy Windows additionally checks 32.0.4 and 32.1.2. These
+loader checks verify both the loaded OBS version and the plugin's embedded SDK;
+they do not replace interactive or live-media platform qualification.
+
+OBS 33 continues loading the legacy native installation locations. OBS 34 is
+outside this release's supported range. See [OBS's migration guidance](https://obsproject.com/kb/legacy-plugin-locations).
+Flatpak users should update to **33.0.1**, whose upstream fixes include Flatpak
+plugin loading. The native archives are not Flatpak extensions; use the separate
+`.flatpak` bundle. See [installed Flatpak media results](flatpak-validation.md).
 
 ## Validation performed
 

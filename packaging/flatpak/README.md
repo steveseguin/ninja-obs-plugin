@@ -51,6 +51,35 @@ configuration, exercises source creation/destruction, verifies the loaded module
 path, captures a screenshot, and checks normal shutdown. It saves a JSON result
 and OBS log beside the screenshot. It does not alter existing OBS scenes.
 
+For an installed-package media check, install the repository's Node dependencies
+and Playwright Chromium/Firefox browsers, and provide host `ffmpeg` with libx264.
+Firefox needs an H.264 decoder; an external OpenH264 GMP can be supplied through
+`MOZ_GMP_PATH` (the directory containing `gmpopenh264.info` and
+`libgmpopenh264.so`). The media check uses synthetic video/audio, public VDO.Ninja
+signaling and the hosted WHEP service:
+
+```bash
+MOZ_GMP_PATH=/path/to/gmp-gmpopenh264/2.6.0 \
+xvfb-run -a -s '-screen 0 1440x900x24' dbus-run-session -- \
+  python3 scripts/validate-flatpak.py \
+  ./obs-vdoninja-linux-x86_64.flatpak ./flatpak-media-validation \
+  --media-tests --soak-seconds 120
+```
+
+This checks 720p30 publishing with a simultaneous native receiver and browser
+viewer, followed by two WHEP start/stop cycles in Chromium and Firefox. WHEP
+checks decoded pixels and a 440 Hz audio tone, viewer limits, independent viewer
+closure, replacement viewers and immediate output stop. Logs and screenshots
+are retained in the output directory. This optional network test is separate
+from the deterministic linked tests run during every build.
+
+Use `--media-tests publishing` or `--media-tests whep` to rerun one workflow.
+For peers on the same machine, `WHEP_PLAYER_ICE_SERVERS_JSON='[]'` restricts the
+WHEP player to host candidates, avoiding dependence on public STUN replies. The
+report records this setting and the selected candidate types; this mode does
+not qualify connectivity across NAT or through TURN. The default keeps the
+player's Google and Cloudflare STUN servers.
+
 The manifest pins the SDK and libdatachannel source, including our existing relay
 policy patch. Building fails if OBS switches SDKs, so a runtime change receives
 review rather than silently producing a mismatched package. The native release

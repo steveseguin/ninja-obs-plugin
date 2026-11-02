@@ -21,6 +21,53 @@ Evidence: [native Ubuntu result](assets/flatpak/validation.json),
 [Studio screenshot](assets/flatpak/obs-studio.png),
 [Tools menu](assets/flatpak/tools-menu.png).
 
+## Installed-package media retest
+
+The Flatpak workflow for `a475a88` [passed on GitHub Actions](https://github.com/steveseguin/ninja-obs-plugin/actions/runs/41377448639),
+including all nine linked CTest registrations, five additional WHEP burst passes,
+installation, module-path verification and clean OBS shutdown. Its actual bundle
+(artifact `13111453716`, SHA-256
+`736df900031e6a8c46f190ea25055295d155ba036abd45cf71ed06da0035a337`)
+was then downloaded and tested on this Ubuntu server.
+
+| Installed CI bundle check | Result |
+| --- | --- |
+| 720p30 H.264/Opus publishing, 120-second measured interval | Passed; 29.982 decoded fps; zero reported video drops, packet loss or freezes |
+| OBS rendering/output during that interval | Zero render skips and output skips; 9.96 ms average render time |
+| Browser audio during that interval | Zero new concealment samples/events |
+| Simultaneous native receiver | Decoded audio/video; two screenshots showed moving test-pattern pixels |
+| Hosted WHEP broker, Chromium 145 and Firefox 146 | Both decoded H.264/Opus, expected orange pixels and the 440 Hz tone |
+| WHEP lifecycle with host candidates | Two cycles; three viewers, fourth-viewer rejection, independent closure and replacement all passed |
+| Output stop / immediate start-stop | Normal stops around 250 ms; immediate start-stop 552 ms |
+| Shutdown after WHEP | Clean exit |
+
+These used synthetic media, Xvfb/software rendering and media peers on the same
+host. Signaling and the WHEP broker were public services. They do not establish
+WAN/TURN connectivity, physical device support or long-session reliability.
+
+The default-STUN WHEP test twice timed out gathering a third viewer's complete
+offer, before sending it to the plugin. A separate Chromium control without OBS
+reproduced this: Google STUN, Cloudflare STUN and both together produced host and
+server-reflexive candidates but remained in `gathering` after 25 seconds. With no
+STUN servers, gathering completed in 130 ms. The full lifecycle retest explicitly
+used `WHEP_PLAYER_ICE_SERVERS_JSON='[]'`; this is recorded in the evidence and is
+not a passing result for the default-STUN workflow.
+
+Firefox initially lacked an H.264 decoder. The retest supplied Cisco OpenH264
+2.6.0 through `MOZ_GMP_PATH`, with its download SHA-512 checked against
+[Mozilla's published metadata](https://bugzilla.mozilla.org/show_bug.cgi?id=1953427#c0).
+
+The retest also found and fixed a harness issue: host `/tmp` output directories
+were hidden by Flatpak's private `/tmp`. The launcher now grants access to the
+specific test directory. It also bounds startup waiting by elapsed time, retains
+failure reports, and supports optional `--media-tests` workflows. The plugin
+binary did not need a change.
+
+Evidence: [sanitized media results](assets/flatpak/media-validation.json).
+Raw logs, screenshots and workflow reports are retained locally under
+`artifacts/flatpak-ci-media/` and `artifacts/flatpak-ci-whep-host/`.
+See [reproduction commands](../packaging/flatpak/README.md).
+
 ## Why the dependency patch is included
 
 The existing WHEP burst test exposed concurrent TCP queue draining in
@@ -34,10 +81,14 @@ https://github.com/paullouisageneau/libdatachannel/blob/master/src/impl/tcptrans
 
 ## Remaining work
 
-1. Test real publishing, receiving, Guest Return and WHEP playback on a Linux
-   desktop, including microphone/camera access, hardware encoding and a long session.
-2. Run the new GitHub Flatpak workflow before a public release; its installed-OBS
-   check is a release dependency and the bundle is included in release checksums.
+1. Test Guest Return rooms and real guest devices on a Linux desktop, including
+   microphone/camera access, hardware encoding, cross-NAT/TURN connectivity and a
+   long session. Resolve or characterize the default-STUN gathering delay on the
+   intended network. Server publishing/native reception and host-candidate WHEP
+   lifecycle checks above are complete.
+2. Keep the GitHub Flatpak workflow green for the eventual release commit; the
+   first run passed. Its installed-OBS check is a release dependency and the
+   bundle is included in release checksums.
 3. Publish through `scripts/release.ps1` after qualification; replace the test-build
    notices in the install guides when the download exists.
 4. Evaluate the TCP send-lock backport in native Windows/macOS/Linux dependency

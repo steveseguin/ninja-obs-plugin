@@ -22,11 +22,61 @@ def run(*args, **kwargs):
     return subprocess.check_output(args, text=True, **kwargs).strip()
 
 
+def check_media(output, port, password, soak_seconds, checks, report):
+    """Exercise the installed output/receiver with real browser peers and synthetic media."""
+    scripts = Path(__file__).resolve().parent
+    if checks in ('all', 'publishing'):
+        fixture = output / 'media.mp4'
+        subprocess.run(['ffmpeg', '-hide_banner', '-loglevel', 'error', '-f', 'lavfi',
+            '-i', 'testsrc2=size=1280x720:rate=30', '-f', 'lavfi', '-i', 'sine=frequency=440:sample_rate=48000',
+            '-t', '10', '-c:v', 'libx264', '-preset', 'ultrafast', '-pix_fmt', 'yuv420p',
+            '-c:a', 'aac', str(fixture)], check=True, timeout=60)
+        env = dict(os.environ, OBS_WEBSOCKET_URL=f'ws://127.0.0.1:{port}',
+            OBS_WEBSOCKET_PASSWORD=password, VDONINJA_BASE_URL='https://vdo.ninja/alpha/',
+            VDONINJA_SOURCE_MODE='media-sequence', VDONINJA_MEDIA_SEQUENCE_PATH=str(fixture),
+            VDONINJA_MEDIA_SEQUENCE_LOOP='1', VDONINJA_NATIVE_VIEWER='1',
+            VDONINJA_VIDEO_WIDTH='1280', VDONINJA_VIDEO_HEIGHT='720',
+            VDONINJA_VIDEO_FPS_NUMERATOR='30', VDONINJA_VIDEO_FPS_DENOMINATOR='1',
+            VDONINJA_VIDEO_BITRATE_KBPS='3000', VDONINJA_SOAK_MS=str(soak_seconds * 1000),
+            VDONINJA_VIEWER_STABILIZE_MS='5000', VDONINJA_REQUIRE_STABLE_VIDEO='1',
+            VDONINJA_OUTPUT_DIR=str(output / 'publishing'))
+        with (output / 'publishing.log').open('w') as log:
+            subprocess.run(['node', str(scripts / 'obs-websocket-vdoninja-publish-check.cjs'),
+                'flatpak' + uuid.uuid4().hex, 'false'], env=env, stdout=log,
+                stderr=subprocess.STDOUT, check=True, timeout=soak_seconds + 240)
+        publishing = json.loads(next((output / 'publishing').glob('obs-publish-report-*.json')).read_text())
+        report['publishing'] = {key: publishing.get(key) for key in (
+            'ok', 'soakMs', 'videoContinuityAnalysis', 'obsPerformanceAnalysis',
+            'newConcealedSamples', 'newConcealmentEvents', 'nativeViewer')}
+        report['publishing']['videoContinuityAnalysis'].pop('intervals', None)
+        obs_log = (output / 'obs.log').read_text(errors='replace')
+        for kind in ('video', 'audio'):
+            assert f'Native receiver decoded first {kind} frame' in obs_log, f'Native receiver decoded no {kind}'
+        report['publishing']['nativeReceiverDecodedAudioVideo'] = True
+    if checks in ('all', 'whep'):
+        whep = output / 'whep'
+        whep.mkdir()
+        subprocess.run(['ffmpeg', '-hide_banner', '-loglevel', 'error', '-f', 'lavfi',
+            '-i', 'sine=frequency=440:sample_rate=48000', '-t', '4', '-ac', '2',
+            str(whep / 'tone.wav')], check=True, timeout=30)
+        with (output / 'whep.log').open('w') as log:
+            subprocess.run(['node', str(scripts / 'whep-host-check.cjs'),
+                f'ws://127.0.0.1:{port}', str(whep), '2', 'https://whep.vdo.ninja'],
+                env=dict(os.environ, OBS_WEBSOCKET_PASSWORD=password), stdout=log,
+                stderr=subprocess.STDOUT, check=True, timeout=600)
+        report['whep'] = json.loads((whep / 'whep-workflow.json').read_text())
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('bundle', type=Path)
     parser.add_argument('output', type=Path)
+    parser.add_argument('--media-tests', nargs='?', const='all', choices=('all', 'publishing', 'whep'),
+                        help='Also test publishing/native reception and hosted WHEP; needs ffmpeg, Node and Playwright browsers')
+    parser.add_argument('--soak-seconds', type=int, default=60)
     args = parser.parse_args()
+    if args.soak_seconds < 10:
+        parser.error('--soak-seconds must be at least 10')
     bundle = args.bundle.resolve(strict=True)
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=False)
@@ -47,6 +97,8 @@ def main():
     profile = config / 'basic/profiles/Flatpak'
     profile.mkdir(parents=True)
     (profile / 'basic.ini').write_text('[General]\nName=Flatpak\n'
+        '[Output]\nMode=Simple\n[SimpleOutput]\nStreamEncoder=x264\nPreset=veryfast\n'
+        'VBitrate=3000\nStreamAudioEncoder=opus\nABitrate=128\n'
         '[Video]\nBaseCX=1280\nBaseCY=720\nOutputCX=1280\nOutputCY=720\nFPSType=0\nFPSCommon=30\n',
         encoding='utf-8')
     with socket.socket() as sock:
@@ -62,14 +114,16 @@ def main():
               'extensionCommit': run('flatpak', 'info', '--user', '--show-commit', extension)}
     client = None
     with (output / 'obs.log').open('w') as log:
-        process = subprocess.Popen(['flatpak', 'run', '--socket=x11', '--nosocket=wayland',
+        process = subprocess.Popen(['flatpak', 'run', f'--filesystem={output}',
+            '--socket=x11', '--nosocket=wayland',
             '--env=QT_QPA_PLATFORM=xcb',
             '--env=LIBGL_ALWAYS_SOFTWARE=1', '--command=sh', app, '-c',
             'export XDG_CONFIG_HOME="$1"; shift; exec obs "$@"', 'flatpak-validation',
             str(config.parent), '--multi', '--profile', 'Flatpak', '--disable-missing-files-check'],
             stdout=log, stderr=subprocess.STDOUT)
         try:
-            for _ in range(120):
+            deadline = time.monotonic() + 60
+            while time.monotonic() < deadline:
                 if process.poll() is not None:
                     raise RuntimeError('OBS exited; see obs.log')
                 try:
@@ -132,6 +186,9 @@ def main():
                     pass
             assert len(matches) == 1, f'Expected one OBS loading our extension: {matches}'
             report['loadedModule'] = '/app/plugins/VDONinja/lib/obs-plugins/obs-vdoninja.so'
+            if args.media_tests:
+                report['media'] = {}
+                check_media(output, port, password, args.soak_seconds, args.media_tests, report['media'])
             client.close()
             client = None
             status = Path(f'/proc/{matches[0]}/status').read_text()
@@ -152,8 +209,12 @@ def main():
             process.wait(timeout=30)
             assert process.returncode == 0, f'OBS exit: {process.returncode}'
             report['cleanShutdown'] = True
-            (output / 'result.json').write_text(json.dumps(report, indent=2) + '\n')
+            report['ok'] = True
             print(json.dumps(report, indent=2))
+        except BaseException as error:
+            report['ok'] = False
+            report['error'] = str(error)
+            raise
         finally:
             if client:
                 client.close()
@@ -167,6 +228,7 @@ def main():
             # The temporary WebSocket password is not part of retained evidence.
             if wsconfig.exists():
                 wsconfig.unlink()
+            (output / 'result.json').write_text(json.dumps(report, indent=2) + '\n')
 
 
 if __name__ == '__main__':

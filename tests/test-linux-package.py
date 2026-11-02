@@ -210,6 +210,35 @@ class LinuxPackageTests(unittest.TestCase):
             self.assertIn('requires OBS Studio 32.2.x', self.run_script('install.sh', success=False))
         self.assertFalse((self.root / 'usr/share/obs').exists())
 
+    def test_obs33_package_band(self):
+        self.fixture()
+        (self.pkg / 'obs-version.txt').write_text('33.0\n')
+        for version in ('32.2.2', '33.1.0', '34.0.0', '33x0.1'):
+            self.obs_version('OBS Studio - ' + version)
+            self.assertIn('requires OBS Studio 33.0.x', self.run_script('install.sh', success=False))
+        self.assertFalse((self.root / 'usr/share/obs').exists())
+        for version in ('33.0.0', '33.0.1'):
+            self.obs_version('OBS Studio - ' + version)
+            self.run_script('install.sh')
+            self.run_script('uninstall.sh', '--remove-data')
+
+    def test_invalid_package_band_rejected(self):
+        self.fixture()
+        (self.pkg / 'obs-version.txt').write_text('.*\n')
+        self.assertIn('Unsupported package OBS band', self.run_script('install.sh', success=False))
+        self.assertFalse((self.root / 'usr/share/obs').exists())
+
+    def test_ubuntu26_package_accepts_oldest_sdk_and_obs33(self):
+        self.fixture()
+        (self.pkg / 'obs-version.txt').write_text('32.2\n33.0\n')
+        for version in ('32.2.0', '32.2.2', '33.0.0', '33.0.1'):
+            self.obs_version('OBS Studio - ' + version)
+            self.run_script('install.sh')
+            self.run_script('uninstall.sh', '--remove-data')
+        for version in ('32.1.2', '33.1.0', '34.0.0', '32x2.0'):
+            self.obs_version('OBS Studio - ' + version)
+            self.run_script('install.sh', success=False)
+
     def test_snap_and_missing_obs_rejected(self):
         self.fixture()
         obs = self.root / 'usr/bin/obs'
