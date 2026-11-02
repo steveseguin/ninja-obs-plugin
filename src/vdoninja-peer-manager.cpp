@@ -1682,7 +1682,10 @@ std::shared_ptr<PeerInfo> VDONinjaPeerManager::createPublisherConnection(const s
 	pruneRetiredPeers(kRetiredPeerCleanupDelayMs);
 
 	auto config = getRtcConfig();
-	if (!whepOffer.empty())
+	// Detached ICE-restart replacements must stay stable until they are active.
+	// Auto-negotiation can otherwise enter HaveLocalOffer before its SDP callback
+	// fills lastLocalOfferSdp, causing requestIceRestart to reject a valid peer.
+	if (!whepOffer.empty() || !registerPeer)
 		config.disableAutoNegotiation = true;
 	auto pc = std::make_shared<rtc::PeerConnection>(config);
 

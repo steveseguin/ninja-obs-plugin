@@ -176,8 +176,10 @@ jobs:
           cd libdatachannel
           git submodule update --init --recursive --depth 1
           python3 ../scripts/patch-libdatachannel-relay.py .
+          # libjuice in 0.20.2 uses ATOMIC_VAR_INIT, removed by C23 toolchains.
           cmake -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_STANDARD=11 \
             -DCMAKE_INSTALL_PREFIX=/usr/local \
             -DNO_EXAMPLES=ON \
             -DNO_TESTS=ON \

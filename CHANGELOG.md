@@ -14,6 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Gate Windows/macOS packages on loading with official OBS 32.2.0, 33.0.0 and 33.0.1 runtimes. Linux checks both Ubuntu dependency families; legacy Windows retains checks against OBS 32.0.4 and 32.1.2.
 
 ### Fixed
+- Keep ICE-restart replacement connections from auto-negotiating before activation, avoiding an intermittent restart rejection with newer libdatachannel.
+- Compile the pinned native Linux dependency with C11 on newer Ubuntu toolchains.
 - Allow Flatpak validation profiles under host `/tmp`, retain failed-run reports, and provide repeatable installed-package media checks.
 - Select native Linux compatibility from package metadata so the Ubuntu 24.04 and Ubuntu 26.04 FFmpeg dependencies cannot be confused.
 

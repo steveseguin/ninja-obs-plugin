@@ -535,10 +535,10 @@ if [ -n "$CONSOLE_USER" ] && [ "$CONSOLE_USER" != "root" ] && id "$CONSOLE_USER"
       case "$obs_version" in
         "$OBS_COMPAT_PREFIX".*|33.0.*) ;;
         "")
-          log "WARNING: could not determine OBS version for $obs_app. This plugin package targets OBS $OBS_COMPAT_PREFIX.x."
+          log "WARNING: could not determine OBS version for $obs_app. This plugin package targets OBS $OBS_COMPAT_PREFIX.x or 33.0.x."
           ;;
         *)
-          log "WARNING: $obs_app is OBS $obs_version. This plugin package targets OBS $OBS_COMPAT_PREFIX.x."
+          log "WARNING: $obs_app is OBS $obs_version. This plugin package targets OBS $OBS_COMPAT_PREFIX.x or 33.0.x."
           ;;
       esac
 
