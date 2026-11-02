@@ -21,6 +21,11 @@ $ExpectedReleaseLinkedTests = @(
     "vdoninja-native-media-linked-owner-hook-track-kinds",
     "vdoninja-native-media-linked-owner-hook-feedback",
     "vdoninja-native-media-linked-full",
+    "vdoninja-native-media-linked-whep-burst-1",
+    "vdoninja-native-media-linked-whep-burst-2",
+    "vdoninja-native-media-linked-whep-burst-3",
+    "vdoninja-native-media-linked-whep-burst-4",
+    "vdoninja-native-media-linked-whep-burst-5",
     "vdoninja-module-lifecycle-linked"
 )
 $ExpectedReleaseLinkedMetadata = @{
@@ -63,6 +68,12 @@ $ExpectedReleaseLinkedMetadata = @{
     "vdoninja-module-lifecycle-linked" = @{
         Labels = @("module-lifecycle-linked", "release-linked")
         Timeout = 60
+    }
+}
+foreach ($iteration in 1..5) {
+    $ExpectedReleaseLinkedMetadata["vdoninja-native-media-linked-whep-burst-$iteration"] = @{
+        Labels = @("native-media-linked", "whep-burst", "release-linked")
+        Timeout = 45
     }
 }
 $ExpectedCMakeCacheEntries = @(

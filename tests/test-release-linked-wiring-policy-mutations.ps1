@@ -20,6 +20,11 @@ function New-GreenCMakeFixture {
         "vdoninja-native-media-linked-owner-hook-track-kinds" = "video alpha audio Track completions share one owner session"
         "vdoninja-native-media-linked-owner-hook-feedback" = "admitted feedback completion drains before owner state"
         "vdoninja-native-media-linked-full" = ""
+        "vdoninja-native-media-linked-whep-burst-1" = "WHEP existing broker callback"
+        "vdoninja-native-media-linked-whep-burst-2" = "WHEP existing broker callback"
+        "vdoninja-native-media-linked-whep-burst-3" = "WHEP existing broker callback"
+        "vdoninja-native-media-linked-whep-burst-4" = "WHEP existing broker callback"
+        "vdoninja-native-media-linked-whep-burst-5" = "WHEP existing broker callback"
     }
     $lines = New-Object System.Collections.Generic.List[string]
     foreach ($line in @(
@@ -50,9 +55,11 @@ function New-GreenCMakeFixture {
         $lines.Add("${command})") | Out-Null
     }
     foreach ($entry in $filters.GetEnumerator()) {
-        $timeout = if ($entry.Key -like '*owner-lifetime-*') { 30 } elseif ($entry.Key -like '*-full') { 600 } else { 60 }
+        $timeout = if ($entry.Key -like '*owner-lifetime-*') { 30 } elseif ($entry.Key -like '*-full') { 600 } elseif ($entry.Key -like '*-whep-burst-*') { 45 } else { 60 }
         $labels = if ($entry.Key -like '*-full') {
             'native-media-linked;release-linked'
+        } elseif ($entry.Key -like '*-whep-burst-*') {
+            'native-media-linked;whep-burst;release-linked'
         } else {
             'native-media-linked;owner-lifetime;release-linked'
         }
@@ -170,6 +177,11 @@ $ExpectedReleaseLinkedTests = @(
     "vdoninja-native-media-linked-owner-hook-track-kinds",
     "vdoninja-native-media-linked-owner-hook-feedback",
     "vdoninja-native-media-linked-full",
+    "vdoninja-native-media-linked-whep-burst-1",
+    "vdoninja-native-media-linked-whep-burst-2",
+    "vdoninja-native-media-linked-whep-burst-3",
+    "vdoninja-native-media-linked-whep-burst-4",
+    "vdoninja-native-media-linked-whep-burst-5",
     "vdoninja-module-lifecycle-linked"
 )
 $ExpectedCMakeCacheEntries = @(

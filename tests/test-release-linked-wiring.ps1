@@ -703,7 +703,12 @@ $expectedNativeTests = @(
     "vdoninja-native-media-linked-owner-hook-registration-failure",
     "vdoninja-native-media-linked-owner-hook-track-kinds",
     "vdoninja-native-media-linked-owner-hook-feedback",
-    "vdoninja-native-media-linked-full"
+    "vdoninja-native-media-linked-full",
+    "vdoninja-native-media-linked-whep-burst-1",
+    "vdoninja-native-media-linked-whep-burst-2",
+    "vdoninja-native-media-linked-whep-burst-3",
+    "vdoninja-native-media-linked-whep-burst-4",
+    "vdoninja-native-media-linked-whep-burst-5"
 )
 $moduleTestName = "vdoninja-module-lifecycle-linked"
 $expectedReleaseLinkedTests = @($expectedNativeTests) + @($moduleTestName)
@@ -712,7 +717,7 @@ $cmakeAddTests = @(Get-CMakeAddTests $cmakeText)
 $registeredTests = @($cmakeAddTests | ForEach-Object Name)
 $registeredNativeTests = @($registeredTests | Where-Object { $_ -like 'vdoninja-native-media-linked-*' })
 Add-PolicyCheck `
-    "CMake registers the exact nine native linked tests" `
+    "CMake registers the exact native linked tests" `
     (Test-ExactSequenceSet $registeredNativeTests $expectedNativeTests) `
     ("Native CTest inventory mismatch: " + (Format-SetDifference $registeredNativeTests $expectedNativeTests))
 
@@ -745,6 +750,11 @@ $expectedNativeFilters = [ordered]@{
     "vdoninja-native-media-linked-owner-hook-track-kinds" = "video alpha audio Track completions share one owner session"
     "vdoninja-native-media-linked-owner-hook-feedback" = "admitted feedback completion drains before owner state"
     "vdoninja-native-media-linked-full" = ""
+    "vdoninja-native-media-linked-whep-burst-1" = "WHEP existing broker callback"
+    "vdoninja-native-media-linked-whep-burst-2" = "WHEP existing broker callback"
+    "vdoninja-native-media-linked-whep-burst-3" = "WHEP existing broker callback"
+    "vdoninja-native-media-linked-whep-burst-4" = "WHEP existing broker callback"
+    "vdoninja-native-media-linked-whep-burst-5" = "WHEP existing broker callback"
 }
 foreach ($entry in $expectedNativeFilters.GetEnumerator()) {
     $registrations = @($cmakeAddTests | Where-Object Name -CEQ $entry.Key)
@@ -778,6 +788,11 @@ $expectedTimeouts = [ordered]@{
     "vdoninja-native-media-linked-owner-hook-track-kinds" = 60
     "vdoninja-native-media-linked-owner-hook-feedback" = 60
     "vdoninja-native-media-linked-full" = 600
+    "vdoninja-native-media-linked-whep-burst-1" = 45
+    "vdoninja-native-media-linked-whep-burst-2" = 45
+    "vdoninja-native-media-linked-whep-burst-3" = 45
+    "vdoninja-native-media-linked-whep-burst-4" = 45
+    "vdoninja-native-media-linked-whep-burst-5" = 45
     "vdoninja-module-lifecycle-linked" = 60
 }
 foreach ($entry in $expectedTimeouts.GetEnumerator()) {
@@ -794,6 +809,8 @@ foreach ($nativeTest in $expectedNativeTests) {
     $labels = if ($hasProperties) { @($testProperties[$nativeTest].Labels) } else { @() }
     $expectedLabels = if ($nativeTest -ceq "vdoninja-native-media-linked-full") {
         @("native-media-linked", "release-linked")
+    } elseif ($nativeTest -like "*-whep-burst-*") {
+        @("native-media-linked", "whep-burst", "release-linked")
     } else {
         @("native-media-linked", "owner-lifetime", "release-linked")
     }
