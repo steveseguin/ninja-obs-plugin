@@ -1,6 +1,6 @@
 # Flatpak validation — 2026-11-01
 
-Status: working test bundle, not a published plugin release or Flathub listing.
+Release qualification: v1.1.85. Distribution is a direct Flatpak bundle; there is no Flathub listing.
 
 | Item | Result |
 | --- | --- |
@@ -68,6 +68,22 @@ Raw logs, screenshots and workflow reports are retained locally under
 `artifacts/flatpak-ci-media/` and `artifacts/flatpak-ci-whep-host/`.
 See [reproduction commands](../packaging/flatpak/README.md).
 
+## Synthetic Guest Return room
+
+The same installed CI bundle also passed a room session with a director and two
+Chromium guests using synthetic cameras/microphones. Both guests received 1280×720
+program video at approximately 30 fps during a 38-second measured interval.
+The return audio contained the 1200 Hz shared clip and 1500 Hz host microphone;
+the guests' 300/600 Hz microphone tones were over 90 dB below those program tones.
+Guest audio was routed to OBS track 1 and excluded from return track 2.
+
+One guest reloaded/rejoined successfully. Stopping and restarting Guest Return
+restored program media to both guests, and OBS shut down cleanly afterward.
+These checks used public room signaling with peers on the same server and do not
+qualify physical cameras/microphones, WAN/TURN routes or extended sessions.
+
+Evidence: [Guest Return results](assets/flatpak/guest-return-validation.json).
+
 ## Why the dependency patch is included
 
 The existing WHEP burst test exposed concurrent TCP queue draining in
@@ -81,19 +97,16 @@ https://github.com/paullouisageneau/libdatachannel/blob/master/src/impl/tcptrans
 
 ## Remaining work
 
-1. Test Guest Return rooms and real guest devices on a Linux desktop, including
+1. Test real guest devices on a Linux desktop, including
    microphone/camera access, hardware encoding, cross-NAT/TURN connectivity and a
    long session. Resolve or characterize the default-STUN gathering delay on the
    intended network. Server publishing/native reception and host-candidate WHEP
-   lifecycle checks above are complete.
-2. Keep the GitHub Flatpak workflow green for the eventual release commit; the
-   first run passed. Its installed-OBS check is a release dependency and the
-   bundle is included in release checksums.
-3. Publish through `scripts/release.ps1` after qualification; replace the test-build
-   notices in the install guides when the download exists.
-4. Evaluate the TCP send-lock backport in native Windows/macOS/Linux dependency
+   lifecycle checks and the synthetic Guest Return room above are complete.
+2. Keep the GitHub Flatpak workflow green for each release. Its installed-OBS
+   check is a release dependency and the bundle is included in release checksums.
+3. Evaluate the TCP send-lock backport in native Windows/macOS/Linux dependency
    builds and run their network regression tests.
-5. Optional: submit a Flathub extension for automatic plugin updates. Direct
+4. Optional: submit a Flathub extension for automatic plugin updates. Direct
    bundle installation works without a Flathub listing.
 
 Reproduction and installation:

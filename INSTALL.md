@@ -117,8 +117,8 @@ Remove plugin + data:
 
 ## Linux: OBS Flatpak
 
-**Test build:** Flatpak support is implemented but not yet in a published plugin release.
-Use the supplied test bundle, or build it with `scripts/build-flatpak.sh`.
+Download the Flatpak bundle from the [release assets](https://github.com/steveseguin/ninja-obs-plugin/releases/latest),
+or build it with `scripts/build-flatpak.sh`.
 
 Keep your Flatpak OBS installation. Use the separate **`obs-vdoninja-linux-x86_64.flatpak`**
 bundle for current Flathub stable OBS on x86-64 Linux (OBS 33.0.1 / Freedesktop 26.08).

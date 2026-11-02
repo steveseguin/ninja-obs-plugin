@@ -1,0 +1,48 @@
+{
+  "ok": true,
+  "guests": [
+    {
+      "guest": "Alice",
+      "seconds": 38.434000000000005,
+      "frames": 1154,
+      "fps": 30.02549825675183,
+      "audioBytes": 973038,
+      "tonesDb": {
+        "300": -142.212890625,
+        "600": -142.079345703125,
+        "900": -118.65264129638672,
+        "1200": -44.910552978515625,
+        "1500": -44.75227355957031
+      }
+    },
+    {
+      "guest": "Ben",
+      "seconds": 38.425000000000004,
+      "frames": 1152,
+      "fps": 29.980481457384514,
+      "audioBytes": 973038,
+      "tonesDb": {
+        "300": -142.488037109375,
+        "600": -142.2056121826172,
+        "900": -118.638671875,
+        "1200": -44.910560607910156,
+        "1500": -44.75227355957031
+      }
+    }
+  ],
+  "guestReloadPassed": true,
+  "returnStopRestartPassed": true,
+  "bundleSha256": "736df900031e6a8c46f190ea25055295d155ba036abd45cf71ed06da0035a337",
+  "pluginVersion": "1.1.84",
+  "obsVersion": "33.0.1",
+  "cleanShutdown": true,
+  "mediaDevices": "synthetic",
+  "peerLocation": "same server",
+  "rendering": "Xvfb / software",
+  "limitations": [
+    "Physical guest devices",
+    "Hardware capture/encoding",
+    "WAN/TURN routes",
+    "Long sessions"
+  ]
+}

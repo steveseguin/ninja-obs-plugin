@@ -22,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Validation
 - Flatpak: 92 linked media cases, five additional 16 MiB WebSocket burst checks, and real OBS installation/source lifecycle/keyboard/shutdown checks on WSL and a separate Ubuntu 24.04 x86-64 server. Screenshots were visually reviewed. Live guest sessions and hardware capture/encoding remain unqualified.
 - The CI-built Flatpak passed two-minute 720p30 publishing, native audio/video reception, and Chromium/Firefox WHEP viewer lifecycle checks with host candidates. Default-STUN full-offer gathering timed out in both the workflow and a browser-only control; cross-NAT/TURN and hardware/long-session qualification remain outstanding.
+- A synthetic Flatpak Guest Return room passed two guests at 720p30, host/shared audio with guest-microphone exclusion, guest reload/rejoin, return stop/restart and clean OBS shutdown. Physical guest devices and WAN/TURN remain unqualified.
 
 ## [1.1.84] - 2026-10-31
 

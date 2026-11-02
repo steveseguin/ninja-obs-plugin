@@ -4,12 +4,13 @@ Keep OBS installed through Flatpak. This package is for x86-64 Linux and the cur
 Flathub stable OBS runtime (OBS 33.0.1, Freedesktop 26.08). It is separate from the
 native Ubuntu archive and the Arch source package.
 
-Status: test build; not yet published in a plugin release or listed on Flathub.
+Distribution: downloadable release bundle; not listed on Flathub.
 
 ## Install
 
-Close OBS. Use the supplied `obs-vdoninja-linux-x86_64.flatpak` test bundle (or build
-it below), and run these commands in its folder:
+Close OBS. Download `obs-vdoninja-linux-x86_64.flatpak` from the
+[release assets](https://github.com/steveseguin/ninja-obs-plugin/releases/latest)
+(or build it below), and run these commands in its folder:
 
 ```bash
 flatpak update com.obsproject.Studio
