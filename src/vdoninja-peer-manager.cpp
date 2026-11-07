@@ -4679,7 +4679,6 @@ bool VDONinjaPeerManager::disconnectPeer(const PeerEventIdentity &identity)
 	if (identity.uuid.empty()) {
 		return false;
 	}
-	pendingRemoteIceCandidates_.erase(identity.uuid);
 	std::shared_ptr<PeerInfo> peer;
 	{
 		std::lock_guard<std::mutex> lock(peersMutex_);
@@ -4692,6 +4691,10 @@ bool VDONinjaPeerManager::disconnectPeer(const PeerEventIdentity &identity)
 		    (!identity.session.empty() && peer->session != identity.session)) {
 			return false;
 		}
+		// Rejected cleanup belongs to an old peer and must not discard the
+		// replacement's early ICE. Keep validation and erase under the registry
+		// lock so a new generation cannot register between them.
+		pendingRemoteIceCandidates_.erase(identity.uuid);
 		std::lock_guard<std::mutex> candidateLock(candidateMutex_);
 		peer->signalingActive.store(false);
 		peers_.erase(it);
@@ -5134,6 +5137,11 @@ std::shared_ptr<PeerInfo> VDONinjaPeerManager::createNativeMediaTestPublisherPee
                                                                                   const std::string &session)
 {
 	return createPublisherConnection(uuid, session);
+}
+
+size_t VDONinjaPeerManager::nativeMediaTestPendingRemoteIceCandidateCount(const std::string &uuid) const
+{
+	return pendingRemoteIceCandidates_.size(uuid);
 }
 
 void VDONinjaPeerManager::receiveNativeMediaTestTrack(const std::shared_ptr<PeerInfo> &peer,

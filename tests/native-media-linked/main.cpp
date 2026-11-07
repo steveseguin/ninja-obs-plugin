@@ -3027,6 +3027,50 @@ void testPendingPeerBundleBlocksPacketsUntilAtomicPublish()
 	source.setNativeMediaTestStageHook(nullptr);
 }
 
+void testRejectedDisconnectPreservesPendingIceCandidates()
+{
+	VDONinjaSignaling signaling;
+	VDONinjaPeerManager manager;
+	manager.initialize(&signaling);
+	manager.setIceServers({});
+	const std::string uuid = "pending-ice-rotate";
+	auto oldPeer = manager.createNativeMediaTestViewerPeer(uuid, "session-a");
+	require(oldPeer != nullptr, "pending ICE gate did not create the old peer");
+	const PeerEventIdentity oldIdentity{uuid, oldPeer->session, oldPeer->generation};
+	manager.retireNativeMediaTestPeer(oldPeer);
+	auto newPeer = manager.createNativeMediaTestViewerPeer(uuid, "session-b");
+	require(newPeer && newPeer->generation != oldIdentity.generation && !newPeer->remoteDescriptionSet.load(),
+	        "pending ICE gate did not create a replacement waiting for SDP");
+	const auto queueCandidate = [&](const std::string &session) {
+		signaling.processIncomingMessage(JsonBuilder()
+		                                     .add("UUID", uuid)
+		                                     .add("session", session)
+		                                     .add("candidate", "candidate:1 1 UDP 2122260223 127.0.0.1 50000 typ host")
+		                                     .add("sdpMid", "video")
+		                                     .build());
+	};
+	queueCandidate(newPeer->session);
+	require(manager.nativeMediaTestPendingRemoteIceCandidateCount(uuid) == 1,
+	        "replacement ICE did not queue through the production signaling callback");
+	require(!manager.disconnectPeer(oldIdentity), "old generation cleanup disconnected the replacement");
+	require(manager.nativeMediaTestPendingRemoteIceCandidateCount(uuid) == 1,
+	        "rejected old generation cleanup discarded replacement ICE");
+	require(!manager.disconnectPeer({uuid, oldPeer->session, newPeer->generation}),
+	        "old session cleanup disconnected the replacement");
+	require(manager.nativeMediaTestPendingRemoteIceCandidateCount(uuid) == 1,
+	        "rejected old session cleanup discarded replacement ICE");
+	require(manager.disconnectPeer({uuid, newPeer->session, newPeer->generation}),
+	        "matching cleanup did not disconnect the replacement");
+	require(manager.nativeMediaTestPendingRemoteIceCandidateCount(uuid) == 0,
+	        "matching cleanup retained the disconnected peer's ICE");
+	queueCandidate("session-c");
+	require(manager.nativeMediaTestPendingRemoteIceCandidateCount(uuid) == 1,
+	        "pre-offer ICE did not queue without a registered peer");
+	require(!manager.disconnectPeer(oldIdentity), "cleanup unexpectedly found an already retired peer");
+	require(manager.nativeMediaTestPendingRemoteIceCandidateCount(uuid) == 1,
+	        "rejected missing-peer cleanup discarded pre-offer ICE");
+}
+
 void testOldGenerationDisconnectCannotClearNewGenerationMedia()
 {
 	VDONinjaSource source(NativeMediaTestTag{});
@@ -6186,6 +6230,8 @@ int main(int argc, char **argv)
 		    {"interleaved pending peer bundles never mix", testInterleavedPendingPeerBundlesNeverMix},
 		    {"pending peer bundle blocks packets until atomic publish",
 		     testPendingPeerBundleBlocksPacketsUntilAtomicPublish},
+		    {"rejected disconnect preserves pending ICE candidates",
+		     testRejectedDisconnectPreservesPendingIceCandidates},
 		    {"old generation disconnect preserves current same-UUID media",
 		     testOldGenerationDisconnectCannotClearNewGenerationMedia},
 		    {"first new-generation event atomically retires old media",
