@@ -266,6 +266,7 @@ public:
 	void dispatchNativeMediaTestDataChannelError(const std::shared_ptr<PeerInfo> &peer,
 	                                             const std::shared_ptr<rtc::DataChannel> &dc,
 	                                             const std::string &error = "test-error");
+	size_t nativeMediaTestPendingRemoteIceCandidateCount(const std::string &uuid) const;
 	size_t nativeMediaTestPendingViewerSignalingDataChannelCount() const;
 	size_t nativeMediaTestPendingDataChannelCallbackCleanupCount(const std::shared_ptr<PeerInfo> &peer) const;
 	void consumeNativeMediaTestPendingViewerSignalingDataChannel(const std::shared_ptr<PeerInfo> &peer,
